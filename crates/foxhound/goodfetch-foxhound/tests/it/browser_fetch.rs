@@ -24,8 +24,13 @@ const HOST: &str = "access.test";
 
 /// An engine whose pages launch Chrome for Testing from the test's cache.
 fn engine(env: &TestEnv) -> Attached {
+    engine_silent_for(env, Duration::from_secs(60))
+}
+
+/// [`engine`], whose messages may be `silent` apart.
+fn engine_silent_for(env: &TestEnv, silent: Duration) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+    Attached::start_with(env, Some(silent), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -490,5 +495,116 @@ fn a_session_that_may_move_shows_one_tls_fingerprint_on_the_http_and_browser_tie
     assert!(
         !reqwest.is_empty() && reqwest.iter().all(|ja4| ja4 != &moving_handshakes[0]),
         "reqwest {reqwest:?}, the browser {moving_handshakes:?}"
+    );
+}
+
+/// The fetch edge pages a late cut breaks off: half the body, then the
+/// connection closed 75 ms later, once the browser reads the body as it
+/// arrives (#1732). A chunked body and a gzip one, which no length tells
+/// cut: a plain body short of its `Content-Length` is the unit tests'.
+const LATE_CUTS: [&str; 2] = ["/cut/late/chunked", "/cut/late/gzip-content-length"];
+
+/// How many times each late cut is crawled: the pinned Chromium lost the
+/// failure of 4 of 30 such browser-tier crawls before the fix.
+const COPIES: usize = 8;
+
+/// The longest the crawl of the late cuts keeps the engine silent: under
+/// `fetch.tier: browser_fetch` no handler is asked, so its one message is
+/// its end, after each of its 32 loads (about 2 s each with its page).
+const LATE_CUTS_CRAWLED: Duration = Duration::from_secs(240);
+
+/// What each request of the Run `run_id` ended as, by URL: its kind, its
+/// Error code and its attempts.
+fn ended(engine: &mut Attached, run_id: &str) -> BTreeMap<String, Value> {
+    let answer = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    answer["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {answer}"))
+        .iter()
+        .map(|outcome| {
+            (
+                outcome["request"]["url"].as_str().unwrap().to_owned(),
+                json!([
+                    outcome["kind"],
+                    outcome["error"]["code"],
+                    outcome["attempts"]
+                ]),
+            )
+        })
+        .collect()
+}
+
+/// A body broken off once the browser was reading it, chunked or coded,
+/// which no length tells cut, fails
+/// each attempt with `response_truncated` on the browser-fetch tier and on
+/// the browser tier alike, though the pinned Chromium's interception, which
+/// reads the body at its response stage, loses the network's failure of a
+/// few such loads (#1732): each is retried once under `crawl.retry.max`,
+/// then ends `failed`, never handed to the handler. The site processed
+/// each attempt, so none is sent again: it sees two requests for each.
+///
+/// Covers: story:5-126, setting:crawl.retry.max, error:response_truncated
+#[rstest::rstest]
+#[case::browser_fetch("browser_fetch")]
+#[case::browser("browser")]
+fn a_body_cut_once_the_browser_read_it_fails_each_attempt_on_the_browser_tiers(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine_silent_for(&env, LATE_CUTS_CRAWLED);
+    let mut settings = settings(&proving_ground, tier);
+    settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    settings["crawl"] = json!({ "retry": { "max": 1 } });
+    settings["politeness"] = json!({ "domain": { "delay": 0 } });
+    let targets: Vec<String> = LATE_CUTS
+        .iter()
+        .flat_map(|path| (1..=COPIES).map(move |copy| format!("{path}?copy={copy}")))
+        .collect();
+    let seeds: Vec<Value> = targets
+        .iter()
+        .map(|target| json!({ "url": proving_ground.url("fetch-edge.test", target), "label": "page" }))
+        .collect();
+
+    let mut handled = Vec::new();
+    let finished = crawl_declaring(
+        &mut engine,
+        "late-cuts",
+        &seeds,
+        &json!({ "page": {} }),
+        &settings,
+        &mut |_, handle| {
+            handled.push(handle["crawl_request"]["url"].clone());
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, "late-cuts");
+    assert!(engine.finish());
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    assert_eq!(handled, Vec::<Value>::new(), "handed to the handler");
+    let otherwise: BTreeMap<&String, &Value> = ended
+        .iter()
+        .filter(|(_, ended)| **ended != json!(["failed", "response_truncated", 2]))
+        .collect();
+    assert_eq!(otherwise, BTreeMap::new(), "of {} late cuts", targets.len());
+    assert_eq!(ended.len(), targets.len(), "{ended:?}");
+    let sent: Vec<(&String, usize)> = targets
+        .iter()
+        .map(|target| {
+            (
+                target,
+                requests_for(&proving_ground, "fetch-edge.test", target),
+            )
+        })
+        .filter(|(_, sent)| *sent != 2)
+        .collect();
+    assert_eq!(
+        sent,
+        Vec::<(&String, usize)>::new(),
+        "requests other than two"
     );
 }

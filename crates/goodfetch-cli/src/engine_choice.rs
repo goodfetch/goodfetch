@@ -35,6 +35,7 @@
     reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"
 )]
 
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::ErrorGroup;
@@ -53,6 +54,7 @@ use goodfetch_protocol::jsonrpc::{
 use serde::Serialize;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+use tokio::sync::mpsc;
 
 use crate::exit_codes;
 
@@ -216,18 +218,98 @@ pub struct Next {
     pub followed: bool,
 }
 
-/// The stream of values a call takes from the Client (ADR 0024): each
-/// `$/credit` the engine grants the call is answered by one notification
-/// `method` listing up to that many values in `field`, `end` set with the
-/// last.
+/// The stream of values a call takes from the Client (ADR 0024): the
+/// credits the engine grants the call with `$/credit` are spent on
+/// notifications `method`, each listing in `field` the values ready, never
+/// more than the credits left, `end` set with the last. The command keeps
+/// listening for an interrupt and for the engine while it waits for one.
 pub struct Input<'a> {
     /// The notification that carries the values, such as `$/seeds`.
     pub method: &'a str,
     /// The field of it that lists them.
     pub field: &'a str,
-    /// Gives at most as many values as it is passed, and whether they are
-    /// the last.
-    pub next: &'a mut dyn FnMut(u32) -> (Vec<Value>, bool),
+    /// Where they come from.
+    pub values: Values<'a>,
+}
+
+/// Where the values of a call that takes a stream come from.
+pub enum Values<'a> {
+    /// Values the command holds already, sent in order.
+    Held(&'a mut dyn Iterator<Item = Value>),
+    /// Values read as they come, such as stdin's lines.
+    Read(&'a mut ReadValues),
+}
+
+/// Values a reader that blocks, such as one of stdin, sends as it reads
+/// them, on a tracked blocking thread the call starts (STYLE.md), into a
+/// bounded channel: they end once the reader returns.
+pub struct ReadValues {
+    reader: Option<Reader>,
+    receiver: Option<mpsc::Receiver<Value>>,
+}
+
+/// A reader of values: it sends each into the channel it is given, and
+/// returns at their end, or once the channel's receiver is gone.
+type Reader = Box<dyn FnOnce(mpsc::Sender<Value>) + Send>;
+
+/// How many values read ahead a [`ReadValues`] holds before its reader
+/// waits: a `$/seeds` batch's worth (`run.add_seeds`' credits).
+const READ_AHEAD: usize = 256;
+
+impl ReadValues {
+    /// The values `reader` sends, read once the call starts.
+    pub fn new(reader: impl FnOnce(mpsc::Sender<Value>) + Send + 'static) -> Self {
+        Self {
+            reader: Some(Box::new(reader)),
+            receiver: None,
+        }
+    }
+
+    /// Starts the reader on a blocking thread of `owner`, once.
+    fn start(&mut self, owner: &TaskOwner) {
+        let Some(reader) = self.reader.take() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel(READ_AHEAD);
+        self.receiver = Some(receiver);
+        let reading = owner.child();
+        owner.spawn(async move { reading.blocking(move || reader(sender)).await });
+    }
+}
+
+impl Values<'_> {
+    /// The values ready, at least one and at most `most`, waiting for the
+    /// first; and whether they are the last.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no value.
+    async fn ready(&mut self, most: usize) -> (Vec<Value>, bool) {
+        match self {
+            Self::Held(values) => {
+                let taken: Vec<Value> = (&mut **values).take(most).collect();
+                let end = taken.len() < most;
+                (taken, end)
+            }
+            Self::Read(read) => {
+                let Some(receiver) = read.receiver.as_mut() else {
+                    return (Vec::new(), true);
+                };
+                let Some(first) = receiver.recv().await else {
+                    return (Vec::new(), true);
+                };
+                let mut taken = vec![first];
+                while taken.len() < most {
+                    match receiver.try_recv() {
+                        Ok(value) => taken.push(value),
+                        Err(mpsc::error::TryRecvError::Empty) => return (taken, false),
+                        Err(mpsc::error::TryRecvError::Disconnected) => return (taken, true),
+                    }
+                }
+                (taken, false)
+            }
+        }
+    }
 }
 
 /// The one call a command makes, or, for a call that answers page by page,
@@ -312,6 +394,7 @@ pub fn call(
         (Choice::Daemon, _) | (Choice::Auto, Lifetime::Lasting) => true,
         (Choice::Auto, Lifetime::Passing) => false,
     };
+    let reads = call.reads();
     let runtime = runtime();
     for _ in 0..ATTEMPTS {
         // The executable finds and starts the Daemon outside the runtime,
@@ -332,6 +415,7 @@ pub fn call(
                     let _ = link.writer.shutdown().await;
                     answer
                 });
+                end(runtime, reads);
                 return match answer {
                     // The call in flight, the command's own or a later one
                     // on the same Connection, is the one whose answer is
@@ -443,10 +527,11 @@ pub fn call_attached(
     needs: Product,
     call: CommandCall<'_>,
 ) -> Answer {
+    let reads = call.reads();
     let runtime = runtime();
     let hello = hello(engine, needs);
     let (network, dialer) = transport::in_memory();
-    runtime.block_on(async {
+    let answer = runtime.block_on(async {
         let client = async {
             match dialer.connect().await {
                 Ok(connection) => exchange(connection, &hello, call).await,
@@ -465,7 +550,9 @@ pub fn call_attached(
             )),
             (_, answer) => answer,
         }
-    })
+    });
+    end(runtime, reads);
+    answer
 }
 
 /// The runtime a command's Connection runs on, with the signals an
@@ -475,6 +562,31 @@ fn runtime() -> tokio::runtime::Runtime {
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its threads")
+}
+
+/// Ends the runtime of a command's call once the call ended: waiting for
+/// its blocking work, unless the call `reads` values on a blocking thread
+/// that only new input wakes, such as stdin's, which an ended call no
+/// longer waits for.
+fn end(runtime: tokio::runtime::Runtime, reads: bool) {
+    if reads {
+        runtime.shutdown_background();
+    } else {
+        drop(runtime);
+    }
+}
+
+impl CommandCall<'_> {
+    /// Whether its values are read as they come, on a blocking thread.
+    fn reads(&self) -> bool {
+        matches!(
+            self.input,
+            Some(Input {
+                values: Values::Read(_),
+                ..
+            })
+        )
+    }
 }
 
 /// The `hello` of a command of `engine`'s executable that needs `needs`,
@@ -555,15 +667,21 @@ struct Link {
     writer: ConnectionWriter,
     /// The operation of the call in flight, or last made.
     method: String,
+    /// The signals that interrupt the command, listened for from the
+    /// Connection's opening to its end.
+    interrupts: Interrupts,
 }
 
 impl Link {
+    /// The Client's end of `connection`; called on the command's runtime,
+    /// where it starts listening for interrupts.
     fn of(connection: Connection) -> Self {
         let (reader, writer) = connection.split();
         Self {
             lines: BufReader::new(reader).lines(),
             writer,
             method: HELLO.to_owned(),
+            interrupts: Interrupts::new(),
         }
     }
 
@@ -584,19 +702,19 @@ impl Link {
 
     /// Says `hello` and reads its answer.
     async fn hello(&mut self, hello: &HelloParams) -> Result<(), Opening> {
-        let interrupt = interrupted();
-        tokio::pin!(interrupt);
         let hello = serde_json::to_value(hello).expect("invariant: hello encodes");
         if !self.send(&request(HELLO_ID, HELLO, hello)).await {
             return Err(Opening::Gone);
         }
         loop {
             tokio::select! {
-                interrupt = &mut interrupt => return Err(Opening::Interrupted(interrupt)),
-                message = self.next() => match message {
+                interrupt = self.interrupts.next() => return Err(Opening::Interrupted(interrupt)),
+                message = next(&mut self.lines) => match message {
                     None => return Err(Opening::Gone),
                     Some(Message::Response(response)) if response.id == RequestId::Number(HELLO_ID) => return Ok(()),
-                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(HELLO_ID)) => {
+                    // An error whose id is null answers a message the
+                    // engine could not read, which can only be `hello`.
+                    Some(Message::Error(failure)) if failure.id.is_none() || failure.id == Some(RequestId::Number(HELLO_ID)) => {
                         let handover = failure.error.data.details.get("handover").and_then(Value::as_bool);
                         return Err(if handover == Some(true) {
                             Opening::HandOver(failure.error)
@@ -616,14 +734,15 @@ impl Link {
     /// interrupt, a command whose stopper gives a call makes it and ends
     /// once it is answered; any other cancels its call when it can. A
     /// follower that can print nothing more has its call cancelled, and the
-    /// command then ends with whatever the engine answers.
+    /// command then ends with whatever the engine answers. An error whose
+    /// id is null, the engine's answer to a message it could not read, such
+    /// as one past its size limit, ends the command with that error: no
+    /// answer to the call in flight follows it.
     #[expect(
         clippy::too_many_lines,
         reason = "one loop reads every message of the command's calls; splitting it would pass its state between functions"
     )]
     async fn call(&mut self, mut call: CommandCall<'_>) -> Answer {
-        let interrupt = interrupted();
-        tokio::pin!(interrupt);
         let mut id = CALL_ID;
         let mut method = call.method;
         call.method.clone_into(&mut self.method);
@@ -645,9 +764,23 @@ impl Link {
         let mut cancelled = None;
         // The stopping call, once the first interrupt made one.
         let mut stopping: Option<(i64, Interrupt)> = None;
+        // The credits the stream's call granted that its values have not
+        // spent yet, and whether its last values were sent.
+        let mut owed: usize = 0;
+        let mut input_ended = false;
+        let readers = TaskOwner::root(BlockingPolicy::Threads);
+        if let Some(Input {
+            values: Values::Read(read),
+            ..
+        }) = call.input.as_mut()
+        {
+            read.start(&readers);
+        }
         loop {
+            let wants_values =
+                owed > 0 && !input_ended && cancelled.is_none() && stopping.is_none();
             tokio::select! {
-                interrupt_now = &mut interrupt => {
+                interrupt_now = self.interrupts.next() => {
                     if cancelled.is_some() || stopping.is_some() {
                         return Answer::Interrupted(interrupt_now);
                     }
@@ -657,7 +790,6 @@ impl Link {
                             return Answer::Interrupted(interrupt_now);
                         }
                         stopping = Some((stop_id, interrupt_now));
-                        interrupt.set(interrupted());
                         continue;
                     }
                     if !cancellable {
@@ -668,10 +800,30 @@ impl Link {
                         return Answer::Interrupted(interrupt_now);
                     }
                     cancelled = Some(interrupt_now);
-                    interrupt.set(interrupted());
                 }
-                message = self.next() => match message {
+                ready = ready_values(call.input.as_mut(), owed), if wants_values => {
+                    let (values, end) = ready;
+                    owed = owed.saturating_sub(values.len());
+                    input_ended = end;
+                    let Some(input) = call.input.as_ref() else { continue };
+                    let mut batch = Map::new();
+                    batch.insert("id".to_owned(), Value::from(id));
+                    batch.insert(input.field.to_owned(), Value::Array(values));
+                    batch.insert("end".to_owned(), Value::Bool(end));
+                    if !self.send(&notification(input.method, &batch)).await {
+                        return closed(method);
+                    }
+                }
+                message = next(&mut self.lines) => match message {
                     None => return closed(method),
+                    // The engine could not read a message the command
+                    // sent, so the call it belongs to is never answered.
+                    Some(Message::Error(failure)) if failure.id.is_none() => {
+                        return match stopping.map(|(_, interrupt)| interrupt).or(cancelled) {
+                            Some(interrupt) => Answer::Interrupted(interrupt),
+                            None => Answer::Error(failure.error),
+                        };
+                    }
                     // The stopping call's answer, whatever it is, ends the
                     // command as interrupted.
                     Some(Message::Response(response)) if stopping.is_some_and(|(stop_id, _)| response.id == RequestId::Number(stop_id)) => {
@@ -711,18 +863,9 @@ impl Link {
                         if params["id"] != id {
                             continue;
                         }
-                        if let Some(input) = call.input.as_mut()
-                            && sent.method == CREDIT
-                        {
+                        if call.input.is_some() && sent.method == CREDIT {
                             let credits = params["credits"].as_u64().unwrap_or(0);
-                            let (values, end) = (input.next)(u32::try_from(credits).unwrap_or(u32::MAX));
-                            let mut batch = Map::new();
-                            batch.insert("id".to_owned(), Value::from(id));
-                            batch.insert(input.field.to_owned(), Value::Array(values));
-                            batch.insert("end".to_owned(), Value::Bool(end));
-                            if !self.send(&notification(input.method, &batch)).await {
-                                return closed(method);
-                            }
+                            owed = owed.saturating_add(usize::try_from(credits).unwrap_or(usize::MAX));
                             continue;
                         }
                         if abandoned {
@@ -763,17 +906,31 @@ impl Link {
         line.push(b'\n');
         self.writer.write_all(&line).await.is_ok() && self.writer.flush().await.is_ok()
     }
+}
 
-    /// The next message the engine sends, or `None` once it closed the
-    /// Connection; a line that is no message is passed over.
-    async fn next(&mut self) -> Option<Message> {
-        loop {
-            let line = self.lines.next_line().await.ok()??;
-            if let Ok(message) = serde_json::from_str(&line) {
-                record_wire(RECEIVED, line.as_bytes());
-                return Some(message);
-            }
+/// The next message the engine sends on `lines`, or `None` once it closed
+/// the Connection; a line that is no message is passed over.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses no message: `Lines::next_line` keeps a line
+/// it read part of.
+async fn next(lines: &mut Lines<BufReader<ConnectionReader>>) -> Option<Message> {
+    loop {
+        let line = lines.next_line().await.ok()??;
+        if let Ok(message) = serde_json::from_str(&line) {
+            record_wire(RECEIVED, line.as_bytes());
+            return Some(message);
         }
+    }
+}
+
+/// The values of `input` ready to send, at most `most`, and whether they
+/// are the last; never for a call that takes none.
+async fn ready_values(input: Option<&mut Input<'_>>, most: usize) -> (Vec<Value>, bool) {
+    match input {
+        Some(input) => input.values.ready(most).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -816,45 +973,79 @@ fn record_wire(direction: &str, line: &[u8]) {
     );
 }
 
-/// Resolves when the command is interrupted (`SIGINT`, or Ctrl-C and
-/// `CTRL_BREAK_EVENT` on Windows) or sent `SIGTERM`; never for a signal the
-/// CLI cannot listen for.
-async fn interrupted() -> Interrupt {
-    tokio::select! {
-        () = signalled(tokio::signal::ctrl_c()) => Interrupt::Interrupted,
-        interrupt = other_signals() => interrupt,
-    }
+/// The signals that interrupt a command (`SIGINT`, or Ctrl-C and
+/// `CTRL_BREAK_EVENT` on Windows) or end it (`SIGTERM`), each listened for
+/// from its creation on, so one that arrives while the command handles the
+/// last, such as a second interrupt while a stop is sent, waits for the
+/// next look; a signal the CLI cannot listen for never arrives.
+struct Interrupts {
+    #[cfg(unix)]
+    interrupt: Option<tokio::signal::unix::Signal>,
+    #[cfg(unix)]
+    terminate: Option<tokio::signal::unix::Signal>,
+    #[cfg(windows)]
+    ctrl_c: Option<tokio::signal::windows::CtrlC>,
+    /// `CTRL_BREAK_EVENT`, which a process group gets where Unix sends
+    /// `SIGINT` (ADR 0093).
+    #[cfg(windows)]
+    ctrl_break: Option<tokio::signal::windows::CtrlBreak>,
 }
 
-/// `SIGTERM`, the other signal that ends a command on Unix.
-#[cfg(unix)]
-async fn other_signals() -> Interrupt {
-    use tokio::signal::unix::{SignalKind, signal};
-    match signal(SignalKind::terminate()) {
-        Ok(mut terminate) => {
-            terminate.recv().await;
-            Interrupt::Terminated
+impl Interrupts {
+    /// Listens for them; called on the command's runtime.
+    #[cfg(unix)]
+    fn new() -> Self {
+        use tokio::signal::unix::{SignalKind, signal};
+        Self {
+            interrupt: signal(SignalKind::interrupt()).ok(),
+            terminate: signal(SignalKind::terminate()).ok(),
         }
-        Err(_) => std::future::pending().await,
     }
-}
 
-/// `CTRL_BREAK_EVENT`, which a process group gets where Unix sends
-/// `SIGINT` (ADR 0093).
-#[cfg(windows)]
-async fn other_signals() -> Interrupt {
-    match tokio::signal::windows::ctrl_break() {
-        Ok(mut ctrl_break) => {
-            ctrl_break.recv().await;
-            Interrupt::Interrupted
+    /// Listens for them; called on the command's runtime.
+    #[cfg(windows)]
+    fn new() -> Self {
+        Self {
+            ctrl_c: tokio::signal::windows::ctrl_c().ok(),
+            ctrl_break: tokio::signal::windows::ctrl_break().ok(),
         }
-        Err(_) => std::future::pending().await,
+    }
+
+    /// The next one, once it arrives.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no signal.
+    #[cfg(unix)]
+    async fn next(&mut self) -> Interrupt {
+        tokio::select! {
+            () = received(self.interrupt.as_mut().map(tokio::signal::unix::Signal::recv)) => Interrupt::Interrupted,
+            () = received(self.terminate.as_mut().map(tokio::signal::unix::Signal::recv)) => Interrupt::Terminated,
+        }
+    }
+
+    /// The next one, once it arrives.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no signal.
+    #[cfg(windows)]
+    async fn next(&mut self) -> Interrupt {
+        tokio::select! {
+            () = received(self.ctrl_c.as_mut().map(tokio::signal::windows::CtrlC::recv)) => Interrupt::Interrupted,
+            () = received(self.ctrl_break.as_mut().map(tokio::signal::windows::CtrlBreak::recv)) => Interrupt::Interrupted,
+        }
     }
 }
 
-/// Resolves once `signal` arrives; never when it cannot be listened for.
-async fn signalled(signal: impl Future<Output = std::io::Result<()>>) {
-    if signal.await.is_err() {
+/// Resolves once the signal `listening` waits for arrives; never when the
+/// CLI cannot listen for it.
+async fn received(listening: Option<impl Future<Output = Option<()>>>) {
+    let arrived = match listening {
+        Some(listening) => listening.await.is_some(),
+        None => false,
+    };
+    if !arrived {
         std::future::pending::<()>().await;
     }
 }

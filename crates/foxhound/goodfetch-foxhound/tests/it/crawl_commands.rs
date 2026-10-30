@@ -3,11 +3,13 @@
 //! of the test's home against the Proving ground: `crawl start` starts a
 //! code-free crawl and prints its Run ID; `run outcomes --follow` prints
 //! each ending as one JSON object per line until the Run ends; `run
-//! records` prints the Records committed, one JSON array under `--json`,
-//! once the call ends; `run failed-requests` and `run export` print one
-//! JSON value of `goodfetch-protocol`'s type; `run add-seeds` reads its
+//! records` prints the Records committed when it began as they arrive, one
+//! JSON array under `--json`; `run failed-requests` and `run export` print
+//! one JSON value of `goodfetch-protocol`'s type; `run add-seeds` reads its
 //! seeds from stdin. Each `--json` result is validated against the
-//! committed bundle.
+//! committed bundle, and each read of a crawl runs on an Attached engine
+//! and on the Daemon, both against one snapshot of its output, human and
+//! `--json` alike (ADR 0069).
 #![expect(
     clippy::disallowed_methods,
     reason = "a test writes the settings file its commands read"
@@ -17,7 +19,10 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use goodfetch_test_support::{ProvingGround, TestEnv, cli};
+use goodfetch_test_support::{
+    Cli, CliError, CliJson, Mode, ProvingGround, TestEnv, assert_cli_snapshot, cli, record_command,
+};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::settings;
@@ -74,48 +79,104 @@ pub(crate) fn crawl_start(env: &TestEnv, settings: &Path, run_id: &str, seeds: &
     started.documents[0].clone()
 }
 
+/// The flag that runs a read of a crawl in `mode`: the crawl's Daemon
+/// runs, so `--daemon` reaches it, and `--attached` reads on an Attached
+/// engine of the command's own.
+fn engine_flag(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Daemon => "--daemon",
+        Mode::Attached => "--attached",
+    }
+}
+
+/// Runs the read `arguments` of a crawl with `flag`, under `--json`,
+/// where `check` validates it, then as human output, and snapshots both
+/// outputs as `name`, a snapshot each mode's case shares. Beside the
+/// shared filters, it masks the Proving ground's port, an Export's size
+/// and each SHA-256 digest, since an Export holds its Records' commit
+/// times, whose written length varies, and the dispatch
+/// records an Attached engine logs on the command's stderr, which a
+/// Daemon logs in its own log instead. Answers the `--json` run.
+fn read_snapshotted(
+    env: &TestEnv,
+    flag: &str,
+    name: &str,
+    arguments: &[&str],
+    check: impl FnOnce(Cli<'_>) -> Result<CliJson, CliError>,
+) -> CliJson {
+    let checked = check(cli(env, FOXHOUND).args(arguments).args(["--json", flag]))
+        .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
+    let human = cli(env, FOXHOUND).args(arguments).arg(flag).run().unwrap();
+    for (form, output) in [("json", &checked.output), ("human", &human)] {
+        let mut settings = output.settings();
+        settings.add_filter(r"\.test:[0-9]+\b", ".test:[PORT]");
+        settings.add_filter(r"\b[0-9a-f]{64}\b", "[SHA256]");
+        settings.add_filter(r#"\b(size"?: )[0-9]+"#, "${1}[SIZE]");
+        settings.add_filter(r"(?m)^[^\n]* goodfetch::rpc::dispatch: [^\n]*\n", "");
+        settings.bind(|| assert_cli_snapshot!(format!("{name}_{form}"), output));
+    }
+    checked
+}
+
 /// A code-free crawl started with `crawl start`, followed with `run
 /// outcomes --follow` until its Run ends, then read with `run records`,
-/// `run failed-requests` and `run export`, each under `--json`: the
+/// `run failed-requests` and `run export`, each under `--json` and as
+/// human output, on an Attached engine and on the Daemon alike: the
 /// endings arrive one per line, the Records in one array, and every value
 /// is the bundle's type.
 ///
 /// Covers: story:11-1130, story:11-1131, command:crawl.start, command:run.outcomes, command:run.records, command:run.failed-requests, command:run.export
-#[test]
-fn a_code_free_crawl_started_followed_and_read_from_the_command_line() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn a_code_free_crawl_started_followed_and_read_from_the_command_line(#[case] mode: Mode) {
     let env = TestEnv::new();
     short_idle(&env);
     let _stops = StopsTheDaemon(&env);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let settings = settings_file(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let flag = engine_flag(mode);
 
     let run_id = crawl_start(&env, &settings, "cli-crawl", std::slice::from_ref(&index));
-    let outcomes = cli(&env, FOXHOUND)
-        .args(["run", "outcomes", "cli-crawl", "--follow", "--json"])
-        .json_lines("CrawlRequestOutcome")
-        .unwrap();
-    let records = cli(&env, FOXHOUND)
-        .args([
-            "run",
-            "records",
-            "cli-crawl",
-            "--dataset",
-            "pages",
-            "--json",
-        ])
-        .json_array("RecordRead")
-        .unwrap();
-    let failed = cli(&env, FOXHOUND)
-        .args(["run", "failed-requests", "cli-crawl", "--json"])
-        .json("FailedRequests")
-        .unwrap();
+    let outcomes = read_snapshotted(
+        &env,
+        flag,
+        "read_run_outcomes",
+        &["run", "outcomes", "cli-crawl", "--follow"],
+        |cli| cli.json_lines("CrawlRequestOutcome"),
+    );
+    let records = read_snapshotted(
+        &env,
+        flag,
+        "read_run_records",
+        &["run", "records", "cli-crawl", "--dataset", "pages"],
+        |cli| cli.json_array("RecordRead"),
+    );
+    let failed = read_snapshotted(
+        &env,
+        flag,
+        "read_run_failed_requests",
+        &["run", "failed-requests", "cli-crawl"],
+        |cli| cli.json("FailedRequests"),
+    );
     let exported = env.folder().join("pages.jsonl");
-    let export = cli(&env, FOXHOUND)
-        .args(["run", "export", "cli-crawl", "pages", "--format", "jsonl"])
-        .args(["--out", exported.to_str().unwrap(), "--json"])
-        .json("Export")
-        .unwrap();
+    let export = read_snapshotted(
+        &env,
+        flag,
+        "read_run_export",
+        &[
+            "run",
+            "export",
+            "cli-crawl",
+            "pages",
+            "--format",
+            "jsonl",
+            "--out",
+            exported.to_str().unwrap(),
+        ],
+        |cli| cli.json("Export"),
+    );
 
     let ended: Vec<(Value, Value)> = outcomes
         .documents
@@ -165,13 +226,16 @@ fn a_code_free_crawl_started_followed_and_read_from_the_command_line() {
 }
 
 /// The other reads of a crawl that ended, and `run retry-failed`, each
-/// under `--json`: its seeds, its rejected Records, its Datasets, a page
-/// of one, an SQL query over it and a retry with nothing to retry, each
-/// one JSON value of the bundle's type.
+/// under `--json` and as human output, on an Attached engine and on the
+/// Daemon alike: its seeds, its rejected Records, its Datasets, a page of
+/// one, an SQL query over it and a retry with nothing to retry, each one
+/// JSON value of the bundle's type.
 ///
 /// Covers: story:11-1131, command:run.seeds, command:run.rejected-records, command:run.retry-failed, command:dataset.list, command:dataset.page, command:dataset.query
-#[test]
-fn a_crawls_other_commands_each_print_one_value_of_their_type() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn a_crawls_other_commands_each_print_one_value_of_their_type(#[case] mode: Mode) {
     let env = TestEnv::new();
     short_idle(&env);
     let _stops = StopsTheDaemon(&env);
@@ -209,14 +273,12 @@ fn a_crawls_other_commands_each_print_one_value_of_their_type() {
             "DatasetQueryResult",
         ),
     ];
+    let flag = engine_flag(mode);
     let printed: Vec<(String, Option<i32>, Value)> = commands
         .iter()
         .map(|(arguments, schema)| {
-            let checked = cli(&env, FOXHOUND)
-                .args(*arguments)
-                .arg("--json")
-                .json(schema)
-                .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
+            let name = format!("read_{}", arguments[..2].join("_").replace('-', "_"));
+            let checked = read_snapshotted(&env, flag, &name, arguments, |cli| cli.json(schema));
             (
                 arguments[..2].join(" "),
                 checked.output.exit,
@@ -335,6 +397,265 @@ fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
             protocol_counts(&followed.stderr),
             protocol_counts(&records.stderr),
         )
+    );
+}
+
+/// A settings file as [`settings_file`]'s, whose crawl `crawl.keep_alive`
+/// keeps running once its Frontier is empty, until `run.finish`.
+fn keep_alive_settings(env: &TestEnv, proving_ground: &ProvingGround) -> PathBuf {
+    let settings = settings_file(env, proving_ground);
+    let mut kept: Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    kept["crawl"] = json!({ "keep_alive": true });
+    std::fs::write(&settings, kept.to_string()).unwrap();
+    settings
+}
+
+/// The progress of the Run `run_id` once `reached` holds of it, read with
+/// `run progress --after`, which answers each change as the engine signals
+/// it.
+fn progress_once(env: &TestEnv, run_id: &str, reached: impl Fn(&Value) -> bool) -> Value {
+    let mut after: Option<String> = None;
+    loop {
+        let mut command = cli(env, FOXHOUND).args(["run", "progress", run_id, "--json"]);
+        if let Some(after) = &after {
+            command = command.args(["--after", after]);
+        }
+        let read = command.json("RunProgress").unwrap();
+        let progress = read.documents[0].clone();
+        assert_eq!(read.output.exit, Some(0), "{}", read.output);
+        if reached(&progress) {
+            return progress;
+        }
+        assert_ne!(progress["last"], true, "the Run ended first: {progress}");
+        after = Some(progress["position"].to_string());
+    }
+}
+
+/// `run records` without `--follow` on a live keep-alive Run prints the
+/// Records committed when it began, one JSON array, and ends while the Run
+/// still runs, in either mode, rather than wait for an end that only
+/// `run.finish` brings.
+///
+/// Covers: story:11-1131, command:run.records
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_records_on_a_live_run_prints_what_was_committed_and_ends(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = keep_alive_settings(&env, &proving_ground);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    // On the Daemon, which the crawl outlives the command on.
+    crawl_start(&env, &settings, "live", std::slice::from_ref(&index));
+    progress_once(&env, "live", |progress| progress["idle"] == true);
+    let flag = engine_flag(mode);
+
+    let records = cli(&env, FOXHOUND)
+        .args([
+            "run",
+            "records",
+            "live",
+            "--dataset",
+            "pages",
+            "--json",
+            flag,
+        ])
+        .json_array("RecordRead")
+        .unwrap();
+    let still = cli(&env, FOXHOUND)
+        .args(["run", "progress", "live", "--json"])
+        .json("RunProgress")
+        .unwrap();
+    let finished = cli(&env, FOXHOUND)
+        .args(["run", "finish", "live", "--json"])
+        .run()
+        .unwrap();
+
+    let urls: Vec<Value> = records.documents[0]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|read| read["record"]["url"].clone())
+        .collect();
+    assert_eq!(
+        (
+            records.output.exit,
+            urls,
+            still.documents[0]["lifecycle"].clone(),
+            finished.exit
+        ),
+        (Some(0), vec![json!(index)], json!("running"), Some(0)),
+        "{}",
+        records.output
+    );
+}
+
+/// A seeds file whose seeds pass the engine's message limit (16 MiB) in
+/// one `crawl.start` starts the crawl, prints its Run ID, and adds every
+/// seed, the start's and `run.add_seeds`' alike; here each a long URL of
+/// the Proving ground's that a Politeness delay keeps from being fetched.
+///
+/// Covers: story:11-1132, command:crawl.start
+#[test]
+fn a_seeds_file_past_the_message_limit_starts_the_crawl_and_adds_every_seed() {
+    const SEEDS: usize = 9_000;
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let slow_settings = env.folder().join("slow.json");
+    let slow = json!({
+        "fetch": { "tier": "http" },
+        "politeness": { "domain": { "delay": 600_000 } },
+    });
+    std::fs::write(&slow_settings, settings(&proving_ground, &slow).to_string()).unwrap();
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    // Seeds of about 2,000 bytes, under `crawl.max_url_length`, 18 MB in all.
+    let long = "q".repeat(1_990);
+    let lines: Vec<String> = (0..SEEDS)
+        .map(|n| format!("{index}?n={n}&{long}"))
+        .collect();
+    let file = env.folder().join("seeds.txt");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+
+    let started = cli(&env, FOXHOUND)
+        .args(["crawl", "start", "--run-id", "many", "--links", "none"])
+        .args(["--seeds-file", file.to_str().unwrap()])
+        .args(["--settings", slow_settings.to_str().unwrap(), "--json"])
+        .json("RunId")
+        .unwrap();
+    let progress = cli(&env, FOXHOUND)
+        .args(["run", "progress", "many", "--json"])
+        .json("RunProgress")
+        .unwrap();
+    let stopped = cli(&env, FOXHOUND)
+        .args(["run", "abort", "many"])
+        .run()
+        .unwrap();
+
+    let requests = &progress.documents[0]["requests"];
+    let admitted: u64 = [
+        "pending",
+        "fetching",
+        "handling",
+        "in_human_pause",
+        "succeeded",
+        "failed",
+        "skipped",
+        "blocked",
+    ]
+    .iter()
+    .map(|state| requests[*state].as_u64().unwrap_or_default())
+    .sum();
+    assert_eq!(
+        (started.output.exit, started.documents[0].clone(), admitted,),
+        (Some(0), json!("many"), SEEDS as u64),
+        "{}\n{stopped}",
+        started.output
+    );
+}
+
+/// `run add-seeds` sends each line of stdin as it comes, so its answer
+/// prints while stdin stays open, and an interrupt ends it at once,
+/// stdin open and idle, exiting `130`.
+///
+/// Covers: story:11-1130, command:run.add-seeds, exit:interrupted
+#[cfg(unix)]
+#[test]
+fn run_add_seeds_sends_each_line_as_it_comes_and_ends_at_an_interrupt() {
+    use std::io::{BufRead as _, BufReader, Write as _};
+
+    const ARGUMENTS: [&str; 4] = ["run", "add-seeds", "fed", "--json"];
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = keep_alive_settings(&env, &proving_ground);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    crawl_start(&env, &settings, "fed", std::slice::from_ref(&index));
+    let mut command = env.process_command(FOXHOUND);
+    command.args(ARGUMENTS).stderr(std::process::Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    let mut stdin = process.child().stdin.take().unwrap();
+    writeln!(
+        stdin,
+        "{}",
+        json!({ "url": format!("{index}#again"), "label": "page" })
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+    let mut stdout = BufReader::new(process.child().stdout.take().unwrap());
+    let mut answered = String::new();
+    stdout.read_line(&mut answered).unwrap();
+
+    process.interrupt().unwrap();
+    let status = process.child().wait().unwrap();
+    record_command(&env, &ARGUMENTS, status.code()).unwrap();
+    drop(stdin);
+    let finished = cli(&env, FOXHOUND)
+        .args(["run", "finish", "fed"])
+        .run()
+        .unwrap();
+
+    let answered: Value = serde_json::from_str(&answered).unwrap();
+    assert_eq!(
+        (
+            answered["answers"][0]["reason"].clone(),
+            status.code(),
+            finished.exit
+        ),
+        (json!("duplicate"), Some(130), Some(0)),
+        "{answered}"
+    );
+}
+
+/// `run add-seeds` refuses a line of stdin that is not UTF-8 as a usage
+/// error naming its line, exit `2`, once it added the seeds before it.
+///
+/// Covers: story:11-1130, command:run.add-seeds, exit:usage
+#[test]
+fn run_add_seeds_refuses_a_line_that_is_not_utf8_naming_it() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = keep_alive_settings(&env, &proving_ground);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    crawl_start(&env, &settings, "refused", std::slice::from_ref(&index));
+    let mut input = json!({ "url": format!("{index}#first"), "label": "page" })
+        .to_string()
+        .into_bytes();
+    input.extend(b"\n\xff\xfe\n");
+    input.extend(
+        json!({ "url": format!("{index}#third"), "label": "page" })
+            .to_string()
+            .into_bytes(),
+    );
+
+    let added = cli(&env, FOXHOUND)
+        .args(["run", "add-seeds", "refused", "--json"])
+        .stdin(input)
+        .run()
+        .unwrap();
+    let finished = cli(&env, FOXHOUND)
+        .args(["run", "finish", "refused"])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            added.exit,
+            added
+                .stderr
+                .contains("line 2 of standard input is not UTF-8"),
+            added.stdout.matches(r#""reason":"duplicate""#).count(),
+            finished.exit,
+        ),
+        (Some(2), true, 1, Some(0)),
+        "{added}"
     );
 }
 

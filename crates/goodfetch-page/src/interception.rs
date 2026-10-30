@@ -91,7 +91,6 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
-use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -115,6 +114,7 @@ use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::borrowed::Lookups;
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
@@ -240,9 +240,9 @@ struct Tables {
     /// The Sessions whose Run was warned that `browser.block_resources`
     /// shows.
     warned: BTreeSet<SessionId>,
-    /// The Sessions on a Borrowed browser, each with the Run's
-    /// `network.resolve` mapping its requests' hosts are resolved through.
-    interception_only: BTreeMap<SessionId, Arc<Resolve>>,
+    /// The Sessions on a Borrowed browser, each with the lookups its
+    /// requests' hosts are resolved through.
+    interception_only: BTreeMap<SessionId, Arc<Lookups>>,
     /// Each Session's own failure slot: where a Session route's handler
     /// that failed on a service worker's request leaves its failure, for
     /// the next call on any page of the Session.
@@ -450,13 +450,13 @@ impl Interception {
 
     /// Holds the Session `session`, on a Borrowed browser, to the policy by
     /// interception alone (ADR 0056): no relay is under that browser, so
-    /// each request's host is resolved by the engine through `resolve`,
-    /// the Run's `network.resolve` mapping, and its answers judged before
-    /// it is sent on.
-    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, resolve: Resolve) {
+    /// each request's host is resolved by the engine through `lookups`,
+    /// the Run's `network.resolve` mapping first, and its answers judged
+    /// before it is sent on.
+    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, lookups: Lookups) {
         lock(&self.shared.tables)
             .interception_only
-            .insert(session.clone(), Arc::new(resolve));
+            .insert(session.clone(), Arc::new(lookups));
     }
 
     /// Puts the page `page_id` of the Session `session`, which `driver`
@@ -601,7 +601,7 @@ impl Interception {
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
         run: &Run,
-        (policy, lookups): (Policy, Option<Arc<Resolve>>),
+        (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnChild {
         let (page_id, state, page, run) = (
@@ -672,7 +672,7 @@ impl Interception {
         (session, worker): (&SessionId, Worker),
         page: &PageDriver,
         run: &Run,
-        (policy, lookups): (Policy, Option<Arc<Resolve>>),
+        (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnWorker {
         // The browser keeps this choice, so it holds no driver of the

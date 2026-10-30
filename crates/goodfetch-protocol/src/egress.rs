@@ -187,8 +187,9 @@ impl ConfiguredKindClass {
 /// 0047 and 0056): an Operator-configured endpoint when the Operator policy
 /// or user or project configuration sets it. Only a `cdp_url` can come
 /// from a Recipe or a run, and is then an address a page can reach unless
-/// the Operator policy allows it (ADR 0056, read where `cdp_url` is
-/// built). Every caller of the engine's own HTTP client but its pinned
+/// the Operator policy allows it; so is one in the project configuration a
+/// Client acting for a model sends (ADR 0056, read where `cdp_url` is
+/// judged). Every caller of the engine's own HTTP client but its pinned
 /// downloads and a run's own requests connects to one of these kinds.
 pub const CONFIGURED_KINDS: [ConfiguredKindClass; 8] = [
     ConfiguredKindClass {
@@ -301,7 +302,7 @@ pub struct EgressRefusedDetails {
 /// A `cdp_url` whose address ADR 0056's rules refuse (ADR 0115).
 pub const CDP_URL_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "cdp_url_not_allowed",
-    description: "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user or project configuration, or give a public address.",
+    description: "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
@@ -313,7 +314,7 @@ pub const CDP_URL_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum CdpUrlRule {
     /// Loopback, from a value that may not use it: a Client acting for a
-    /// model's or a Recipe's.
+    /// model's, its project configuration's included, or a Recipe's.
     Loopback,
     /// An address that is not globally reachable, from a value that is not
     /// Operator-configured, or under `egress.no_private_endpoints`.

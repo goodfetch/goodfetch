@@ -77,7 +77,8 @@ const LARGE_BYTES: usize = 20 * 1024 * 1024;
 const HOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What `cdp_url_not_allowed` asks for.
-const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
+const FIX: &str =
+    "set the address in Operator policy or in user configuration, or give a public address";
 
 /// A Chrome for Testing the test started with a debugging port, which a
 /// Session borrows through its `cdp_url`.
@@ -472,6 +473,76 @@ fn a_body_past_sixteen_mebibytes_reads_on_a_borrowed_browser_and_the_session_goe
     );
 }
 
+/// The project configuration `run.start` sends whose `session.source` is
+/// the `cdp_url` `url`.
+fn project_source(url: &str) -> Value {
+    json!({
+        "path": "goodfetch.toml",
+        "settings": { "session": { "source": { "kind": "cdp_url", "url": url } } },
+    })
+}
+
+/// O8 of the deep review (accepted by the owner on 2026-10-28): a Client
+/// acting for a model sends the project configuration itself, so a
+/// loopback `cdp_url` there is the model's and the Run's default Session
+/// is refused with `cdp_url_not_allowed` naming the project layer, before
+/// any connection: the stand-in at that address accepts none. The same
+/// project configuration from the program's own code opens its default
+/// Session on the browser there (positive control).
+///
+/// Covers: story:4-15, error:cdp_url_not_allowed, operation:run.new_page
+#[test]
+fn a_loopback_cdp_url_in_a_models_project_configuration_is_refused() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let (port, accepted) = stand_in();
+    let stand_in_url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
+
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let started = program.call(
+        "run.start",
+        &json!({ "run_id": "own", "project": project_source(&lent.cdp_url) }),
+    );
+    let own = program.call("run.new_page", &json!({ "run_id": "own" }));
+    program.finish("own");
+    let mut model = Program::start(&env, &cache, "mcp");
+    let model_started = model.call(
+        "run.start",
+        &json!({ "run_id": "model", "project": project_source(&stand_in_url) }),
+    );
+    let refused = model.call("run.new_page", &json!({ "run_id": "model" }));
+    model.finish("model");
+    lent.stop();
+
+    assert_eq!(
+        (
+            started.get("result").is_some(),
+            own["result"]["page_id"].is_string(),
+            model_started.get("result").is_some(),
+            error(&refused),
+            accepted.load(Ordering::SeqCst),
+        ),
+        (
+            true,
+            true,
+            true,
+            (
+                json!("cdp_url_not_allowed"),
+                json!({
+                    "url": stand_in_url,
+                    "layer": "project_configuration",
+                    "rule": "loopback",
+                    "address": "127.0.0.1",
+                    "fix": FIX,
+                })
+            ),
+            0,
+        ),
+        "{started} {own} {model_started}"
+    );
+}
+
 /// A `cdp_url` on loopback from the program's own code opens its Session
 /// on the browser there (positive control); the same address from a
 /// Client acting for a model, or one whose host also resolves to a private
@@ -727,6 +798,79 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
             ),
             0
         )
+    );
+}
+
+/// A name no resolver answers, which the test's browser still resolves to
+/// the site, as a remote browser's network may resolve an intranet name.
+const UNRESOLVED: &str = "intranet.invalid";
+
+/// O9 of the deep review (accepted by the owner on 2026-10-28): a name the
+/// engine cannot resolve is refused at interception on a Borrowed browser
+/// whose `cdp_url` is not loopback, naming `network.resolve`, and no
+/// request for it reaches the site, while a name the engine finds public
+/// still loads there; on the same browser borrowed at its loopback
+/// address, the name is left to the browser, which reaches the site with
+/// it (positive control). The browser elsewhere is the test's own, at
+/// `0.0.0.0`, which only connects to this machine but is no loopback
+/// address, set in the Operator policy, where it is an Operator-configured
+/// endpoint.
+///
+/// Covers: story:4-14, error:egress_refused, setting:network.resolve
+#[test]
+fn a_name_the_engine_cannot_resolve_is_refused_on_a_borrowed_browser_not_on_loopback() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    operator_policy(&env, &lent.cdp_url.replace("127.0.0.1", "0.0.0.0"), false);
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    program.run("unresolved", &[(SITE, &[PUBLIC])]);
+
+    let elsewhere = opened(&program.call("run.new_page", &json!({ "run_id": "unresolved" })))
+        .page_id
+        .0;
+    let public = program.goto(&elsewhere, &site.url(SITE, "/"));
+    let refused = program.goto(&elsewhere, &site.url(UNRESOLVED, "/"));
+    let refused_requests = site
+        .hosts()
+        .iter()
+        .filter(|host| *host == UNRESOLVED)
+        .count();
+    let on_loopback = program.borrow("unresolved", &lent.cdp_url);
+    let local = program.new_page(&on_loopback["result"]["session_id"]);
+    let passed = program.goto(&local, &site.url(UNRESOLVED, "/"));
+    let requests = site
+        .hosts()
+        .iter()
+        .filter(|host| *host == UNRESOLVED)
+        .count();
+    program.finish("unresolved");
+    lent.stop();
+
+    assert_eq!(
+        (
+            &public["result"]["response"]["status"],
+            error(&refused),
+            refused_requests,
+            &passed["result"]["response"]["status"],
+            requests > 0,
+        ),
+        (
+            &json!(200),
+            (
+                json!("egress_refused"),
+                json!({
+                    "url": site.url(UNRESOLVED, "/"),
+                    "rule": "domain_policy",
+                    "setting": "network.resolve",
+                })
+            ),
+            0,
+            &json!(200),
+            true,
+        ),
+        "{refused} {on_loopback} {passed}"
     );
 }
 

@@ -85,7 +85,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::borrowed::{CdpUrl, resolve_of};
+use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::driver::{PageDriver, SessionEgress, Visibility};
@@ -442,7 +442,7 @@ impl Sessions {
                 injections: Injections::default(),
             });
             state.sessions.insert(session.clone(), Arc::clone(&open));
-            self.open_in_interception(&session, &run, borrowed.is_some());
+            self.open_in_interception(&session, &run, borrowed.as_ref());
             (session, life, open)
         };
         if let Err(error) = open.seat.open().await {
@@ -565,7 +565,7 @@ impl Sessions {
                 injections: Injections::default(),
             }),
         );
-        self.open_in_interception(&session, run, borrowed.is_some());
+        self.open_in_interception(&session, run, borrowed);
         Ok(position)
     }
 
@@ -1022,7 +1022,7 @@ impl Sessions {
                     FRESH,
                 ),
             };
-            reopened.push(Session {
+            let held = Session {
                 run: run.clone(),
                 position,
                 seat,
@@ -1036,15 +1036,16 @@ impl Sessions {
                     .as_ref()
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
-            });
+            };
+            reopened.push((held, borrowed));
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.id()) {
             return Ok(());
         }
-        for open in reopened {
+        for (open, borrowed) in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, run, open.held_frames.is_some());
+            self.open_in_interception(&session, run, borrowed.as_ref());
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1110,14 +1111,18 @@ impl Sessions {
     }
 
     /// Puts the Session `session` of `run` under the interception; one on
-    /// a Borrowed browser, `borrowed`, by interception alone, its
-    /// requests' hosts resolved through the Run's `network.resolve`.
-    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: bool) {
+    /// a Borrowed browser at `borrowed` by interception alone, its
+    /// requests' hosts resolved through the Run's `network.resolve`, and a
+    /// name the engine cannot resolve judged by where that browser is.
+    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: Option<&CdpUrl>) {
         self.interception.open_session(session);
-        if borrowed {
+        if let Some(cdp_url) = borrowed {
             self.interception.hold_by_interception_only(
                 session,
-                resolve_of(run.settings().map(RunSettings::resolved)),
+                Lookups::new(
+                    resolve_of(run.settings().map(RunSettings::resolved)),
+                    cdp_url.clone(),
+                ),
             );
         }
     }
@@ -1380,8 +1385,8 @@ fn recorded_settings(
 /// `source` when it gave one (`null` for a fresh Session), else the Run's
 /// `session.source`. A fresh Session, or a Borrowed browser at a `cdp_url`
 /// (ADRs 0056 and 0115), whose address is judged when it opens, by who
-/// gave it: the layer, and whether the call that opens it acts for a
-/// model. Any other kind raises `capability_unavailable` naming it, until
+/// gave it: the layer, and whether a Client acting for a model gave it or
+/// makes the call that opens it (O8 of the deep review). Any other kind raises `capability_unavailable` naming it, until
 /// the ticket of that kind builds its reader, and so does a `cdp_url` with
 /// `headers`, whose Secret references the `cdp_url` Session resolves
 /// (#743).
@@ -1394,15 +1399,22 @@ fn opening_source(
     own: Option<Option<SessionSource>>,
     context: &CallContext,
 ) -> Result<Option<CdpUrl>, CallError> {
+    let opener_for_model = context.surface().acts_for_model();
     let source = match own {
-        Some(own) => own.map(|source| (source, SettingsLayer::Run)),
+        Some(own) => own.map(|source| (source, SettingsLayer::Run, opener_for_model)),
         None => run
             .settings()
             .and_then(|settings| settings.resolved().get(SESSION_SOURCE.name))
             .and_then(|effective| {
                 serde_json::from_value::<SessionSource>(effective.value.clone())
                     .ok()
-                    .map(|source| (source, effective.layer))
+                    .map(|source| {
+                        (
+                            source,
+                            effective.layer,
+                            effective.for_model || opener_for_model,
+                        )
+                    })
             }),
     };
     match source {
@@ -1412,14 +1424,15 @@ fn opening_source(
                 url, headers: None, ..
             },
             layer,
+            acting_for_model,
         )) => Ok(Some(CdpUrl {
             url,
             origin: CdpUrlOrigin {
                 layer,
-                acting_for_model: context.surface().acts_for_model(),
+                acting_for_model,
             },
         })),
-        Some((source, layer)) => {
+        Some((source, layer, _)) => {
             let kind = source.kind();
             let what = if matches!(source, SessionSource::CdpUrl { .. }) {
                 "a `cdp_url` Session source with `headers`".to_owned()

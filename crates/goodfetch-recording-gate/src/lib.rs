@@ -85,8 +85,9 @@ pub struct Observed {
     pub from_service_worker: bool,
     /// The length of its whole body.
     pub body_length: usize,
-    /// Its body as received, cut at the byte cap.
-    pub body: Vec<u8>,
+    /// Its body as received, cut at the byte cap; none when it was
+    /// unavailable.
+    pub body: Option<Vec<u8>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -299,14 +300,14 @@ impl ResponseObserver for RecordingGate {
         })
     }
 
-    fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
+    fn on_response(&self, response: &ObservedResponse<'_>, body: Option<&[u8]>) {
         lock(&self.shared.records).observed.push(Observed {
             page_id: response.page_id.clone(),
             url: response.url.to_owned(),
             body_length: response.body_length,
             status: response.status,
             from_service_worker: response.from_service_worker,
-            body: body.to_vec(),
+            body: body.map(<[u8]>::to_vec),
         });
     }
 }

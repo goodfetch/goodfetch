@@ -194,9 +194,14 @@ impl Navigation {
             if received.frame_id.as_ref() == Some(&self.frame)
                 && received.r#type == ResourceType::Document
             {
+                // The hop its redirects led to, as the page's events name it.
+                let redirects = self
+                    .chains
+                    .get(&received.loader_id)
+                    .map_or(0, |chain| chain.len().saturating_sub(1));
                 self.responses.insert(
                     received.loader_id,
-                    response_of(&received.request_id, &received.response),
+                    response_of(&hop_id(&received.request_id, redirects), &received.response),
                 );
             }
         } else if let Some(data) = event.read::<network::DataReceivedEvent>() {
@@ -441,9 +446,32 @@ pub(super) fn refused(
     }
 }
 
-/// The CDP response to the request `request_id` as the protocol's, its
-/// header names lower-cased; a document's encoding is read from it once
-/// decoded.
+/// The engine's ID for the hop of the browser's request `request_id` that
+/// `redirects` redirects led to (ADR 0085's #703 note): the browser's ID at
+/// its first hop, and that ID with [`HOP`] and the hop's number after.
+pub(crate) fn hop_id(request_id: &str, redirects: usize) -> RequestId {
+    if redirects == 0 {
+        request_id.to_owned()
+    } else {
+        format!("{request_id}{HOP}{redirects}")
+    }
+}
+
+/// The browser's ID for the request whose hop the engine names
+/// `request_id`: its first hop's.
+pub(crate) fn browser_id(request_id: &str) -> &str {
+    request_id
+        .split_once(HOP)
+        .map_or(request_id, |(browser, _)| browser)
+}
+
+/// What sets a hop's number apart from the browser's ID in [`hop_id`],
+/// which no browser's request ID holds.
+const HOP: char = '#';
+
+/// The CDP response to the request's hop `request_id` as the protocol's,
+/// its header names lower-cased; a document's encoding is read from it
+/// once decoded.
 pub(crate) fn response_of(request_id: &RequestId, response: &network::Response) -> PageResponse {
     let headers: BTreeMap<String, String> = response
         .headers

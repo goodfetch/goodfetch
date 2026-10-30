@@ -305,6 +305,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         };
         let at_response =
             paused.response_status_code.is_some() || paused.response_error_reason.is_some();
+        context.received(&paused);
         if at_response && let Some(waiting) = lock(&context.responses).remove(&paused.request_id) {
             let _ = waiting.response.send(paused);
             continue;
@@ -486,6 +487,33 @@ impl PageContext {
                 self.driver.sent(&required.request.url).await;
             }
             Ok(_) => {}
+        }
+    }
+
+    /// Hands the document whose response is paused at `paused` to the page
+    /// whose main frame receives it, this pipeline's own or the one whose
+    /// navigation a service worker's request carried, when a program opened
+    /// it (ADR 0086): a response the site answered, whatever started the
+    /// navigation and whatever a route then does with it, a redirect's
+    /// excepted, whose last hop is the document.
+    fn received(&self, paused: &fetch::RequestPausedEvent) {
+        let Some(status) = paused.response_status_code else {
+            return;
+        };
+        if (300..400).contains(&status) {
+            return;
+        }
+        let state = if self.main_document(paused) {
+            Some(Arc::clone(&self.state))
+        } else {
+            lock(&self.carried)
+                .get(&paused.request_id)
+                .and_then(Weak::upgrade)
+        };
+        if let Some(state) = state
+            && let Some(on_document) = &state.on_document
+        {
+            on_document.received(&paused.request.url, &state.engine_requests);
         }
     }
 

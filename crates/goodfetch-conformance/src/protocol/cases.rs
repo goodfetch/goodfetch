@@ -323,9 +323,10 @@ impl Site {
 /// scope family's site and off-site host the route cases load, the
 /// Clean-up pages' two hosts and the payment script's (ADR 0047), the
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
-/// whose robots.txt is past the size limit, and the `bombs` family's own
+/// whose robots.txt is past the size limit, the `access-policy` family's
+/// host whose robots.txt answers late, and the `bombs` family's own
 /// host, whose zstd frame asks for a window past 8 MB (ADR 0067).
-const NAMED_HOSTS: [&str; 10] = [
+const NAMED_HOSTS: [&str; 11] = [
     "fetch-edge.test",
     "scope.test",
     "elsewhere.test",
@@ -335,6 +336,7 @@ const NAMED_HOSTS: [&str; 10] = [
     consent::HOST,
     consent::FRAME_HOST,
     robots_txt::PAST_THE_SIZE_HOST,
+    robots_txt::SLOW_ROBOTS_HOST,
     hostile_input::BOMBS_HOST,
 ];
 

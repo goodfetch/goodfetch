@@ -327,7 +327,7 @@ fn the_page_suite_proves_waits_against_collies_attached_engine() {
     prove(WAITS);
 }
 
-/// Covers: story:6-62, story:6-63, story:6-64, operation:run.new_page, operation:page.goto
+/// Covers: story:6-62, story:6-63, story:6-64, operation:run.new_page, operation:page.goto, operation:locator.click, operation:page.evaluate, operation:page.wait_for_url, operation:page.request, operation:run.new_session, operation:session.new_page, operation:session.close
 #[test]
 fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
     prove(ROBOTS_TXT);

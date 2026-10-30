@@ -235,6 +235,7 @@ CREATE TABLE request_counts (
 INSERT INTO "request_counts" VALUES('succeeded','',4);
 INSERT INTO "request_counts" VALUES('blocked','ip_block',1);
 INSERT INTO "request_counts" VALUES('failed','deadline_exceeded',12);
+CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 CREATE TABLE rules_canonicals (
             host TEXT NOT NULL,
             form TEXT NOT NULL,

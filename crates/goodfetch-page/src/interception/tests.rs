@@ -46,6 +46,7 @@ fn state_of(
         retrying: AtomicBool::new(false),
         lists_blocked: std::sync::atomic::AtomicU64::new(0),
         learned: Arc::new(Learned::default()),
+        on_document: None,
     }
 }
 

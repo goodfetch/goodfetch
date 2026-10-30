@@ -2,14 +2,19 @@
 //! 0087, 0089, 0093, 0110, 0118 and 0121), through interfaces this crate
 //! defines and Foxhound's crates fill, so neither reaches into the other.
 //!
-//! - **The page's value** ([`PageValue`]) holds exactly two parts: its
-//!   [`NavigationGate`], which admits each main-frame navigation, each
+//! - **The page's value** ([`PageValue`]) holds four parts (ADR 0087):
+//!   its [`NavigationGate`], which admits each main-frame navigation, each
 //!   redirect or refresh hop, a service worker's request carrying a
-//!   navigation and each `page.request` before it leaves, and its
+//!   navigation and each `page.request` before it leaves; its
 //!   [`LeaseCheck`], asked before each outgoing browser or network command
-//!   of the page. Both are empty on every page a program opens: nothing a
-//!   Collie program does is refused, delayed or counted by them (its
-//!   Session's proxy's limits alone hold its navigation, ADR 0088).
+//!   of the page; the [`PageCheck`] its crawl request's Label declares,
+//!   which judges the page in place of its Session's (ADR 0093); and the
+//!   main-content step its Label's `content.extractor` chooses, which
+//!   `page.formats` reads with (ADR 0007). All four are empty on every page
+//!   a program opens: nothing a Collie program does is refused, delayed or
+//!   counted by the first two (its Session's proxy's limits alone hold its
+//!   navigation, ADR 0088), and its Session's and its Run's settings choose
+//!   its Page check and its main-content step.
 //! - **The response observer** ([`ResponseObserver`]), no part of the
 //!   value, receives the responses the engine observes on a page, those a
 //!   service worker answered included, whose URLs its patterns match, each
@@ -245,6 +250,11 @@ pub struct PooledSession {
     /// The Session source it opens from: `None` for the Run's
     /// `session.source`, `Some(None)` for a fresh Session (ADR 0083).
     pub source: Option<Option<SessionSource>>,
+    /// The position of the Run's `egress.local_addresses` rotation the pool
+    /// gave it, which its browser context's egress relay binds, so its
+    /// browser requests leave from the address its HTTP requests do (ADR
+    /// 0044): `None` without local addresses.
+    pub address_ordinal: Option<u64>,
 }
 
 /// A request the navigation gate is asked to admit.

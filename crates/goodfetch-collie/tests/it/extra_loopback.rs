@@ -19,15 +19,20 @@
     reason = "the tests send the UDP record's control datagram from their own thread, never an async worker (ADR 0060)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, UdpSocket};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, browser_cache};
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
+use crate::attached::Attached;
 use crate::egress_relay::{Program, provenance, started};
+use crate::page::{opened, resumed_with, started_with};
+use crate::proxy::{PASSWORD_VARIABLE, adapter_configuration, sticky_relays, visit_marked};
+use crate::run::{at_once, call};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 638;
@@ -261,4 +266,138 @@ fn webrtc_sends_no_udp_around_a_session_with_a_local_address() {
     );
     assert_eq!(sources, vec![control]);
     assert!(to_turn.iter().all(|source| source == BOUND), "{to_turn:?}");
+}
+
+/// The local addresses the egress relay of each Session of the Run `run_id`
+/// bound, by Session, as Provenance records them for every engine that held
+/// it.
+fn relay_addresses(env: &TestEnv, run_id: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut bound: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in provenance(env, run_id, "egress_relay") {
+        let session = entry["session_id"].as_str().unwrap_or_default().to_owned();
+        let address = entry["local_addresses"]["ipv4"].to_string();
+        bound.entry(session).or_default().insert(address);
+    }
+    bound
+}
+
+/// The part of the Session ID `session` after its Run's, such as
+/// `session-1`, which marks its pages' visits.
+fn session_mark(session: &Value) -> &str {
+    session
+        .as_str()
+        .and_then(|session| session.rsplit_once('.'))
+        .map_or("", |(_, mark)| mark)
+}
+
+/// Two Sessions a program opens at the same moment each take a position of
+/// their own, and draw their proxy and their local address for it: under a
+/// Proxy provider each sends a sticky session of its own from an address of
+/// its own, and keeps both once its Run resumes in another engine (#882,
+/// #891; ADR 0044).
+///
+/// Covers: story:8-89, story:4-45, setting:proxy.provider, setting:egress.local_addresses, operation:run.new_session, operation:run.resume
+#[test]
+fn two_sessions_opened_at_once_keep_their_own_proxy_exit_and_local_address_across_a_resume() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    env.user_configuration(&adapter_configuration(&proving_ground, "oxylabs"));
+    let password = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .password
+        .clone();
+    let with_password = |command: &mut Command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    };
+    let run_id = "at-once";
+    let settings: Map<String, Value> = json!({
+        "proxy": { "provider": "oxylabs" },
+        "egress": { "local_addresses": ["127.0.0.2", "127.0.0.4"] },
+    })
+    .as_object()
+    .cloned()
+    .unwrap_or_default();
+    let visit = |engine: &mut Attached<'_>, id: i64, session: &Value, mark: &str| {
+        let page = opened(&call(
+            engine,
+            id,
+            "session.new_page",
+            &json!({ "session_id": session }),
+        ));
+        visit_marked(
+            engine,
+            &proving_ground,
+            id + 1,
+            &json!(page.page_id.0),
+            mark,
+        );
+    };
+
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        run_id,
+        &settings,
+        with_password,
+    );
+    let sessions: Vec<Value> = at_once(
+        &mut engine,
+        &[
+            (2, "run.new_session", json!({ "run_id": run_id })),
+            (3, "run.new_session", json!({ "run_id": run_id })),
+        ],
+    )
+    .into_iter()
+    .map(|opened| opened["result"]["session_id"].clone())
+    .collect();
+    for (id, session) in (10..).step_by(2).zip(&sessions) {
+        let mark = format!("{}-before", session_mark(session));
+        visit(&mut engine, id, session, &mark);
+    }
+    engine.kill();
+    let mut resumed = resumed_with(
+        &env,
+        &cache,
+        &proving_ground,
+        run_id,
+        &settings,
+        with_password,
+    );
+    for (id, session) in (20..).step_by(2).zip(&sessions) {
+        let mark = format!("{}-after", session_mark(session));
+        visit(&mut resumed, id, session, &mark);
+    }
+    let _ = call(&mut resumed, 50, "run.finish", &json!({ "run_id": run_id }));
+    let _ = resumed.finish();
+
+    let exits = |session: &str| -> BTreeSet<String> {
+        sticky_relays(&proving_ground, &format!("mark={session}-"))
+            .into_iter()
+            .map(|(sticky, _)| sticky["session"].to_string())
+            .collect()
+    };
+    let (first, second) = (exits("session-1"), exits("session-2"));
+    let address = |address: &str| BTreeSet::from([json!(address).to_string()]);
+    assert_eq!(
+        (
+            first.len(),
+            second.len(),
+            first.is_disjoint(&second),
+            relay_addresses(&env, run_id),
+        ),
+        (
+            1,
+            1,
+            true,
+            BTreeMap::from([
+                ("at-once.session-1".to_owned(), address("127.0.0.2")),
+                ("at-once.session-2".to_owned(), address("127.0.0.4")),
+            ]),
+        ),
+        "{sessions:?} {first:?} {second:?}"
+    );
 }

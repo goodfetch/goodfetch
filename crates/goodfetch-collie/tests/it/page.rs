@@ -78,6 +78,49 @@ pub(crate) fn started_after<'env>(
     change: impl FnOnce(&mut Command),
     before: &[(&str, Value)],
 ) -> Attached<'env> {
+    begun(
+        env,
+        cache,
+        proving_ground,
+        ("run.start", run_id),
+        settings,
+        change,
+        before,
+    )
+}
+
+/// As [`started_with`], resuming the Run `run_id` with `run.resume` in a
+/// new engine, such as after its engine was killed.
+pub(crate) fn resumed_with<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+) -> Attached<'env> {
+    begun(
+        env,
+        cache,
+        proving_ground,
+        ("run.resume", run_id),
+        settings,
+        change,
+        &[],
+    )
+}
+
+/// An engine started as [`started_after`] says, once `method` began the
+/// Run `run_id`.
+fn begun<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    (method, run_id): (&str, &str),
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+    before: &[(&str, Value)],
+) -> Attached<'env> {
     let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
         change(command);
@@ -105,7 +148,7 @@ pub(crate) fn started_after<'env>(
     let started = call(
         &mut engine,
         1,
-        "run.start",
+        method,
         &json!({ "run_id": run_id, "settings": settings }),
     );
     assert!(started.get("result").is_some(), "{started}");

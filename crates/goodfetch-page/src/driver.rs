@@ -237,6 +237,33 @@ impl HiddenPages {
     }
 }
 
+#[cfg(test)]
+impl Browser {
+    /// A browser no Run holds, over `connection`, under the timeouts'
+    /// declared defaults, as a test plays one in process.
+    fn played(connection: Connection) -> Self {
+        Self {
+            connection,
+            log: CommandLog::unwritten(),
+            exit: watch::channel(None).1,
+            executable: "played".to_owned(),
+            identity: None,
+            process: None,
+            closing: CancellationToken::new(),
+            launched: false,
+            service_workers: Arc::default(),
+            popups: Arc::default(),
+            hidden: Arc::default(),
+            lease: None,
+            deadlines: Arc::new(Deadlines {
+                navigation: Deadline::declared(&TIMEOUT_NAVIGATION),
+                action: Deadline::declared(&TIMEOUT_ACTION),
+                close: Deadline::declared(&TIMEOUT_CLOSE),
+            }),
+        }
+    }
+}
+
 impl Browser {
     /// Sends `params` on `session`, recorded in the Run trace, within the
     /// deadline of `call`; a failure raises the code of `call`.

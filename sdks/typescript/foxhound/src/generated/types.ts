@@ -2646,6 +2646,14 @@ export interface RunRecordsParams {
    */
   run_id: RunId;
   /**
+   * The number of the last Record to read, such as the last one
+   * committed when the reader began (`dataset.page`'s `through`): the
+   * call answers once it sent every Record numbered through it, waiting
+   * on a live Run for those not committed yet. Absent, it follows a live
+   * Run until the Run ends.
+   */
+  through?: number | null;
+  /**
    * `true` reads only the Records whose page was read past a Wall,
    * `false` only the others; absent, every Record (ADR 0052).
    */

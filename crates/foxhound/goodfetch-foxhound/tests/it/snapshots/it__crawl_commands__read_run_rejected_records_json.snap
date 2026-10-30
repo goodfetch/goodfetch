@@ -1,0 +1,12 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "ended": true,
+  "next": 0,
+  "records": []
+}
+----- stderr -----

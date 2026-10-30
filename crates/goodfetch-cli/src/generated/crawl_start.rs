@@ -9,7 +9,16 @@
 //! selector, or an `XPath` expression after `xpath:`, given by the `text`
 //! Value transform; `--fields` reads named fields in the catalog's JSON form;
 //! `--links` says which pages the crawl fetches beyond its seeds. A crawl
-//! given neither a format nor a field keeps each page's Markdown.
+//! given neither a format nor a field keeps each page's Markdown. Its help
+//! is its own, and it takes no `--datasets`: a code-free crawl declares
+//! its one Dataset, `pages`, itself.
+//!
+//! A seeds file whose seeds would pass the engine's message limit
+//! (`MAX_MESSAGE_BYTES`) in `crawl.start` starts the crawl with the URLs
+//! given and as many of the file's seeds as fill half of it, then, once the
+//! Run ID is printed, sends the others through `run.add_seeds` on the same
+//! Connection, a batch per credits it grants, so no message carries every
+//! seed (ADR 0069).
 //!
 //! Under `--follow` it then reads the Run's progress on the same
 //! Connection until the Run ends, and exits by how it ended, as a command
@@ -27,23 +36,36 @@ use std::process::ExitCode;
 
 use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::Operation;
+use goodfetch_protocol::foxhound::frontier::{RUN_ADD_SEEDS, SEEDS as SEEDS_NOTIFICATION};
 use goodfetch_protocol::page::FormatsRequest;
 use goodfetch_protocol::run::{Lifecycle, RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP, RunReport};
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use super::{Call, FOLLOW, REQUIRE_VERIFIED, resolved};
-use crate::engine_choice::{self, Answer, CommandCall, Daemons, Next};
+use crate::engine_choice::{self, Answer, CommandCall, Daemons, Input, Next, Values};
 use crate::exit_codes;
 use crate::output::{self, Human, Progress};
 
 /// The operation whose command this is.
 pub(super) const OPERATION: &str = "crawl.start";
 
-/// The params its own flags give.
-pub(super) const REPLACES: &[&str] = &[SEEDS, EXTRACTION];
+/// The params its own flags give, and `datasets`, which a crawl with an
+/// `extraction` refuses, so its command offers no flag for it.
+pub(super) const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS];
+
+/// Its help, in place of `crawl.start`'s, which tells of a handler's crawl.
+pub(super) const ABOUT: &str = "Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID";
+
+/// The param that declares a crawl's Datasets.
+const DATASETS: &str = "datasets";
+
+/// How many bytes of the seeds file's seeds `crawl.start` carries at most:
+/// half the engine's message limit, the rest of its params' room.
+const START_SEEDS_BYTES: usize = MAX_MESSAGE_BYTES / 2;
 
 /// The param that lists the crawl's seeds.
 const SEEDS: &str = "seeds";
@@ -258,6 +280,27 @@ pub(super) struct Flags {
     pub(super) follow: bool,
     /// `--require-verified`.
     pub(super) require_verified: bool,
+    /// The seeds file's seeds `crawl.start` leaves to `run.add_seeds`.
+    pub(super) added: Vec<Value>,
+}
+
+/// `seeds` split in two: the first, which `crawl.start` carries, as many
+/// as fill `room` bytes once encoded, and at least one when `one_at_least`;
+/// and the others.
+fn split_seeds(mut seeds: Vec<Value>, room: usize, one_at_least: bool) -> (Vec<Value>, Vec<Value>) {
+    let mut used = 0_usize;
+    let mut taken = 0;
+    for seed in &seeds {
+        // Its bytes in the request's array, its comma included.
+        let size = seed.to_string().len() + 1;
+        if used + size > room && !(one_at_least && taken == 0) {
+            break;
+        }
+        used += size;
+        taken += 1;
+    }
+    let others = seeds.split_off(taken);
+    (seeds, others)
 }
 
 impl Flags {
@@ -270,13 +313,19 @@ impl Flags {
             .flatten()
             .map(|url| url_seed(url))
             .collect();
-        seeds.extend(
-            matches
-                .get_one::<Vec<Value>>(SEEDS_FILE)
-                .into_iter()
-                .flatten()
-                .cloned(),
+        let filed = matches
+            .get_one::<Vec<Value>>(SEEDS_FILE)
+            .cloned()
+            .unwrap_or_default();
+        // The URLs given take room before the file's seeds, and a crawl
+        // starts with one seed at least.
+        let given: usize = seeds.iter().map(|seed| seed.to_string().len() + 1).sum();
+        let (started, added) = split_seeds(
+            filed,
+            START_SEEDS_BYTES.saturating_sub(given),
+            seeds.is_empty(),
         );
+        seeds.extend(started);
         let mut named = matches
             .get_one::<Map<String, Value>>(FIELDS)
             .cloned()
@@ -310,15 +359,18 @@ impl Flags {
         Self {
             follow: matches.get_flag(FOLLOW),
             require_verified: matches.get_flag(REQUIRE_VERIFIED),
+            added,
         }
     }
 }
 
-/// Where a followed `crawl start` is.
+/// Where a `crawl start` is.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     /// `crawl.start` is in flight.
     Starting,
+    /// `run.add_seeds` is, with the seeds `crawl.start` left out.
+    Seeding,
     /// `run.progress` is, until its last value.
     Following,
     /// `run.report` is, once the Run ended.
@@ -339,6 +391,14 @@ pub(super) fn run(
     let run_id: RefCell<Option<Value>> = RefCell::new(None);
     let mut phase = Phase::Starting;
     let mut shown: Option<Progress> = Some(human.progress("crawl start"));
+    let started_id: RefCell<Value> = RefCell::new(Value::Null);
+    let follow = |started: &Value, phase: &mut Phase| -> Option<Next> {
+        if !flags.follow {
+            return None;
+        }
+        *phase = Phase::Following;
+        Some(next_call(&RUN_PROGRESS_READ, json!({ "run_id": started })))
+    };
     let mut next = |answer: &Value| -> Option<Next> {
         match phase {
             Phase::Starting => {
@@ -349,12 +409,19 @@ pub(super) fn run(
                 } else {
                     output::line(started.as_str().unwrap_or_default());
                 }
-                if !flags.follow {
-                    return None;
+                if flags.follow {
+                    *run_id.borrow_mut() = Some(started.clone());
                 }
-                phase = Phase::Following;
-                *run_id.borrow_mut() = Some(started.clone());
-                Some(next_call(&RUN_PROGRESS_READ, json!({ "run_id": started })))
+                started.clone_into(&mut started_id.borrow_mut());
+                if !flags.added.is_empty() {
+                    phase = Phase::Seeding;
+                    return Some(next_call(&RUN_ADD_SEEDS, json!({ "run_id": started })));
+                }
+                follow(&started, &mut phase)
+            }
+            Phase::Seeding => {
+                let started = started_id.borrow().clone();
+                follow(&started, &mut phase)
             }
             Phase::Following => {
                 let started = answer["run_id"].clone();
@@ -382,13 +449,18 @@ pub(super) fn run(
         Some(next_call(&RUN_STOP, json!({ "run_id": started })))
     };
     let params = Value::Object(call.params.clone());
+    let mut added = flags.added.iter().cloned();
     let command_call = CommandCall {
         method: call.operation.name,
         params,
         cancellable: call.operation.cancellable,
         follower: None,
         pager: Some(&mut next),
-        input: None,
+        input: Some(Input {
+            method: SEEDS_NOTIFICATION,
+            field: SEEDS,
+            values: Values::Held(&mut added),
+        }),
         stopper: Some(&mut stop),
     };
     let warn = |text: &str| human.warning(text);
@@ -399,6 +471,7 @@ pub(super) fn run(
     // call in flight.
     let failing = match phase {
         Phase::Starting => None,
+        Phase::Seeding => Some(RUN_ADD_SEEDS.name),
         Phase::Following => Some(RUN_PROGRESS_READ.name),
         Phase::Reporting => Some(RUN_REPORT.name),
     };

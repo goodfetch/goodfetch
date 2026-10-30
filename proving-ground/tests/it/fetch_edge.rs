@@ -141,6 +141,38 @@ fn a_gzip_body_ending_before_its_content_length_is_recorded_against_it() {
     assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
 }
 
+/// A late cut sends the half body, then holds the connection open 75 ms
+/// before it closes it, so a client reading the body as it arrives reads
+/// that half before the body's end, the cut a browser's interception can
+/// lose (#1732): whatever its framing, the body is cut as the plain page's
+/// is.
+#[rstest::rstest]
+#[case::content_length("/cut/late/content-length")]
+#[case::chunked("/cut/late/chunked")]
+#[case::gzip_content_length("/cut/late/gzip-content-length")]
+fn a_late_cut_closes_its_connection_a_while_after_its_half_body(#[case] path: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let asked = std::time::Instant::now();
+    let arrived = raw_clients::get(&proving_ground, HTTP1, path, &[]);
+    let took = asked.elapsed();
+
+    assert_eq!(arrived.status(), Some(200));
+    match arrived.header("content-length") {
+        Some(declared) => assert!(
+            arrived.body().len() < declared.parse().expect("a length"),
+            "{}",
+            arrived.body().len()
+        ),
+        None => assert!(!arrived.body().ends_with(b"0\r\n\r\n")),
+    }
+    assert!(!arrived.closed_cleanly);
+    assert!(took >= Duration::from_millis(75), "closed after {took:?}");
+    let delivery = &request_for(&proving_ground.observations(), HTTP1, path)["delivery"];
+    assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
+    assert!(delivery["body_sent"].as_u64() > Some(0), "{delivery}");
+}
+
 #[test]
 fn a_body_delimited_by_its_connections_close_is_whole() {
     let proving_ground = ProvingGround::start(SEED);

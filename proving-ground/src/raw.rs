@@ -163,11 +163,18 @@ pub(crate) enum Answer {
 /// The byte a [`Answer::Filler`] body repeats.
 pub(crate) const FILLER: u8 = b'a';
 
+/// How long a [`Cut::Late`] connection stays open after the bytes it sent.
+pub(crate) const LATE: Duration = Duration::from_millis(75);
+
 /// How a body is broken off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Cut {
     /// The connection is closed with no TLS `close_notify`.
     Connection,
+    /// The connection is closed so, but [`LATE`] after the bytes sent, as a
+    /// site that stalls mid-body and then drops it: a client reading the
+    /// body as it arrives has read them before the body's end (#1732).
+    Late,
     /// Over HTTP/2, the stream is reset with `RST_STREAM` (`INTERNAL_ERROR`);
     /// over HTTP/1.1, the connection is closed.
     Stream,

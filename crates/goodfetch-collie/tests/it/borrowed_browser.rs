@@ -68,6 +68,15 @@ const POPUP: &str = "/popup";
 /// The site's large page: a plain-text body of [`LARGE_BYTES`].
 const LARGE: &str = "/large";
 
+/// The person's own tab, which they open themselves.
+const MINE: &str = "/mine";
+
+/// How long the site waits before it answers [`MINE`]: the tab's
+/// navigation is still on its way when the person first reaches the tab,
+/// so a script they send at once would run in the blank document the
+/// navigation then replaces.
+const MINE_DELAY: Duration = Duration::from_millis(500);
+
 /// The large page's bytes: 20 MiB, whose Base64 in one CDP message passes
 /// tungstenite's default frame cap of 16 MiB.
 const LARGE_BYTES: usize = 20 * 1024 * 1024;
@@ -226,6 +235,9 @@ fn answer(
     if let Some(redirect) = redirects.lock().unwrap().get(path) {
         let _ = stream.write_all(redirect.as_bytes());
         return;
+    }
+    if path == MINE {
+        std::thread::sleep(MINE_DELAY);
     }
     if path == LARGE {
         let _ = write!(
@@ -1129,6 +1141,9 @@ fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
 struct Person {
     socket: tungstenite::WebSocket<TcpStream>,
     next_id: u64,
+    /// The events the browser sent while a command waited for its reply,
+    /// oldest first, which [`Self::event`] has not taken yet.
+    events: Vec<Value>,
 }
 
 impl Person {
@@ -1144,7 +1159,11 @@ impl Person {
             .set_read_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         let socket = tungstenite::client(cdp_url, stream).unwrap().0;
-        Self { socket, next_id: 0 }
+        Self {
+            socket,
+            next_id: 0,
+            events: Vec::new(),
+        }
     }
 
     /// The result of the CDP command `method` with `params`, on the target
@@ -1159,12 +1178,45 @@ impl Person {
             .send(tungstenite::Message::text(command.to_string()))
             .unwrap();
         loop {
-            if let tungstenite::Message::Text(text) = self.socket.read().unwrap() {
-                let reply: Value = serde_json::from_str(&text).unwrap();
-                if reply["id"] == json!(self.next_id) {
-                    assert!(reply.get("error").is_none(), "{method}: {reply}");
-                    return reply["result"].clone();
-                }
+            let reply = self.message(method);
+            if reply["id"] == json!(self.next_id) {
+                assert!(reply.get("error").is_none(), "{method}: {reply}");
+                return reply["result"].clone();
+            }
+            if reply.get("method").is_some() {
+                self.events.push(reply);
+            }
+        }
+    }
+
+    /// The first event on the target session `session` that `wanted`
+    /// holds of, among those already received or the next ones.
+    fn event(&mut self, session: &str, wanted: impl Fn(&Value) -> bool) -> Value {
+        let of = |event: &Value| event["sessionId"] == json!(session) && wanted(event);
+        if let Some(index) = self.events.iter().position(of) {
+            return self.events.remove(index);
+        }
+        loop {
+            let event = self.message("an event");
+            if of(&event) {
+                return event;
+            }
+            if event.get("method").is_some() {
+                self.events.push(event);
+            }
+        }
+    }
+
+    /// The next message from the browser, read for `awaited`, within the
+    /// socket's 30 s read timeout.
+    fn message(&mut self, awaited: &str) -> Value {
+        loop {
+            let message = self
+                .socket
+                .read()
+                .unwrap_or_else(|error| panic!("waiting for {awaited}: {error}"));
+            if let tungstenite::Message::Text(text) = message {
+                return serde_json::from_str(&text).unwrap();
             }
         }
     }
@@ -1204,7 +1256,9 @@ fn at(target: &Value, path: &str) -> bool {
 /// The person's own tabs stay theirs while a Session borrows their browser
 /// (ADR 0056): the tab already open, one they open and one their own tab
 /// opens are each let go of at once, with no engine session left on them,
-/// while the Session's own page keeps the engine's (positive control).
+/// while the Session's own page keeps the engine's (positive control). The
+/// person's script runs in their tab's own page, in the context the browser
+/// names once the tab's navigation is in.
 ///
 /// Covers: story:4-14, operation:run.new_session, operation:session.new_page
 #[test]
@@ -1222,7 +1276,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
     let mut person = Person::connect(&lent.cdp_url);
     let mine = person.send(
         "Target.createTarget",
-        &json!({ "url": site.url(SITE, "/mine") }),
+        &json!({ "url": site.url(SITE, MINE) }),
         None,
     )["targetId"]
         .clone();
@@ -1234,10 +1288,28 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         .as_str()
         .unwrap()
         .to_owned();
+    // The tab is still on its way to `MINE` (`MINE_DELAY`): its script runs
+    // in the context the browser names once that document is in, which no
+    // later navigation replaces, never in the blank one the navigation ends.
+    person.send("Runtime.enable", &json!({}), Some(&attached));
+    let origin = site.url(SITE, "");
+    let context = person.event(&attached, |event| {
+        let context = &event["params"]["context"];
+        event["method"] == "Runtime.executionContextCreated"
+            && context["origin"] == json!(origin)
+            && context["auxData"]["frameId"] == mine
+            && context["auxData"]["isDefault"] == json!(true)
+    })["params"]["context"]["id"]
+        .clone();
     let opened = person.send(
         "Runtime.evaluate",
         &json!({
-            "expression": format!("window.open({:?}) !== null", site.url(SITE, "/opened")),
+            "expression": format!(
+                "[location.pathname, window.open({:?}) !== null]",
+                site.url(SITE, "/opened")
+            ),
+            "contextId": context,
+            "returnByValue": true,
             "userGesture": true,
         }),
         Some(&attached),
@@ -1246,7 +1318,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         pages.iter().any(|target| at(target, "/opened"))
             && pages
                 .iter()
-                .filter(|target| !at(target, "/mine") && !at(target, "/session"))
+                .filter(|target| !at(target, MINE) && !at(target, "/session"))
                 .all(|target| target["attached"] == false)
     });
     program.finish("tabs");
@@ -1268,7 +1340,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         ),
         (
             &json!(200),
-            &json!(true),
+            &json!([MINE, true]),
             Some(json!(false)),
             Some(json!(false)),
             Some(json!(true)),

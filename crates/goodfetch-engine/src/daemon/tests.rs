@@ -278,8 +278,8 @@ fn a_services_socket_is_the_same_at_every_start_and_short_enough() {
         &ProductVersion::parse("1.5.0").unwrap(),
     );
 
-    let first = long.service_socket().unwrap();
-    let again = long.service_socket().unwrap();
+    let first = long.service_socket(ServiceManager::Systemd).unwrap();
+    let again = long.service_socket(ServiceManager::Systemd).unwrap();
     let mode = std::fs::metadata(first.parent().unwrap())
         .unwrap()
         .permissions()
@@ -287,7 +287,7 @@ fn a_services_socket_is_the_same_at_every_start_and_short_enough() {
 
     assert_eq!(
         (
-            short.service_socket().unwrap(),
+            short.service_socket(ServiceManager::Systemd).unwrap(),
             first == again,
             first.as_os_str().len() <= 103,
             mode & 0o777,
@@ -298,6 +298,39 @@ fn a_services_socket_is_the_same_at_every_start_and_short_enough() {
             true,
             0o700
         )
+    );
+}
+
+/// systemd writes each listening socket's path with C escapes when its
+/// manager reloads and reads it back as written, so a path with a byte it
+/// escapes loses its socket at the first reload (#1781): a systemd
+/// service's socket in a home whose path holds such bytes moves to a
+/// folder of the user's own, the same at every start, while launchd's
+/// stays in the major's folder.
+///
+/// Covers: story:3-21
+#[cfg(unix)]
+#[test]
+fn a_systemd_services_socket_path_holds_no_byte_systemd_escapes() {
+    let env = TestEnv::new();
+    // The test home's path holds a space and an `é` already.
+    let home = env.home().join(r#"'\""#);
+    let files = DaemonFiles::of(&Home::new(home), &ProductVersion::parse("1.5.0").unwrap());
+
+    let systemd = files.service_socket(ServiceManager::Systemd).unwrap();
+    let again = files.service_socket(ServiceManager::Systemd).unwrap();
+    let launchd = files.service_socket(ServiceManager::Launchd).unwrap();
+
+    let escaped: Vec<u8> = systemd
+        .as_os_str()
+        .as_encoded_bytes()
+        .iter()
+        .copied()
+        .filter(|byte| !(b' '..=b'~').contains(byte) || br#"\"'"#.contains(byte))
+        .collect();
+    assert_eq!(
+        (escaped, systemd == again, launchd),
+        (Vec::new(), true, files.socket())
     );
 }
 

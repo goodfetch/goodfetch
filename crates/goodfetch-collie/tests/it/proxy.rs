@@ -1075,24 +1075,34 @@ fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
         .sum()
 }
 
-/// Whether the Proving ground's proxies relayed the browser's last request
-/// for a page of `scope.test`, its `/favicon.ico`, which Chrome asks for
-/// once the page loaded since the page names no icon, and ended every
-/// relay: a relay's bytes are recorded when it ends, and each received at
-/// least the request it is for.
+/// The requests a page of `scope.test` makes after its document's that no
+/// load waits for: the `/favicon.ico` Chrome asks for once the page loaded,
+/// since the page names no icon, and the engine's own read of the site's
+/// `/robots.txt`, which starts once the document's response arrived and
+/// which nothing the page does waits for. Either may come last.
+const AFTER_THE_LOAD: [&str; 2] = ["/favicon.ico", "/robots.txt"];
+
+/// Whether the Proving ground's proxies relayed each of a page of
+/// `scope.test`'s requests [`AFTER_THE_LOAD`] and ended every relay: a
+/// relay's bytes are recorded when it ends, and each received at least the
+/// request it is for.
 fn page_load_relayed(observations: &Value) -> bool {
     let relays = observations["relays"].as_array().unwrap();
-    relays.iter().any(|relay| {
-        relay["target"]
-            .as_str()
-            .is_some_and(|target| target.ends_with("/favicon.ico"))
-    }) && relays
+    let paths: BTreeSet<String> = relays
         .iter()
-        .all(|relay| relay["bytes"]["received"].as_u64() > Some(0))
+        .filter_map(|relay| relay["target"].as_str())
+        .filter_map(|target| url::Url::parse(target).ok())
+        .map(|target| target.path().to_owned())
+        .collect();
+    AFTER_THE_LOAD.iter().all(|path| paths.contains(*path))
+        && relays
+            .iter()
+            .all(|relay| relay["bytes"]["received"].as_u64() > Some(0))
 }
 
 /// Waits until [`page_load_relayed`], a minute at most, so no byte of the
-/// page's load is under way when the Run ends.
+/// page's load, nor of the engine's robots.txt read beside it, is under
+/// way when the Run ends.
 fn page_load_settled(proving_ground: &ProvingGround) {
     for _ in 0..600 {
         if page_load_relayed(&proving_ground.observations().unwrap()) {
@@ -1104,6 +1114,37 @@ fn page_load_settled(proving_ground: &ProvingGround) {
         "the page's load was still under way after a minute: {}",
         proving_ground.observations().unwrap()["relays"]
     );
+}
+
+/// A relay of `target` on `scope.test` that the Proving ground's isp proxy
+/// recorded: ended, with the bytes it carried, or still under way, with
+/// none recorded yet.
+fn relay_of(target: &str, ended: bool) -> Value {
+    let bytes = if ended {
+        json!({ "received": 500, "sent": 200 })
+    } else {
+        json!({ "received": 0, "sent": 0 })
+    };
+    json!({ "kind": "isp", "target": format!("http://scope.test:8080{target}"), "bytes": bytes })
+}
+
+#[rstest]
+// The order a failing run of the counted test met (#1788): Chrome's icon
+// relayed before the engine's own read of the site's robots.txt reached
+// the proxy, so the Run ended under it.
+#[case::before_the_robots_txt_read_reached_the_proxy(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/favicon.ico", true)], false)]
+#[case::while_the_robots_txt_read_is_under_way(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/favicon.ico", true), ("/robots.txt", false)], false)]
+#[case::before_the_icon_reached_the_proxy(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/robots.txt", true)], false)]
+#[case::once_the_icon_and_the_robots_txt_read_ended(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/robots.txt", true), ("/favicon.ico", true)], true)]
+fn a_page_load_is_relayed_once_its_icon_and_the_engines_robots_txt_read_ended(
+    #[case] relays: &[(&str, bool)],
+    #[case] relayed: bool,
+) {
+    let observations = json!({
+        "relays": relays.iter().map(|(target, ended)| relay_of(target, *ended)).collect::<Vec<_>>()
+    });
+
+    assert_eq!(page_load_relayed(&observations), relayed, "{observations}");
 }
 
 /// Covers: story:8-92, setting:proxy.providers, operation:run.usage

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use super::{
-    Answer, Context, Cut, FILLER, Framing, Page, Pages, READ_LIMIT, Request, reason, settle,
+    Answer, Context, Cut, FILLER, Framing, LATE, Page, Pages, READ_LIMIT, Request, reason, settle,
 };
 use crate::observation::{End, Protocol};
 
@@ -64,9 +64,12 @@ where
                     message.extend_from_slice(body);
                 }
                 let _ = send(&mut stream, &message).await;
-                // HTTP/1.1 has no stream to reset: either cut closes the
-                // connection.
-                let (Cut::Connection | Cut::Stream) = cut;
+                // HTTP/1.1 has no stream to reset: every cut closes the
+                // connection, a late one once it waited.
+                match cut {
+                    Cut::Connection | Cut::Stream => {}
+                    Cut::Late => tokio::time::sleep(LATE).await,
+                }
                 context.delivered(request.recorded, declared, sent, End::ConnectionClosed);
                 // Dropped without a TLS `close_notify`: the client sees the
                 // connection end mid-message.

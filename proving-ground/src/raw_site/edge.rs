@@ -312,8 +312,24 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
     Answer::Page(answer)
 }
 
-/// `/cut/<rest>`: a body broken off halfway.
+/// `/cut/<rest>`: a body broken off halfway; under `/cut/late/`, by a
+/// connection closed a while after that half, once a client reading the
+/// body as it arrives read it (#1732).
 fn cut(rest: &str, path: &str) -> Answer {
+    if let Some(late) = rest.strip_prefix("late/") {
+        return match cut(late, path) {
+            Answer::Cut {
+                page,
+                sent,
+                cut: Cut::Connection,
+            } => Answer::Cut {
+                page,
+                sent,
+                cut: Cut::Late,
+            },
+            _ => not_found(),
+        };
+    }
     let whole = page(path);
     let half = whole.body.len() / 2;
     match rest {

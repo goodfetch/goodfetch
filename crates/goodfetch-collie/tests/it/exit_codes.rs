@@ -19,7 +19,9 @@
 
 use std::process::Stdio;
 
-use goodfetch_test_support::{Process, TestEnv, cli, engine_script, reported_address, tools};
+use goodfetch_test_support::{
+    Process, ProvingGround, TestEnv, cli, engine_script, reported_address, tools,
+};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -37,6 +39,38 @@ fn failed_with(output: &goodfetch_test_support::CliOutput) -> (Option<i32>, Valu
     (output.exit, printed["error"]["code"].clone())
 }
 
+/// A loopback address no Daemon answers at: the Proving ground's `down`
+/// address, where nothing listens and which no other program can take
+/// while the Proving ground runs. A port bound and let go could be taken,
+/// and answered or held silent, by any program before the command connects
+/// (#1796).
+fn unanswered_address(proving_ground: &ProvingGround) -> std::net::SocketAddr {
+    proving_ground.description().fixtures.proxies["down"]
+        .parse()
+        .expect("the down address is a socket address")
+}
+
+/// No other program can listen where the unreachable Daemon's command
+/// connects, so it always meets a refused connection (#1796).
+#[cfg(unix)]
+#[test]
+fn no_other_program_can_take_the_unreachable_daemons_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let address = unanswered_address(&proving_ground);
+
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the test plays the other program that would listen there, outside the engine (ADR 0060)"
+    )]
+    let other = std::net::TcpListener::bind(address);
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
+}
+
 /// A command whose Daemon nothing answers for, the remote one
 /// `GOODFETCH_URL` names at a loopback port nobody listens on, fails with
 /// `daemon_unreachable`, an `UnavailableError` whose `fix` says what to
@@ -47,16 +81,8 @@ fn failed_with(output: &goodfetch_test_support::CliOutput) -> (Option<i32>, Valu
 #[test]
 fn a_command_that_reaches_no_daemon_prints_daemon_unreachable_and_exits_8() {
     let env = TestEnv::new();
-    // A port the test took and let go, where nothing listens: a refused
-    // connection, never a fixed port.
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the test finds a loopback port nobody listens on, outside the engine (ADR 0060)"
-    )]
-    let closed = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let closed = unanswered_address(&proving_ground);
 
     let output = cli(&env, COLLIE)
         .args(["engine", "info", "--json"])

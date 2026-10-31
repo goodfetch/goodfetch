@@ -9,7 +9,7 @@
 //! OS never runs it, and on Linux nothing skips it.
 #![expect(
     clippy::disallowed_types,
-    reason = "a test takes an address nothing listens on by binding a UDP socket and letting it go"
+    reason = "a test holds a UDP address nothing answers at with a socket of its own, outside the engine"
 )]
 
 use std::net::SocketAddr;
@@ -87,15 +87,59 @@ fn a_child_in_the_namespace_leaves_the_hosts_resolver_as_it_was() {
     assert_eq!(outside.status.code(), Some(NOT_FOUND), "{outside:?}");
 }
 
+/// A loopback UDP address nothing answers at, held while it lives: a socket
+/// connected to itself. The kernel gives it only its own datagrams and
+/// refuses every other sender's, and no other program can bind its port
+/// while it is held, as one could a port bound and let go: another test's
+/// DNS fixture could then answer there (#1796).
+struct Unanswered {
+    address: SocketAddr,
+    _held: std::net::UdpSocket,
+}
+
+fn unanswered() -> Unanswered {
+    let held = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = held.local_addr().unwrap();
+    held.connect(address).unwrap();
+    Unanswered {
+        address,
+        _held: held,
+    }
+}
+
+/// The address the namespace with no fixture relays to refuses every
+/// datagram sent to it, and no other program can bind it while the test
+/// runs, so no fixture another test starts can answer there (#1796).
+#[test]
+fn the_address_with_no_fixture_refuses_datagrams_and_no_other_program_can_take_it() {
+    let nothing = unanswered();
+    let sender = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    sender.connect(nothing.address).unwrap();
+    sender
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+
+    sender.send(b"query").unwrap();
+    let answered = sender.recv(&mut [0; 16]);
+    let other = std::net::UdpSocket::bind(nothing.address);
+
+    assert_eq!(
+        (
+            answered.map(|_| ()).map_err(|error| error.kind()),
+            other.map(|_| ()).map_err(|error| error.kind()),
+        ),
+        (
+            Err(std::io::ErrorKind::ConnectionRefused),
+            Err(std::io::ErrorKind::AddrInUse)
+        )
+    );
+}
+
 #[test]
 fn a_child_in_a_namespace_with_no_fixture_at_its_address_resolves_nothing() {
     let env = TestEnv::new();
-    // An address nothing listens on: a port bound, then let go.
-    let nothing = std::net::UdpSocket::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let namespace = DnsNamespace::enter(&env, nothing).unwrap();
+    let nothing = unanswered();
+    let namespace = DnsNamespace::enter(&env, nothing.address).unwrap();
 
     let output = namespace
         .output(&env, "/usr/bin/getent", ["ahostsv4", REBINDING])

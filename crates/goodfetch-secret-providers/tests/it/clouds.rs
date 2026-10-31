@@ -35,7 +35,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SecretFailure;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, ProvingGround, SecretKind, TestEnv};
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::Bytes;
 use hyper::{Method, Request, Response, StatusCode};
@@ -543,8 +543,37 @@ enum Failing {
     Denied,
     /// Credentials the service refuses.
     RefusedCredentials,
-    /// A port nothing listens on.
+    /// The Proving ground's `down` address, where nothing listens.
     Unreachable,
+}
+
+/// The base URL of a service nothing answers at: the Proving ground's
+/// `down` address, where nothing listens and which no other program can
+/// take while the Proving ground runs. A port bound and let go could be
+/// taken, and answered, by any program before the provider connects
+/// (#1796).
+fn unreachable_base(proving_ground: &ProvingGround) -> String {
+    format!(
+        "http://{}",
+        proving_ground.description().fixtures.proxies["down"]
+    )
+}
+
+/// No other program can listen where the unreachable case's provider
+/// connects, so it always meets a refused connection (#1796).
+#[cfg(unix)]
+#[test]
+fn no_other_program_can_take_the_unreachable_services_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let base = unreachable_base(&proving_ground);
+
+    let other = std::net::TcpListener::bind(base.trim_start_matches("http://"));
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
 }
 
 /// A denied access, refused credentials and an unreachable service are
@@ -557,14 +586,26 @@ fn a_denied_refused_or_unreachable_cloud_fails_naming_it_and_no_value(
     #[values(Failing::Denied, Failing::RefusedCredentials, Failing::Unreachable)] failing: Failing,
 ) {
     let fixture = fixture();
-    let (credentials, base, secret, names) = match failing {
-        Failing::Denied => (Credentials::Right, fixture.base(), "admin", "may not"),
-        Failing::RefusedCredentials => (Credentials::Wrong, fixture.base(), "portal", "refused"),
+    // The unreachable case's Proving ground holds its `down` address until
+    // the case ends.
+    let (credentials, base, secret, names, _down) = match failing {
+        Failing::Denied => (Credentials::Right, fixture.base(), "admin", "may not", None),
+        Failing::RefusedCredentials => (
+            Credentials::Wrong,
+            fixture.base(),
+            "portal",
+            "refused",
+            None,
+        ),
         Failing::Unreachable => {
-            let closed = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-            let base = format!("http://127.0.0.1:{}", closed.local_addr().unwrap().port());
-            drop(closed);
-            (Credentials::Right, base, "portal", "did not answer")
+            let proving_ground = ProvingGround::start(&fixture.env, fixture.env.seed()).unwrap();
+            (
+                Credentials::Right,
+                unreachable_base(&proving_ground),
+                "portal",
+                "did not answer",
+                Some(proving_ground),
+            )
         }
     };
     let secrets = fixture.driver(

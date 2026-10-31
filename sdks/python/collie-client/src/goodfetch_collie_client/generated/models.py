@@ -5923,7 +5923,10 @@ class Resync(BaseModel):
     needs_you: list[NeedsYouItem]
     """Every item of "Needs you", by `since`, then by ID."""
     runs: list[RunAxes]
-    """The axes of each Run the engine knows, live or ended."""
+    """
+    The axes of each live Run the engine knows. A Run it leaves out
+    ended, and `run.list` gives its axes.
+    """
 
 
 class RunIndexRow(BaseModel):

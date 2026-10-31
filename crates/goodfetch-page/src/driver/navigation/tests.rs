@@ -315,3 +315,140 @@ fn a_goto_reads_the_events_sent_before_its_answer_before_it_decides(
         assert_eq!(differing, [], "replays that ended otherwise, of {REPLAYS}");
     });
 }
+
+/// The request of the main frame's document under `LOADER`.
+const DOCUMENT_REQUEST: &str = "request-b";
+
+/// The main frame's events for a document of `URL` the browser loaded,
+/// answered `from_disk_cache` or not, whose load it reported finished with
+/// `encoded` bytes counted, then fired `load`: the network's failure of a
+/// body that broke off is lost so when the interception, which read the
+/// body at its response stage, went on before it arrived (#1732).
+fn finished_document(from_disk_cache: bool, encoded: f64) -> Vec<RawEvent> {
+    vec![
+        event(
+            "Network.requestWillBeSent",
+            json!({
+                "requestId": DOCUMENT_REQUEST,
+                "loaderId": LOADER,
+                "documentURL": URL,
+                "request": {
+                    "url": URL,
+                    "method": "GET",
+                    "headers": {},
+                    "initialPriority": "VeryHigh",
+                    "referrerPolicy": "strict-origin-when-cross-origin",
+                },
+                "timestamp": 1.0,
+                "wallTime": 1.0,
+                "initiator": { "type": "other" },
+                "redirectHasExtraInfo": false,
+                "type": "Document",
+                "frameId": FRAME,
+            }),
+        ),
+        event(
+            "Network.responseReceived",
+            json!({
+                "requestId": DOCUMENT_REQUEST,
+                "loaderId": LOADER,
+                "timestamp": 1.0,
+                "type": "Document",
+                "response": {
+                    "url": URL,
+                    "status": 200,
+                    "statusText": "OK",
+                    "headers": { "Transfer-Encoding": "chunked" },
+                    "mimeType": "text/html",
+                    "charset": "utf-8",
+                    "connectionReused": false,
+                    "connectionId": 1.0,
+                    "encodedDataLength": 67.0,
+                    "securityState": "neutral",
+                    "fromDiskCache": from_disk_cache,
+                },
+                "hasExtraInfo": false,
+                "frameId": FRAME,
+            }),
+        ),
+        event(
+            "Page.frameNavigated",
+            json!({
+                "frame": {
+                    "id": FRAME,
+                    "loaderId": LOADER,
+                    "url": URL,
+                    "domainAndRegistry": "site.test",
+                    "securityOrigin": "https://site.test",
+                    "mimeType": "text/html",
+                    "secureContextType": "Secure",
+                    "crossOriginIsolatedContextType": "NotIsolated",
+                    "gatedAPIFeatures": [],
+                },
+                "type": "Navigation",
+            }),
+        ),
+        event(
+            "Network.dataReceived",
+            json!({
+                "requestId": DOCUMENT_REQUEST,
+                "timestamp": 1.0,
+                "dataLength": 205,
+                "encodedDataLength": 0,
+            }),
+        ),
+        event(
+            "Network.loadingFinished",
+            json!({
+                "requestId": DOCUMENT_REQUEST,
+                "timestamp": 1.0,
+                "encodedDataLength": encoded,
+            }),
+        ),
+        event(
+            "Page.lifecycleEvent",
+            json!({ "frameId": FRAME, "loaderId": LOADER, "name": "load", "timestamp": 1.0 }),
+        ),
+    ]
+}
+
+/// How the navigation of `LOADER` ended once the main frame's `events`
+/// were read.
+fn ended_after(events: &[RawEvent]) -> Option<Result<Arrived, Ended>> {
+    let mut navigation = Navigation::of(FRAME.to_owned());
+    for event in events {
+        navigation.feed(event);
+    }
+    navigation.outcome(&Expected::Loader(LOADER.to_owned()), WaitUntil::Load, false)
+}
+
+/// A document from the network whose load the browser reported finished
+/// with no bytes counted broke off, whatever its framing: the network
+/// finishes a load it read whole only once it told the browser so, so its
+/// failure was lost on the way (#1732). It raises `response_truncated`, as
+/// the failure would have.
+#[test]
+fn a_document_from_the_network_finished_with_no_bytes_counted_is_truncated() {
+    assert_eq!(
+        ended_after(&finished_document(false, 0.0)),
+        Some(Err(Ended::Truncated {
+            received: 205,
+            expected: None,
+        }))
+    );
+}
+
+/// A document the network counted, or the disk cache answered (which
+/// counts no bytes, and never holds a cut body), arrived whole.
+#[rstest::rstest]
+#[case::counted_by_the_network(false, 494.0)]
+#[case::from_the_disk_cache(true, 0.0)]
+fn a_document_counted_or_from_the_cache_arrives_whole(
+    #[case] from_disk_cache: bool,
+    #[case] encoded: f64,
+) {
+    assert!(matches!(
+        ended_after(&finished_document(from_disk_cache, encoded)),
+        Some(Ok(Arrived::Document(Some(_))))
+    ));
+}

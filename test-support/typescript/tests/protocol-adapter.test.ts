@@ -373,28 +373,30 @@ describe("ProtocolAdapter events", () => {
     ]);
   });
 
-  test("after forgetPositions(), a resumed subscription restarts from events.resync", async () => {
+  test("after forgetPositions(), a resumed subscription restarts from events.resync of the live runs", async () => {
     const adapter = createProtocolAdapter();
     const first = new TinyClient(adapter.transport);
     const instance = await first.hello(0);
     first.subscribe(1, {}, 1);
     adapter.push(axes("one", "running"), 1);
     adapter.push(axes("one", "finished"), 2);
+    adapter.push(axes("live", "running"), 3);
     await first.eventsUntil(1, 1);
     adapter.drop();
     adapter.forgetPositions();
 
     const resumed = new TinyClient(adapter.transport);
     resumed.subscribe(1, { after: { engine_instance: instance, position: 1 } }, 10);
-    adapter.push(axes("two", "running"), 4);
+    adapter.push(axes("two", "running"), 5);
 
+    // As the engine's: a run that ended leaves the resync (#1768).
     expect(await resumed.eventsUntil(1, 2)).toEqual([
       {
-        position: 3,
+        position: 4,
         event: "events.resync",
-        data: { runs: [{ run_id: "one", lifecycle: "finished" }], needs_you: [] },
+        data: { runs: [{ run_id: "live", lifecycle: "running" }], needs_you: [] },
       },
-      { position: 4, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
+      { position: 5, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
     ]);
   });
 

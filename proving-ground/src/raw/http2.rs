@@ -8,7 +8,9 @@ use std::sync::Arc;
 use loona_hpack::{Decoder, Encoder};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
-use super::{Answer, Context, Cut, ErrorCode, Page, Pages, READ_LIMIT, Refusal, Request, settle};
+use super::{
+    Answer, Context, Cut, ErrorCode, LATE, Page, Pages, READ_LIMIT, Refusal, Request, settle,
+};
 use crate::observation::{End, Protocol};
 
 const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -263,7 +265,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                         );
                         Ok(false)
                     }
-                    Cut::Connection => {
+                    Cut::Connection | Cut::Late => {
+                        if cut == Cut::Late {
+                            tokio::time::sleep(LATE).await;
+                        }
                         context.delivered(
                             request.recorded,
                             Some(page.body.len()),

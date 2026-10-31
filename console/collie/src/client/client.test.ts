@@ -219,15 +219,17 @@ describe("the Console's Client", () => {
     let runs = fold(new Map([["stale", "running"]]), first!);
 
     adapter.drop();
-    adapter.push(axes("second", "finished"), 2);
+    adapter.push(axes("second", "running"), 2);
+    adapter.push(axes("third", "finished"), 3);
     adapter.forgetPositions();
     const [resync] = await take(subscription, 1);
     runs = fold(runs, resync!);
 
-    expect(resync).toMatchObject({ kind: "resync", position: 3 });
+    // A resync gives the live runs alone: one that ended is in run.list (#1768).
+    expect(resync).toMatchObject({ kind: "resync", position: 4 });
     expect([...runs]).toEqual([
       ["first", "running"],
-      ["second", "finished"],
+      ["second", "running"],
     ]);
     client.close();
   });

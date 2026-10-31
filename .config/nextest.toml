@@ -118,8 +118,9 @@ timing-sensitive = { max-threads = 4 }
 
 # The Daemon soak (TESTING.md, Time and Memory at scale) runs 40 crawls of
 # 300 pages on one Daemon, whose own work keeps two to three cores busy for
-# about three minutes: 165 to 210 s alone on the M1 server, 354 to 578 s
-# beside the rest of a Pre-merge run, against the five-minute kill (#1740).
+# about two minutes: 100 to 142 s alone on the M1 server and 138 to 148 s in a
+# Pre-merge run (#1765), against the five-minute kill; beside the rest of a
+# Pre-merge run it took 354 to 578 s before #1765 (#1740).
 # It takes every test thread of the run, so nextest starts it once the
 # threads are free and starts nothing beside it until it ends: the run's
 # own load no longer decides whether it ends within its cap, which stays

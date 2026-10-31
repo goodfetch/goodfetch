@@ -10,15 +10,21 @@
 //! which area 6's trap-link judgement leaves out (ADR 0035). The prompts
 //! the Consent prompt runner hid go the same way, by the selectors of its
 //! rules ([`remove_selected`], ADR 0048). A removal over a fifth of the
-//! main content's text is flagged ([`Share`]).
+//! main content's text is flagged ([`Share`]). A Run's pages share the
+//! selectors it parsed ([`Selectors`]), so each is parsed once.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the parsed selectors' lock guards one map for one page's lookups, on a blocking thread, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use adblock::cosmetic_filter_cache::ProceduralOrActionFilter;
 use adblock::filters::cosmetic::{CosmeticFilterAction, CosmeticFilterOperator};
 use dom_query::{Document, Matcher, NodeId, NodeRef, Selection};
 
-use crate::cosmetic::{HIDDEN, PageRules};
+use crate::cosmetic::{CssRule, HIDDEN, PageRules};
 use crate::matching::{Choices, List};
 use crate::rules::FilterLists;
 
@@ -56,6 +62,49 @@ pub struct Removed {
     pub links: Vec<String>,
 }
 
+/// The selectors removal parsed for the pages that share it, a Run's: each
+/// is parsed on the first page whose rules hold it and kept, never parsed
+/// again for a later page (#1765). Parsing the hundreds of selectors each
+/// page's rules hold cost more than the rest of its removal. A selector
+/// that does not parse is kept as such. It holds at most every selector of
+/// the lists, and goes with the last page that shares it.
+#[derive(Default)]
+pub struct Selectors {
+    parsed: Mutex<HashMap<String, Option<Matcher>>>,
+}
+
+impl Selectors {
+    /// How many selectors it parsed so far.
+    pub fn parsed(&self) -> usize {
+        self.parsed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    /// The matcher of each of `selectors`, in their order; none for one
+    /// that does not parse.
+    fn matchers<'s>(&self, selectors: impl IntoIterator<Item = &'s str>) -> Vec<Option<Matcher>> {
+        let mut parsed = self.parsed.lock().unwrap_or_else(PoisonError::into_inner);
+        selectors
+            .into_iter()
+            .map(|selector| {
+                if let Some(matcher) = parsed.get(selector) {
+                    return matcher.clone();
+                }
+                let matcher = Matcher::new(selector).ok();
+                parsed.insert(selector.to_owned(), matcher.clone());
+                matcher
+            })
+            .collect()
+    }
+
+    /// The matcher of `selector`, if it parses.
+    fn matcher(&self, selector: &str) -> Option<Matcher> {
+        self.matchers([selector]).pop().flatten()
+    }
+}
+
 /// One rule as removal applies it.
 struct Rule<K> {
     name: String,
@@ -76,8 +125,14 @@ enum Step {
 }
 
 /// Removes from `html`, the document of the page at `url`, every element
-/// the cosmetic rules of the lists `choices` turn on, among `lists`, match.
-pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> Removal {
+/// the cosmetic rules of the lists `choices` turn on, among `lists`, match,
+/// their selectors parsed through `selectors`.
+pub fn remove(
+    html: &str,
+    url: &str,
+    (lists, choices): (&FilterLists, &Choices),
+    selectors: &Selectors,
+) -> Removal {
     let rules = PageRules::of(lists, choices, url);
     if rules.is_empty() {
         return untouched(html);
@@ -85,34 +140,30 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
     let document = Document::from(html);
     let roots = roots(&document);
     let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
-    let css: Vec<Rule<Matcher>> = rules
+    let hiding: Vec<CssRule> = rules
         .css_rules(
             &classes.iter().map(String::as_str).collect::<Vec<_>>(),
             &ids.iter().map(String::as_str).collect::<Vec<_>>(),
         )
         .into_iter()
         .filter(|rule| rule.style == HIDDEN)
-        .filter_map(|rule| {
+        .collect();
+    let matchers = selectors.matchers(hiding.iter().map(|rule| rule.selector.as_str()));
+    let css: Vec<Rule<Matcher>> = hiding
+        .into_iter()
+        .zip(matchers)
+        .filter_map(|(rule, matcher)| {
             Some(Rule {
-                kind: Matcher::new(&rule.selector).ok()?,
+                kind: matcher?,
                 name: rule.selector,
                 list: rule.list,
             })
         })
         .collect();
-    // One pass over each root finds what any plain rule matches; each
-    // element found is then credited to the first rule that matches it.
-    let every = Matcher::new(
-        &css.iter()
-            .map(|rule| rule.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
-    .ok();
     let procedural: Vec<Rule<Procedural>> = rules
         .procedural()
         .into_iter()
-        .filter_map(|(filter, list)| procedural(&filter, list))
+        .filter_map(|(filter, list)| procedural(&filter, list, selectors))
         .collect();
     if css.is_empty() && procedural.is_empty() {
         return untouched(html);
@@ -123,28 +174,16 @@ pub fn remove(html: &str, url: &str, lists: &FilterLists, choices: &Choices) -> 
         if host.is_some_and(|host| gone_with_an_ancestor(&host, &gone)) {
             continue;
         }
-        let found: Vec<(NodeRef<'_>, &str, List)> = match &every {
-            Some(every) => Selection::from(*root)
-                .select_matcher(every)
-                .nodes()
-                .iter()
-                .filter_map(|node| {
-                    let rule = css.iter().find(|rule| node.is_match(&rule.kind))?;
-                    Some((*node, rule.name.as_str(), rule.list))
-                })
-                .collect(),
-            None => css
-                .iter()
-                .flat_map(|rule| {
-                    Selection::from(*root)
-                        .select_matcher(&rule.kind)
-                        .nodes()
-                        .iter()
-                        .map(|node| (*node, rule.name.as_str(), rule.list))
-                        .collect::<Vec<_>>()
-                })
-                .collect(),
-        };
+        // One pass over each root finds, in document order, each element a
+        // plain rule matches, credited to the first rule that matches it.
+        let found: Vec<(NodeRef<'_>, &str, List)> = root
+            .descendants_it()
+            .filter(NodeRef::is_element)
+            .filter_map(|node| {
+                let rule = css.iter().find(|rule| node.is_match(&rule.kind))?;
+                Some((node, rule.name.as_str(), rule.list))
+            })
+            .collect();
         let procedurally = procedural.iter().flat_map(|rule| {
             matches(root, &rule.kind)
                 .into_iter()
@@ -243,14 +282,16 @@ fn untouched(html: &str) -> Removal {
 /// The document's root, then each shadow root with the `<template>` that
 /// holds it, breadth first in document order.
 fn roots(document: &Document) -> Vec<(NodeRef<'_>, Option<NodeRef<'_>>)> {
+    static SHADOW: LazyLock<Matcher> = LazyLock::new(|| {
+        Matcher::new("template[shadowrootmode]")
+            .expect("invariant: the shadow root selector is CSS")
+    });
     let mut roots = vec![(document.root(), None)];
     let mut next = 0;
     while next < roots.len() {
         let (root, _) = roots[next];
         next += 1;
-        let shadow = Matcher::new("template[shadowrootmode]")
-            .expect("invariant: the shadow root selector is CSS");
-        for template in Selection::from(root).select_matcher(&shadow).nodes() {
+        for template in Selection::from(root).select_matcher(&SHADOW).nodes() {
             let contents =
                 template.query(|node| node.as_element().and_then(|e| e.template_contents));
             if let Some(contents) = contents.flatten().and_then(|id| document.tree.get(&id)) {
@@ -283,8 +324,12 @@ fn classes_and_ids<'a, 'b: 'a>(
 
 /// The rule removal makes of a procedural `filter` of `list`: none for an
 /// action other than hiding or removing, or an operator it does not
-/// evaluate.
-fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule<Procedural>> {
+/// evaluate. Its selectors are parsed through `selectors`.
+fn procedural(
+    filter: &ProceduralOrActionFilter,
+    list: List,
+    selectors: &Selectors,
+) -> Option<Rule<Procedural>> {
     match filter.action {
         None | Some(CosmeticFilterAction::Remove) => {}
         Some(_) => return None,
@@ -294,7 +339,7 @@ fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule<Proc
         .iter()
         .map(|operator| match operator {
             CosmeticFilterOperator::CssSelector(selector) => {
-                Matcher::new(selector).ok().map(Step::Css)
+                selectors.matcher(selector).map(Step::Css)
             }
             CosmeticFilterOperator::HasText(text) if !is_pattern(text) => {
                 Some(Step::HasText(text.clone()))
@@ -304,7 +349,7 @@ fn procedural(filter: &ProceduralOrActionFilter, list: List) -> Option<Rule<Proc
             }
             CosmeticFilterOperator::Upward(by) => match by.parse() {
                 Ok(levels) => Some(Step::UpwardBy(levels)),
-                Err(_) => Matcher::new(by).ok().map(Step::UpwardTo),
+                Err(_) => selectors.matcher(by).map(Step::UpwardTo),
             },
             _ => None,
         })

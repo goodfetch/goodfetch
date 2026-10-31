@@ -65,7 +65,9 @@
 //! passes through one loop.
 
 use std::collections::BTreeSet;
+use std::time::SystemTime;
 
+use futures_util::future::join_all;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -376,17 +378,31 @@ async fn deliver(
                     tracing::warn!(%error, run_id = %run.id(), "the seeds added were not keyed yet");
                 }
             }
-            Some(ended) = attempts.join_next() => {
-                if let Ok(attempt) = ended {
-                    let pool = (&mut pool, fetching);
-                    settled(run, settings, &mut admission, pool, servers, attempt).await;
-                }
+            Some(first) = attempts.join_next() => {
+                let ended = ended_with(first, &mut attempts);
+                let pool = (&mut pool, fetching);
+                settled(run, settings, &mut admission, pool, servers, ended).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
+}
+
+/// The attempt that ended `first`, then every other of `attempts` that
+/// ended by now, in the order they ended, so they settle together and the
+/// loop's own work, its admission's included, runs once for them all
+/// rather than once for each (#1765). An attempt whose task panicked or
+/// was cancelled is left out, as when it settled alone.
+fn ended_with(
+    first: Result<Attempt, tokio::task::JoinError>,
+    attempts: &mut JoinSet<Attempt>,
+) -> Vec<Attempt> {
+    std::iter::once(first)
+        .chain(std::iter::from_fn(|| attempts.try_join_next()))
+        .filter_map(Result::ok)
+        .collect()
 }
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
@@ -999,49 +1015,34 @@ async fn when_idle(run: &Run, admission: &mut Admission) -> Result<Idle, RunStat
     })
 }
 
-/// Settles an attempt that ended under the Run's policy now, takes it out
-/// of the requests in flight its progress shows, frees its place on its
-/// Connection, returns its domain's turn, puts a retried work item back in
-/// its queue and journals what the queues changed.
+/// What settling one ended attempt keeps of it once its Session is scored,
+/// for its domain's turn and queue after its commit.
+struct Settling {
+    waiting: Waiting,
+    merged: Vec<(String, String)>,
+    domain: Ended,
+    held: Option<SystemTime>,
+}
+
+/// Settles the attempts that ended, `ended`, in the order they ended,
+/// under the Run's policy now: takes each out of the requests in flight
+/// its progress shows, frees its place on its Connection and scores its
+/// Session, writing the pool's changes once; commits or ends them all
+/// together, so the run state's writer takes their writes in one group
+/// rather than the loop waiting for each in turn (#1765); then returns
+/// each one's domain turn and puts each retried work item back in its
+/// queue, in their order, and journals what the queues changed.
 async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
-    mut attempt: Attempt,
+    ended: Vec<Attempt>,
 ) {
-    fetching.classify(run, &mut attempt).await;
-    fetching.time(&mut attempt).await;
-    fetching
-        .in_flight
-        .lock()
-        .await
-        .ended(run, &attempt.leased.crawl_request.id);
-    let server = &mut servers[attempt.server];
-    server.in_flight -= 1;
-    if let Answer::ClientGone = attempt.answer {
-        server.gone = true;
-    }
-    let waiting = attempt.leased.waiting.clone();
-    let merged = std::mem::take(&mut attempt.merged);
     let resolved = settings.at_admission().await;
-    let domain = domain_ending(
-        &attempt.answer,
-        attempt.document.as_ref(),
-        proxied(&resolved),
-        run.clock().now(),
-        run.clock().wall(),
-    );
-    if attempt.moved {
-        pool.moved_to_browser(&waiting.key);
-    }
-    pool.settle(
-        &attempt.session,
-        &waiting.key,
-        effect(&attempt.answer),
-        &PoolSettings::of(&resolved),
-    );
+    let (attempts, settlings) =
+        scored(run, &resolved, (&mut *pool, fetching), servers, ended).await;
     let changes = pool.changes();
     if !changes.is_empty()
         && let Err(error) = run
@@ -1051,48 +1052,139 @@ async fn settled(
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
     }
-    fetching
-        .retire(run, pool, &servers[attempt.server].context)
-        .await;
-    let held = held_past_bound(
-        &attempt.answer,
-        attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
-        goodfetch_frontier::longest_wait(&resolved),
-    );
-    let retried = match attempt.answer {
-        Answer::SitemapRead(_) => {
-            read_sitemap(run, &resolved, attempt).await;
-            false
-        }
-        _ => settle(run, CrawlPolicy::of(&resolved), held.is_some(), attempt).await,
-    };
-    if let Some(asked) = held {
-        let clock = run.clock();
-        if let Ok(wait) = asked.duration_since(clock.wall()) {
-            admission.refuse(&waiting.key, clock.now() + wait, asked);
-        }
+    for attempt in &attempts {
+        fetching
+            .retire(run, pool, &servers[attempt.server].context)
+            .await;
     }
-    admission
-        .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
-        .await;
-    if retried {
-        count_retry(run);
-        admission.enqueue(waiting);
+    let policy = CrawlPolicy::of(&resolved);
+    let retried = join_all(
+        attempts
+            .into_iter()
+            .zip(&settlings)
+            .map(|(attempt, settling)| {
+                let resolved = &resolved;
+                async move {
+                    match attempt.answer {
+                        Answer::SitemapRead(_) => {
+                            read_sitemap(run, resolved, attempt).await;
+                            false
+                        }
+                        _ => settle(run, policy, settling.held.is_some(), attempt).await,
+                    }
+                }
+            }),
+    )
+    .await;
+    returned(run, admission, settlings.into_iter().zip(retried)).await;
+    if let Err(error) = key_new(run, admission).await {
+        tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
     }
+    journal(run, admission).await;
+}
+
+/// Takes each attempt of `ended` out of the requests in flight its
+/// progress shows, frees its place on its Connection and scores its
+/// Session in `pool` under `resolved`, in their order, answering them with
+/// what each one's settling keeps.
+async fn scored(
+    run: &Run,
+    resolved: &Resolved,
+    (pool, fetching): (&mut SessionPool, &Fetching<'_>),
+    servers: &mut [Serving],
+    ended: Vec<Attempt>,
+) -> (Vec<Attempt>, Vec<Settling>) {
+    let pool_settings = PoolSettings::of(resolved);
+    let mut attempts = Vec::with_capacity(ended.len());
+    let mut settlings = Vec::with_capacity(ended.len());
+    for mut attempt in ended {
+        fetching.classify(run, &mut attempt).await;
+        fetching.time(&mut attempt).await;
+        fetching
+            .in_flight
+            .lock()
+            .await
+            .ended(run, &attempt.leased.crawl_request.id);
+        let server = &mut servers[attempt.server];
+        server.in_flight -= 1;
+        if let Answer::ClientGone = attempt.answer {
+            server.gone = true;
+        }
+        let waiting = attempt.leased.waiting.clone();
+        let merged = std::mem::take(&mut attempt.merged);
+        let domain = domain_ending(
+            &attempt.answer,
+            attempt.document.as_ref(),
+            proxied(resolved),
+            run.clock().now(),
+            run.clock().wall(),
+        );
+        if attempt.moved {
+            pool.moved_to_browser(&waiting.key);
+        }
+        pool.settle(
+            &attempt.session,
+            &waiting.key,
+            effect(&attempt.answer),
+            &pool_settings,
+        );
+        let held = held_past_bound(
+            &attempt.answer,
+            attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
+            goodfetch_frontier::longest_wait(resolved),
+        );
+        settlings.push(Settling {
+            waiting,
+            merged,
+            domain,
+            held,
+        });
+        attempts.push(attempt);
+    }
+    (attempts, settlings)
+}
+
+/// Returns, in their order, each settled attempt's domain turn to
+/// `admission`, holding its domain first until the time its response asked
+/// past the Run's longest wait, puts its work item back in its queue when
+/// it was `retried`, takes out of their queues the requests a rule it
+/// taught merged, and fills those queues again.
+async fn returned(
+    run: &Run,
+    admission: &mut Admission,
+    settled: impl Iterator<Item = (Settling, bool)>,
+) {
     let mut keys = BTreeSet::new();
-    for (id, key) in merged {
-        admission.withdraw(&key, &id);
-        keys.insert(key);
+    for (settling, retried) in settled {
+        let Settling {
+            waiting,
+            merged,
+            domain,
+            held,
+        } = settling;
+        if let Some(asked) = held {
+            let clock = run.clock();
+            if let Ok(wait) = asked.duration_since(clock.wall()) {
+                admission.refuse(&waiting.key, clock.now() + wait, asked);
+            }
+        }
+        admission
+            .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
+            .await;
+        if retried {
+            count_retry(run);
+            admission.enqueue(waiting);
+        }
+        for (id, key) in merged {
+            admission.withdraw(&key, &id);
+            keys.insert(key);
+        }
     }
     for key in keys {
         if let Err(error) = fill(run, admission, Some(key)).await {
             tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
         }
     }
-    if let Err(error) = key_new(run, admission).await {
-        tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
-    }
-    journal(run, admission).await;
 }
 
 /// Opens the Run's admission and Session pool, or ends the Run as failed

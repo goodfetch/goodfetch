@@ -11298,7 +11298,7 @@
         },
         "runs": {
           "arrived_in": "0.1",
-          "description": "The axes of each Run the engine knows, live or ended.",
+          "description": "The axes of each live Run the engine knows. A Run it leaves out\nended, and `run.list` gives its axes.",
           "items": {
             "$ref": "#/$defs/RunAxes"
           },

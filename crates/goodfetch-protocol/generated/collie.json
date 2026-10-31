@@ -5526,7 +5526,7 @@
         },
         "runs": {
           "arrived_in": "0.1",
-          "description": "The axes of each Run the engine knows, live or ended.",
+          "description": "The axes of each live Run the engine knows. A Run it leaves out\nended, and `run.list` gives its axes.",
           "items": {
             "$ref": "#/$defs/RunAxes"
           },
@@ -10257,7 +10257,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of \"Needs you\", from which the stream continues.",
       "name": "events.resync",
       "payload": {
         "$ref": "#/$defs/Resync"

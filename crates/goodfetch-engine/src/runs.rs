@@ -96,6 +96,7 @@ pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
 
+use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
     Found, RunRow, canonical_inputs, input_differences, masked_tags, point_in_time, read_found,
     read_report, text, write_end,
@@ -2443,7 +2444,7 @@ impl Runs {
             ending_owner: owner.child(),
             readers,
             live: BTreeMap::new(),
-            ended: BTreeMap::new(),
+            ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
             secrets: runs.secrets.clone(),
@@ -3681,20 +3682,6 @@ enum Ended {
     Unrecorded(Box<StorageExhausted>),
 }
 
-/// What the registry keeps of a Run this engine ended: never a report its
-/// run file holds, which a read takes from there, so a Daemon that runs Run
-/// after Run holds none of their reports, with their settings explained,
-/// for its life (#1729). Read back, a report lacks its settings, which
-/// never reach a run file (ADR 0102's note).
-#[derive(Debug)]
-enum EndedHere {
-    /// Its report is in its run file. A read of it adds the last
-    /// Checkpoint this engine wrote of it, which its run file cannot name.
-    InRunFile { checkpoint: Option<Checkpoint> },
-    /// Its end could not be written to its run file: this is its report.
-    Unwritten(Box<RunReport>),
-}
-
 impl Ended {
     /// Its report, unless its stop went unrecorded.
     fn report(&self) -> Option<&RunReport> {
@@ -3834,8 +3821,9 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
-    /// The Runs this engine ended.
-    ended: BTreeMap<RunId, EndedHere>,
+    /// What it keeps of the Runs this engine ended: nothing of most
+    /// (`runs::ended`).
+    ended: EndedRuns,
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
@@ -4357,14 +4345,8 @@ impl Registry {
             waiters.send_replace(Some(ended.clone()));
         }
         match ended {
-            Ended::Report(report) => {
-                let checkpoint = report.checkpoint;
-                self.ended
-                    .insert(run_id, EndedHere::InRunFile { checkpoint });
-            }
-            Ended::Unwritten(report) => {
-                self.ended.insert(run_id, EndedHere::Unwritten(report));
-            }
+            Ended::Report(report) => self.ended.in_run_file(run_id, report.checkpoint),
+            Ended::Unwritten(report) => self.ended.unwritten(run_id, report),
             Ended::Unrecorded(exhausted) => {
                 self.unrecorded.insert(run_id, exhausted);
             }
@@ -4514,7 +4496,7 @@ impl Registry {
         } = erased;
         self.discarding.remove(&run_id);
         if state_gone {
-            self.ended.remove(&run_id);
+            self.ended.forget(&run_id);
             self.found_ended.remove(&run_id);
             self.unrecorded.remove(&run_id);
         }
@@ -5253,7 +5235,7 @@ impl Registry {
             Some(EndedHere::Unwritten(report)) => {
                 return Ok(watch::Sender::new(Some(Ended::Unwritten(report.clone()))).subscribe());
             }
-            Some(EndedHere::InRunFile { checkpoint }) => checkpoint.clone(),
+            Some(EndedHere::Checkpointed(checkpoint)) => Some(checkpoint.clone()),
             None => None,
         };
         if let Some(exhausted) = self.unrecorded.get(run_id) {
@@ -5305,7 +5287,7 @@ impl Registry {
             }
             return Ok(Waiting::Report(live.report.subscribe()));
         }
-        if self.ended.contains_key(run_id) || self.found_ended.contains(run_id) {
+        if self.ended.contains(run_id) || self.found_ended.contains(run_id) {
             return self.ended_report(run_id).await.map(Waiting::Report);
         }
         self.abort(run_id, by, Forwarded::No).await
@@ -5321,7 +5303,7 @@ impl Registry {
         by: StoppedBy,
         forwarded: Forwarded,
     ) -> Result<Waiting, RunError> {
-        if self.live.contains_key(run_id) || self.ended.contains_key(run_id) {
+        if self.live.contains_key(run_id) || self.ended.contains(run_id) {
             return self
                 .end_or_report(run_id, End::Stopped(StopReason::Abort { by }))
                 .await
@@ -5519,7 +5501,7 @@ impl Registry {
             .reopen(&run_id, held.lifecycle, checkpoint, &options)
             .await?;
         let recorded = self.recorded(&run_id, &folder).await?;
-        self.ended.remove(&run_id);
+        self.ended.forget(&run_id);
         self.unrecorded.remove(&run_id);
         let progress_message = recorded
             .progress_message
@@ -6256,6 +6238,7 @@ impl Closing {
 
 mod clean_up;
 mod discard;
+mod ended;
 mod folder;
 mod import;
 pub mod lifecycle;

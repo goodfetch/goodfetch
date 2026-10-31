@@ -166,6 +166,16 @@ function runIdOf(data: unknown): string | undefined {
     : undefined;
 }
 
+/** The `lifecycle` an event's payload names, if it names one. */
+function lifecycleOf(data: unknown): string | undefined {
+  return typeof data === "object" &&
+    data !== null &&
+    "lifecycle" in data &&
+    typeof data.lifecycle === "string"
+    ? data.lifecycle
+    : undefined;
+}
+
 /**
  * The in-memory adapter of the protocol. Create it inside a test (or a
  * fixture), through {@link createProtocolAdapter}.
@@ -194,7 +204,7 @@ export class ProtocolAdapter<
   #last = 0;
   /** The last position no longer kept: a subscription resumes after any position from it to `#last`. */
   #floor = 0;
-  /** Each Run's axes as `run.axes_changed` last reported them, which a resync gives. */
+  /** Each live Run's axes as `run.axes_changed` last reported them, which a resync gives. */
   readonly #runs = new Map<string, unknown>();
   /** Each "Needs you" item `needs_you.changed` left listed, by ID, which a resync gives. */
   readonly #needsYou = new Map<string, NeedsYouItem>();
@@ -259,7 +269,12 @@ export class ProtocolAdapter<
     this.#last = position;
     const runId = runIdOf(data);
     if (name === "run.axes_changed" && runId !== undefined) {
-      this.#runs.set(runId, data);
+      // As the engine's: a Run leaves the resync once it ends (#1768).
+      if (lifecycleOf(data) === "running") {
+        this.#runs.set(runId, data);
+      } else {
+        this.#runs.delete(runId);
+      }
     }
     if (name === "needs_you.changed") {
       this.#foldNeedsYou(data);
@@ -334,7 +349,7 @@ export class ProtocolAdapter<
   /**
    * Forgets every position pushed so far, as an engine whose kept events
    * moved on: a subscription that resumes after one of them starts with
-   * `events.resync`, the axes of every Run pushed, then the stream.
+   * `events.resync`, the axes of every live Run pushed, then the stream.
    */
   forgetPositions(): void {
     this.#retained = [];

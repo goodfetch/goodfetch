@@ -16,6 +16,12 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+// The executables' count of the live heap, around the system's allocator,
+// which `heap.rs` reads (#1768); every other test allocates as before.
+#[global_allocator]
+static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
+    goodfetch_engine::heap::Counting::new(std::alloc::System);
+
 mod certificates;
 mod children;
 mod client_certificates;
@@ -25,6 +31,7 @@ mod egress;
 mod extra_loopback;
 mod governor;
 mod happy_eyeballs;
+mod heap;
 mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;

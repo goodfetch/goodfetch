@@ -280,6 +280,10 @@ _Avoid_: cost, consumption, credits
 A consistent, self-contained copy of a run's state from which the run can resume, on the same machine or another one.
 _Avoid_: snapshot, savepoint, backup
 
+**Durability level**:
+What a run's state survives: a process crash, a power cut, both or neither, chosen per run as `full`, `fast`, `periodic` or `off`.
+_Avoid_: persistence mode, sync mode, fsync mode
+
 **Limit**:
 A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
 _Avoid_: budget, quota, spending cap
@@ -453,6 +457,10 @@ _Avoid_: actionability check, auto-wait
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion
+
+**Page analysis**:
+The one step in which a fetched page is parsed and read by every reader its crawl needs, leaving one result that every later step shares.
+_Avoid_: parse step, pipeline stage, page processing
 
 **Dataset**:
 The append-only collection of a run's Records, named by the crawl that fills it, which may give it a schema and the fields that identify one Record.

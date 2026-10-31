@@ -19,7 +19,7 @@ use goodfetch_protocol::foxhound::dataset::{
 };
 
 use crate::declaration::Datasets;
-use crate::records::{self, Query, last_number};
+use crate::records::{self, Query};
 
 /// The most Records one read of the run file takes.
 const PAGE: usize = 256;
@@ -54,7 +54,7 @@ async fn read_records(
         let (dataset, after, through) = (params.dataset.clone(), read.last, params.through);
         let (page, committed) = reader
             .read(move |connection| {
-                let page = records::read(
+                records::read_through(
                     connection,
                     Query {
                         dataset: &dataset,
@@ -63,14 +63,7 @@ async fn read_records(
                         wall: params.wall,
                     },
                     PAGE,
-                )?;
-                // Whether every Record through the bound has committed,
-                // so that this page holds the last of them.
-                let committed = match through {
-                    Some(through) => last_number(connection, &dataset)? >= through,
-                    None => false,
-                };
-                Ok((page, committed))
+                )
             })
             .await
             .map_err(failed)?;

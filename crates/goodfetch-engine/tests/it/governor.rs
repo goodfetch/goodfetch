@@ -563,6 +563,37 @@ fn runs_share_each_kinds_admissions_in_turn_within_their_share() {
     assert_eq!((pages, turns, capped), (4, ((true, true), true, true), 8));
 }
 
+/// A target starts at its ceiling as the machine's settings set it, not at
+/// the built-in one (ADR 0040): before its first sample read them, the
+/// governor admits nothing, then up to the user configuration's ceiling.
+/// A Run that started before the first sample once took three of a fixed
+/// cap of two, and a crawl test waiting for that cap never saw it (#1792).
+///
+/// Covers: story:3-55, setting:governor.http.ceiling
+#[test]
+fn before_its_first_sample_the_governor_admits_nothing_past_the_configured_ceiling() {
+    let env = TestEnv::new();
+    env.user_configuration(&format!(
+        "{SAMPLED}governor.http.floor = 2\ngovernor.http.ceiling = 2\n"
+    ));
+    let proc = Proc::new();
+
+    let (before, after) = governed(&env, &proc, async |governor| {
+        let run = governor.join(100);
+        let mut samples = Samples::of(&governor);
+        let before: Vec<_> = (0..3)
+            .filter_map(|_| run.try_admit(WorkKind::Http))
+            .collect();
+        let _ = samples.next().await;
+        let after: Vec<_> = (0..3)
+            .filter_map(|_| run.try_admit(WorkKind::Http))
+            .collect();
+        (before.len(), after.len())
+    });
+
+    assert_eq!((before, after), (0, 2));
+}
+
 /// A Browser host's Session's pages are admitted by the targets the host
 /// reports from its own governor, not by the engine's own: here the engine
 /// is under pressure and the host has room, then the other way round.

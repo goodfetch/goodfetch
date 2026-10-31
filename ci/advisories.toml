@@ -6,7 +6,7 @@
 # what its commit changed. `xtask advisories fetch` keeps the snapshot in
 # target/advisories/, downloading only what is missing or differs.
 #
-# Taken on 2026-10-22.
+# RustSec's commit taken on 2026-10-31 (#1785), OSV's databases on 2026-10-22.
 #
 # To refresh it, in one pull request, from the repository root (with the
 # fix that answers a failing live audit, or at any time):
@@ -31,7 +31,7 @@
 # of its Git repository, fetched alone.
 [rustsec]
 repository = "https://github.com/rustsec/advisory-db"
-commit = "4b587f00996ebe5c05a73eaef105ef241e876414"
+commit = "2295466c4e9df26647fd67d8fa1c705ac2fc7f81"
 
 # OSV's databases, read by OSV-Scanner: each named `<ecosystem>.zip`, the
 # ecosystem as OSV spells it.

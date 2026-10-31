@@ -41,6 +41,8 @@ zstd.workspace = true
 goodfetch-test-support.workspace = true
 rstest.workspace = true
 gungraun.workspace = true
+# The records' tests commit between a reader's statements (trace_v2).
+rusqlite = { workspace = true, features = ["trace"] }
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

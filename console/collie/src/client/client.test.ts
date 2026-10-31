@@ -308,18 +308,15 @@ describe("the Console's Client", () => {
     },
   );
 
+  // The adapter answers the stall probe's `engine.info` itself, as the
+  // engine does, so a screen test that runs past two silent stall timeouts
+  // on a loaded host sets no answer for it (#1794).
   test("a Connection that keeps answering is never closed", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     onTestFinished(() => {
       vi.useRealTimers();
     });
     const adapter = createProtocolAdapter();
-    adapter.answer("engine.info", {
-      product: "collie",
-      product_major: 0,
-      product_version: "0.1.0",
-      protocol_version: "0.1",
-    });
     const { client, states } = clientOf(adapter);
     await reaches(client, "connected");
 

@@ -337,6 +337,51 @@ describe("ProtocolAdapter hello", () => {
   });
 });
 
+// The Console Client's stall watchdog asks a silent Connection
+// `engine.info`, so any screen test that runs past two stall timeouts
+// calls it (#1794).
+describe("ProtocolAdapter engine.info", () => {
+  test.for(["collie", "foxhound"] as const)(
+    "answers it itself on %s's engine, naming the engine hello names",
+    async (product) => {
+      const adapter = createProtocolAdapter({ product });
+      const client = new TinyClient(adapter.transport);
+      const hello = await client.call(0, "hello", {
+        protocol_version: "0.1",
+        surface: "console",
+        needs: product,
+        product_version: "0.1.0",
+      });
+
+      const reply = await client.call(1, "engine.info", {});
+
+      const greeted = hello["result"];
+      expect(reply["result"]).toEqual({
+        product,
+        product_major: 0,
+        product_version: isFields(greeted) ? greeted["product_version"] : undefined,
+        protocol_version: isFields(greeted) ? greeted["protocol_version"] : undefined,
+      });
+    },
+  );
+
+  test("answers it with the test's own answer once the test set one", async () => {
+    const adapter = createProtocolAdapter();
+    const set = {
+      product: "collie",
+      product_major: 2,
+      product_version: "2.4.1",
+      protocol_version: "0.1",
+    } as const;
+    adapter.answer("engine.info", set);
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(1, "engine.info", {});
+
+    expect(reply["result"]).toEqual(set);
+  });
+});
+
 describe("ProtocolAdapter events", () => {
   test("streams pushed events to a subscription, never more than its credits", async () => {
     const adapter = createProtocolAdapter();

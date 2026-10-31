@@ -32,6 +32,8 @@ test = false
 doc = false
 bench = false
 
-# Goodfetch's fork of `wreq`, as the workspace's `[patch.crates-io]` carries it.
+# Goodfetch's forks of `wreq` and `wreq-util`, as the workspace's
+# `[patch.crates-io]` carries them.
 [patch.crates-io]
 wreq = { path = "../../../../vendor/wreq" }
+wreq-util = { path = "../../../../vendor/wreq-util" }

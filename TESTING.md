@@ -468,7 +468,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 
 ### A flaky test found after merge
 
-1. CI opens (or reopens) one `flaky-test` issue for it, in the current milestone.
+1. CI opens (or reopens) one `flaky-test` issue for it, a sub-issue of the spec that owns the test, in the milestone of that spec's ticket that added it ([ADR 0136](docs/adr/0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)). Until [#1719](https://github.com/goodfetch/goodfetch/issues/1719), `xtask issues` still files it in the earliest open milestone with an open issue.
 2. The same day, add the test to the quarantine list with its issue.
 3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
 4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
@@ -489,7 +489,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 - **Security advisories:** the gate's `just audit` checks every lockfile offline against the snapshot `ci/advisories.toml` pins, so only a commit moves its verdict; the newest RustSec, npm and PyPI advisories are the live advisory audit's, `just audit-live`, daily on `main` (from the server's cron while the hosted workflows are off), which blocks nothing directly (ADR 0064's note of 2026-10-22).
 - **Outcomes are pass, fail or inconclusive.** Inconclusive means the external side was unavailable; it never counts as a pass.
 - **Results go to the results store** under the `live` tier, except fuzzing's, which stay private ([Security](#fuzzing)). A Live check writes JUnit like a test, and a skipped test case is its inconclusive result. Declare each Live check with its owning area in `ci/live-checks.toml`; the scan names the area in the issue's title and fails on an undeclared one.
-- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue** in the current milestone. If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
+- **A fail, or three inconclusive runs in a row, opens or updates one `live-check` issue**, a sub-issue of the spec that owns the Live check, in the milestone of that spec's ticket that added it (ADR 0136; until #1719, `xtask issues` still files it in the earliest open milestone with an open issue). If its cause is not stated within two business days, the next minor is not promoted until it is. Patches are not held, and the online conformance never blocks (ADR 0043). Fuzzing opens no `live-check` issue: its crashes stay private and block the next minor until fixed ([Security](#fuzzing)).
 - **A `live-check` issue closes** once its cause is written down and either fixed or attributed to an external party with a linked upstream report, so an explained vendor outage never holds a milestone gate.
 - **A measurement declares its trials, threshold and statistic before it runs,** and every trial counts. A failed trial is never replaced.
 

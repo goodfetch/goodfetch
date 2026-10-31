@@ -242,7 +242,7 @@ hyper-util = { version = "0.1.21", default-features = false }
 loona-hpack = { version = "0.4.3", default-features = false }
 # The Proving ground's certificate authority, made from its seed (ADR 0059):
 # rcgen writes the certificates, p256 derives the keys and signs (RFC 6979).
-p256 = { version = "0.13.2", default-features = false }
+p256 = { version = "0.14.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
 tokio-rustls = { version = "0.26.4", default-features = false }

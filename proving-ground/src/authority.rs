@@ -421,7 +421,7 @@ impl SeededKey {
             .expect("invariant: some counter gives a valid scalar");
         let public = signing
             .verifying_key()
-            .to_encoded_point(false)
+            .to_sec1_point(false)
             .as_bytes()
             .to_vec();
         Self { signing, public }

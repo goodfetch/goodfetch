@@ -19,6 +19,10 @@ thread_local! {
 
 /// Commits the Record numbered 3 when the reader's second statement over
 /// `records` begins, before that statement reads anything.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "trace_v2 takes a function of a TraceEvent by value"
+)]
 fn commit_before_the_second_read(event: TraceEvent<'_>) {
     let TraceEvent::Stmt(_, sql) = event else {
         return;

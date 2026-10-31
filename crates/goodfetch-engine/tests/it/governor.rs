@@ -565,8 +565,9 @@ fn runs_share_each_kinds_admissions_in_turn_within_their_share() {
 
 /// A target starts at its ceiling as the machine's settings set it, not at
 /// the built-in one (ADR 0040): before its first sample read them, the
-/// governor admits nothing, then up to the user configuration's ceiling.
-/// A Run that started before the first sample once took three of a fixed
+/// governor admits nothing, and a Run that asked waits for its turn, which
+/// the first sample gives it, up to the user configuration's ceiling. A
+/// Run that started before the first sample once took three of a fixed
 /// cap of two, and a crawl test waiting for that cap never saw it (#1792).
 ///
 /// Covers: story:3-55, setting:governor.http.ceiling
@@ -580,13 +581,12 @@ fn before_its_first_sample_the_governor_admits_nothing_past_the_configured_ceili
 
     let (before, after) = governed(&env, &proc, async |governor| {
         let run = governor.join(100);
-        let mut samples = Samples::of(&governor);
         let before: Vec<_> = (0..3)
             .filter_map(|_| run.try_admit(WorkKind::Http))
             .collect();
-        let _ = samples.next().await;
-        let after: Vec<_> = (0..3)
-            .filter_map(|_| run.try_admit(WorkKind::Http))
+        let turn = run.admit(WorkKind::Http).await;
+        let after: Vec<_> = std::iter::once(turn)
+            .chain((0..3).filter_map(|_| run.try_admit(WorkKind::Http)))
             .collect();
         (before.len(), after.len())
     });

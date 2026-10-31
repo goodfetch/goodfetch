@@ -22,6 +22,7 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -502,15 +503,57 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
 /// The host of the service worker page, a secure context over plain HTTP.
 const SERVICE_WORKER_HOST: &str = "access.localhost";
 
+/// The domain key of [`SERVICE_WORKER_HOST`]'s requests: not the crawl
+/// request's, so each navigation of its page takes a Permit of its own.
+const SERVICE_WORKER_KEY: &str = SERVICE_WORKER_HOST;
+
 /// The delay between starts the service worker cases set.
 const SERVICE_WORKER_DELAY: Duration = Duration::from_secs(3);
 
-/// Crawls one page as `run_id`, its handler going to the service worker
-/// page whose worker treats navigations as `navigations` says, waiting
-/// until the worker controls it, then reloading it; answers how long the
-/// reload took and the arrival times, in microseconds, of each request
-/// for the page.
-fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
+/// What the navigation gate took of a domain key in the Politeness file
+/// (ADR 0086).
+#[derive(Debug, PartialEq, Eq)]
+struct Taken {
+    /// How many Permits of the key were taken: those held, and those given
+    /// back, which the file counts as it deletes each.
+    permits: i64,
+    /// The key's last start, in milliseconds since the epoch: every
+    /// request of the key the gate admits takes or records one.
+    last_start: Option<i64>,
+}
+
+/// What the gate took of `key` so far in the Politeness file of `env`'s
+/// home, read in one statement. A give-back deletes its Permit and counts
+/// it in one transaction, so a Permit counts once whether it is still held
+/// or was given back.
+fn taken(env: &TestEnv, key: &str) -> Taken {
+    let file = Connection::open_with_flags(
+        env.home().join("politeness.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    file.busy_timeout(Duration::from_secs(10)).unwrap();
+    file.query_row(
+        "SELECT (SELECT count(*) FROM permits WHERE key = ?1)
+             + coalesce((SELECT generation FROM returns WHERE key = ?1), 0),
+             (SELECT last_start FROM domain_limits WHERE key = ?1)",
+        [key],
+        |row| {
+            Ok(Taken {
+                permits: row.get(0)?,
+                last_start: row.get(1)?,
+            })
+        },
+    )
+    .unwrap()
+}
+
+/// Crawls one page, its handler going to the service worker page whose
+/// worker treats navigations as `navigations` says, waiting until the
+/// worker controls it, then reloading it. Answers what the gate had taken
+/// of [`SERVICE_WORKER_KEY`] right before the reload and once it answered,
+/// and the arrival times, in microseconds, of each request for the page.
+fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u64>) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -519,7 +562,7 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
         "politeness": { "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() } },
     });
 
-    let mut took = None;
+    let mut reload = None;
     let report = crawl_with(
         &mut engine,
         navigations,
@@ -539,9 +582,12 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
                 );
                 std::thread::sleep(Duration::from_millis(100));
             }
-            let started = Instant::now();
+            // The gate takes a navigation's Permit and start before its
+            // request leaves, and the reload answers once its document
+            // arrived: what the reload took is in the file by then.
+            let before = taken(&env, SERVICE_WORKER_KEY);
             let reloaded = inside.call("page.reload", &json!({ "page_id": page_id }));
-            took = Some(started.elapsed());
+            reload = Some((before, taken(&env, SERVICE_WORKER_KEY)));
             assert_eq!(reloaded["result"]["response"]["status"], 200, "{reloaded}");
             json!({ "result": { "records": [] } })
         },
@@ -552,45 +598,47 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
         .into_iter()
         .map(|(_, at)| at)
         .collect();
-    (took.unwrap(), arrived)
+    (reload.unwrap(), arrived)
 }
 
 /// A service worker's request carrying a navigation of a handler's page,
 /// its `navigate`-mode request or its `cors` refetch of the pending
-/// navigation's URL, takes that navigation's permit: it reaches the site
-/// no sooner than the delay between starts after the page's first load.
+/// navigation's URL, takes that navigation's permit, once: the reload takes
+/// one Permit of its domain, and its request reaches the site no sooner
+/// than the delay between starts after the page's first load.
 ///
 /// Covers: story:5-134, story:5-112, operation:page.reload
 #[rstest::rstest]
 #[case::its_navigate_mode_request("pass")]
 #[case::its_refetch_of_a_pending_navigation("refetch")]
 fn a_service_workers_navigation_request_takes_the_permit(#[case] navigations: &str) {
-    let (_, arrived) = reloaded_under_a_service_worker(navigations);
+    let ((before, after), arrived) = reloaded_under_a_service_worker(navigations);
 
     let least = u64::try_from(SERVICE_WORKER_DELAY.as_micros() * 9 / 10).unwrap();
     assert_eq!(
         (
+            after.permits - before.permits,
             arrived.len(),
             arrived.windows(2).all(|pair| pair[1] - pair[0] >= least)
         ),
-        (2, true),
-        "{arrived:?}"
+        (1, 2, true),
+        "{before:?} {after:?} {arrived:?}"
     );
 }
 
 /// A navigation a service worker answers from its own cache sends nothing
 /// to the site and takes no permit: the reload neither reaches the site
-/// nor waits for the delay between starts.
+/// nor takes a Permit or a start of its domain, whose first load took one.
 ///
 /// Covers: story:5-134, operation:page.reload
 #[test]
 fn a_navigation_a_service_worker_answers_from_its_cache_takes_no_permit() {
-    let (took, arrived) = reloaded_under_a_service_worker("cache");
+    let ((before, after), arrived) = reloaded_under_a_service_worker("cache");
 
     assert_eq!(
-        (arrived.len(), took < SERVICE_WORKER_DELAY / 2),
-        (1, true),
-        "the reload took {took:?}"
+        (arrived.len(), before.permits, &after),
+        (1, 1, &before),
+        "{before:?} {after:?}"
     );
 }
 

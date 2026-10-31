@@ -13,7 +13,7 @@
 )]
 #![expect(
     clippy::disallowed_types,
-    reason = "the test binds a loopback port of its own, outside the engine, only to learn one nothing listens on (ADR 0060)"
+    reason = "a test binds the refused case's address, outside the engine, only to see that no other program can take it (ADR 0060)"
 )]
 #![expect(
     clippy::disallowed_methods,
@@ -21,7 +21,7 @@
 )]
 
 use std::collections::BTreeSet;
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -63,7 +63,8 @@ impl Tier {
 enum Page {
     /// `scope.test`'s quiet page answering this status.
     Status(u16),
-    /// A port of `scope.test` nothing listens on.
+    /// A host of `scope.test` at the Proving ground's `down` address, where
+    /// nothing listens.
     Refused,
     /// The Proving ground's port on the IPv6 loopback address, whose full
     /// listener's queue takes no connection.
@@ -133,10 +134,14 @@ fn crawl_settings(
     settings
 }
 
-/// A port of the loopback address nothing listens on.
-fn closed_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
+/// The address the refused case's page is met at: the Proving ground's
+/// `down` address, where nothing listens and which no other program can
+/// take while the Proving ground runs. A port bound and let go could be
+/// taken, and answered, by any program before the engine connects.
+fn refused_address(proving_ground: &ProvingGround) -> SocketAddr {
+    proving_ground.description().fixtures.proxies["down"]
+        .parse()
+        .expect("the down address is a socket address")
 }
 
 /// The URL `page` is met at, its domain key, and the hosts it needs
@@ -152,14 +157,17 @@ fn url_of(
             "scope.test",
             Vec::new(),
         ),
-        Page::Refused => (
-            format!(
-                "http://refused.scope.test:{}/quiet?mark=refused",
-                closed_port()
-            ),
-            "scope.test",
-            vec![("refused.scope.test", "127.0.0.1".to_owned())],
-        ),
+        Page::Refused => {
+            let refused = refused_address(proving_ground);
+            (
+                format!(
+                    "http://refused.scope.test:{}/quiet?mark=refused",
+                    refused.port()
+                ),
+                "scope.test",
+                vec![("refused.scope.test", refused.ip().to_string())],
+            )
+        }
         Page::TimedOut => (
             format!("http://stalled.scope.test:{port}/quiet?mark=stalled"),
             "scope.test",
@@ -244,6 +252,24 @@ fn crawled(engine: &mut Attached, params: &Value) -> Value {
             return message;
         }
     }
+}
+
+/// The refused case's address stays refused for as long as its Proving
+/// ground runs: no other program on the machine can listen there, as one
+/// could on a port bound and let go before the engine connects.
+#[cfg(unix)]
+#[test]
+fn no_other_program_can_take_the_refused_cases_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let refused = refused_address(&proving_ground);
+
+    let other = TcpListener::bind(refused);
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
 }
 
 /// A crawl of one page on each tier: the site's 429, 502, 503 and 504, a

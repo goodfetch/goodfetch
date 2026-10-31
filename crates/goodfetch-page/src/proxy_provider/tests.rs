@@ -6,6 +6,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod ahead;
+
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::PriceValue;

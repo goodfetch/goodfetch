@@ -173,7 +173,7 @@ _Avoid_: scraping, scraper, bot
 ## Execution
 
 **Run**:
-One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
+One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage; a Continuous crawl's finish comes only when it is told to end. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
 **Run ID**:
@@ -217,7 +217,7 @@ The folder holding one user's Goodfetch data, caches and configuration on a mach
 _Avoid_: data dir, app folder, install folder
 
 **Run report**:
-What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
+What a run states about itself when it ends, and a Continuous crawl also while it goes on: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended and, for a Continuous crawl, its Freshness.
 _Avoid_: run result, summary, statistics, stats
 
 **Browser cache**:
@@ -264,6 +264,10 @@ _Avoid_: actor, app, pack, script
 A named value that shapes how a Product works, such as a timeout, a retry count or a Sink's guarantee, resolved through layers from its built-in default to the run itself, where a lower layer can cap or lock it.
 _Avoid_: config key, knob, preference, option (for a setting)
 
+**Preset**:
+A named set of default Settings for one use case, laid over the built-in defaults so that each value it sets can still be changed.
+_Avoid_: profile (a Session's Identity profile), template (a Recipe to copy), mode
+
 **Deployment variable**:
 One of the few environment variables a Product reads for its own configuration, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
 _Avoid_: env setting, config variable
@@ -307,7 +311,7 @@ _Avoid_: account, organization, user (for a customer)
 ## Collection
 
 **Frontier**:
-The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
+The URLs a run has discovered but not yet visited, with the list of those already visited, when each is due again in a Continuous crawl, and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
 
 **Label**:
@@ -321,6 +325,26 @@ _Avoid_: userData, user_data, meta, cb_kwargs, context
 **Crawl request**:
 One request a crawl's Frontier admitted (its method, URL and body), with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
 _Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
+
+**Continuous crawl**:
+A crawl whose run does not end when its Frontier empties: it revisits each URL when its Revisit policy says and reads its sources again, until it is told to end.
+_Avoid_: recrawl, standing crawl, monitor, never-ending run
+
+**Revisit**:
+A Continuous crawl's next visit to a URL it already visited, which first checks whether the page changed.
+_Avoid_: recrawl, refetch, re-visit, retry (for a revisit)
+
+**Revisit policy**:
+The rule, set per Label, that decides when a Continuous crawl visits a URL again: never, at a fixed interval, adapting to the changes seen, from an estimate of how often it changes, or by a source's rate of new entries.
+_Avoid_: schedule, fetch interval, refresh rate
+
+**Freshness**:
+How far a Continuous crawl's revisits keep up with their due dates, overall and per domain; never part of Completeness.
+_Avoid_: staleness, lag (for the whole measure), recency
+
+**Syndication feed**:
+An RSS or Atom document listing a site's recent entries, which a crawl reads as a source of URLs.
+_Avoid_: feed (alone, a Subscription's word), news feed, RSS (for Atom too)
 
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.

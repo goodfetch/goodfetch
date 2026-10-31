@@ -56,9 +56,9 @@ fn start(engine: &mut Attached, run_id: &str, hosts: &[&str], held: &mut Vec<Val
 /// seeds, has all its requests done, waiting or handled by a request held
 /// here, none fetched, and either the governor's `cap` admissions are all
 /// held here or nothing waits. Nothing more comes then until one is
-/// answered. It reads the crawls' progress (`run.progress`) rather than
-/// waiting for a quiet stretch, which a loaded machine outlasts (fix-queue
-/// 129).
+/// answered; more than `cap` handled then fails at once. It reads the
+/// crawls' progress (`run.progress`) rather than waiting for a quiet
+/// stretch, which a loaded machine outlasts (fix-queue 129).
 fn turn(
     engine: &mut Attached,
     (crawls, cap): (&[(&str, u64)], u64),
@@ -82,7 +82,18 @@ fn turn(
             handled += count("handling");
             waiting += count("pending");
         }
-        if accounted && (handled == cap || waiting == 0) {
+        if !accounted {
+            continue;
+        }
+        // Accounted for, each request handled is one held here, which
+        // keeps its admission. Past the cap, nothing would ever end the
+        // turn: the governor gave more than its cap, as it once did before
+        // its first sample (#1792), and the test waited for the 300 s kill.
+        assert!(
+            handled <= cap,
+            "the governor admits {handled} past its cap of {cap}"
+        );
+        if handled == cap || waiting == 0 {
             return held;
         }
     }

@@ -88,10 +88,13 @@ impl Governor {
     /// A governor that samples `system` every `governor.sample_interval`
     /// on `clock`, reading its settings from the machine's layers of
     /// `settings` at each sample, as a task of `owner`, until `owner`
-    /// stops.
+    /// stops. It admits nothing before its first sample, taken at once:
+    /// each target starts at the ceiling the machine's settings give,
+    /// which only that sample reads, never at the built-in one (ADR 0040).
+    /// A Run that asks first waits for its turn, which the first sample
+    /// gives it.
     pub fn start(system: System, settings: Settings, clock: Clock, owner: &TaskOwner) -> Self {
-        let defaults = Limits::of(&defaults(&settings));
-        let shares = Shares::new(defaults.bounds.map(|bounds| bounds.ceiling));
+        let shares = Shares::new([0; 3]);
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
         let (settling, settled) = watch::channel(Settled::built_in());

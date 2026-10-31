@@ -448,18 +448,27 @@ impl ProxyUsage {
     /// the Limits allow, on a task of the Run, which runs to its end even
     /// when the caller stops waiting, as a relayed connection does when its
     /// Session's proxy closes or its Run ends: an allowance no one took is
-    /// given back in full. None when a Limit refused it, or once the Run
-    /// ended: no byte may pass then.
+    /// given back in full ([`Granted`]), whether the caller stopped before
+    /// the task granted it or after, while it waited in the answer. None
+    /// when a Limit refused it, or once the Run ended: no byte may pass
+    /// then.
     async fn reserve(self: &Arc<Self>, wanted: u64, least: u64) -> Option<Allowance> {
         let (answer, answered) = oneshot::channel();
         let usage = Arc::clone(self);
         self.run.spawn(async move {
-            let reserved = usage.reserved(wanted, least).await;
-            if let Err(Some(allowance)) = answer.send(reserved) {
-                usage.settled(allowance, 0).await;
-            }
+            let granted = usage
+                .reserved(wanted, least)
+                .await
+                .map(|allowance| Granted {
+                    usage: Arc::clone(&usage),
+                    allowance: Some(allowance),
+                });
+            // A grant whose caller is gone is dropped here, and one the
+            // caller drops unread with its answer is dropped there: either
+            // way it is given back.
+            let _ = answer.send(granted);
         });
-        answered.await.ok().flatten()
+        answered.await.ok().flatten().map(Granted::take)
     }
 
     /// Reserves `wanted` bytes ahead, or else as many down to `least` as
@@ -508,6 +517,37 @@ impl ProxyUsage {
         };
         if let Err(error) = self.run.settle_part(allowance, used, cost).await {
             tracing::warn!(%error, "what a Session's proxy carried of an allowance was not settled: the allowance stays charged in full");
+        }
+    }
+}
+
+/// An allowance a reserve's task granted, on its way to the direction that
+/// asked for it: given back in full, settled at nothing, when dropped before
+/// the direction took it, as when the Run's end drops a relayed connection
+/// between the grant and the direction's next poll, and the answer holding
+/// the grant goes with it (#1787). Such an allowance carried no byte: left
+/// charged in full, it would count a whole allowance the proxy never
+/// carried.
+struct Granted {
+    usage: Arc<ProxyUsage>,
+    /// The allowance, until the direction takes it.
+    allowance: Option<Allowance>,
+}
+
+impl Granted {
+    /// The allowance, the direction's to settle from now on.
+    fn take(mut self) -> Allowance {
+        self.allowance
+            .take()
+            .expect("invariant: a grant holds its allowance until it is taken")
+    }
+}
+
+impl Drop for Granted {
+    /// Gives back the allowance no direction took.
+    fn drop(&mut self) {
+        if let Some(allowance) = self.allowance.take() {
+            self.usage.settle_to_the_end(allowance, 0);
         }
     }
 }

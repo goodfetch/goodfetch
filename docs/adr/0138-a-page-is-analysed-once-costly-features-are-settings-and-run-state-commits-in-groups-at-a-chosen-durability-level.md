@@ -2,7 +2,7 @@
 
 Every page a crawl fetches is parsed once, in one **Page analysis**, whose readers run in a fixed order on one tree and leave one immutable result that every later module reads. A reader runs only when the request or the Run's settings demand it. Work that depends only on a Run's inputs is built when the Run starts. Every costly per-page feature is a setting, and switching it off removes its work as well as its effect. Run state commits each attempt in two transactions, which the single writer groups across pages under one sync, at one of four **Durability levels** (`full`, the default, `fast`, `periodic` and `off`). Structural counts become ceilings that fail a change. This is the spec of the optimization pass ([#1577](https://github.com/goodfetch/goodfetch/issues/1577)), decided with the owner in a grilling session on 2026-10-31.
 
-On 2026-10-30 the owner found Foxhound's comparison with Spider unacceptable. They decided that every comparison runs each tool with the same features and the same settings, in a five-scenario matrix against Spider, Crawlee and Scrapy, with every metric (the comments on #1577). The profile of the code-free 1,000-page crawl at 16 requests at once (`.claude/handoff/m1/reports/profile-2026-10-30/report.md`, tip `0fd15a3a7`, its key figures checked against the raw outputs and the code) shows that the gap is structural. Each layer redoes the work another layer already did:
+On 2026-10-30 the owner found Foxhound's comparison with Spider unacceptable. They decided that every comparison runs each tool with the same features and the same settings, in a five-scenario matrix against Spider, Crawlee and Scrapy, with every metric (the comments on #1577). The profile of the code-free 1,000-page crawl at 16 requests at once (tip `0fd15a3a7`, summarized on #1577 on 2026-10-31, its key figures checked against the raw outputs and the code) shows that the gap is structural. Each layer redoes the work another layer already did:
 
 | Setting | Foxhound | Spider 2.53.9 |
 |---|---|---|
@@ -24,7 +24,7 @@ ADR 0002 already promised "many operations grouped per commit by the single writ
 
 The owner asked for « évidemment les meilleures pratiques », taking inspiration from the best crawl frameworks to arrange the architecture. They also asked that the features that slow a crawl, such as persistence after a crash, Politeness and reading robots.txt, « doivent être sous flag (l'user doit pouvoir ne pas les utiliser pour maximum performances) », and that Foxhound offer checkpoint or batch protection against crashes, as competitors do.
 
-How proven crawlers shape this work. These sources were checked against primary text on 2026-10-31; URLs and quotes are in the session's notes (`.claude/reports/grilling-1577-per-page-cost/sources.md`).
+How proven crawlers shape this work. Each was checked against its primary source on 2026-10-31.
 
 - **One parse, shared by every reader.**
   - Nutch's `HtmlParser` builds one `DocumentFragment` and hands it to every `HtmlParseFilter` ([HtmlParser](https://github.com/apache/nutch/blob/master/src/plugin/parse-html/src/java/org/apache/nutch/parse/html/HtmlParser.java), [HtmlParseFilter](https://github.com/apache/nutch/blob/master/src/java/org/apache/nutch/parse/HtmlParseFilter.java)).

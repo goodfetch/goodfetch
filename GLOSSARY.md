@@ -804,6 +804,22 @@ _Avoid_: SLO, goal, budget (for a target)
 The timed measurements of Goodfetch's latest code taken every night on one controlled machine, read for lasting shifts and never used to fail a single change.
 _Avoid_: nightly benchmark, perf dashboard
 
+**Shared path**:
+The route every unit of one kind takes through Goodfetch, such as a fetched page, a CDP command, a protocol message or an Audit entry, which most features add work to and one module owns.
+_Avoid_: hot path, pipeline, code path
+
+**Counted work**:
+Work whose amount repeats exactly from run to run, such as a parse, a compilation, a statement prepared, a file opened, a transaction, a sync or a configuration read, so that a count of it can fail a change where a duration cannot.
+_Avoid_: overhead, cost (alone), system calls (for counted work)
+
+**Cost contract**:
+The most Counted work one unit of a Shared path may cost, which is part of the interface of the module that owns the path.
+_Avoid_: performance budget (for a contract), budget (alone), SLA
+
+**Quality register**:
+The written record of Goodfetch's quality bar: the rules every change keeps, the limits that fail a merge, the figures that may only improve and the exceptions that expire.
+_Avoid_: constraints file, quality gate (for the record), CONSTRAINTS.md
+
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.
 _Avoid_: unit suite, smoke tests, fast tests

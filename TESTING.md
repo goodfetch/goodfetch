@@ -23,13 +23,14 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 17. [SDK and CLI tests](#sdk-and-cli-tests)
 18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 19. [Performance budgets](#performance-budgets)
-20. [Security](#security)
-21. [Console and docs site](#console-and-docs-site)
-22. [Feature coverage](#feature-coverage)
-23. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
-24. [Which stories need a Journey](#which-stories-need-a-journey)
-25. [Goodfetch Chromium](#goodfetch-chromium)
-26. [Free tiers and local secrets](#free-tiers-and-local-secrets)
+20. [Quality register](#quality-register)
+21. [Security](#security)
+22. [Console and docs site](#console-and-docs-site)
+23. [Feature coverage](#feature-coverage)
+24. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
+25. [Which stories need a Journey](#which-stories-need-a-journey)
+26. [Goodfetch Chromium](#goodfetch-chromium)
+27. [Free tiers and local secrets](#free-tiers-and-local-secrets)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md), apart from section 2's rule that a test is never retried, which [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md) wrote in place of the line ADR 0062 moved there.
 
@@ -1222,6 +1223,184 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 | Performance targets and the Spider comparison | the owner's machine, before each owner test; never a suite |
 | Drift check against the last release | the daily test-health job |
 | Performance series | a nightly Live check on the owner's machine when it is on, labelled with that machine; the rented reference host is declined while there is no revenue (ADR 0076). The Console's lab metrics: `just console-lighthouse`, with `GOODFETCH_PERF_MACHINE` naming the machine, appends a record per Product's Console, Collie's and Foxhound's, each served by its own executable, to `target/perf-series/console-lighthouse.jsonl` |
+
+## Quality register
+
+Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F4, C1 to C5, E1 to E5). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
+
+Until the gate's spec builds them, three things this section names don't exist yet: the counters of counted work, the floor guard and the register check. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
+
+### Floor
+
+Always enforced on the diff. A breach is a hard violation in `code-review`.
+
+- **No new suppression comment,** except these forms, which never expire and always name what they suppress:
+  - Rust: `#[expect(lint, reason = "…")]` ([`STYLE.md`](STYLE.md)), never `#[allow]`;
+  - a test run as a child process by another test: `#[ignore = "run as a child by <test>"]`;
+  - the SDKs' type tests: `@ts-expect-error` and `# type: ignore[code]` ([SDKs](#sdks));
+  - Python: `# pyright: ignore[rule]`;
+  - TypeScript: `oxlint-disable-next-line <rule>` with its reason, in the syntax the gate's spec takes from oxlint's documentation.
+- **No unimplemented stub, or empty catch, standing in for the work.**
+- **No skipped or deleted test without a `Quality-change` trailer.** A test replaced at a deepened module's interface names its replacement.
+- **No secret in source.**
+- **No register row weakened outside the rules below.**
+- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer.
+
+_Why:_ the floor is diff-scoped, so the suppressions the code already holds (412 `#[expect]`, 28 `#[ignore]`, 51 `oxlint-disable` on 2026-11-01) fail nothing, while a new bare one does.
+
+### Recorded changes
+
+- **A change the Floor would flag but these rules allow carries a commit trailer:** `Quality-change: <file or row>: <reason>`. That covers a test removed with its replacement named, a row raised within its Cost contract, and an edit to the gate's own files.
+- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140.
+
+### Enforced
+
+Limits that fail the merge gate. Every row has a number and a command.
+
+| Dimension | Rule | Checked by | Runs at |
+|---|---|---|---|
+| Rust lints and types | 0 warnings | `cargo clippy --workspace --all-targets --all-features -- -D warnings` (`just lint`) | merge gate |
+| TypeScript types | 0 errors | `pnpm exec tsc -p tsconfig.json` and `pnpm -r --if-present run typecheck` (`just lint`) | merge gate |
+| Python types | 0 errors | `uv run pyright` and `uv run mypy .`, both strict (`just lint`) | merge gate |
+| TypeScript and Python lints | 0 errors | `pnpm exec oxlint` and `uv run ruff check .` (`just lint`) | merge gate |
+| Secrets in commits | 0 findings | `just commit-leaks` | merge gate |
+| Secret canaries' rule | catches every leaked artifact, passes the clean one | `ci/tool.sh gitleaks ci/canary-rule.sh` (`just lint`) | merge gate |
+| Dependency advisories | 0 | `just audit` | merge gate |
+| Dependency bans, licenses and sources | 0 | `cargo deny check … bans licenses sources` and `ci/deny/products.sh` (`just lint`) | merge gate |
+| Workflow security | 0 findings | `zizmor` and `actionlint` (`just lint`) | merge gate |
+| Generated code | current | `xtask codegen --check` (`just lint`) | merge gate |
+| Feature declarations | inventory current, every declaration known | `xtask features check` (Quick) and `just features-tests` (Pre-merge), [Feature coverage](#feature-coverage) | merge gate |
+
+### Measured, not yet enforced
+
+The ratchet. A figure is compared with its "Today" value, never with the previous commit. Counted work has zero tolerance: one more count per unit is a regression. The gate's spec builds each row's command, which promotes it to Enforced (a tightening). Each row's Contract is ADR 0140's cap: no row may allow more, and a gap below it is an Exception. "After #1583" means the row's first figure is taken on its benchmark once the gate's spec builds it, after [#1583](https://github.com/goodfetch/goodfetch/pull/1583) merges.
+
+| Row | Metric, per unit | Contract | Today | Benchmark | Direction |
+|---|---|---|---|---|---|
+| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | after #1583 | B1 | must not grow |
+| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow |
+| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow |
+| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow |
+| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow |
+| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow |
+| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow |
+| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow |
+| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.compilations` | glob, regex and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow |
+| `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow |
+| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow |
+| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow |
+| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow |
+| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
+| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow |
+| `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow |
+| `C2.world_creations` | `Page.createIsolatedWorld` per page read | 0 | after #1583 | B2 | must not grow |
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow |
+| `C3.commands` | CDP commands per attempt, per action kind | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow |
+| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route and no Filter list | 0 | after #1583 | B2 | must not grow |
+| `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow |
+| `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow |
+| `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow |
+| `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow |
+| `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
+| `E1.allocations` | allocations and bytes allocated per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
+| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow |
+| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow |
+| `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow |
+| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow |
+| `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow |
+| `E4.configuration_reads` | configuration reads per governor sample | 0 | after #1583 | B3 | must not grow |
+| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | after #1583 | B3 | must not grow |
+| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | after #1583 | B3 | must not grow |
+| `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow |
+| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow |
+| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
+| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
+| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow |
+| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
+| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) |
+
+The benchmarks are ADR 0140's: B1 is `goodfetch-foxhound`'s in-memory crawl (`crawl::in_memory_pages`), B2 a `goodfetch-page` Session against a scripted browser on the in-memory CDP end, and B3 `goodfetch-engine`'s `dispatch` with large params, Audit entries, charges and governor samples. Each runs with its path's default features on and once with each feature that can be switched off turned off. The gate's spec names each benchmark's ID.
+
+- **Rows measured until `GATING` turns on** ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md)): ADR 0071's +5 % comparison with the base, and the absolute ceilings of [Performance budgets](#performance-budgets). `xtask perf` reports them as notes until #1577's pull request sets `GATING` to `Enforced`. The rows of counted work above do not wait for it: each is enforced from the pull request that builds its command.
+- **Project coverage** is compared by ADR 0072's weekly coverage job, which opens an issue when it falls, as `xtask budgets` does; no merge fails on it.
+
+**Context, not a Today value.** A count is compared only with the same benchmark on the same input, so the profile's figures stand beside the rows, never in them. Profile of 2026-10-30, on a Hetzner CCX43 at tip `0fd15a3a7`, crawling the Proving ground's 1,000-page site at 16 requests at once, code-free and in `fast` on tmpfs unless noted:
+
+| Figure | Per page |
+|---|---|
+| HTML parses | 8 |
+| `Matcher::new` calls | about 672 |
+| statement preparations | 135.5 |
+| run-state commits | 7.4–8.0 |
+| WAL fsyncs, `full` on ext4 | 7.5 |
+| files opened (`openat`) | 7.9, of which 4.1 fail |
+| system calls | 329 (Spider: 12) |
+| configuration files read, whole crawl | 650 |
+| `/proc/meminfo` opened, whole crawl | 177 |
+
+### Exceptions
+
+Each known gap between today's code and ADR 0140's contracts, recorded at adoption on 2026-11-01. On expiry, the gate fails again with no action from anyone. The spec that removes each gap writes the row's measured figure in the same pull request.
+
+| ID | Rule | Path | Reason | Owner | Expires | Removed by |
+|---|---|---|---|---|---|---|
+| X1 | `F1.parses`, `F1.selector_compilations`, `F1.readability_runs` | F1 | 8 parses per page; the clean-up compiles about 614 selectors twice per page even with no format (`goodfetch-extractor/src/formats.rs:131`, `goodfetch-clean-up-rules/src/removal.rs:95`); readability runs again for formats | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X2 | `F1.file_opens`, `E5.file_opens`, `E5.spawns` | F1, E5 | each Provenance and request-log entry creates its folder and opens its file (`goodfetch-engine/src/run_trace.rs:80`, `:126`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 for the page's entries; the Shared paths spec for the rest |
+| X3 | `F1.bytes_allocated` | F1 | 234.45 bytes allocated per body byte against ADR 0134's 2 | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X4 | `F2.transactions`, `F2.syncs`, `F2.writer_reads` | F2 | about 8 commits and 7.5 fsyncs (`full`) per page; `RunState::read` goes through the writer (`goodfetch-engine/src/run_state.rs:510`, `:735`, `:814`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X5 | `F2.prepares`, `F2.configuration_reads` | F2, F3, F4 | 135 statement preparations per page; settings read again at each admission (`goodfetch-engine/src/settings.rs:253`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X6 | `F3.invariant_reads`, `F3.compilations`, `F3.payload_serializations`, `F3.validations` | F3 | the Scope is read and its globs compiled per links batch (`goodfetch-crawl/src/enqueue/links.rs:460`, `goodfetch-frontier/src/scope.rs:385`); a validator is built per payload, and each payload is serialized only to measure it (`goodfetch-frontier/src/payload.rs:155`, `:328`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X7 | `F4.declaration_reads`, `F4.validator_builds` | F4 | Datasets read and a validator built per check (`goodfetch-crawl/src/lease.rs:404`, `goodfetch-dataset/src/declaration.rs:140`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X8 | `F4.deep_copies` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`); suspected, confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X9 | `C1.file_opens`, `C1.log_sends_off` | C1 | the CDP command log is always on and its writer creates its folder and opens its file per batch (`goodfetch-page/src/driver.rs:312`, `goodfetch-page/src/trace.rs:93`, `:100`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X10 | `C2.commands`, `C2.world_creations` | C2 | every read creates its isolated world (`goodfetch-page/src/driver.rs:1439`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X11 | `C3.script_sends` | C3 | every check sends `check.js`'s 9,631 bytes (`goodfetch-page/src/guard.rs:205`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X12 | `C4.detection_reads`, `C4.compilations` | C4 | up to 3 detection reads per navigation (`goodfetch-page/src/pages/blocked.rs:70`, `recovery.rs:257`, `consent.rs:212`); the Page check compiles its globs per judgment (`recovery.rs:179`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X13 | `C5.spawns`, `C5.file_opens` | C5 | each refused request spawns a task that appends to the request log (`goodfetch-page/src/interception/pipeline.rs:1653`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X14 | `E1.deep_copies`, `E1.encodes` | E1 | each message is copied whole and walked about 5 times; each answer and event is encoded twice (`goodfetch-engine/src/rpc/framing.rs:179`, `composition.rs:438`, `rpc.rs:140`, `events.rs:202`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X16 | `E3.statements`, `E3.opens` | E3 | each charge reads every Limit back (`goodfetch-engine/src/ledger/charging.rs:332`); each Slice opens a connection (`ledger.rs:278`, `:680`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X17 | `E4.configuration_reads`, `E4.meminfo_opens`, `E4.static_opens`, `E4.process_reads`, `E4.pool_walks` | E4 | each sample reads both settings files, opens `/proc/meminfo` 3 times, reads `self/cgroup` and `self/mountinfo`, and walks each browser twice (`goodfetch-engine/src/governor.rs:304`, `:319`); each page opened walks its browser again (`goodfetch-page/src/pool.rs:581`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+
+### Rules
+
+- **"Runs at" names one of two moments:** implementer done (`tdd`) or the merge gate. The rows of counted work run at implementer done, at most 60 seconds per benchmark family; the rows read under Valgrind (instructions, allocations, bytes) run at the merge gate, through `xtask perf`.
+- **Every enforced row has a number and a command.** A dimension with a number and no command stays in the Measured table until its command exists.
+- **Counters only.** An enforced row counts counted work (ADR 0140), or instructions, allocations, bytes or system calls. Wall time and resident memory stay [Performance targets](#performance-targets), each figure with the setup it was measured on, and compared only with a figure from the same setup. Work is counted per unit of the outcome that does it, and each benchmark's input produces every outcome its path has.
+- **A ceiling is the measured value, or the value an ADR sets,** never a round number above it. For work ADR 0140 plans and no code does yet, the row starts at the ADR's value. Raising a row up to its Cost contract, in the pull request whose spec names the added count, is not a loosening: the commit records it with a `Quality-change:` trailer. Above the contract, it is a loosening.
+- **The ratchet.** A measured figure is compared with its recorded Today value. The pull request that improves a figure writes the new value in the same change. Counted work has zero tolerance. A figure that varies (coverage, instructions, bytes allocated) has a tolerance of 0.5 %. In parallel runs, only the merger writes a new Today value.
+- **Coverage is a ratchet,** "must not fall", with no per-changed-line threshold; test quality, when measured, is ADR 0072's mutation score.
+- **Tightening is silent; loosening is loud.** These need no approval:
+  - lowering a number, adding a row or promoting a measured row to enforced;
+  - extending a benchmark's input or counters to a new outcome or feature.
+
+  These need the owner, and an amendment of ADR 0140 when they raise a Cost contract:
+  - raising a number (outside the contract case above), or removing or demoting a row;
+  - changing a row's command or Runs at;
+  - narrowing a benchmark's input or what its counters see;
+  - adding or extending an Exception.
+
+  A loosening never rides in the pull request of the feature that failed the limit.
+- **Exceptions expire.** Each has an owner and an expiry date, 90 days by default.
+- **The register is the source of the numbers.** The gate's code reads the register, or the register check compares the two and fails on a difference, as for `xtask perf`'s ceilings.
+- **The register check runs with the merge gate.** It fails when:
+  - an enforced row's command does not exist;
+  - an Exception has expired;
+  - a path of ADR 0140 has no row, or a count in a Cost contract has no row;
+  - a row allows more than its contract's cap.
+- **Each counter proves it can fail.** A benchmark's own tests plant one extra unit of each counted work it gates and expect a failure.
+- **A row changes in the pull request that lowers its figure, raises it within its contract as its spec names, or amends ADR 0140.** Nothing waits for a separate maintenance task.
 
 ## Security
 

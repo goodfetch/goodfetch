@@ -1,6 +1,6 @@
 # Shared paths sweep of the open tickets (2026-11-01)
 
-The one sweep of Goodfetch's open tickets against ADR 0140's fourteen Shared paths, as the `system-qualities` skill's `/to-tickets` row describes. The sources are ADR 0140 and the Quality register as on branch `claude/docs-quality-register-60d7a4` (`4774cc97b`), and ADR 0138 as on `docs/per-page-cost-structure`. The code was read at `85083c57b`, the tip of `milestone/m1-core`. **Status: a proposal. Nothing on GitHub has changed yet; it waits for the owner's approval.**
+The one sweep of Goodfetch's open tickets against ADR 0140's fourteen Shared paths, as the `system-qualities` skill's `/to-tickets` row describes. The sources are ADR 0140 and the Quality register as on branch `claude/docs-quality-register-60d7a4` (`4774cc97b`), and ADR 0138 as on `docs/per-page-cost-structure`. The code was read at `85083c57b`, the tip of `milestone/m1-core`. **Status: applied.** The sweep's classes were approved by the owner and applied on 2026-11-01. D1–D14 were adopted the same day, and the tickets they decide were then updated: see "Decisions adopted".
 
 ## Scope and method
 
@@ -25,6 +25,43 @@ These are not tickets. They go to the owner of ADR 0140's branch, or to the gate
 4. **X6 misses two sites.** Each redirect hop reads the Scope inside a writer transaction (`goodfetch-fetch-tier/src/gate.rs:790-791`), and each sitemap read reads the Scope again (`goodfetch-crawl/src/work_items.rs:289`) and compiles its rules again (`goodfetch-frontier/src/sitemap.rs:551-562`).
 5. **X13's citation is stale.** The spawn per refused request is now at `crates/goodfetch-page/src/interception/pipeline.rs:1731`, not `:1653`.
 6. **Cost-contract counts with no register row,** which the register check will fail on ("a count in a Cost contract has no row"): F3's 0 transactions of its own; F4's 1 validation and 1 serialization per Record; C1's 1 encode and 1 send per command; C4's 1 Provenance entry per navigation; C5's 0 compilations and 1 CDP answer per paused request. Tickets also found counts that no contract names yet: Hook script compilations (#958), locale-form builds per page (#844), `cpu.stat` opens per governor sample (#1306), the Effect journal's sync per Effect (#1550, #779), prune passes per attempt (#694).
+
+## Decisions adopted
+
+The orchestrating session adopted D1–D14 on 2026-11-01 under the owner's words « fait tout ce que tu peux faire suel » (logged in `.claude/handoff/m1/decisions.md`). They stay reversible and open to the owner's review. The 35 tickets left `ready-for-human`: 34 moved to `ready-for-agent` and #1683 went back to `needs-triage`, its label before the sweep. Each gained a criterion and a "Shared paths decision" section. ADR 0140's own amendment belongs to the `qualities-setup` session, so a row it adds is named by what it counts, not by an ID.
+
+Where what was applied differs from the text below:
+
+- **D13 (#1783):** the adopted decision is a second GET sent only on the charset path, as the decisions log states. The recommendation below says the Chromium patch.
+- **D8 (#684, #1649):** the mark's setting is off by default, as D8's recommendation says. The tickets' own lines below say on by default for compliance.
+- **D1:** the path's cap is D1's, at most 2 transactions per attempt. The lines on #709 and #883 say at most 1.
+
+**Waiting on #1577.** #1097, #1473, #1474 and #1514 are natively blocked by it. #767, #788, #715, #760, #762 and #994 are among #1577's own blockers, directly or through other tickets, so they can't wait on it: each lands with today's parse under Exception X1, and #1577 moves that work onto the Page analysis. The first version of the rewrites of #715, #760 and #762 and the criterion of #994 said otherwise, and those tickets were corrected.
+
+## Sweep of #1805–#1822
+
+These tickets opened after the first sweep's snapshot. The sweep used the same path check, from a reading of each ticket; the owner modules are the ones the first sweep checked in the code.
+
+| Ticket | Class | Paths | Rows | Benchmark | Criterion or reason |
+|---|---|---|---|---|---|
+| #1805 | criteria | F1 | `F1.parses`, `F1.selector_compilations` | B1 | An item-scoped `extract` is a Page-analysis reader with its locators and filters compiled once, so it adds no parse and no selector compilation per page. Its readers wait on #1577. |
+| #1806 | untouched | - | - | - | One choice over the matches the field read already makes. |
+| #1807 | criteria | F1 | `F1.parses`, `F1.selector_compilations` | B1 | A structured-data field source is a Page-analysis reader over the one parse, and it runs only when a field declares it. Its readers wait on #1577. |
+| #1808 | criteria | F3 | `F3.invariant_reads`, `F3.compilations` | B1 | The routing table is a Run invariant compiled when the Run starts, with no read or compilation per links batch. |
+| #1809 | criteria | F3, F4 | `F3.payload_serializations`, `F3.validations`, `F4.deep_copies` | B1 | A carried field costs 1 validation and 1 serialization per URL through the Payload, and merging it into a Record makes no deep copy. |
+| #1810 | criteria | F3, F2 | `F3.invariant_reads`, `F2.transactions` | B1 | The cap's count commits with the attempt, with no transaction of its own and no read of the rule per links batch. |
+| #1811 | criteria | C2, C3 | `C2.commands`, `C2.world_creations`, `C3.script_sends`, `C3.commands` | B2 | Each scroll or click step is one page read and one guarded attempt, and a read that checks for new items creates no world. |
+| #1812 | criteria | F1 | `F1.parses`, `F1.selector_compilations` | B1 | Previewing a Label runs through the Page analysis's readers, with no parse or page loop of its own. Its readers wait on #1577. |
+| #1813 | criteria | C2 | `C2.commands`, `C2.world_creations` | B2 | A condition on a page fact is one page read through the driver, and a step with no condition costs none. |
+| #1814 | untouched | - | - | - | Retries repeat existing attempts; the policy adds no counted work. |
+| #1815 | criteria | C3 | `C3.script_sends`, `C3.commands` | B2 | An overlay rule is checked through the guard's kept handle, and with no rule it costs no read or command. |
+| #1816 | untouched | - | - | - | A loop over a Run's input rows, not a Shared path's unit. |
+| #1817 | criteria | F1, C5 | `F1.parses`, `F1.selector_compilations`, `C5.spawns`, `C5.file_opens` | B1, B2 | Embedded JSON is a Page-analysis reader, kept responses go through #778's observer with no spawn or file open per response, and each runs only when a field declares it. Its Page-analysis reader waits on #1577. |
+| #1818 | untouched | - | - | - | Data forms of existing actions and waits, through their owners. |
+| #1819 | untouched | - | - | - | Rules are checked once, at the Run's end. |
+| #1820 | criteria | F2, F4 | `F2.transactions`, `F4.transactions` | B1 | A file output is staged with the attempt and commits in its outcome, and a Label declaring none costs nothing. Files written per declared output are a count no row covers yet. |
+| #1821 | untouched | - | - | - | `daemon install` port handling; no per-unit work. |
+| #1822 | untouched | - | - | - | Gate tooling and disk headroom; no runtime work. |
 
 ## Owner decisions (ready-for-human)
 
@@ -1390,6 +1427,6 @@ Each line's criterion is added to the ticket's acceptance criteria, and the gate
 
 ## Tickets the gate's benchmark ticket must block
 
-The criteria and rewrite tickets, 198 in all. The ready-for-human tickets join this list when their decision makes them criteria or rewrite.
+244 tickets: the criteria, rewrite and decided tickets and those swept from #1805–#1822. The same list is in the comment on #1577.
 
-#214 #217 #225 #227 #231 #232 #233 #234 #235 #238 #244 #248 #256 #258 #631 #635 #643 #655 #656 #657 #659 #671 #676 #677 #685 #694 #699 #703 #704 #707 #708 #712 #713 #715 #718 #720 #721 #722 #723 #724 #725 #733 #742 #744 #745 #749 #750 #751 #753 #754 #755 #757 #760 #762 #768 #769 #775 #776 #777 #778 #779 #791 #794 #795 #796 #797 #799 #800 #801 #802 #803 #807 #823 #824 #825 #828 #829 #833 #834 #840 #841 #844 #848 #849 #853 #857 #863 #865 #867 #869 #871 #878 #882 #893 #902 #914 #920 #926 #929 #932 #936 #940 #945 #947 #951 #954 #956 #957 #958 #965 #979 #994 #998 #1009 #1015 #1021 #1024 #1026 #1029 #1030 #1032 #1033 #1040 #1058 #1065 #1080 #1087 #1090 #1095 #1098 #1104 #1106 #1109 #1111 #1113 #1117 #1131 #1137 #1140 #1144 #1145 #1150 #1151 #1154 #1157 #1158 #1164 #1167 #1205 #1217 #1304 #1306 #1375 #1386 #1390 #1396 #1400 #1401 #1441 #1448 #1453 #1475 #1476 #1484 #1486 #1491 #1503 #1525 #1541 #1546 #1547 #1550 #1551 #1566 #1596 #1602 #1604 #1611 #1612 #1626 #1629 #1637 #1641 #1642 #1651 #1652 #1653 #1666 #1674 #1692 #1693 #1694 #1695 #1715 #1747 #1775 #1782 #1784
+#214 #217 #225 #227 #231 #232 #233 #234 #235 #238 #239 #240 #244 #248 #256 #258 #631 #632 #634 #635 #643 #655 #656 #657 #659 #671 #676 #677 #684 #685 #694 #699 #702 #703 #704 #707 #708 #709 #712 #713 #715 #717 #718 #720 #721 #722 #723 #724 #725 #726 #733 #739 #742 #744 #745 #749 #750 #751 #753 #754 #755 #757 #760 #762 #767 #768 #769 #775 #776 #777 #778 #779 #788 #791 #793 #794 #795 #796 #797 #799 #800 #801 #802 #803 #807 #810 #814 #823 #824 #825 #828 #829 #833 #834 #840 #841 #844 #848 #849 #853 #857 #863 #865 #867 #869 #871 #878 #882 #883 #893 #897 #902 #914 #920 #926 #929 #932 #936 #940 #945 #947 #951 #954 #956 #957 #958 #965 #979 #994 #998 #1003 #1009 #1015 #1018 #1021 #1022 #1024 #1026 #1029 #1030 #1031 #1032 #1033 #1037 #1040 #1058 #1065 #1080 #1087 #1090 #1095 #1097 #1098 #1104 #1106 #1109 #1111 #1113 #1117 #1121 #1131 #1137 #1140 #1144 #1145 #1150 #1151 #1154 #1157 #1158 #1164 #1167 #1205 #1217 #1291 #1304 #1306 #1375 #1386 #1390 #1396 #1400 #1401 #1441 #1448 #1453 #1473 #1474 #1475 #1476 #1481 #1482 #1484 #1486 #1491 #1503 #1514 #1525 #1541 #1546 #1547 #1550 #1551 #1558 #1566 #1596 #1602 #1604 #1611 #1612 #1621 #1626 #1629 #1637 #1641 #1642 #1649 #1651 #1652 #1653 #1666 #1674 #1683 #1692 #1693 #1694 #1695 #1715 #1747 #1775 #1782 #1783 #1784 #1805 #1807 #1808 #1809 #1810 #1811 #1812 #1813 #1815 #1817 #1820

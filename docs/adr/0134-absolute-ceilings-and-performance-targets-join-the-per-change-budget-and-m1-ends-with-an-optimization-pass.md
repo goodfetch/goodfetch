@@ -125,3 +125,8 @@ Both scenarios run in the Release suite on every OS, are checked by a ratio so t
 - **Changed tickets:** [#440](https://github.com/goodfetch/goodfetch/issues/440) moves to M1 and is blocked by the optimization pass; [#390](https://github.com/goodfetch/goodfetch/issues/390) also reports each idle and crawl figure against its target; [#289](https://github.com/goodfetch/goodfetch/issues/289)'s Reports line names the targets report and the Spider comparison.
 - **Owner approvals:** every 1.10× ceiling and every resident-memory ceiling, after the pass.
 - **A design constraint for the Frontier's tickets:** they must meet 8 bytes per URL in the Frontier and the 1.5× ratio, with an exact duplicate check.
+
+> Amended on 2026-11-01 by [ADR 0140](0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), on the owner's instruction to decide every reversible choice, open to the owner's review:
+> - **`GATING` being `Informational` is a dated waiver,** Exception X20 of the Quality register. It ends at #1577's merge or on 2027-01-30, whichever comes first, and the gate then blocks by itself. No gate is informational without an owner and an expiry.
+> - **The rows of counted work of ADR 0140 gate from the pull request that builds their command,** whatever `GATING` says. The Quality register is the source of the ceilings' numbers.
+> - **Foxhound's instruction ratio against Spider,** both under Callgrind on scenario 1 of ADR 0138's matrix (32 times on the 2026-10-30 profile), is a counted figure. Its ceiling is set from #1577's tuned figure, and it blocks from that pull request. The matrix's wall-time cells stay Performance targets.

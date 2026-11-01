@@ -23,6 +23,7 @@ environment = []
 evict_caches = ["environment", "github", "output"]
 features = ["check", "environment", "journeys", "junit", "metadata", "output", "quarantine", "results"]
 fixture_size = ["check", "screenshots"]
+floor_guard = ["check"]
 foxhound_side = []
 gate = ["affected", "environment", "junit", "metadata", "output", "quarantine"]
 github = []
@@ -65,6 +66,12 @@ tree = []
 watchlist = ["environment", "github", "issues", "output"]
 wording = ["check", "tree"]
 workflow = []
+
+# Which of `floor_guard`'s own modules may import which.
+[submodules.floor_guard]
+diff = []
+moves = ["diff"]
+register = []
 
 # Which of `budgets`'s own modules may import which.
 [submodules.budgets]

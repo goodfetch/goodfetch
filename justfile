@@ -1269,6 +1269,12 @@ commit-messages base="" head="HEAD":
     cargo run --quiet -p xtask -- commit-messages --base "$base" --head "{{ head }}" \
       --since "{{ conventional_commits_since }}"
 
+# The floor guard (ADR 0140; TESTING.md, Quality register): what the change
+# since the merge base with `base` does to the bar. A flagged change passes only
+# when a `Quality-change: <file or row>: <reason>` trailer of the change names it.
+floor-guard base="origin/main" head="HEAD":
+    cargo run --quiet -p xtask -- floor-guard --base "{{ base }}" --head "{{ head }}"
+
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.
 proofs:

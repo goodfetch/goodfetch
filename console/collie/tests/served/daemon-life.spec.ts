@@ -1,6 +1,6 @@
 // The Console and the Daemon's life on Collie's executable built from the
 // commit (spec #591, stories 6 and 8; ADRs 0031 and 0041), each test with a
-// Daemon and home of its own on port 0: a visible Console tab keeps the
+// Daemon and home of its own on a named port: a visible Console tab keeps the
 // Daemon from stopping idle and a hidden one does not; and the Console's
 // first launch offers a monthly Limit for the install, which accepted shows
 // in the Usage ledger, and which declined is not offered again.
@@ -10,6 +10,9 @@ import type { UsageListResult } from "@goodfetch/collie-client/generated";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
 import type { Page } from "@playwright/test";
 
+// Each test restarts the Daemon under the address its sign-in checks.
+test.use({ namedConsolePort: true });
+
 /** The idle time the tests give the Daemon, in milliseconds. */
 const IDLE = 2000;
 
@@ -17,9 +20,8 @@ const IDLE = 2000;
 const STOPS = 30_000;
 
 /**
- * Sets `daemon.idle_timeout` to `IDLE` in the test home's user configuration
- * and pins the Console's address to the port it serves on now, then
- * restarts the Daemon, which reads both at its start.
+ * Sets `daemon.idle_timeout` to `IDLE` in the test home's user configuration,
+ * then restarts the Daemon, which reads it at its start.
  */
 async function restartedWithAShortIdleTime(daemon: ServedDaemon): Promise<void> {
   let written = false;
@@ -30,8 +32,8 @@ async function restartedWithAShortIdleTime(daemon: ServedDaemon): Promise<void> 
       await writeFile(
         file,
         text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${String(daemon.port)}"\ndaemon.idle_timeout = ${String(IDLE)}`,
+          /console\.address = "[^"]*"/,
+          (line) => `${line}\ndaemon.idle_timeout = ${String(IDLE)}`,
         ),
       );
       written = true;

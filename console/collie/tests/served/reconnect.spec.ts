@@ -1,6 +1,6 @@
 // Reconnecting without losing anything (spec #592; ADR 0031), on Collie's
 // executable built from the commit, under its production headers, each test
-// with a Daemon and home of its own on port 0. The tests stand between the
+// with a Daemon and home of its own on a named port. The tests stand between the
 // page and the Daemon with Playwright's `routeWebSocket`, as a network or a
 // proxy does: a dropped or stalled WebSocket turns the page read-only under
 // a banner, its actions disabled, until it reconnects by itself and
@@ -10,14 +10,15 @@
 // with WebSockets refused the Console works over Server-Sent Events plus
 // `POST`, each `POST` refused without its CSRF token.
 import { execFile } from "node:child_process";
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Page, WebSocketRoute } from "@playwright/test";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
 import { effectiveSettings } from "#tests/effective-settings.ts";
 
 const run = promisify(execFile);
+
+// The page of the test of a restart stays open across it.
+test.use({ namedConsolePort: true });
 
 /** The banner of a page with no Connection to its engine. */
 const BANNER =
@@ -293,22 +294,8 @@ test(
   },
 );
 
-/** Restarts the test's Daemon on the port its Console had, as a handover or a restart does. */
+/** Restarts the test's Daemon on its Console's named port, as a handover or a restart does. */
 async function restartedOnItsPort(daemon: ServedDaemon): Promise<void> {
-  const majors = await readdir(daemon.home);
-  for (const major of majors) {
-    const file = join(daemon.home, major, "configuration.toml");
-    const text = await readFile(file, "utf8").catch(() => undefined);
-    if (text?.includes("console.address") === true) {
-      await writeFile(
-        file,
-        text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${daemon.port}"`,
-        ),
-      );
-    }
-  }
   await command(daemon, ["daemon", "stop"]);
   await command(daemon, ["daemon", "start"]);
 }

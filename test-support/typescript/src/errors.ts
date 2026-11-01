@@ -23,6 +23,8 @@ export type TestSupportErrorCode =
   | "daemon_not_requested"
   /** A served test took `daemon` with no `consoleServer`, while the executables serve no Console (ADR 0068). */
   | "console_not_served"
+  /** Every named port a test's Daemon can keep is taken (#2035). */
+  | "named_ports_exhausted"
   /** A served test asked for a size-capped filesystem where test support makes none: off Linux (ADR 0122). */
   | "size_capped_unsupported"
   /** `signIn` did not reach a signed-in state: the Console refused the link, or the OIDC provider the person (ADR 0068). */

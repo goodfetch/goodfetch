@@ -6,7 +6,7 @@
 // proxy carries it, and the Console's own Client reaching the target's
 // endpoint with the page's sign-in, as configuration.
 import { createHash } from "node:crypto";
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserContext, Page, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "@goodfetch/test-support/conformance";
@@ -499,21 +499,8 @@ export async function failureCode(call: Promise<unknown>): Promise<unknown> {
   throw new Error("the call answered where it should have failed");
 }
 
-/** Restarts the test's Daemon on the port its Console had, as a restart does: its new engine holds none of the old positions. */
+/** Restarts the test's Daemon on its Console's named port (`namedConsolePort`), as a restart does: its new engine holds none of the old positions. */
 export async function restartedOnItsPort(daemon: ServedDaemon): Promise<void> {
-  for (const major of await readdir(daemon.home)) {
-    const file = join(daemon.home, major, "configuration.toml");
-    const text = await readFile(file, "utf8").catch(() => undefined);
-    if (text?.includes("console.address") === true) {
-      await writeFile(
-        file,
-        text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${String(daemon.port)}"`,
-        ),
-      );
-    }
-  }
   await command(daemon, ["daemon", "stop"]);
   await command(daemon, ["daemon", "start"]);
 }

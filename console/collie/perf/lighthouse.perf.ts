@@ -11,11 +11,15 @@
 // another machine's are labelled as such, never as the reference class.
 import { execFileSync } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
 import { arch, cpus, hostname, platform, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
-import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
+import {
+  expect,
+  reserveNamedPort,
+  test,
+  type ServedDaemon,
+} from "@goodfetch/test-support/playwright";
 import lighthouse from "lighthouse";
 
 /** How many Lighthouse runs make one record, its figures their medians (ADR 0071). */
@@ -33,19 +37,6 @@ interface Figures {
   readonly lcpMs: number;
   readonly cls: number;
   readonly tbtMs: number;
-}
-
-/** A free loopback port for the browser's DevTools endpoint, which Lighthouse drives. */
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
-      server.close(() => resolve(port));
-    });
-  });
 }
 
 /** The median of `values`, which are not empty. */
@@ -79,7 +70,9 @@ for (const product of PRODUCTS) {
 
 /** Measures the Console `daemon` serves, `product`'s, and appends its record to the series. */
 async function measure(product: (typeof PRODUCTS)[number], daemon: ServedDaemon): Promise<void> {
-  const port = await freePort();
+  // The browser's DevTools endpoint, which Lighthouse drives, on a port no other program takes first.
+  const named = await reserveNamedPort();
+  const { port } = named;
   const profile = await mkdtemp(join(tmpdir(), "goodfetch-lighthouse-"));
   // The persistent context is the browser's default one, which the tab
   // Lighthouse opens shares, with the sign-in's cookie.
@@ -152,5 +145,6 @@ async function measure(product: (typeof PRODUCTS)[number], daemon: ServedDaemon)
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
+    await named.release();
   }
 }

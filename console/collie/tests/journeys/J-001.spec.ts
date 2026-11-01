@@ -22,7 +22,7 @@ function field(value: unknown, name: string): unknown {
     : undefined;
 }
 
-journey("J-001", "console", async ({ step, check, cli, daemon, page }) => {
+journey("J-001", "console", async ({ step, check, cli, page }) => {
   /** What `daemon status --json` says of the test home's Daemon. */
   const status = async (): Promise<unknown> => {
     const output = await cli(["daemon", "status", "--json"]);
@@ -42,12 +42,11 @@ journey("J-001", "console", async ({ step, check, cli, daemon, page }) => {
         throw new Error("config explain reads no user configuration");
       }
       const text = await readFile(user.path, "utf8");
-      // The Console keeps the port it serves on now, so a restart moves it nowhere.
       await writeFile(
         user.path,
         text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${String(daemon.port)}"\ndaemon.idle_timeout = ${String(IDLE)}`,
+          /console\.address = "[^"]*"/,
+          (line) => `${line}\ndaemon.idle_timeout = ${String(IDLE)}`,
         ),
       );
       const shortened = await cli(["config", "explain", "daemon.idle_timeout", "--json"]);

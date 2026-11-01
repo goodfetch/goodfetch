@@ -1,6 +1,6 @@
 # A continuous crawl is a Run that revisits each URL by its Revisit policy, reads syndication feeds as standing sources, and ends only when told
 
-Foxhound gains a **Continuous crawl**: a crawl Run, under the setting `crawl.continuous`, that does not end when its Frontier empties. Each URL it visited carries the date it is due again, set by its Label's **Revisit policy**, and the Run waits idle until the next one is due. RSS and Atom feeds become a seed kind, `syndication(url, rules)`, read like sitemap seeds in any crawl, and a Continuous crawl reads its feeds and sitemaps again as standing sources of new URLs. One mechanism serves news and archive crawling, the profile of Common Crawl's CC-NEWS, and the monitoring of known pages. Decided with the owner in the continuous-crawl grilling of 2026-10-31 (notes and sources in `.claude/reports/grilling-continuous-crawl/`), for a milestone after M1; ADR 0138's out-of-scope section points here.
+Foxhound gains a **Continuous crawl**: a crawl Run, under the setting `crawl.continuous`, that does not end when its Frontier empties. Each URL it visited carries the date it is due again, set by its Label's **Revisit policy**, and the Run waits idle until the next one is due. RSS and Atom feeds become a seed kind, `syndication(url, rules)`, read like sitemap seeds in any crawl, and a Continuous crawl reads its feeds and sitemaps again as standing sources of new URLs. One mechanism serves news and archive crawling, the profile of Common Crawl's CC-NEWS, and the monitoring of known pages. Decided with the owner in the continuous-crawl grilling of 2026-10-31 (notes and sources in `.claude/reports/grilling-continuous-crawl/`). ADR 0138's out-of-scope section points here.
 
 Foxhound already monitors in batches: Schedules with Watches (ADR 0036), the Response cache's `revalidate` mode (ADR 0046), Baseline change tracking with "only new or changed" Sinks (ADR 0026), live Record delivery (ADR 0103) and the Partitioned crawl (ADR 0054). What it lacked is low latency (minutes between a publication and its collection) and a memory per URL from one visit to the next.
 
@@ -46,7 +46,7 @@ How others do it, checked against their sources (`sources.md`, `sources-round3.m
 - **Errors.** A revisit whose fetch fails retryably is due again after `revisit.on_error` (2 hours, StormCrawler's `fetchInterval.fetch.error`). A URL that answers 404 or 410 on `revisit.gone_after` revisits in a row (1 by default) ends `gone` and is not revisited.
 - **Site hints** are switched one by one under `revisit.site_hints.*`:
   - `Cache-Control: max-age`, `Expires`, `Retry-After`, RSS `<ttl>` and `sy:updatePeriod` are floors: a revisit never comes sooner than the site asks. They are on by default.
-  - A sitemap's `<lastmod>` and `news:publication_date`, and an entry's update date in a feed, bring a visited URL's revisit forward to now when they are later than `last_fetched_at`. They are on by default. A host's `<lastmod>` is trusted only once its changes have matched Page signature changes, learned on evidence as ADR 0120's rules are, and the Run report lists the hosts whose `<lastmod>` it trusts.
+  - A sitemap's `<lastmod>` and `news:publication_date`, and an entry's update date in a feed, bring a visited URL's revisit forward when they are later than `last_fetched_at`: it is due at the latest of now, the site's floors and `last_fetched_at` plus its policy's `min`, and a `never` URL stays never. They are on by default. A host's `<lastmod>` is trusted only once its changes have matched Page signature changes, learned on evidence as ADR 0120's rules are, and the Run report lists the hosts whose `<lastmod>` it trusts.
   - `<changefreq>` and `<priority>` are off by default, since Google and Bing ignore them. On, `<changefreq>` gives the initial interval.
 - **The schedule is a pure function** of the policy, the previous state, whether the URL changed and the site's hints, so it is tested alone.
 
@@ -79,7 +79,7 @@ How others do it, checked against their sources (`sources.md`, `sources-round3.m
 
 ### Report, Completeness and Limits
 
-- **`report()` can be read while the Run goes on.** It is the same Run report, read early: Lifecycle `running`, no Verdict and no Completeness yet, Usage, Learned rules, Sinks, warnings and a **Freshness** block. The block gives the revisits overdue, the median and the largest lag, the counts of `unchanged`, `gone` and changed revisits, and the trusted `<lastmod>` hosts, overall and per domain. It is one channel, not a second, so ADR 0102's refusal of a periodic status line stands.
+- **`run.report_so_far` reads a report while the Run goes on.** It answers the same parts as the Run report, with no Verdict and no Completeness, since those two are required on a Run report: Lifecycle `running`, Usage, Learned rules, Sinks, warnings and a **Freshness** block, which the Run report at the end also carries. `run.report` still waits for the end, on every Run, so no batch reader's types change. The block gives the revisits overdue, the median and the largest lag, the counts of `unchanged`, `gone` and changed revisits, and the trusted `<lastmod>` hosts, overall and per domain. It is one channel, not a second, so ADR 0102's refusal of a periodic status line stands.
 - **Completeness keeps its meaning of coverage.** At the end, a Continuous crawl is `complete` when every URL it discovered was visited at least once, with ADR 0005's `unverified` causes unchanged. Late revisits are Freshness, never Completeness.
 - **A Run's Limits may carry a period** (day, week or month) in a Continuous crawl, as other scopes' Limits do (ADR 0041), and so may its Model allowance (ADR 0107). Under `crawl.continuous.idle_when_limit_spent` (`true`), a spent period makes the Run `idle` until the next period. When it is `false`, the Run stops `stopped` as today.
 
@@ -106,8 +106,8 @@ How others do it, checked against their sources (`sources.md`, `sources-round3.m
 
 - **Close Schedules with a Watch** (every 5 minutes, say): rejected. Each Run starts from an empty Frontier, so it fetches every article again or filters them afterwards against a Baseline. Latency never drops below the period, under the default `skip` overlap. Every Run pays its start, ADR 0036's 10-run retention cannot hold 288 Runs a day, and no URL is remembered from one Run to the next.
 - **A standing object above Runs that keeps a durable Frontier and starts bounded Runs on due URLs** (Nutch's crawldb and segments): rejected. The Frontier would leave run state, against ADR 0002 and the glossary, with two stores, a handoff between them and one more writer. Nutch's rounds are batches and do not reach low latency.
-- **Numbered cycles inside the Run, each with its own report** (Nutch's segments): rejected. The cut is arbitrary and rebuilds batch Runs inside one Run. `report()` read early gives the same insight with one channel.
-- **Revisit dates in an in-memory priority heap:** rejected. The date alone is 8 bytes, which spends ADR 0134's whole ceiling, while a disk index costs about 100 bytes of disk per URL.
+- **Numbered cycles inside the Run, each with its own report** (Nutch's segments): rejected. The cut is arbitrary and rebuilds batch Runs inside one Run. `run.report_so_far` gives the same insight with one channel.
+- **Revisit dates in an in-memory priority heap:** rejected. The date alone is 8 bytes, which spends ADR 0134's whole ceiling, while the `revisits` table and its index hold no heap per URL and cost about 244 bytes of disk per URL, validators and signature included (measured on 200,000 rows across 100 domains on 2026-11-01, where a due window of 64 rows read through a covering index in about 300 VM steps).
 - **Revisits in proportion to change rate:** rejected. Cho and Garcia-Molina proved uniform revisiting fresher; `estimated` targets freshness instead.
 - **Trusting `<changefreq>`, `<priority>` and every `<lastmod>`:** rejected, as Google and Bing reject them. `<lastmod>` is trusted per host on evidence.
 - **A 5-minute floor for feeds:** rejected as a default. FreshRSS floors at 15 to 20 minutes, and Rachel Kroll's guidance for feed readers is at most hourly with conditional requests and daily without. A user may still set `min` lower.
@@ -117,7 +117,7 @@ How others do it, checked against their sources (`sources.md`, `sources-round3.m
 
 ## Consequences
 
-- **Amends ADR 0102.** A Continuous crawl does not finish when its Frontier is empty. `report()` can be read while it runs. "Recurring Runs are ADR 0036's Schedules" holds for batch Runs only. A revisit is a re-admission as `retryFailed` is.
+- **Amends ADR 0102.** A Continuous crawl does not finish when its Frontier is empty. `run.report_so_far` reads its report while it runs. "Recurring Runs are ADR 0036's Schedules" holds for batch Runs only. A revisit is a re-admission as `retryFailed` is.
 - **Amends ADR 0036.** A Schedule refuses a Continuous crawl as its target with `continuous_not_schedulable`. A Daemon holding a live Continuous crawl never stops idle.
 - **Amends ADRs 0026 and 0036.** In a Continuous crawl, "only new or changed" compares by key within the Run, a `gone` URL soft-deletes its Records, Sinks are probed again periodically, and Files Sinks roll by size and age.
 - **Amends ADRs 0103 and 0122.** A Continuous crawl removes acknowledged Records past its retention, outcomes past the latest per URL and merged URLs past `crawl.continuous.merged_kept`.
@@ -139,4 +139,4 @@ How others do it, checked against their sources (`sources.md`, `sources-round3.m
   - New terms: Continuous crawl, Revisit, Revisit policy, Syndication feed, Freshness and Preset.
   - "recrawl" and "refetch" are _Avoid_ terms for Revisit.
   - Run, Run report and Frontier say what a Continuous crawl changes in them.
-- **Not decided here:** the milestone (by `/to-spec`, after M1), the `<lastmod>` trust thresholds, and the spec's Error codes beyond `continuous_not_schedulable`.
+- **Decided by [the spec, #1836](https://github.com/goodfetch/goodfetch/issues/1836):** the `<lastmod>` trust thresholds and the Error codes `run_not_continuous` and `websub_listener_required`, beside `continuous_not_schedulable`. Its tickets carry the milestone as metadata (ADR 0136).

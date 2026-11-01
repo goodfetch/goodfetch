@@ -99,7 +99,7 @@ On 2026-11-01, under the owner's « fait ce que tu paux faire, to spec, to ticke
 | #2006 | Building conversation | `decisions/1697.md` |
 | #2023 | Host gate | `decisions/gate.md` |
 
-Each spec's drafts also carried its own items for the owner, and each spec assumes its recommendation until the owner says otherwise. Six specs gained a first ticket that writes their ADRs and glossary terms; the Working copies and Building conversation specs drafted their own. Every open `ready-for-agent` ticket with no milestone moved to `M4 Everything else`, as `docs/agents/issue-tracker.md` asks.
+Each spec's drafts also carried its own items for the owner, and each spec assumes its recommendation until the owner says otherwise. On 2026-11-01 the owner decided the items of the person-facing, relay and Working copies specs as recommended (« Oui, les trois »): ADR 0140 gains C6 and E7 (gate tickets #2036, #2037), with the Merge host; no CLI viewer page; ADR 0137's SDK note; no hosted relay, a sample with no release artefact, the loopback WebSocket, and the relay protocol as a public contract. Those specs state them as decided. #1994, Loro's Size budget and confirming Loro stay open. Six specs gained a first ticket that writes their ADRs and glossary terms; the Working copies and Building conversation specs drafted their own. Every open `ready-for-agent` ticket with no milestone moved to `M4 Everything else`, as `docs/agents/issue-tracker.md` asks.
 
 Blast-radius facts in these specs were checked by reading only, since nothing could run during the gate, and each spec names the first test that proves its fact.
 

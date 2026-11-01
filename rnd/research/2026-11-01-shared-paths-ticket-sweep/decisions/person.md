@@ -31,6 +31,8 @@
 
 ## OWNER
 
+> **Decided by the owner on 2026-11-01 (« Oui, les trois »):** items 1, 2 and 3 as recommended. Item 1 is C6 in ADR 0140, gate ticket #2036. The spec and its tickets now state these as decided.
+
 1. **A Live view frame as a new Shared path.** Per-frame work that no row owns (ADR 0140's 17 paths omit it). Recommendation: add a path to ADR 0140, unit one frame, owner the Live view driver, contract 0 file opens, 0 compilations, 0 tasks spawned, 1 acknowledgement through C1, with a B2 cell, viewer on and off. The spec assumes this, and #959 is written to it.
 2. **A viewer the CLI opens.** A person with the CLI only and a headless browser can see the Live view only through their own page. A one-shot loopback page from the CLI would be simpler for them, but is a served page against ADR 0137's intent. Recommendation: do not build it; a documented sample page they run themselves, and later the Cloud. The spec assumes that.
 3. **ADR 0137's internal discrepancy.** Its Decision names "an SDK" among ways a person acts, and its Consequences name only the CLI and later Goodfetch Cloud. Recommendation: read as this spec does, an SDK reads and reaches the Live view, and answers wait for #1643; a one-line note on ADR 0137.

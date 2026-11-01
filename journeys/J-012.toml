@@ -5,7 +5,7 @@ goal = """
 A person stops a run partway, takes its Checkpoint to another Goodfetch home \
 and resumes the run there. The run MUST finish in the other home with every \
 product of the site's catalog and no Record twice, redoing only the work \
-since its Checkpoint, and it MUST check each Effect its journal holds instead \
+since its Checkpoint, and it MUST check each Effect its Effect journal holds instead \
 of repeating it, reporting as uncertain any it cannot check."""
 area = 3
 product = "foxhound"
@@ -38,7 +38,7 @@ text = "Take the run's Checkpoint to a second Goodfetch home"
 text = "Resume the run from its Checkpoint in the second home and let it finish"
 
 [[expect]]
-text = "The resumed run checked the order its journal holds instead of placing it again"
+text = "The resumed run checked the order its Effect journal holds instead of placing it again"
 
 [[expect]]
 text = "The oracle verifies the order was placed once"

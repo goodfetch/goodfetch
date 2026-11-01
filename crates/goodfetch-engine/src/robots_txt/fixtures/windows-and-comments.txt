@@ -1,0 +1,9 @@
+﻿# A file written on Windows, with comments and mixed spellings
+user-agent: ExampleBot # the first group
+USER-AGENT:OtherBot
+DISALLOW : /private/
+  Allow:	/private/open  
+Crawl-delay: 2.5
+Sitemap: https://example.com/sitemap.xml
+
+User-agent: *Disallow: /*.pdf$Disallow: /cart?Allow: /$

@@ -25,8 +25,9 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
-use goodfetch_protocol::usage::{Limit, LimitSetter, LimitUsage};
+use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior};
 
@@ -92,6 +93,15 @@ pub enum LedgerError {
     /// SQLite failed; the transaction committed nothing.
     #[error("the Usage ledger at `{path}`: {message}")]
     Sqlite {
+        /// The ledger's file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
+    /// The disk was full or failed an I/O at a transaction (ADR 0122): it
+    /// was rolled back, and nothing of it is acknowledged.
+    #[error("the Usage ledger at `{path}` could not be written to its storage: {message}")]
+    Storage {
         /// The ledger's file.
         path: PathBuf,
         /// SQLite's message.
@@ -175,6 +185,9 @@ pub struct StoredLimit {
     pub must_understand: bool,
     /// Who set it, as written.
     pub set_by: String,
+    /// When it was set last, as written: added, raised or rewritten by its
+    /// managed Operator policy.
+    pub set_at: String,
     /// The major of the managed Operator policy whose row it is.
     pub managed_major: Option<String>,
 }
@@ -308,11 +321,11 @@ impl Ledger {
     /// Sets up `connection`, creating the tables it lacks, and refuses a
     /// ledger of another major.
     fn prepared(&self, mut connection: Connection) -> Result<Connection, LedgerError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let failed = |error: &(dyn std::error::Error + 'static)| self.failed(error);
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
-        wal(&connection).map_err(|error| failed(&error))?;
+        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;
@@ -347,10 +360,30 @@ impl Ledger {
         Ok(connection)
     }
 
-    fn failed(&self, error: &dyn std::fmt::Display) -> LedgerError {
-        LedgerError::Sqlite {
-            path: self.path.clone(),
-            message: error.to_string(),
+    /// The failure of a transaction of the ledger on `error`: a full disk
+    /// or an I/O error as such, after which SQLite may have rolled the whole
+    /// transaction back, and the transaction's drop rolls back the rest (ADR
+    /// 0122).
+    fn failed(&self, error: &(dyn std::error::Error + 'static)) -> LedgerError {
+        let storage = error
+            .downcast_ref::<rusqlite::Error>()
+            .and_then(rusqlite::Error::sqlite_error_code)
+            .is_some_and(|code| {
+                matches!(
+                    code,
+                    rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
+                )
+            });
+        if storage {
+            LedgerError::Storage {
+                path: self.path.clone(),
+                message: error.to_string(),
+            }
+        } else {
+            LedgerError::Sqlite {
+                path: self.path.clone(),
+                message: error.to_string(),
+            }
         }
     }
 
@@ -438,6 +471,25 @@ impl Ledger {
     pub fn limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
         let connection = self.open()?;
         stored_limits(&connection).map_err(|error| self.failed(&error))
+    }
+
+    /// Every Limit, as [`Ledger::limits`] reads them, on `kept`, a
+    /// connection its caller keeps between reads, opened now when it holds
+    /// none and let go when a read fails, so the next one opens afresh
+    /// (the deep review's 599-12: a run's every charge reopened the file).
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be read.
+    fn limits_on(&self, kept: &mut Option<Connection>) -> Result<Vec<StoredLimit>, LedgerError> {
+        let read = match kept {
+            Some(connection) => stored_limits(connection),
+            None => stored_limits(kept.insert(self.open()?)),
+        };
+        read.map_err(|error| {
+            *kept = None;
+            self.failed(&error)
+        })
     }
 
     /// Every Limit, with what `product`'s engine makes of it and the Usage
@@ -771,29 +823,6 @@ impl Ledger {
     }
 }
 
-/// Puts the ledger `connection` opened in WAL mode. Switching a new file
-/// to WAL takes its exclusive lock without waiting on the busy timeout, so
-/// engines opening a new ledger at once retry it until the timeout ends.
-fn wal(connection: &Connection) -> rusqlite::Result<()> {
-    const PAUSE: Duration = Duration::from_millis(5);
-    let mut waited = Duration::ZERO;
-    loop {
-        match connection.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(())) {
-            Err(rusqlite::Error::SqliteFailure(error, _))
-                if error.code == rusqlite::ErrorCode::DatabaseBusy && waited < BUSY_TIMEOUT =>
-            {
-                #[expect(
-                    clippy::disallowed_methods,
-                    reason = "the ledger's calls run under their caller's blocking policy"
-                )]
-                std::thread::sleep(PAUSE);
-                waited += PAUSE;
-            }
-            other => return other,
-        }
-    }
-}
-
 /// Adds the row of `limit`, set at `now`, a managed Operator policy's of
 /// `managed_major` when it names one.
 fn insert_limit(
@@ -896,7 +925,7 @@ fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Resu
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {
     let mut statement = connection.prepare(
-        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major
+        "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major, set_at
          FROM limits ORDER BY limit_id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -914,6 +943,7 @@ fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> 
             must_understand: row.get(8)?,
             set_by: row.get(9)?,
             managed_major: row.get(10)?,
+            set_at: row.get(11)?,
         })
     })?;
     rows.collect()

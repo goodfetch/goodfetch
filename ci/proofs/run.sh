@@ -19,11 +19,13 @@
 #     ci/commit-leaks.sh (story 1-112);
 #   - the supply-chain and boundary gates (#133): cargo-deny's license
 #     allowlist (ADR 0018), sources, advisories and ADR 0087's workspace-wide
-#     direction; each Product's bans (ci/deny/products.sh); cargo-audit, pnpm
-#     audit and pip-audit (ci/audit.sh, which need their advisory databases,
-#     so this runs before the egress deny); cargo-hack over feature
-#     combinations; the MSRV build; cargo-shear on an unused dependency; the
-#     Console packages (ADR 0087).
+#     direction; each Product's bans (ci/deny/products.sh); cargo-audit and
+#     OSV-Scanner over the pinned advisory snapshot (ci/audit.sh, which
+#     downloads it on its first run, so this runs before the egress deny);
+#     cargo-hack over feature
+#     combinations; the MSRV build; Miri on a use after free (STYLE.md,
+#     `unsafe`); cargo-shear on an unused dependency; the Console packages
+#     (ADR 0087).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 
@@ -37,21 +39,23 @@ fail() {
   failed=1
 }
 
-# Counts how many times each line appears, as "<count> <line>" lines.
-tally() { sort | uniq -c | sed -E 's/^ +//'; }
+# Counts how many times each line appears, as "<count> <line>" lines. Every
+# sort whose output is compared runs under LC_ALL=C, in byte order: a locale
+# such as glibc's en_US.UTF-8 collates without regard to case.
+tally() { LC_ALL=C sort | LC_ALL=C uniq -c | sed -E 's/^ +//'; }
 
 # Every proof must leave the fixtures as they were: no snapshot written or
 # changed. Build outputs and caches are not fixtures.
 fixtures() {
   find ci/proofs -type f -not -path '*/node_modules/*' -not -path '*/target/*' \
-    -not -path '*/__pycache__/*' -not -name Cargo.lock -exec shasum {} + | sort
+    -not -path '*/__pycache__/*' -not -name Cargo.lock -exec shasum {} + | LC_ALL=C sort
 }
 before=$(fixtures)
 unchanged() { [[ "$(fixtures)" == "$before" ]]; }
 
 # cargo-deny reads the root deny.toml (it reads deny.toml in the current folder).
 codes=$(cargo deny --manifest-path ci/proofs/cargo-deny/Cargo.toml --format json check bans 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "banned") | .fields.message | capture("crate .(?<name>[a-z]+) =").name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "banned") | .fields.message | capture("crate .(?<name>[a-z]+) =").name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "faux mockall mockito mry wiremock " ]]; then
   pass "cargo-deny bans mockall, mockito, wiremock, faux and mry"
 else
@@ -62,7 +66,7 @@ fi
 # every license off it fails, CC BY-SA too (Filter lists only), while MPL-2.0
 # and the permissive ones pass.
 codes=$(cargo deny --manifest-path ci/proofs/licenses/Cargo.toml --format json check licenses 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "rejected") | .fields.graphs[0].Krate.name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "rejected") | .fields.graphs[0].Krate.name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "agpl-dependency busl-dependency cc-by-sa-dependency gpl-dependency lgpl-dependency sspl-dependency " ]]; then
   pass "cargo-deny refuses the GPL family, SSPL, BUSL and CC BY-SA, and allows MPL-2.0"
 else
@@ -72,7 +76,7 @@ fi
 # ADR 0087's workspace-wide direction: no crate but Foxhound's and xtask
 # depends on a Foxhound crate, as a normal, build or dev dependency.
 codes=$(cargo deny --manifest-path ci/proofs/foxhound-direction/Cargo.toml --format json check -A unused-wrapper bans 2>&1 |
-  jq -r 'select(.type == "diagnostic" and .fields.code == "unmatched-wrapper") | .fields.message | capture("parent .(?<name>[a-z-]+) =").name' | sort | tr '\n' ' ')
+  jq -r 'select(.type == "diagnostic" and .fields.code == "unmatched-wrapper") | .fields.message | capture("parent .(?<name>[a-z-]+) =").name' | LC_ALL=C sort | tr '\n' ' ')
 if [[ "$codes" == "builds-with-it takes-it tests-with-it " ]]; then
   pass "cargo-deny refuses a Foxhound crate under any parent but Foxhound's crates and xtask"
 else
@@ -100,42 +104,46 @@ else
 fi
 
 # What each Product ships: Collie's executable takes DuckDB, a test-only crate,
-# a Foxhound crate and BoringSSL through a crate other than the relay's, and a
-# test adapter only as a dev-dependency (not shipped); Foxhound's takes wreq,
-# its own, and a test adapter.
+# a Foxhound crate, wreq, and BoringSSL through the relay's crate (allowed)
+# and through another (refused), and a test adapter only as a
+# dev-dependency (not shipped); Foxhound's takes wreq, its own, and a test
+# adapter.
 output=$(DENY_FORMAT=json ci/deny/products.sh ci/proofs/product-bans/Cargo.toml 2>&1)
 codes=$(jq -R -r 'if startswith("product: ") then .
   else (fromjson? | select(.type == "diagnostic" and .fields.code == "banned")
     | .fields.message | capture("crate .(?<name>[a-z-]+) =").name) end' <<<"$output" | tr '\n' ' ')
-if [[ "$codes" == "product: collie duckdb goodfetch-frontier goodfetch-test-support tokio-btls product: foxhound goodfetch-scripted-model " ]]; then
+if [[ "$codes" == "product: collie duckdb goodfetch-frontier goodfetch-test-support tokio-btls wreq product: foxhound goodfetch-scripted-model " ]]; then
   pass "each Product's bans refuse what its executable must not ship, dev-dependencies aside"
 else
   fail product-bans "banned per Product: ${codes:-none}"
 fi
 
-# RustSec's advisories, through cargo-deny and cargo-audit both.
+# The gate's advisories, against the pinned snapshot, offline (ADR 0064):
+# RustSec's through cargo-deny and cargo-audit both, OSV's npm and PyPI
+# databases through OSV-Scanner. `just audit-live`'s own tools have their
+# proofs in ci/proofs/live.sh.
 output=$(ci/audit.sh rust ci/proofs/advisories/Cargo.toml 2>&1)
 status=$?
 if [[ $status -ne 0 ]] && grep -q '^error\[vulnerability\]' <<<"$output" && grep -q '^Crate: *smallvec' <<<"$output"; then
-  pass "cargo-deny and cargo-audit refuse a crate version with a RustSec advisory"
+  pass "cargo-deny and cargo-audit refuse a crate version with an advisory in the pinned RustSec commit"
 else
   fail rust-advisories "exit $status; cargo-deny and cargo-audit must each report smallvec"
 fi
 
-if output=$(ci/audit.sh npm ci/proofs/npm-audit 2>&1); then
-  fail npm-audit "the audit passed"
-elif grep -q 'lodash' <<<"$output"; then
-  pass "pnpm audit refuses a package version with a published advisory"
+if output=$(ci/audit.sh npm ci/proofs/npm-audit/pnpm-lock.yaml 2>&1); then
+  fail npm-advisories "the audit passed"
+elif grep -q '| npm .*| lodash *| 4.17.11 ' <<<"$output"; then
+  pass "OSV-Scanner refuses a pnpm-locked package version with an advisory in the pinned npm database"
 else
-  fail npm-audit "the audit failed without naming lodash"
+  fail npm-advisories "the audit failed without naming lodash 4.17.11"
 fi
 
-if output=$(ci/audit.sh python ci/proofs/pip-audit/requirements.txt 2>&1); then
-  fail pip-audit "the audit passed"
-elif grep -q '^urllib3 *1.24.1' <<<"$output"; then
-  pass "pip-audit refuses a package version with a published advisory"
+if output=$(ci/audit.sh python ci/proofs/uv-audit/uv.lock 2>&1); then
+  fail python-advisories "the audit passed"
+elif grep -q '| PyPI .*| urllib3 *| 1.24.1 ' <<<"$output"; then
+  pass "OSV-Scanner refuses a uv-locked package version with an advisory in the pinned PyPI database"
 else
-  fail pip-audit "the audit failed without naming urllib3"
+  fail python-advisories "the audit failed without naming urllib3 1.24.1"
 fi
 
 # cargo-hack: two features of Collie's SDK crate that clash only together.
@@ -157,6 +165,17 @@ elif ! CARGO_TARGET_DIR=target/proofs cargo build --quiet --manifest-path ci/pro
   fail msrv "the fixture does not build with the pinned toolchain either"
 else
   pass "the MSRV build refuses code that needs a newer Rust"
+fi
+
+# Miri (STYLE.md, `unsafe`): under ci/miri.toml's toolchain, as `just miri`
+# runs it, a test that reads memory it freed fails as undefined behaviour.
+miri_toolchain=$(sed -n 's/^toolchain = "\(.*\)"$/\1/p' ci/miri.toml)
+if output=$(CARGO_TARGET_DIR=target/proofs cargo "+$miri_toolchain" miri test --manifest-path ci/proofs/miri/Cargo.toml 2>&1); then
+  fail miri "the test that reads freed memory passed under Miri"
+elif ! grep -q 'Undefined Behavior: .* has been freed' <<<"$output"; then
+  fail miri "Miri failed for another reason"
+else
+  pass "Miri refuses a test that reads memory it freed"
 fi
 
 # cargo-shear (#133): a dependency a crate declares and never uses fails.
@@ -201,6 +220,21 @@ if [[ "$codes" == "1 lingui(no-unlocalized-strings) ci/proofs/oxlint/console/col
   pass "oxlint refuses an unlocalized Console string and accepts a localized one"
 else
   fail oxlint-lingui "findings: ${codes:-none}"
+fi
+
+# ADR 0073's "every oxlint `jsx-a11y` rule is an error", on the Console: a
+# component with an image without a text alternative and a clickable `<div>`
+# fails each rule it breaks, as an error, and the localized component passes.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json \
+  ci/proofs/oxlint/console/collie/src/inaccessible.tsx ci/proofs/oxlint/console/collie/src/localized.tsx 2>/dev/null |
+  jq -r '.diagnostics[] | .code + " " + .severity + " " + .filename' | tally)
+expected="1 jsx-a11y(alt-text) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
+1 jsx-a11y(click-events-have-key-events) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
+1 jsx-a11y(no-static-element-interactions) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx"
+if [[ "$codes" == "$expected" ]]; then
+  pass "oxlint refuses an inaccessible Console component, each jsx-a11y rule as an error"
+else
+  fail oxlint-jsx-a11y "findings: ${codes:-none}"
 fi
 
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/mocking.test.ts 2>/dev/null |

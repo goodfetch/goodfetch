@@ -332,6 +332,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh
@@ -412,8 +415,9 @@ jobs:
   # commits and `cargo fuzz check` (#317). cargo-deny's licenses, bans,
   # sources and the boundary checks, the image digest pins and the secret
   # scan before every upload run in the Quick job's lints.
-  # The audits read public advisory databases, so they run before the egress
-  # deny; Miri runs tests, so it runs under it (ci/egress/endpoints.toml).
+  # The audit downloads its pinned advisory snapshot, so it runs before the
+  # egress deny; Miri runs tests, so it runs under it
+  # (ci/egress/endpoints.toml).
   supply-chain:
     name: supply-chain
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -446,7 +450,12 @@ jobs:
       # in a pull request (ADR 0067).
       - name: Check every fuzz target with cargo fuzz check
         run: ci/vm/exec.sh just fuzz-check
+      # Against the pinned advisory snapshot (ADR 0064), whose OSV databases
+      # are assets of this repository's release, read with the job's token
+      # while the repository is private.
       - name: Audit the locked dependencies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/vm/exec.sh just audit
       - name: Build on the MSRV
         run: ci/vm/exec.sh just msrv
@@ -465,6 +474,9 @@ jobs:
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
+      - name: Summarize the failed tests
+        if: always()
+        run: ci/junit-summary.sh vm
       - name: Destroy the VM
         if: always()
         run: ci/vm/stop.sh

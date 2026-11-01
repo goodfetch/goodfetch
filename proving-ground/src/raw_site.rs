@@ -1,6 +1,6 @@
 //! The host names the raw server answers (#162, ADRs 0118 and 0119): the
 //! lab's HTTP incidents, access-policy and identity sites, ported, the
-//! fetch edge pages and the content-coding pages. Each is served over TLS,
+//! fetch edge pages, the content-coding pages and the body-limits pages. Each is served over TLS,
 //! where the raw server reads a connection's server name to know its host
 //! before its first request, and over plain HTTP/1.1, where the first
 //! request's `Host` names it, for a client such as a browser that does not
@@ -11,6 +11,7 @@
 //! it arrives against the key directory its `Signature-Agent` names, and the
 //! check is recorded with the request.
 
+mod body_limits;
 mod coding;
 mod directory;
 mod edge;
@@ -28,12 +29,13 @@ use crate::task::{Entry, Expected, Kind, Task};
 
 /// The families' own host names; each family's tasks are served on
 /// `<ordinal>.<host>`, and the fetch edge's pages on its named hosts.
-const FAMILY_HOSTS: [&str; 5] = [
+const FAMILY_HOSTS: [&str; 6] = [
     incidents::HOST,
     policy::HOST,
     identity::HOST,
     coding::HOST,
     edge::HOST,
+    body_limits::HOST,
 ];
 
 /// Whether the raw server answers `host` (a host name without its port).
@@ -43,7 +45,7 @@ pub(crate) fn serves(host: &str) -> bool {
 
 /// Whether `host` offers HTTP/1.1 alone in its TLS handshake's ALPN.
 pub(crate) fn http1_only(host: &str) -> bool {
-    host == edge::HTTP1_HOST
+    host == edge::HTTP1_HOST || family_of(host) == Some(body_limits::HOST)
 }
 
 /// The other host names a leaf certificate of `host` names, so a client may
@@ -61,6 +63,8 @@ pub(crate) fn hosts() -> Vec<String> {
     FAMILY_HOSTS
         .into_iter()
         .chain(edge::NAMED_HOSTS)
+        .chain(policy::NAMED_HOSTS)
+        .chain(body_limits::NAMED_HOSTS)
         .map(str::to_owned)
         .collect()
 }
@@ -71,6 +75,7 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     tasks.extend(policy::tasks(seed, port));
     tasks.extend(identity::tasks(seed, port));
     tasks.extend(coding::tasks(port));
+    tasks.extend(body_limits::tasks(port));
     tasks
 }
 
@@ -158,6 +163,7 @@ impl raw::Pages for RawSite {
             Some(policy::HOST) => policy::answer(self.seed, &host, request),
             Some(identity::HOST) => identity::answer(self.seed, &host, request),
             Some(coding::HOST) => coding::answer(&host, request),
+            Some(body_limits::HOST) => body_limits::answer(&host, request),
             Some(_) => edge::answer(&host, request, earlier),
             None => Answer::Page(raw::Page::text(404, "not found")),
         }

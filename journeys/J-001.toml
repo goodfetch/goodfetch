@@ -1,14 +1,14 @@
 #:schema ./journey.schema.json
 id = "J-001"
-title = "Start the Daemon and open the local Console with no login"
+title = "Start the Daemon and open the local Console with no sign-in"
 goal = """
 A person starts the Daemon and opens its local Console. The Console MUST open \
-with no login, and the Daemon MUST stop on its own once it has been idle for \
+with no sign-in, and the Daemon MUST stop on its own once it has been idle for \
 its idle time, so that it costs nothing when unused."""
 area = 3
 product = "collie"
 status = "active"
-covers = ["row:CN-03", "story:3-18"]
+covers = ["row:CN-03", "story:3-18", "story:12-1", "story:12-6"]
 
 [surfaces]
 cli = "M1"
@@ -33,7 +33,7 @@ text = "Open the local Console's address"
 text = "Close the Console and wait past the idle time"
 
 [[expect]]
-text = "The local Console opens with no login"
+text = "The local Console opens with no sign-in"
 
 [[expect]]
 text = "The Daemon stops on its own once no Client has been connected for its idle time"

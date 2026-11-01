@@ -10,17 +10,19 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::{Authority, Product, ValueKind};
+use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
+use goodfetch_protocol::foxhound::frontier::FIXED_FOR_A_RUN;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
-    SettingsFile, SettingsLayer,
+    SettingsFile, SettingsLayer, WeakenedSetting,
 };
 use serde_json::Value;
 
 use super::error::SettingsError;
+use super::hosts;
 use super::keys::{self, Key};
-use super::values::Values;
+use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -48,7 +50,10 @@ impl Policy {
     pub fn check_caps(&self) -> Result<(), SettingsError> {
         for name in self.cap.applied.keys() {
             let capped = keys::find(name).map(|key| key.setting.kind);
-            if !matches!(capped, Some(ValueKind::Count | ValueKind::Duration)) {
+            if !matches!(
+                capped,
+                Some(ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration)
+            ) {
                 return Err(SettingsError::Invalid {
                     key: (*name).to_owned(),
                     layer: Some(SettingsLayer::OperatorPolicy),
@@ -112,9 +117,35 @@ impl Recipe {
     }
 }
 
+/// The defaults an engine chose for its host in place of the catalog's,
+/// such as the encrypted local file's `run_state.key_reference` on a host
+/// with no OS keychain; still the default layer's, as `config explain`
+/// shows them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HostDefaults(BTreeMap<&'static str, Value>);
+
+impl HostDefaults {
+    /// The same, with `value` in place of `setting`'s catalog default.
+    #[must_use]
+    pub fn with(mut self, setting: &Setting, value: Value) -> Self {
+        self.0.insert(setting.name, value);
+        self
+    }
+
+    /// The default of `setting` on this host.
+    pub fn of(&self, setting: &Setting) -> Value {
+        self.0
+            .get(setting.name)
+            .cloned()
+            .unwrap_or_else(|| (setting.default)())
+    }
+}
+
 /// Every layer a Run's settings resolve through.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layers {
+    /// The defaults this host gives in place of the catalog's.
+    pub host: HostDefaults,
     /// The Operator policy.
     pub operator_policy: Policy,
     /// User configuration.
@@ -136,6 +167,9 @@ pub struct Effective {
     pub layer: SettingsLayer,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave it: in the run layer, or
+    /// in the project configuration it sent (ADR 0092).
+    pub for_model: bool,
     /// The layer that locked it.
     pub locked_by: Option<SettingsLayer>,
     /// The Operator policy's cap on it.
@@ -165,6 +199,8 @@ pub struct Resolved {
     settings: BTreeMap<&'static str, Effective>,
     unapplied: BTreeMap<&'static str, Unapplied>,
     policy_version: Option<String>,
+    /// Whether a Recipe's layer took part.
+    recipe_run: bool,
 }
 
 impl Resolved {
@@ -224,22 +260,76 @@ impl Resolved {
             .collect()
     }
 
+    /// The settings of a scope opened beneath these, such as one Session
+    /// of the Run: `own`, the scope's own values at the run layer, each
+    /// taken over the value here unless a lower layer locked or capped it,
+    /// and within its key's authority, so a Client acting for a model sets
+    /// none a model may not (ADRs 0028, 0083 and 0092).
+    ///
+    /// # Errors
+    ///
+    /// `setting_locked` for a value a lower layer locked or capped, or that
+    /// its key's authority refuses `own`; `setting_not_applicable` for a key
+    /// these settings' Product does not honour.
+    pub fn beneath(&self, own: &Values) -> Result<Self, SettingsError> {
+        let mut beneath = self.clone();
+        for (name, value) in &own.applied {
+            let (Some(key), Some(effective)) = (keys::find(name), self.settings.get(name)) else {
+                return Err(SettingsError::NotApplicable {
+                    key: (*name).to_owned(),
+                    layer: SettingsLayer::Run,
+                    fix: format!("`{name}` does not apply to this Run's Product; leave it out"),
+                });
+            };
+            let mut state = State {
+                effective: effective.clone(),
+                locked: effective
+                    .locked_by
+                    .map(|layer| limit(name, &effective.value, layer)),
+                cap: effective
+                    .cap
+                    .as_ref()
+                    .map(|cap| limit(name, cap, SettingsLayer::OperatorPolicy)),
+                exposure: None,
+            };
+            take(
+                &mut state,
+                key,
+                SettingsLayer::Run,
+                value,
+                Some(own.given()),
+            )?;
+            state.effective.weakens = key
+                .setting
+                .weakens
+                .is_some_and(|weakens| weakens(&state.effective.value));
+            beneath.settings.insert(name, state.effective);
+        }
+        Ok(beneath)
+    }
+
+    /// Whether the Run is a Recipe's.
+    pub fn recipe_run(&self) -> bool {
+        self.recipe_run
+    }
+
     /// The version of the Operator policy it resolved under.
     pub fn policy_version(&self) -> Option<&str> {
         self.policy_version.as_deref()
     }
 
     /// Every setting whose value weakens a guarantee or switches off a
-    /// costly control, with its value and layer, which the results it
-    /// touches are marked with (ADR 0028).
-    pub fn weakened_by(&self) -> Vec<SettingLimit> {
+    /// costly control, with its value, layer and origin, which the results
+    /// it touches are marked with (ADR 0028).
+    pub fn weakened(&self) -> Vec<WeakenedSetting> {
         self.settings
             .iter()
             .filter(|(_, effective)| effective.weakens)
-            .map(|(key, effective)| SettingLimit {
+            .map(|(key, effective)| WeakenedSetting {
                 key: (*key).to_owned(),
                 value: effective.value.clone(),
                 layer: effective.layer,
+                origin: effective.origin,
             })
             .collect()
     }
@@ -262,6 +352,7 @@ impl Resolved {
                 effective.value = cap.clone();
                 effective.layer = SettingsLayer::OperatorPolicy;
                 effective.origin = None;
+                effective.for_model = false;
             }
         }
         capped.policy_version.clone_from(&policy.version);
@@ -293,6 +384,8 @@ impl Resolved {
                 locked_by: effective.locked_by,
                 cap: effective.cap.clone(),
                 weakens: effective.weakens,
+                user_settable: effective.locked_by.is_none() && user_settable(key),
+                fixed_for_run: fixed_for_run(key),
             })
             .chain(
                 self.unapplied
@@ -307,6 +400,8 @@ impl Resolved {
                         locked_by: None,
                         cap: None,
                         weakens: false,
+                        user_settable: false,
+                        fixed_for_run: fixed_for_run(key),
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -318,6 +413,21 @@ impl Resolved {
             settings,
         }
     }
+}
+
+/// Whether user configuration may hold `key`, by its authority.
+fn user_settable(key: &str) -> bool {
+    keys::find(key).is_some_and(|found| {
+        !matches!(
+            found.setting.authority,
+            Authority::OperatorPolicy | Authority::Fixed
+        )
+    })
+}
+
+/// Whether `key` is fixed for a Run's life (ADRs 0102 and 0120).
+fn fixed_for_run(key: &str) -> bool {
+    FIXED_FOR_A_RUN.iter().any(|fixed| fixed.name == key)
 }
 
 /// The Products that honour a key of `product`'s mark.
@@ -361,6 +471,7 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
         settings,
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
+        recipe_run: layers.recipe.is_some(),
     })
 }
 
@@ -414,12 +525,13 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
     let setting = key.setting;
     let name = setting.name;
     let policy = &layers.operator_policy;
-    let default = (setting.default)();
+    let default = layers.host.of(setting);
     let mut state = State {
         effective: Effective {
             value: default.clone(),
             layer: SettingsLayer::Default,
             origin: None,
+            for_model: false,
             locked_by: None,
             cap: None,
             product: key.product,
@@ -463,11 +575,12 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             key,
             SettingsLayer::ProjectConfiguration,
             value,
-            None,
+            Some(layers.project_configuration.given()),
         )?;
     }
     if let Some(recipe) = &layers.recipe {
         if let Some(value) = recipe.declared.get(name) {
+            recipe_may_set(policy, setting, &state.effective)?;
             take(&mut state, key, SettingsLayer::Recipe, value, None)?;
         }
         match recipe.expose.get(name) {
@@ -484,7 +597,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             key,
             SettingsLayer::Run,
             value,
-            layers.run.origin,
+            Some(layers.run.given()),
         )?;
     }
     if let Some(cap) = &state.cap
@@ -504,6 +617,40 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
     Ok(state.effective)
 }
 
+/// Refuses a Recipe's value for `setting`, whose effective value below the
+/// Recipe is `below`, where its authority wants an allowance `policy` does
+/// not give.
+fn recipe_may_set(
+    policy: &Policy,
+    setting: &Setting,
+    below: &Effective,
+) -> Result<(), SettingsError> {
+    let Authority::NotByModelRecipeAllowedBy(allowance) = setting.authority else {
+        return Ok(());
+    };
+    if allows(policy, allowance) {
+        return Ok(());
+    }
+    let name = setting.name;
+    Err(SettingsError::Locked {
+        key: name.to_owned(),
+        layer: SettingsLayer::Recipe,
+        limit: limit(name, &below.value, below.layer),
+        fix: format!(
+            "a Recipe sets `{name}` only where the Operator policy sets `{allowance}` to true"
+        ),
+    })
+}
+
+/// Whether `policy` sets the boolean `allowance` to `true`, locked or not.
+fn allows(policy: &Policy, allowance: &str) -> bool {
+    policy
+        .lock
+        .get(allowance)
+        .or_else(|| policy.settings.get(allowance))
+        == Some(&Value::Bool(true))
+}
+
 fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
     SettingLimit {
         key: key.to_owned(),
@@ -518,14 +665,19 @@ fn above(value: &Value, bound: u64) -> bool {
     value.is_null() || value.as_u64().is_some_and(|value| value > bound)
 }
 
-/// Takes `value` from `layer` for `key` unless something holds the key.
+/// Takes `value` from `layer` for `key`, as `given` for the run layer and
+/// the project configuration a Client sent,
+/// unless something holds the key: a lock, an Operator policy's cap the
+/// value is past (a clear to no bound is past every cap), a Recipe's
+/// bounds or the key's authority.
 fn take(
     state: &mut State,
     key: Key,
     layer: SettingsLayer,
     value: &Value,
-    origin: Option<RunOrigin>,
+    given: Option<Given>,
 ) -> Result<(), SettingsError> {
+    let given = given.unwrap_or_default();
     let name = key.setting.name;
     let refused = |limit: SettingLimit, fix: String| SettingsError::Locked {
         key: name.to_owned(),
@@ -534,7 +686,7 @@ fn take(
         fix,
     };
     let current = limit(name, &state.effective.value, state.effective.layer);
-    authority(key, layer, value, &current, &refused)?;
+    authority(key, layer, value, given.for_model, &current, &refused)?;
     if let Some(locked) = &state.locked {
         let fix = match locked.layer {
             SettingsLayer::Default => format!("`{name}` is an honesty guarantee no layer changes"),
@@ -543,8 +695,8 @@ fn take(
         };
         return Err(refused(locked.clone(), fix));
     }
-    if let (Some(cap), Some(given)) = (&state.cap, value.as_u64())
-        && cap.value.as_u64().is_some_and(|bound| given > bound)
+    if let Some(cap) = &state.cap
+        && cap.value.as_u64().is_some_and(|bound| above(value, bound))
     {
         return Err(refused(
             cap.clone(),
@@ -563,15 +715,18 @@ fn take(
     }
     state.effective.value = value.clone();
     state.effective.layer = layer;
-    state.effective.origin = origin;
+    state.effective.origin = given.origin;
+    state.effective.for_model = given.for_model;
     Ok(())
 }
 
-/// The key's own authority over `layer` (ADR 0028 and its amendments).
+/// The key's own authority over `layer` (ADR 0028 and its amendments);
+/// `for_model` when a Client acting for a model gave `value`.
 fn authority(
     key: Key,
     layer: SettingsLayer,
     value: &Value,
+    for_model: bool,
     current: &SettingLimit,
     refused: &dyn Fn(SettingLimit, String) -> SettingsError,
 ) -> Result<(), SettingsError> {
@@ -602,14 +757,44 @@ fn authority(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),
         )),
-        Authority::Configuration if above_configuration => Err(configuration_only()),
+        Authority::Configuration | Authority::ConfigurationProjectLimited(_)
+            if above_configuration =>
+        {
+            Err(configuration_only())
+        }
         Authority::ConfigurationExcept(allowed) if above_configuration && !allowed(value) => {
             Err(configuration_only())
         }
-        Authority::NotByRecipe if layer == SettingsLayer::Recipe => Err(refused(
-            current.clone(),
-            format!("a Recipe never sets `{name}`; it may only expose it"),
-        )),
+        Authority::ConfigurationProjectLimited(allowed)
+            if layer == SettingsLayer::ProjectConfiguration && !allowed(value) =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a project's configuration gives `{name}` without what only the machine's own layers set, such as a Proxy provider's `price`, which a currency Limit trusts: set the provider's entry, its `price` included, in user configuration or an Operator policy"
+                ),
+            ))
+        }
+        Authority::NotByRecipe | Authority::NotByRecipeOrModel
+            if layer == SettingsLayer::Recipe =>
+        {
+            Err(refused(
+                current.clone(),
+                format!("a Recipe never sets `{name}`; it may only expose it"),
+            ))
+        }
+        Authority::NotByRecipeOrModel
+        | Authority::NotByModel
+        | Authority::NotByModelRecipeAllowedBy(_)
+            if for_model =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a Client acting for a model never sets `{name}`: set it in the program's own code, in configuration or in an Operator policy"
+                ),
+            ))
+        }
         Authority::Narrowed if above_configuration && !narrows(key, value, &current.value) => {
             Err(refused(
                 current.clone(),
@@ -618,11 +803,27 @@ fn authority(
                 ),
             ))
         }
+        Authority::HostsNarrowedByRecipeOrModel(list)
+            if (layer == SettingsLayer::Recipe || for_model)
+                && !hosts::narrows(list, value, &current.value) =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a Recipe or a Client acting for a model only narrows `{name}`: list no host the layers below do not cover in `egress.allowed_domains`, and leave none they list uncovered in `egress.blocked_domains`; widen it in the program's own code, in configuration or in an Operator policy"
+                ),
+            ))
+        }
         Authority::Every
+        | Authority::HostsNarrowedByRecipeOrModel(_)
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
+        | Authority::ConfigurationProjectLimited(_)
         | Authority::NotByRecipe
+        | Authority::NotByRecipeOrModel
+        | Authority::NotByModel
+        | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
     }
 }

@@ -1,0 +1,56 @@
+#:schema ./journey.schema.json
+id = "J-027"
+title = "Switch a security control off for one run, then export the Audit log and verify its chain"
+goal = """
+A person switches the Audit log's hash chain off for one run, runs another \
+with every security control on, then exports the Audit log and verifies it. \
+The run with the control off MUST say so: its Run report MUST list the \
+control in `weakened`, the engine MUST log one warning naming it, and the \
+Audit log MUST hold one chained entry recording the switch; that run's \
+other entries MUST be marked unchained, the other run's MUST be chained, and \
+`audit verify` MUST still report the exported log and the Audit log itself \
+intact, so that a run that ran unprotected says so and the rest of the log \
+stays verifiable (ADRs 0016 and 0102)."""
+area = 4
+product = "collie"
+status = "active"
+covers = [
+  "row:compliance-security-privacy",
+  "story:4-69",
+  "story:4-70",
+  "story:4-71",
+  "story:4-74",
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Name the runs' key-encryption key by a Secret reference in the user configuration, so that each run records its use in the Audit log"
+
+[[steps]]
+text = "Start a run with the Audit log's hash chain switched off for that run only"
+
+[[steps]]
+text = "Start a second run with every security control on"
+
+[[steps]]
+text = "Read the first run's report"
+
+[[steps]]
+text = "Export the Audit log"
+
+[[steps]]
+text = "Verify the exported log, and the Audit log itself"
+
+[[expect]]
+text = "The first run's report lists the Audit log's hash chain in `weakened`, and the engine logged one warning naming it"
+
+[[expect]]
+text = "The Audit log holds one chained entry recording the switch for the first run, and the first run's other entries are marked unchained"
+
+[[expect]]
+text = "The second run's entries are chained"
+
+[[expect]]
+text = "`audit verify` reports the exported log and the Audit log itself intact"

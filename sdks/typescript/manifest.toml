@@ -157,3 +157,12 @@ entry = "none"
 reason = "The Product version `hello` names (ADR 0090)."
 words = ["product", "version"]
 form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie/testing"
+receiver = "(module)"
+member = "connectOver"
+entry = "none"
+reason = "Opens `connect()`'s Connection over a transport a test holds, such as the Scripted engine's in-memory player, with no process behind it (ADR 0069)."
+words = ["connect", "over"]
+form = "opener"

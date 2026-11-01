@@ -8,6 +8,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
 import { EngineNotFoundError } from "./generated/index.ts";
 import type { Logger } from "./logger.ts";
 import type { Transport } from "./rpc.ts";
@@ -64,12 +65,13 @@ export class AttachedEngine {
       readable: Readable.toWeb(stdout) as ReadableStream<Uint8Array>,
       writable: Writable.toWeb(stdin) as WritableStream<Uint8Array>,
     };
-    let tail = "";
+    let tail = Buffer.alloc(0);
     let partial = "";
-    stderr.setEncoding("utf8");
-    stderr.on("data", (text: string) => {
-      tail = (tail + text).slice(-STDERR_TAIL_BYTES);
-      const lines = (partial + text).split("\n");
+    const decoder = new StringDecoder("utf8");
+    stderr.on("data", (bytes: Buffer) => {
+      tail = Buffer.concat([tail, bytes]);
+      tail = tail.subarray(Math.max(0, tail.length - STDERR_TAIL_BYTES));
+      const lines = (partial + decoder.write(bytes)).split("\n");
       partial = lines.pop() ?? "";
       for (const line of lines) {
         logger?.warn(line, { source: "engine stderr" });
@@ -77,10 +79,11 @@ export class AttachedEngine {
     });
     this.exited = new Promise((resolve) => {
       child.once("close", (exitCode: number | null, signal: NodeJS.Signals | null) => {
+        partial += decoder.end();
         if (partial !== "") {
           logger?.warn(partial, { source: "engine stderr" });
         }
-        resolve({ exitCode, signal, stderrTail: tail });
+        resolve({ exitCode, signal, stderrTail: textOfTail(tail) });
       });
     });
   }
@@ -145,4 +148,14 @@ export class AttachedEngine {
       this.#child.kill("SIGKILL");
     }
   }
+}
+
+/** The text of the stderr tail `bytes`, a character the cut split at its start left out. */
+function textOfTail(bytes: Buffer): string {
+  let start = 0;
+  // UTF-8 continuation bytes are 0b10xxxxxx.
+  while (start < bytes.length && ((bytes[start] ?? 0) & 0xc0) === 0x80) {
+    start += 1;
+  }
+  return bytes.subarray(start).toString("utf8");
 }

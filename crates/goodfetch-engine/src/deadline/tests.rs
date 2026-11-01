@@ -6,6 +6,10 @@
     reason = "tests run on the test Clock (ADR 0059)"
 )]
 #![expect(
+    clippy::option_option,
+    reason = "a call's own `timeout` has three states as the protocol carries them (ADR 0080)"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
@@ -13,7 +17,9 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::settings::{
+    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
+};
 use serde_json::{Value, json};
 
 use super::Deadline;
@@ -82,4 +88,61 @@ fn a_navigation_answered_within_its_default_thirty_seconds_ends_well() {
         (deadline.duration(), answered.ok()),
         (Duration::from_secs(30), Some("loaded"))
     );
+}
+
+/// A Run with no settings waits under the timeout's declared default, which
+/// the catalog gives, set by the default layer.
+/// Covers: setting:timeout.action
+#[test]
+fn a_timeout_no_layer_set_takes_its_declared_default() {
+    let deadline = Deadline::declared(&TIMEOUT_ACTION);
+
+    assert_eq!(
+        (deadline.duration(), deadline.limit().clone()),
+        (
+            Duration::from_secs(30),
+            SettingLimit {
+                key: "timeout.action".to_owned(),
+                value: json!(30_000),
+                layer: SettingsLayer::Default,
+            }
+        )
+    );
+}
+
+/// A call's own `timeout` (ADR 0080): absent, the scope's deadline; `null`,
+/// none; a count of milliseconds, that setting at the run layer.
+/// Covers: setting:timeout.navigation
+#[rstest::rstest]
+#[case::absent(None, Some((60_000, SettingsLayer::UserConfiguration)))]
+#[case::null(Some(None), None)]
+#[case::given(Some(Some(500)), Some((500, SettingsLayer::Run)))]
+fn a_calls_own_timeout_replaces_its_scopes_deadline(
+    #[case] timeout: Option<Option<u64>>,
+    #[case] expected: Option<(u64, SettingsLayer)>,
+) {
+    let settings = settings(json!({ "timeout": { "navigation": 60_000 } }));
+    let scope = Deadline::of(&settings, &TIMEOUT_NAVIGATION).unwrap();
+
+    let deadline = Deadline::of_call(&scope, &TIMEOUT_NAVIGATION, timeout).unwrap();
+
+    assert_eq!(
+        deadline.map(|deadline| deadline.limit().clone()),
+        expected.map(|(value, layer)| SettingLimit {
+            key: "timeout.navigation".to_owned(),
+            value: json!(value),
+            layer,
+        })
+    );
+}
+
+/// A `timeout` of 0 would end the call at once: it is refused.
+/// Covers: setting:timeout.navigation
+#[test]
+fn a_calls_own_timeout_of_zero_is_invalid_params() {
+    let scope = Deadline::declared(&TIMEOUT_NAVIGATION);
+
+    let refused = Deadline::of_call(&scope, &TIMEOUT_NAVIGATION, Some(Some(0))).unwrap_err();
+
+    assert_eq!(refused.wire_parts().0, -32602);
 }

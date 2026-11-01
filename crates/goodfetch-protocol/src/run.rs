@@ -5,7 +5,8 @@
 //! abort to the engine that owns it; the Run report's three axes; the Run
 //! ID and the Run's tags; the setting that places run files; the Error codes
 //! they answer with; the rows of run state and of the Run index (ADR 0031),
-//! the two formats this module's rows describe (ADR 0066); and what
+//! the two formats this module's rows describe (ADR 0066); `run.list`,
+//! which answers the Run index's rows filtered and sorted; and what
 //! `runs reindex --json` prints.
 //!
 //! Size: the contract of one Run's lifecycle and its rows, kept whole so the
@@ -25,6 +26,28 @@ use crate::catalog::{
 };
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
+
+pub mod completeness;
+mod list;
+mod progress;
+mod report;
+pub mod warning;
+
+pub use self::list::{
+    CREATOR_TAG, OCCURRENCE_TAG, RECIPE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList,
+    RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
+    WATCH_ROLE,
+};
+pub use self::progress::{
+    EngineStep, HumanPause, PauseOrigin, RUN_INTERRUPTED, RUN_PROGRESS, RUN_PROGRESS_READ,
+    RUN_REPORT, RunInterruptedDetails, RunProgress, RunProgressParams, RunStorage, RunWriter,
+};
+
+pub use self::report::{
+    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelUsage,
+    NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport,
+    RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -362,8 +385,7 @@ impl Completeness {
     }
 }
 
-/// Why a Run stopped (ADR 0102); the other causes join with the tickets that
-/// stop Runs for them.
+/// Why a Run stopped (ADRs 0029, 0080 and 0102).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StopReason {
@@ -396,6 +418,29 @@ pub enum StopReason {
     /// point, resumable by an engine that can (ADR 0041): the stop of the
     /// Error code `limit_not_understood`.
     LimitNotUnderstood(Box<NotUnderstoodLimit>),
+    /// Its engine was lost while it ran, and another engine stopped it.
+    EngineLost,
+    /// The resource governor ran out of a resource for it, and it stopped
+    /// at its next safe point, resumable (ADRs 0040 and 0122).
+    Resources {
+        /// The resource that ran out.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        resource: Resource,
+        /// For storage, the folder whose filesystem filled.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        folder: Option<String>,
+    },
+}
+
+/// A resource the governor can run out of (ADR 0122).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Resource {
+    /// The machine's or the container's memory.
+    Memory,
+    /// A filesystem the Run writes to.
+    Storage,
 }
 
 /// A Limit flagged *must understand* that a Run's engine cannot evaluate,
@@ -576,13 +621,38 @@ pub struct RunStarted {
     pub needs: Product,
 }
 
-/// What `run.finish` and `run.abort` take: the Run.
+/// What `run.usage`, `run.pause` and `run.migrate` take: the Run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+}
+
+/// What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunDiscarded {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+}
+
+/// What `run.finish` and `run.stop` take: the Run, and how long the call
+/// waits for its end.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunWaitParams {
+    /// The Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// How long the call waits for the Run's end, in milliseconds; past it,
+    /// it fails with `deadline_exceeded` and only the wait ends. None by
+    /// default for `run.finish`, which the Run's own `timeout.run` bounds;
+    /// `timeout.close` by default for `run.stop`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<u64>,
 }
 
 /// What `run.abort` takes: the Run, and whether the abort was forwarded.
@@ -598,54 +668,6 @@ pub struct RunAbortParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub forwarded: bool,
-}
-
-/// What a Run states about itself when it ends (ADR 0102): its three axes
-/// (ADR 0029) and when it ran.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct RunReport {
-    /// The Run's ID.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub run_id: RunId,
-    /// Where it ended.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub lifecycle: Lifecycle,
-    /// Why it stopped, when it did.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stop_reason: Option<StopReason>,
-    /// Whether its own checks prove what it committed.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub verdict: Verdict,
-    /// Whether its results cover its scope.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub completeness: Completeness,
-    /// When it started.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub started_at: PointInTime,
-    /// When it ended.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub ended_at: PointInTime,
-    /// The version of the Operator policy it ran under, when one applied
-    /// (ADR 0028).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub policy_version: Option<String>,
-    /// Every setting it ran with that weakens a guarantee class or switches
-    /// off a costly control, with its value and layer (ADR 0028).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub weakened_by: Vec<SettingLimit>,
-    /// The last Checkpoint written of it in this engine, when one was (ADR
-    /// 0102).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub checkpoint: Option<Checkpoint>,
-    /// Whether it spent, or reserved, money in a currency no Limit holding
-    /// it caps (ADR 0041): *uncapped*.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub uncapped: bool,
 }
 
 /// A Checkpoint as the engine reports it (ADRs 0002, 0102 and 0116): a
@@ -710,21 +732,6 @@ pub const RUN_AXES_CHANGED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
-/// A Run's progress as it is now (ADR 0102): what `run.progress` reports.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct RunProgress {
-    /// The Run's ID.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub run_id: RunId,
-    /// Where it is.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub lifecycle: Lifecycle,
-    /// The program's own status line, once it set one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub message: Option<ProgressMessage>,
-}
-
 /// What `run.set_progress_message` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -736,17 +743,6 @@ pub struct RunSetProgressMessageParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: ProgressMessage,
 }
-
-/// A Run's progress changed (ADR 0102).
-pub const RUN_PROGRESS: Event = Event {
-    name: "run.progress",
-    description: "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
-    class: EventClass::Telemetry,
-    payload: schema_of::<RunProgress>,
-    stability: Stability::Experimental,
-    deprecated: None,
-    arrived_in: ARRIVED_IN,
-};
 
 /// `run.set_progress_message`.
 pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
@@ -783,14 +779,46 @@ pub const RUN_START: Operation = Operation {
 /// `run.finish`.
 pub const RUN_FINISH: Operation = Operation {
     name: "run.finish",
-    description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. Cancelling the call ends only the wait.",
+    description: "Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunParams>,
+    params: schema_of::<RunWaitParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.stop`.
+pub const RUN_STOP: Operation = Operation {
+    name: "run.stop",
+    description: "Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunWaitParams>,
+    result: schema_of::<RunReport>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.usage`.
+pub const RUN_USAGE: Operation = Operation {
+    name: "run.usage",
+    description: "Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunUsage>,
+    events: &[],
+    cancellable: false,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -805,6 +833,22 @@ pub const RUN_ABORT: Operation = Operation {
     reach: Reach::AllSurfaces,
     params: schema_of::<RunAbortParams>,
     result: schema_of::<RunReport>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.discard`.
+pub const RUN_DISCARD: Operation = Operation {
+    name: "run.discard",
+    description: "Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<RunParams>,
+    result: schema_of::<RunDiscarded>,
     events: &[],
     cancellable: false,
     stability: Stability::Experimental,
@@ -877,6 +921,16 @@ pub const RUN_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// New work for a Run that ended (ADR 0102).
+pub const RUN_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_ended",
+    description: "The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run whose writer's lock another holds (ADRs 0031 and 0102).
 pub const RUN_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_in_use",
@@ -919,6 +973,16 @@ pub const RUN_STATE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A discard of a Run its engine still runs (ADRs 0001 and 0036).
+pub const RUN_LIVE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "run_live",
+    description: "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Run its engine's resource governor stopped, or refused at its start,
 /// for want of memory or storage (ADRs 0040 and 0122).
 pub const RESOURCES_EXHAUSTED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -930,7 +994,37 @@ pub const RESOURCES_EXHAUSTED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned` and
+/// What `resources_exhausted` details (ADRs 0040 and 0122).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResourcesExhaustedDetails {
+    /// The resource that ran out.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resource: Resource,
+    /// The Run, when one was stopped or refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// For storage, the folder on the full filesystem; none where the
+    /// engine has no folder of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
+    /// For storage, the space left on that filesystem, in bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub free_bytes: Option<u64>,
+    /// For storage, the setting that set the level, with its value and
+    /// layer (ADR 0079).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<SettingLimit>,
+    /// What to do: the folder to free, or the setting to lower, then a
+    /// start with the Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// What `run_not_found`, `run_in_use`, `run_busy`, `run_not_owned`, `run_live` and
 /// `run_state_unavailable` detail.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunDetails {
@@ -977,7 +1071,7 @@ fn is_fast(value: &serde_json::Value) -> bool {
 /// `run_state.durability` (ADR 0002).
 pub const RUN_STATE_DURABILITY: Setting = Setting {
     name: "run_state.durability",
-    description: "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened_by`.",
+    description: "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
     kind: ValueKind::Choice(&[DURABILITY_FULL, DURABILITY_FAST]),
     default: full_durability,
     clearable: false,
@@ -1038,9 +1132,9 @@ pub struct RunStateRow {
     /// The version of the Operator policy it ran under (ADR 0028).
     pub policy_version: Option<String>,
     /// The settings it ran with that weaken a guarantee or switch off a
-    /// costly control, as a JSON list of each one's key, value and layer
-    /// (ADR 0028).
-    pub weakened_by: String,
+    /// costly control, as a JSON list of each one's key, value, layer and
+    /// origin (ADR 0028).
+    pub weakened: String,
     /// How many commits the run file holds: the position of its journal,
     /// which a Checkpoint reports (ADR 0002).
     pub journal_position: u64,
@@ -1051,6 +1145,13 @@ pub struct RunStateRow {
     pub clean_up_digest: Option<String>,
     /// The program's own status line, once it set one (RT-15).
     pub progress_message: Option<String>,
+    /// Why the Run did nothing, as JSON, once its driver found it so (ADR
+    /// 0102).
+    pub nothing_done: Option<String>,
+    /// Whether it spent money no Limit caps (ADR 0041).
+    pub uncapped: bool,
+    /// Its Run report, as JSON, once it ended (ADR 0102).
+    pub report: Option<String>,
 }
 
 /// Whether the state a Run index row points at is there (ADRs 0031 and
@@ -1112,6 +1213,12 @@ pub struct RunIndexRow {
     pub presence: Presence,
     /// The program's own status line, once it set one (RT-15).
     pub progress_message: Option<String>,
+    /// Why it stopped, once it stopped: "Needs you" lists a Run stopped by
+    /// storage from it (ADR 0122).
+    pub stop_reason: Option<StopReason>,
+    /// Whether it replayed a Response recording (ADR 0105), which marks
+    /// its row so that no one reads it as a live run.
+    pub replayed: bool,
 }
 
 /// Where the engine that owns a live Run is reached (ADR 0031).
@@ -1157,24 +1264,38 @@ pub struct RunsReindexOutput {
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_START, RUN_FINISH, RUN_ABORT, RUN_SET_PROGRESS_MESSAGE],
+    operations: &[
+        RUN_START,
+        RUN_FINISH,
+        RUN_STOP,
+        RUN_ABORT,
+        RUN_USAGE,
+        RUN_SET_PROGRESS_MESSAGE,
+        RUN_DISCARD,
+        RUN_PROGRESS_READ,
+        RUN_REPORT,
+        RUN_LIST,
+    ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],
     error_codes: &[
         RUN_ID_INVALID,
         RUN_CONFLICT,
         RUN_NOT_FOUND,
+        RUN_ENDED,
         RUN_IN_USE,
         RUN_BUSY,
         RUN_NOT_OWNED,
         RUN_STATE_UNAVAILABLE,
+        RUN_LIVE,
         RESOURCES_EXHAUSTED,
+        RUN_INTERRUPTED,
     ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[RUN_STATE_LOCATION, RUN_STATE_DURABILITY, RUN_STATE_LAYOUT],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &warning::WARNING_CODES,
 };
 
 #[cfg(test)]

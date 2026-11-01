@@ -15,7 +15,7 @@ import type {
 import type { JourneyFacts } from "./journey-document.ts";
 
 /** What a vector's facts hold besides its steps, checks and tasks. */
-export type JourneyVariant = Omit<JourneyFacts, "steps" | "checks" | "tasks">;
+export type JourneyVariant = Omit<JourneyFacts, "steps" | "checks" | "tasks" | "test_errors">;
 
 /** One vector, as facts of `variant`. */
 export interface JourneyVector {
@@ -31,6 +31,7 @@ interface VectorFile {
   readonly steps: readonly StepOutcome[];
   readonly checks: readonly CheckOutcome[];
   readonly tasks: readonly (OracleOutcome | null)[];
+  readonly test_errors?: readonly string[];
   readonly outcome: JourneyOutcome;
 }
 
@@ -90,6 +91,7 @@ function journeyVector(name: string, vector: VectorFile, variant: JourneyVariant
         const id = `catalog/${index + 1}`;
         return outcome === null ? { id } : { id, answer: { task: id, outcome } };
       }),
+      ...(vector.test_errors === undefined ? {} : { test_errors: [...vector.test_errors] }),
     },
   };
 }

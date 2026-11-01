@@ -21,7 +21,7 @@ use goodfetch_test_support::{
 use serde_json::{Map, Value, json};
 
 use crate::daemon::RawClient;
-use crate::daemon_run::{Foreground, free_address, opened};
+use crate::daemon_run::{ANY_PORT, Foreground, opened, took_a_free_port};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -48,7 +48,10 @@ fn resolving(proving_ground: &ProvingGround) -> Value {
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
-    json!({ "network": { "resolve": resolve } })
+    json!({
+        "network": { "resolve": resolve },
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+    })
 }
 
 /// Opens a page in `run_id`'s default Session and visits `numbers`'
@@ -79,10 +82,7 @@ fn visit(
 /// How many times the Proving ground served each product page.
 fn served(proving_ground: &ProvingGround) -> BTreeMap<String, usize> {
     let mut served = BTreeMap::new();
-    for request in proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .unwrap()
-    {
+    for request in proving_ground.received_requests().unwrap().of_the_case() {
         if let Some(path) = request["target"]
             .as_str()
             .filter(|path| request["host"] == "catalog.test" && path.starts_with("/products/"))
@@ -104,7 +104,6 @@ fn cli() {
         .expect("J-015's cli variant starts");
     let cache = browser_cache(run.env()).expect("Playwright's Chrome for Testing is installed");
     let cache = cache.to_string_lossy().into_owned();
-    let address = free_address();
     let mut variables: Vec<(&str, &str)> = vec![(BROWSERS_PATH_VARIABLE, &cache)];
     let mut first: Option<Foreground> = None;
     let mut endpoint: Option<DaemonEndpoint> = None;
@@ -121,13 +120,13 @@ fn cli() {
         "Configure the Daemon's address through a configuration file and its drain grace period through an environment variable",
         |run| {
             run.env().user_configuration(&format!(
-                "daemon.address = \"{address}\"\ndaemon.idle_timeout = 100\n"
+                "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 100\n"
             ));
             variables.push(("GOODFETCH_DAEMON_DRAIN_GRACE", DRAIN_GRACE));
         },
     );
     run.step("Run the Daemon in the foreground (`daemon run`)", |run| {
-        let mut daemon = Foreground::start(run.env(), COLLIE, &variables);
+        let mut daemon = Foreground::start(run.env(), run.engine().to_str().unwrap(), &variables);
         endpoint = Some(daemon.serving());
         first = Some(daemon);
     });
@@ -183,7 +182,8 @@ fn cli() {
         "Run the Daemon in the foreground again and let both runs finish",
         |run| {
             let proving_ground = run.proving_ground().expect("J-015 has a Proving ground");
-            let mut daemon = Foreground::start(run.env(), COLLIE, &variables);
+            let mut daemon =
+                Foreground::start(run.env(), run.engine().to_str().unwrap(), &variables);
             let endpoint = daemon.serving();
             let mut resuming = opened(run.env(), &endpoint);
             for (run_id, numbers) in SHARES {
@@ -223,8 +223,11 @@ fn cli() {
         "The foreground Daemon listened on the configured address and wrote no runtime file",
         |_| {
             assert_eq!(
-                (endpoint.clone(), RuntimeFile::path(&home, VERSION).exists()),
-                (Some(DaemonEndpoint::Tcp(address)), false)
+                (
+                    endpoint.as_ref().is_some_and(took_a_free_port),
+                    RuntimeFile::path(&home, VERSION).exists()
+                ),
+                (true, false)
             );
         },
     );

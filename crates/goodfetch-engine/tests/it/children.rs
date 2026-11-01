@@ -14,6 +14,10 @@ const LIFE: &str = "30";
 /// How long the test waits for a killed child to end.
 const DEADLINE: Duration = Duration::from_secs(10);
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test helper builds the runtime the test runs on (ADR 0060)"
+)]
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -47,6 +51,10 @@ fn sleeper() -> tokio::process::Command {
 
 /// The process group of the process `id`.
 #[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test asks `ps`, outside the engine, which group the child leads"
+)]
 fn group_of(id: u32) -> i64 {
     let output = std::process::Command::new("ps")
         .args(["-o", "pgid=", "-p", &id.to_string()])

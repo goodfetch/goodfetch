@@ -1,5 +1,5 @@
 //! IANA's special-purpose address registries (ADR 0067), committed with
-//! their date beside the SSRF case table: the blocks they list, whether
+//! their date in `goodfetch-protocol`: the blocks they list, whether
 //! each is globally reachable, and the addresses a block holds.
 
 use std::net::IpAddr;
@@ -50,10 +50,11 @@ pub enum RegistryError {
 }
 
 /// The committed registries' text, IPv4's then IPv6's, as IANA publishes
-/// them; `test-support/fixtures/ssrf/` holds them with their date.
+/// them; `crates/goodfetch-protocol/iana/` holds them with their date,
+/// beside the classification table `xtask codegen` writes from them.
 const COMMITTED: [&str; 2] = [
-    include_str!("../../../test-support/fixtures/ssrf/iana-ipv4-special-registry-1.csv"),
-    include_str!("../../../test-support/fixtures/ssrf/iana-ipv6-special-registry-1.csv"),
+    include_str!("../../goodfetch-protocol/iana/iana-ipv4-special-registry-1.csv"),
+    include_str!("../../goodfetch-protocol/iana/iana-ipv6-special-registry-1.csv"),
 ];
 
 impl SpecialPurposeRegistries {

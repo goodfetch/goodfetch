@@ -52,9 +52,11 @@ fn in_session<'env>(env: &'env TestEnv, executable: &Path) -> Cli<'env> {
     command
 }
 
+/// A `--json` run of `executable` in the user's session, its document;
+/// a failure shows the run's stdout too, where `--json` prints its reason.
 fn json_in_session(env: &TestEnv, executable: &Path, arguments: &[&str]) -> Value {
     let output = in_session(env, executable).args(arguments).run().unwrap();
-    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    assert_eq!(output.exit, Some(0), "{output}");
     serde_json::from_str(&output.stdout).unwrap()
 }
 

@@ -7,16 +7,17 @@
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer,
+    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment, configuration,
-    operator_policy, resolve, rewrite,
+    HostDefaults, Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment,
+    configuration, operator_policy, resolve, rewrite,
 };
 
 fn nested(value: Value) -> Map<String, Value> {
@@ -87,6 +88,7 @@ fn refusal(layers: &Layers) -> SettingsError {
 
 fn every_layer_sets_navigation() -> Layers {
     Layers {
+        host: HostDefaults::default(),
         operator_policy: policy(
             json!({ "timeout": { "navigation": 1_000 } }),
             json!({}),
@@ -377,9 +379,117 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
     );
 }
 
+/// A Recipe that declares a security control on, or exposes it held to
+/// on, keeps its runs from switching it off; one that exposes it unbounded
+/// lets the run switch it off, which then weakens the run (positive
+/// control).
+/// Covers: story:4-75, setting:security.audit_chain, error:setting_locked
+#[rstest]
+#[case::declared_on(recipe(json!({ "security": { "audit_chain": true } }), &[]), Err("setting_locked"))]
+#[case::exposed_held_on(
+    recipe(
+        json!({}),
+        &[("security.audit_chain", Exposure { one_of: vec![json!(true)], ..Exposure::default() })],
+    ),
+    Err("setting_locked")
+)]
+#[case::exposed_unbounded(
+    recipe(json!({}), &[("security.audit_chain", Exposure::default())]),
+    Ok(vec!["security.audit_chain".to_owned()])
+)]
+fn a_recipe_caps_a_security_control_its_runs_would_switch_off(
+    #[case] recipe: Recipe,
+    #[case] expected: Result<Vec<String>, &str>,
+) {
+    let layers = Layers {
+        recipe: Some(recipe),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "security": { "audit_chain": false } }),
+        ),
+        ..Layers::default()
+    };
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(
+        outcome
+            .map(|resolved| {
+                resolved
+                    .weakened()
+                    .into_iter()
+                    .map(|weakened| weakened.key)
+                    .collect()
+            })
+            .map_err(|refused| refused.code()),
+        expected
+    );
+}
+
+/// An Operator policy that locks `site_preferences.respect_robots_txt`
+/// on, or a Recipe that declares it on or exposes it held to on, keeps a
+/// run from turning robots.txt off (ADRs 0028 and 0086), so a shared
+/// Daemon can forbid it; a Recipe that exposes it unbounded lets the run
+/// turn it off, which then weakens the run (positive control).
+/// Covers: story:4-119, setting:site_preferences.respect_robots_txt, error:setting_locked
+#[rstest]
+#[case::locked_by_the_operator_policy(
+    Some(policy(json!({}), json!({ "site_preferences": { "respect_robots_txt": true } }), json!({}))),
+    None,
+    Err("setting_locked")
+)]
+#[case::declared_on_by_a_recipe(
+    None,
+    Some(recipe(json!({ "site_preferences": { "respect_robots_txt": true } }), &[])),
+    Err("setting_locked")
+)]
+#[case::exposed_held_on_by_a_recipe(
+    None,
+    Some(recipe(
+        json!({}),
+        &[("site_preferences.respect_robots_txt", Exposure { one_of: vec![json!(true)], ..Exposure::default() })],
+    )),
+    Err("setting_locked")
+)]
+#[case::exposed_unbounded_by_a_recipe(
+    None,
+    Some(recipe(json!({}), &[("site_preferences.respect_robots_txt", Exposure::default())])),
+    Ok(vec!["site_preferences.respect_robots_txt".to_owned()])
+)]
+fn a_policy_or_a_recipe_keeps_a_run_from_turning_robots_txt_off(
+    #[case] locking: Option<Policy>,
+    #[case] recipe: Option<Recipe>,
+    #[case] expected: Result<Vec<String>, &str>,
+) {
+    let layers = Layers {
+        operator_policy: locking.unwrap_or_default(),
+        recipe,
+        run: values(
+            SettingsLayer::Run,
+            json!({ "site_preferences": { "respect_robots_txt": false } }),
+        ),
+        ..Layers::default()
+    };
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(
+        outcome
+            .map(|resolved| {
+                resolved
+                    .weakened()
+                    .into_iter()
+                    .map(|weakened| weakened.key)
+                    .collect()
+            })
+            .map_err(|refused| refused.code()),
+        expected
+    );
+}
+
 /// The keys a Recipe and the run only narrow, or never set (spec #213's
 /// story 90): each refused when it widens or sets what is reserved.
-/// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints
+/// Covers: story:3-90, story:5-101, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints
 #[rstest]
 #[case::paid_fetch_domains_widened_by_the_run(
     "paid_fetch.domains", json!(["shop.example"]), SettingsLayer::Run, json!(["shop.example", "other.example"])
@@ -393,6 +503,9 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
 #[case::consent_domains_widened_by_the_run(
     "consent.domains", json!(["news.example"]), SettingsLayer::Run, json!(["news.example", "blog.example"])
 )]
+#[case::consent_domains_widened_by_a_recipe(
+    "consent.domains", json!(["news.example"]), SettingsLayer::Recipe, json!(["blog.example"])
+)]
 #[case::wall_domains_widened_by_the_run(
     "wall.domains", json!(["paper.example"]), SettingsLayer::Run, json!(["other.example"])
 )]
@@ -404,6 +517,9 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
 )]
 #[case::trusted_cas_from_the_run(
     "tls.trusted_cas", json!({}), SettingsLayer::Run, json!({ "intranet.example": ["ca.pem"] })
+)]
+#[case::trusted_cas_from_a_recipe(
+    "tls.trusted_cas", json!({}), SettingsLayer::Recipe, json!({ "intranet.example": ["ca.pem"] })
 )]
 #[case::a_pin_from_the_run(
     "tls.accept_invalid_certs", json!({}), SettingsLayer::Run, json!({ "intranet.example": "sha256/AAAA" })
@@ -429,6 +545,74 @@ fn a_key_reserved_to_lower_layers_refuses_a_wider_value_from_above(
     let refused = refusal(&layers);
 
     assert_eq!(refused.code(), "setting_locked");
+}
+
+/// Story 4-37 (ADR 0042): `any` is taken from configuration only: a Recipe
+/// and a run that list a domain with it are refused, whatever the lower
+/// layers set, and user and project configuration set it (positive
+/// control).
+/// Covers: story:4-37, setting:tls.accept_invalid_certs
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe, false)]
+#[case::from_the_run(SettingsLayer::Run, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, true)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, true)]
+fn any_is_taken_from_configuration_only(#[case] layer: SettingsLayer, #[case] taken: bool) {
+    let any = json!({ "fixture.test": "any" });
+    let layers = only(layer, "tls.accept_invalid_certs", &any);
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("tls.accept_invalid_certs")),
+            (true, &any)
+        ),
+        Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
+    }
+}
+
+/// Story 4-34 (ADR 0042): a Recipe and a run set a domain's client
+/// certificate as configuration does, unlike `tls.trusted_cas`.
+/// Covers: story:4-34, setting:tls.client_certificates
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe)]
+#[case::from_the_run(SettingsLayer::Run)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration)]
+fn a_client_certificate_is_taken_from_a_recipe_and_the_run(#[case] layer: SettingsLayer) {
+    let certificates =
+        json!({ "mtls.example": { "certificate": "client.pem", "key": "env:CLIENT_KEY" } });
+    let layers = only(layer, "tls.client_certificates", &certificates);
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    assert_eq!(resolved.value("tls.client_certificates"), &certificates);
+}
+
+/// Story 4-34: a client certificate's key given as a raw value, from any
+/// layer, is refused with `setting_invalid` naming the setting, and
+/// neither the error's message nor its reason repeats the key.
+/// Covers: story:4-34, setting:tls.client_certificates, error:setting_invalid
+#[rstest]
+#[case::from_the_run(SettingsLayer::Run)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration)]
+fn a_raw_client_key_is_refused_with_setting_invalid_without_its_value(
+    #[case] layer: SettingsLayer,
+) {
+    let raw = "-----BEGIN PRIVATE KEY-----\nc4n4ryk3yAgEAMBMGByqGSM49AgEGCCqGSM49AwEH\n-----END PRIVATE KEY-----";
+    let set = json!({
+        "tls.client_certificates": { "mtls.example": { "certificate": "client.pem", "key": raw } },
+    });
+
+    let refused = Values::read(layer, &nested(set), Product::Collie).unwrap_err();
+
+    let shown = format!("{refused} {refused:?}");
+    assert_eq!(
+        (refused.code(), shown.contains("c4n4ryk3y")),
+        ("setting_invalid", false),
+        "{shown}"
+    );
+    assert!(shown.contains("tls.client_certificates"), "{shown}");
 }
 
 /// Covers: story:3-90, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:tls.accept_invalid_certs
@@ -498,7 +682,7 @@ fn a_recipe_never_sets_session_source() {
     let layers = only(
         SettingsLayer::Recipe,
         "session.source",
-        &json!("profile:work"),
+        &json!({ "kind": "saved_identity", "name": "work" }),
     );
 
     let refused = refusal(&layers);
@@ -516,7 +700,7 @@ fn a_recipe_exposes_session_source_for_its_users_to_set() {
         )),
         run: values(
             SettingsLayer::Run,
-            json!({ "session": { "source": "profile:work" } }),
+            json!({ "session": { "source": { "kind": "saved_identity", "name": "work" } } }),
         ),
         ..Layers::default()
     };
@@ -528,7 +712,7 @@ fn a_recipe_exposes_session_source_for_its_users_to_set() {
             effective.value("session.source"),
             effective.get("session.source").unwrap().locked_by
         ),
-        (&json!("profile:work"), None)
+        (&json!({ "kind": "saved_identity", "name": "work" }), None)
     );
 }
 
@@ -709,11 +893,12 @@ fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
     ));
 
     assert_eq!(
-        effective.weakened_by(),
-        [SettingLimit {
+        effective.weakened(),
+        [WeakenedSetting {
             key: "tls.accept_invalid_certs".to_owned(),
             value: json!({ "intranet.example": null }),
             layer: SettingsLayer::Run,
+            origin: None,
         }]
     );
 }
@@ -804,6 +989,126 @@ fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
     );
 }
 
+/// A `Retry-After`'s bound is a crawl's key (ADR 0118), which a Collie
+/// engine refuses.
+///
+/// Covers: story:3-160, setting:politeness.retry_after.max, error:not_in_product
+#[test]
+fn the_bound_on_a_sites_retry_after_is_not_in_product_on_a_collie_engine() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "politeness": { "retry_after": { "max": 60_000 } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "politeness.retry_after.max".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// A crawl's pacing keys (spec #582's Settings) are a crawl's, which a
+/// Collie engine refuses.
+///
+/// Covers: error:not_in_product
+#[rstest]
+/// Covers: story:6-247, setting:politeness.domain.adaptive_delay
+#[case::the_adaptive_delay(json!({ "adaptive_delay": true }), "politeness.domain.adaptive_delay")]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::the_rate(json!({ "rate": 30 }), "politeness.domain.rate")]
+/// Covers: story:6-248, setting:politeness.domain.burst
+#[case::the_burst(json!({ "burst": 2 }), "politeness.domain.burst")]
+fn a_crawls_pacing_key_is_not_in_product_on_a_collie_engine(
+    #[case] domain: Value,
+    #[case] key: &str,
+) {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "politeness": { "domain": domain } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: key.to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// An Operator policy caps a crawl's per-domain rate and burst, a run
+/// asking for none or for more taking the cap, and locks its adaptive
+/// delay on (spec #582's Settings; ADR 0028).
+///
+/// Covers: story:3-88
+#[rstest]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::an_unset_rate(
+    json!({ "politeness": { "domain": { "rate": 30 } } }),
+    json!({}),
+    "politeness.domain.rate",
+    json!(30)
+)]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::a_higher_rate(
+    json!({ "politeness": { "domain": { "rate": 30 } } }),
+    json!({ "politeness": { "domain": { "rate": 600 } } }),
+    "politeness.domain.rate",
+    json!(30)
+)]
+/// Covers: story:6-248, setting:politeness.domain.burst
+#[case::a_larger_burst(
+    json!({ "politeness": { "domain": { "burst": 1 } } }),
+    json!({ "politeness": { "domain": { "burst": 10 } } }),
+    "politeness.domain.burst",
+    json!(1)
+)]
+fn an_operator_policy_caps_a_crawls_pacing(
+    #[case] cap: Value,
+    #[case] run: Value,
+    #[case] key: &str,
+    #[case] held_to: Value,
+) {
+    let opened = resolve(
+        &Layers {
+            run: values(SettingsLayer::Run, run),
+            ..Layers::default()
+        },
+        Product::Foxhound,
+        Product::Foxhound,
+    );
+    let opened = match opened {
+        Ok(opened) => opened.under_caps_of(&policy(json!({}), json!({}), cap.clone())),
+        Err(refused) => panic!("{refused:?}"),
+    };
+    let capped = resolved(&Layers {
+        operator_policy: policy(json!({}), json!({}), cap),
+        ..Layers::default()
+    });
+
+    assert_eq!((opened.value(key), capped.value(key)), (&held_to, &held_to));
+}
+
+/// Covers: story:6-247, setting:politeness.domain.adaptive_delay
+#[test]
+fn an_operator_policy_locks_the_adaptive_delay_on() {
+    let locked = json!({ "politeness": { "domain": { "adaptive_delay": true } } });
+    let layers = Layers {
+        operator_policy: policy(locked.clone(), locked, json!({})),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "politeness": { "domain": { "adaptive_delay": false } } }),
+        ),
+        ..Layers::default()
+    };
+
+    assert_eq!(refusal(&layers).code(), "setting_locked");
+}
+
 /// Covers: story:3-143
 #[test]
 fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {
@@ -856,6 +1161,7 @@ fn an_explanation_lists_each_effective_value_with_its_layers() {
                 "layer": "run",
                 "origin": "settings",
                 "weakens": false,
+                "user_settable": true,
             }],
         })
     );
@@ -1025,6 +1331,7 @@ proptest! {
     ) {
         let table = |value: Option<u64>| value.map_or_else(|| json!({}), |value| json!({ "timeout.run": value }));
         let layers = Layers {
+            host: HostDefaults::default(),
             operator_policy: if locked {
                 policy(json!({}), table(policy_value), json!({}))
             } else {
@@ -1050,4 +1357,514 @@ proptest! {
     }
 }
 
+mod operator_policy;
 mod versions;
+
+/// Covers: setting:run_state.key_reference
+#[rstest]
+#[case::the_catalogs_where_the_host_gives_none(None, None, json!("keychain:goodfetch/run-state-key"), SettingsLayer::Default)]
+#[case::the_hosts_in_its_place(Some("secretfile:run-state-key"), None, json!("secretfile:run-state-key"), SettingsLayer::Default)]
+#[case::a_layers_over_the_hosts(Some("secretfile:run-state-key"), Some("env:SHOP_KEY"), json!("env:SHOP_KEY"), SettingsLayer::UserConfiguration)]
+fn a_default_is_the_hosts_where_it_gives_one_and_still_the_default_layers(
+    #[case] host: Option<&str>,
+    #[case] user: Option<&str>,
+    #[case] value: Value,
+    #[case] layer: SettingsLayer,
+) {
+    let layers = Layers {
+        host: host.map_or_else(HostDefaults::default, |host| {
+            HostDefaults::default().with(&RUN_STATE_KEY_REFERENCE, json!(host))
+        }),
+        user_configuration: values(
+            SettingsLayer::UserConfiguration,
+            user.map_or_else(
+                || json!({}),
+                |user| json!({ "run_state": { "key_reference": user } }),
+            ),
+        ),
+        ..Layers::default()
+    };
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    let effective = resolved.get(RUN_STATE_KEY_REFERENCE.name).unwrap();
+    assert_eq!((&effective.value, effective.layer), (&value, layer));
+}
+
+/// A Recipe's Run is known as one, so the rules that hold a Recipe to less
+/// than the program's own code, such as the `file:` rule, can read it.
+/// Covers: story:4-6
+#[rstest]
+#[case::a_recipes_run(Some(recipe(json!({}), &[])), true)]
+#[case::the_programs_own_run(None, false)]
+fn the_resolved_settings_say_whether_the_run_is_a_recipes(
+    #[case] recipe: Option<Recipe>,
+    #[case] expected: bool,
+) {
+    let layers = Layers {
+        recipe,
+        ..Layers::default()
+    };
+
+    assert_eq!(resolved(&layers).recipe_run(), expected);
+}
+
+/// Story 4-16 (ADR 0017): `egress.no_private_endpoints` is the Operator
+/// policy's alone, as Goodfetch Cloud sets it: from any other layer it is
+/// refused with `setting_locked`, and the policy's own value is taken
+/// (positive control).
+/// Covers: story:4-16, error:setting_locked, setting:egress.no_private_endpoints
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe, false)]
+#[case::from_the_run(SettingsLayer::Run, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false)]
+#[case::from_the_operator_policy(SettingsLayer::OperatorPolicy, true)]
+fn no_private_endpoints_is_taken_from_the_operator_policy_alone(
+    #[case] layer: SettingsLayer,
+    #[case] taken: bool,
+) {
+    let layers = only(layer, "egress.no_private_endpoints", &json!(true));
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("egress.no_private_endpoints")),
+            (true, &json!(true))
+        ),
+        Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
+    }
+}
+
+/// Story 4-11 (spec #563): `egress.private_ranges` is set by the program's
+/// own code, configuration and the Operator policy; a Client acting for a
+/// model is refused with `setting_locked`, and so is a Recipe unless the
+/// Operator policy's `egress.recipe_private_ranges` allows it.
+/// Covers: story:4-11, error:setting_locked, setting:egress.private_ranges, setting:egress.recipe_private_ranges
+#[rstest]
+#[case::from_the_programs_own_code(SettingsLayer::Run, false, false, true)]
+#[case::from_a_model(SettingsLayer::Run, true, false, false)]
+#[case::from_a_model_even_where_recipes_may(SettingsLayer::Run, true, true, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, false, true)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, false, true)]
+#[case::from_a_models_project_configuration(
+    SettingsLayer::ProjectConfiguration,
+    true,
+    false,
+    false
+)]
+#[case::from_the_operator_policy(SettingsLayer::OperatorPolicy, false, false, true)]
+#[case::from_a_recipe(SettingsLayer::Recipe, false, false, false)]
+#[case::from_a_recipe_the_operator_policy_allows(SettingsLayer::Recipe, false, true, true)]
+fn private_ranges_are_never_a_models_and_a_recipes_only_where_the_operator_policy_allows(
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] recipes_may: bool,
+    #[case] taken: bool,
+) {
+    let ranges = json!(["127.0.0.0/8"]);
+    let mut layers = only(layer, "egress.private_ranges", &ranges);
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+    if recipes_may {
+        layers
+            .operator_policy
+            .settings
+            .applied
+            .insert("egress.recipe_private_ranges", json!(true));
+    }
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("egress.private_ranges")),
+            (true, &ranges)
+        ),
+        Err(refused) => assert_eq!(
+            (
+                taken,
+                refused.code(),
+                format!("{refused:?}").contains("egress.private_ranges")
+            ),
+            (false, "setting_locked", true),
+            "{refused:?}"
+        ),
+    }
+}
+
+/// A run that lists private ranges is weakened: its Run report's
+/// `weakened` names `egress.private_ranges` and the layer that set it,
+/// and one that lists none is not (positive control).
+/// Covers: story:4-11, setting:egress.private_ranges
+#[test]
+fn listing_private_ranges_weakens_the_run_and_listing_none_does_not() {
+    let listed = resolved(&only(
+        SettingsLayer::Run,
+        "egress.private_ranges",
+        &json!(["127.0.0.0/8"]),
+    ));
+    let none = resolved(&only(
+        SettingsLayer::Run,
+        "egress.private_ranges",
+        &json!([]),
+    ));
+
+    let names = |resolved: &Resolved| -> Vec<(String, SettingsLayer)> {
+        resolved
+            .weakened()
+            .into_iter()
+            .map(|weakened| (weakened.key, weakened.layer))
+            .filter(|(key, _)| key.starts_with("egress."))
+            .collect()
+    };
+    assert_eq!(
+        (names(&listed), names(&none)),
+        (
+            vec![("egress.private_ranges".to_owned(), SettingsLayer::Run)],
+            vec![]
+        )
+    );
+}
+
+/// Each entry is a CIDR range, an address or a host name; any other value
+/// is `setting_invalid` naming the key.
+/// Covers: story:4-11, error:setting_invalid, setting:egress.private_ranges
+#[rstest]
+#[case::a_range_too_long(json!(["10.0.0.0/33"]))]
+#[case::a_path(json!(["intranet.example/admin"]))]
+#[case::a_url(json!(["http://intranet.example"]))]
+#[case::a_wildcard(json!(["*.example"]))]
+#[case::no_list(json!("127.0.0.0/8"))]
+fn a_private_range_that_is_no_range_address_or_host_is_invalid(#[case] value: Value) {
+    let refused = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "egress": { "private_ranges": value } })),
+        Product::Collie,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        (
+            refused.code(),
+            format!("{refused:?}").contains("egress.private_ranges")
+        ),
+        ("setting_invalid", true),
+        "{refused:?}"
+    );
+}
+
+/// What `key` resolves to when user configuration sets it to `configured`
+/// and `layer` gives `value`, from a Client acting for a model where
+/// `for_model`: the value taken, or the refusal's code and key.
+fn over_configuration(
+    key: &str,
+    configured: &Value,
+    layer: SettingsLayer,
+    for_model: bool,
+    value: &Value,
+) -> Result<Value, (&'static str, String)> {
+    let mut layers = only(layer, key, value);
+    if layer != SettingsLayer::UserConfiguration {
+        layers.user_configuration =
+            values(SettingsLayer::UserConfiguration, json!({ key: configured }));
+    }
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+    over_layers(&layers, key)
+}
+
+/// Story 4-4 (spec #563, G5): a Client acting for a model and a Recipe
+/// only narrow the domain policy the layers below them set: fewer hosts in
+/// `egress.allowed_domains` (an entry the lower value lists, or a
+/// subdomain of one, as the URL parser reads a host), more in
+/// `egress.blocked_domains`. A widening value from them is
+/// `setting_locked` naming the key, and the program's own code and
+/// configuration still widen it (positive control).
+/// Covers: story:4-4, error:setting_locked, setting:egress.allowed_domains, setting:egress.blocked_domains
+#[rstest]
+#[case::allowed_every_host_narrowed_by_a_model(
+    "egress.allowed_domains", json!(["*"]), SettingsLayer::Run, true, json!(["scope.test"]), true
+)]
+#[case::allowed_narrowed_to_a_subdomain_by_a_model(
+    "egress.allowed_domains", json!(["scope.test", "elsewhere.test"]), SettingsLayer::Run, true, json!(["www.scope.test"]), true
+)]
+#[case::allowed_narrowed_in_another_spelling_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["WWW.Scope.Test."]), true
+)]
+#[case::allowed_emptied_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!([]), true
+)]
+#[case::allowed_widened_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test", "elsewhere.test"]), false
+)]
+#[case::allowed_widened_to_a_parent_by_a_model(
+    "egress.allowed_domains", json!(["www.scope.test"]), SettingsLayer::Run, true, json!(["scope.test"]), false
+)]
+#[case::allowed_widened_to_every_host_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["*"]), false
+)]
+#[case::allowed_widened_by_a_name_sharing_a_suffix(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["evilscope.test"]), false
+)]
+#[case::allowed_widened_by_an_entry_that_is_no_host(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test/path"]), false
+)]
+#[case::allowed_widened_by_a_models_project_configuration(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, true, json!(["elsewhere.test"]), false
+)]
+#[case::allowed_narrowed_by_a_recipe(
+    "egress.allowed_domains", json!(["*"]), SettingsLayer::Recipe, false, json!(["scope.test"]), true
+)]
+#[case::allowed_widened_by_a_recipe(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Recipe, false, json!(["elsewhere.test"]), false
+)]
+#[case::allowed_widened_by_the_programs_own_code(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, false, json!(["scope.test", "elsewhere.test"]), true
+)]
+#[case::allowed_widened_by_project_configuration(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, false, json!(["*"]), true
+)]
+#[case::blocked_added_to_by_a_model(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["ads.test", "tracker.test"]), true
+)]
+#[case::blocked_widened_to_a_parent_by_a_model(
+    "egress.blocked_domains", json!(["www.ads.test"]), SettingsLayer::Run, true, json!(["ads.test"]), true
+)]
+#[case::blocked_entry_removed_by_a_model(
+    "egress.blocked_domains", json!(["ads.test", "tracker.test"]), SettingsLayer::Run, true, json!(["ads.test"]), false
+)]
+#[case::blocked_entry_replaced_by_its_subdomain_by_a_model(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["www.ads.test"]), false
+)]
+#[case::blocked_every_host_dropped_by_a_model(
+    "egress.blocked_domains", json!(["*"]), SettingsLayer::Run, true, json!(["ads.test"]), false
+)]
+#[case::blocked_entry_removed_by_a_recipe(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Recipe, false, json!([]), false
+)]
+#[case::blocked_added_to_by_a_recipe(
+    "egress.blocked_domains", json!([]), SettingsLayer::Recipe, false, json!(["ads.test"]), true
+)]
+#[case::blocked_entry_removed_by_the_programs_own_code(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, false, json!([]), true
+)]
+fn a_model_and_a_recipe_only_narrow_the_domain_policy(
+    #[case] key: &str,
+    #[case] configured: Value,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: Value,
+    #[case] taken: bool,
+) {
+    let resolved = over_configuration(key, &configured, layer, for_model, &value);
+
+    let expected = if taken {
+        Ok(value)
+    } else {
+        Err(("setting_locked", key.to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// Story 4-4: `egress.private_ranges`, the third key of the domain policy,
+/// is never a model's even when it lists fewer ranges than configuration
+/// does; the same narrower value from the program's own code is taken
+/// (positive control).
+/// Covers: story:4-4, error:setting_locked, setting:egress.private_ranges
+#[rstest]
+#[case::fewer_from_a_model(true, false)]
+#[case::fewer_from_the_programs_own_code(false, true)]
+fn a_model_never_sets_the_private_ranges_even_to_fewer(
+    #[case] for_model: bool,
+    #[case] taken: bool,
+) {
+    let fewer = json!(["127.0.0.0/8"]);
+
+    let resolved = over_configuration(
+        "egress.private_ranges",
+        &json!(["127.0.0.0/8", "10.0.0.0/8"]),
+        SettingsLayer::Run,
+        for_model,
+        &fewer,
+    );
+
+    let expected = if taken {
+        Ok(fewer)
+    } else {
+        Err(("setting_locked", "egress.private_ranges".to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// Story 4-4 and #225: a Recipe's narrowed `egress.allowed_domains` stays
+/// locked for a Client acting for a model, even to a narrower value,
+/// unless the Recipe exposes it; exposed, the model narrows it further
+/// and still never widens it.
+/// Covers: story:4-4, story:3-87, error:setting_locked, setting:egress.allowed_domains
+#[rstest]
+#[case::narrower_where_unexposed(false, json!(["www.scope.test"]), false)]
+#[case::narrower_where_exposed(true, json!(["www.scope.test"]), true)]
+#[case::wider_where_exposed(true, json!(["elsewhere.test"]), false)]
+fn a_recipes_domain_policy_stays_locked_unless_exposed(
+    #[case] exposed: bool,
+    #[case] value: Value,
+    #[case] taken: bool,
+) {
+    let key = "egress.allowed_domains";
+    let exposure = Exposure {
+        minimum: None,
+        maximum: None,
+        one_of: Vec::new(),
+    };
+    let expose = if exposed {
+        vec![(key, exposure)]
+    } else {
+        Vec::new()
+    };
+    let layers = Layers {
+        recipe: Some(recipe(json!({ key: ["scope.test"] }), &expose)),
+        run: values(SettingsLayer::Run, json!({ key: value })).from_model(),
+        ..Layers::default()
+    };
+
+    let resolved = over_layers(&layers, key);
+
+    let expected = if taken {
+        Ok(value)
+    } else {
+        Err(("setting_locked", key.to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// What `key` resolves to under `layers`: the value taken, or the
+/// refusal's code and key.
+fn over_layers(layers: &Layers, key: &str) -> Result<Value, (&'static str, String)> {
+    resolve(layers, Product::Foxhound, Product::Foxhound)
+        .map(|effective| effective.value(key).clone())
+        .map_err(|refused| {
+            let SettingsError::Locked { key, .. } = &refused else {
+                panic!("{refused:?}");
+            };
+            (refused.code(), key.clone())
+        })
+}
+
+/// O11 of the deep review (accepted by the owner on 2026-10-28): a Client
+/// acting for a model never sets `proxy.kind`, whose kinds' prices differ
+/// by an order of magnitude, so a model never picks a dearer kind with the
+/// person's money; a Recipe still sets it, as the spec has it, and the
+/// program's own code and configuration do (positive controls).
+/// Covers: story:8-93, error:setting_locked, setting:proxy.kind
+#[rstest]
+#[case::from_the_programs_own_code(SettingsLayer::Run, false, true)]
+#[case::from_a_model(SettingsLayer::Run, true, false)]
+#[case::from_a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, false)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, true)]
+#[case::from_a_recipe(SettingsLayer::Recipe, false, true)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, true)]
+fn a_model_never_sets_the_proxy_kind_a_recipe_and_the_program_do(
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] taken: bool,
+) {
+    let mut layers = only(layer, "proxy.kind", &json!("mobile"));
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+
+    let resolved = over_layers(&layers, "proxy.kind");
+
+    let expected = if taken {
+        Ok(json!("mobile"))
+    } else {
+        Err(("setting_locked", "proxy.kind".to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// O12 of the deep review (accepted by the owner on 2026-10-28): a Proxy
+/// provider's `price` comes only from user configuration and an Operator
+/// policy, since a currency Limit on `proxy_bytes` trusts it and a
+/// project's configuration is a file of its repository. A project's entry
+/// with a `price` is `setting_locked`, its fix naming `price`; one without
+/// is taken as before.
+/// Covers: setting:proxy.providers, error:setting_locked
+#[rstest]
+#[case::priced_in_user_configuration(SettingsLayer::UserConfiguration, true, true)]
+#[case::priced_in_the_operator_policy(SettingsLayer::OperatorPolicy, true, true)]
+#[case::priced_in_project_configuration(SettingsLayer::ProjectConfiguration, true, false)]
+#[case::unpriced_in_project_configuration(SettingsLayer::ProjectConfiguration, false, true)]
+fn a_proxy_providers_price_comes_only_from_user_configuration_and_the_operator_policy(
+    #[case] layer: SettingsLayer,
+    #[case] priced: bool,
+    #[case] taken: bool,
+) {
+    let mut entry =
+        json!({ "servers": [{ "server": "http://203.0.113.7:3128", "kind": "datacenter" }] });
+    if priced {
+        entry["price"] = json!("0.01 USD");
+    }
+    let providers = json!({ "list": entry });
+    let layers = only(layer, "proxy.providers", &providers);
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("proxy.providers")),
+            (true, &providers)
+        ),
+        Err(refused) => assert_eq!(
+            (
+                taken,
+                refused.code(),
+                format!("{refused:?}").contains("`price`")
+            ),
+            (false, "setting_locked", true),
+            "{refused:?}"
+        ),
+    }
+}
+
+/// O8 of the deep review (accepted by the owner on 2026-10-28): a value
+/// keeps who gave it, so a `session.source` from the project configuration
+/// a Client acting for a model sent is the model's wherever the Run reads
+/// it, whoever opens the Session; the same value from the program's own
+/// project configuration, from user configuration and from the Operator
+/// policy is not (positive controls).
+/// Covers: story:4-15, setting:session.source
+#[rstest]
+#[case::a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, true)]
+#[case::a_models_run_layer(SettingsLayer::Run, true, true)]
+#[case::the_programs_project_configuration(SettingsLayer::ProjectConfiguration, false, false)]
+#[case::the_programs_run_layer(SettingsLayer::Run, false, false)]
+#[case::user_configuration_in_a_models_run(SettingsLayer::UserConfiguration, true, false)]
+#[case::the_operator_policy_in_a_models_run(SettingsLayer::OperatorPolicy, true, false)]
+fn an_effective_value_names_whether_a_model_gave_it(
+    #[case] layer: SettingsLayer,
+    #[case] models_run: bool,
+    #[case] for_model: bool,
+) {
+    let source = json!({ "kind": "cdp_url", "url": "ws://127.0.0.1:9222/devtools/browser/1" });
+    let mut layers = only(layer, "session.source", &source);
+    if models_run {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    let effective = resolved.get("session.source").unwrap();
+    assert_eq!(
+        (effective.layer, &effective.value, effective.for_model),
+        (layer, &source, for_model)
+    );
+}

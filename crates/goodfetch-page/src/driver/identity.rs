@@ -1,6 +1,7 @@
-//! The identity a headless Chromium's pages show (spec #577, ticket #696;
-//! ADRs 0021 and 0092): the one the same build shows with a window, so a
-//! site sees one real browser whether a person watched or not. A headless
+//! The identity a headless Chromium's pages and service workers show (spec
+//! #577, ticket #696; ADRs 0021 and 0092): the one the same build shows
+//! with a window, so a site sees one real browser whether a person watched
+//! or not. A headless
 //! build differs from its window only in its user agent's product token,
 //! `HeadlessChrome/` for `Chrome/`; its client hints are the window's. Each
 //! page then gets that user agent with the client hints read from the
@@ -13,10 +14,8 @@
 //! answers. `Runtime.evaluate` runs there without enabling `Runtime`
 //! (ADR 0019).
 
-use std::time::Duration;
-
 use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::{emulation, page, runtime, target};
+use goodfetch_cdp::generated::{emulation, network, page, runtime, target};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 
@@ -53,9 +52,6 @@ const READ_HINTS: &str = r#"(async () => {
   };
 })()"#;
 
-/// How long the secure page may take to load.
-const LOAD_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// The identity a headless browser's pages show: its window's.
 #[derive(Clone, Debug)]
 pub(super) struct Identity {
@@ -67,6 +63,18 @@ impl Identity {
     /// The command that gives a page this identity.
     pub(super) fn command(&self) -> emulation::SetUserAgentOverrideParams {
         emulation::SetUserAgentOverrideParams {
+            user_agent: self.user_agent.clone(),
+            accept_language: None,
+            platform: None,
+            user_agent_metadata: Some(self.hints.clone()),
+        }
+    }
+
+    /// The command that gives a service worker this identity: a worker's
+    /// target has no `Emulation` domain, and its `Network` override sets
+    /// both what its requests send and what its `navigator` reads.
+    pub(super) fn worker_command(&self) -> network::SetUserAgentOverrideParams {
+        network::SetUserAgentOverrideParams {
             user_agent: self.user_agent.clone(),
             accept_language: None,
             platform: None,
@@ -88,7 +96,7 @@ fn window_user_agent(headless: &str) -> String {
 /// `browser_launch_failed` when the browser does not open, load or read its
 /// secure page; a lost browser raises what [`Browser::send`] raises.
 pub(super) async fn read(browser: &Browser, user_agent: &str) -> Result<Identity, CallError> {
-    let opening = browser.opening();
+    let opening = browser.launching();
     let created = browser
         .send(
             None,
@@ -110,17 +118,7 @@ pub(super) async fn read(browser: &Browser, user_agent: &str) -> Result<Identity
             &opening,
         )
         .await?;
-    let attached = browser
-        .send(
-            None,
-            &target::AttachToTargetParams {
-                target_id: created.target_id.clone(),
-                flatten: Some(true),
-            },
-            &opening,
-        )
-        .await?;
-    let session = TargetSession(attached.session_id);
+    let session = browser.attach_own(&created.target_id, &opening).await?;
     let hints = hints_of(browser, &session).await;
     // The page is the engine's own; a failure to close it leaves a blank
     // tab no Session sees, so the identity stands.
@@ -144,8 +142,8 @@ async fn hints_of(
     browser: &Browser,
     session: &TargetSession,
 ) -> Result<emulation::UserAgentMetadata, CallError> {
-    let opening = browser.opening();
-    let mut events = browser.connection.subscribe(Some(session)).await;
+    let opening = browser.launching();
+    let mut events = browser.connection.subscribe(Some(session));
     browser
         .send(Some(session), &page::EnableParams::default(), &opening)
         .await?;
@@ -176,7 +174,8 @@ async fn hints_of(
         ));
     }
     if let Some(loader) = navigated.loader_id {
-        let loaded = tokio::time::timeout(LOAD_TIMEOUT, async {
+        // The secure page loads within a navigation's deadline.
+        let loaded = tokio::time::timeout(browser.deadlines.navigation.duration(), async {
             while let Some(event) = events.next().await {
                 if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
                     && lifecycle.loader_id == loader
@@ -192,6 +191,8 @@ async fn hints_of(
             return Err(unread(browser, &format!("{SECURE_PAGE} did not load")));
         }
     }
+    // No later command waits on a subscription nobody reads.
+    drop(events);
     let evaluated = browser
         .send(
             Some(session),

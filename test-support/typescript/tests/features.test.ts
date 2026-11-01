@@ -23,7 +23,7 @@ describe("readFeatureIds", () => {
 });
 
 describe("refuseUnknownCovers", () => {
-  const features = ["operation:sample.echo", "story:1-3"];
+  const metadata = { features: ["operation:sample.echo", "story:1-3"] };
 
   test("accepts covers annotations of listed Features beside other annotations", () => {
     expect(() =>
@@ -32,7 +32,7 @@ describe("refuseUnknownCovers", () => {
           { type: "covers", description: "operation:sample.echo" },
           { type: "issue", description: "https://example.invalid/1" },
         ],
-        features,
+        metadata,
       ),
     ).not.toThrow();
   });
@@ -41,8 +41,25 @@ describe("refuseUnknownCovers", () => {
     ["names an unknown Feature", "story:1-9"],
     ["names no Feature", undefined],
   ])("refuses a covers annotation that %s", ([, description]) => {
-    expect(() => refuseUnknownCovers([{ type: "covers", description }], features)).toThrow(
+    expect(() => refuseUnknownCovers([{ type: "covers", description }], metadata)).toThrow(
       expect.objectContaining({ code: "covers_unknown" }),
     );
+  });
+
+  // A configuration that passes no inventory cannot vouch for a covers
+  // annotation, so the annotation fails rather than going unchecked.
+  test.for<[string, Readonly<Record<string, unknown>>]>([
+    ["passes no Features", {}],
+    ["passes Features that are not IDs", { features: [1] }],
+  ])("refuses a covers annotation when the configuration %s", ([, configured]) => {
+    expect(() =>
+      refuseUnknownCovers([{ type: "covers", description: "story:1-3" }], configured),
+    ).toThrow(expect.objectContaining({ code: "covers_unknown" }));
+  });
+
+  test("accepts a test with no covers annotation when the configuration passes no Features", () => {
+    expect(() =>
+      refuseUnknownCovers([{ type: "issue", description: "https://example.invalid/1" }], {}),
+    ).not.toThrow();
   });
 });

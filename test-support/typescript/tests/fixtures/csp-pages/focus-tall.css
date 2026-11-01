@@ -1,0 +1,9 @@
+/* A focusable region taller than the viewport, whose focus ring shows on its edges. */
+.tall {
+  height: 1000vh;
+  overflow-x: auto;
+}
+.tall:focus-visible {
+  outline: 3px solid #1a56db;
+  outline-offset: -3px;
+}

@@ -10,6 +10,7 @@
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
 
+mod call_streams;
 mod params;
 
 use std::collections::BTreeMap;
@@ -18,26 +19,34 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
+use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
-use goodfetch_protocol::daemon::{DaemonStatus, DaemonStopping};
-use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
+use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use tokio::sync::mpsc;
+
 use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::client::Client;
-use crate::console::ConsoleBuild;
-use crate::events::{Credits, Events};
+use crate::controls::Controls;
+use crate::events::Events;
 use crate::log::ConnectionLog;
+use crate::needs_you::NeedsYouSource;
+use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{Driver, Runs};
+use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Run, Runs};
+use crate::secrets::ProviderFactory;
+use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
+use goodfetch_protocol::secret_reference::Provider;
+
+pub use call_streams::{CallInput, CallStream};
+pub(crate) use call_streams::{CallNotifier, InputSender};
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.
@@ -93,10 +102,36 @@ impl CallError {
         }
     }
 
+    /// Its Error code's details; none for a protocol failure.
+    pub fn details(&self) -> Option<&Map<String, Value>> {
+        match &*self.0 {
+            Failure::Code { details, .. } => Some(details),
+            Failure::Protocol { .. } => None,
+        }
+    }
+
     /// What it says, for people.
     pub fn message(&self) -> &str {
         match &*self.0 {
             Failure::Code { message, .. } | Failure::Protocol { message, .. } => message,
+        }
+    }
+
+    /// Whether a retry may succeed, as its Error code says; never for a
+    /// protocol failure.
+    pub fn retryable(&self) -> bool {
+        match &*self.0 {
+            Failure::Code { definition, .. } => definition.retryable,
+            Failure::Protocol { .. } => false,
+        }
+    }
+
+    /// Its numeric code on the wire: a predefined JSON-RPC code or its
+    /// group's class.
+    pub(crate) fn wire_code(&self) -> i32 {
+        match &*self.0 {
+            Failure::Code { definition, .. } => definition.group.json_rpc_class(),
+            Failure::Protocol { failure, .. } => failure.code(),
         }
     }
 
@@ -114,6 +149,21 @@ impl CallError {
                 details.clone(),
             ),
             Failure::Protocol { failure, .. } => (failure.code(), false, Map::new()),
+        }
+    }
+
+    /// Its error object, as the wire carries it and as a CLI command that
+    /// fails before any call prints it.
+    pub fn to_error_object(&self) -> ErrorObject {
+        let (code, retryable, details) = self.wire_parts();
+        ErrorObject {
+            code,
+            message: self.message().to_owned(),
+            data: ErrorData {
+                code: self.code().to_owned(),
+                retryable,
+                details,
+            },
         }
     }
 }
@@ -147,8 +197,10 @@ impl std::error::Error for CallError {}
 #[derive(Clone)]
 pub struct CallContext {
     connection: Arc<ConnectionContext>,
+    id: RequestId,
     token: CancellationToken,
     stream: Option<Arc<CallStream>>,
+    input: Option<Arc<CallInput>>,
 }
 
 /// What every call of one Connection is given: the engine's identity, the
@@ -159,6 +211,12 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// Whether its `hello` came from Goodfetch Cloud's gateway, which words
+    /// `not_in_product` for it (ADR 0096); set with the surface.
+    pub(crate) behind_gateway: OnceLock<bool>,
+    /// The driver of each kind of Run that has one, which a resume starts
+    /// again.
+    pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
@@ -181,32 +239,50 @@ pub(crate) trait DaemonSide: Send + Sync {
     /// hands over to its major's pick on it, which it has then begun.
     fn refusing(&self) -> Answering<'_, bool>;
     /// What `daemon.status` answers.
-    fn status(&self) -> Answering<'_, DaemonStatus>;
+    fn status(&self) -> Answering<'_, DaemonState>;
+    /// What `daemon.health` answers.
+    fn health(&self) -> Answering<'_, DaemonHealth>;
     /// Stops the Daemon once `daemon.stop` has answered what it says.
     fn stop(&self) -> Answering<'_, DaemonStopping>;
-}
-
-/// What a streaming call sends its notifications with: its id, the credits
-/// its Client grants it and the Connection's writer.
-pub(crate) struct CallStream {
-    pub(crate) id: RequestId,
-    pub(crate) credits: Credits,
-    pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
+    /// The sign-in driver of the Console it serves, if any.
+    fn sign_ins(&self) -> Option<SignInDriver>;
 }
 
 impl CallContext {
-    /// A call on `connection`, cancelled through `token`, with `stream`
-    /// when its handler streams.
+    /// The call `id` on `connection`, cancelled through `token`, with
+    /// `stream` when its handler streams, and `input` when it takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
+        id: RequestId,
         token: CancellationToken,
         stream: Option<CallStream>,
+        input: Option<CallInput>,
     ) -> Self {
         Self {
             connection,
+            id,
             token,
             stream: stream.map(Arc::new),
+            input: input.map(Arc::new),
         }
+    }
+
+    /// The call's id, which the handler requests it sends its Client may
+    /// name, such as a route's `route.handle`.
+    pub fn id(&self) -> &RequestId {
+        &self.id
+    }
+
+    /// The call's stream of input from its Client, which only a handler
+    /// built with [`Handler::taking_input`] reads.
+    ///
+    /// # Panics
+    ///
+    /// When the handler takes no input: its calls carry none.
+    pub fn input(&self) -> &CallInput {
+        self.input
+            .as_deref()
+            .expect("invariant: a handler taking input gets its calls' input")
     }
 
     /// The engine's event stream, on which a handler publishes its events.
@@ -220,7 +296,7 @@ impl CallContext {
     /// # Panics
     ///
     /// When the handler does not stream: its calls carry no stream.
-    pub(crate) fn stream(&self) -> &CallStream {
+    pub fn stream(&self) -> &CallStream {
         self.stream
             .as_deref()
             .expect("invariant: a streaming handler's calls carry their stream")
@@ -241,6 +317,22 @@ impl CallContext {
             .get()
             .copied()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// Whether the Connection's `hello` came from Goodfetch Cloud's gateway
+    /// (or the Stub gateway), on whose runs `not_in_product` names the run's
+    /// Product rather than an install (ADR 0096).
+    pub fn behind_gateway(&self) -> bool {
+        self.connection
+            .behind_gateway
+            .get()
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// The driver of Runs of `kind`, when the composition has one.
+    pub fn driver(&self, kind: RunKind) -> Option<Driver> {
+        self.connection.drivers.get(&kind).cloned()
     }
 
     /// The engine's Runs.
@@ -264,6 +356,18 @@ impl CallContext {
         self.connection.daemon.as_ref()
     }
 
+    /// The person the call acts for, as the Audit log names them: the one
+    /// the Console's sign-in driver signs in where the Daemon serves one,
+    /// else the OS user, its own name on a single-user install (#826).
+    pub(crate) fn person(&self) -> String {
+        self.daemon()
+            .and_then(|daemon| daemon.sign_ins())
+            .map_or_else(
+                || self.runs().person(),
+                |sign_ins| sign_ins.person().to_owned(),
+            )
+    }
+
     /// Cancelled when the call is: a handler that waits watches it at each
     /// cancellation point.
     pub fn cancellation(&self) -> &CancellationToken {
@@ -273,18 +377,46 @@ impl CallContext {
 
 type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
 
+/// How a control's weakening is recorded: the Audit kind it records and
+/// the built-in value it names as the default.
+type Recorded = (&'static SharedTypeValue, fn() -> Value);
+
+/// What drives a kind of Run, such as Foxhound's crawl's delivery, given
+/// the Run, the context of the call that resumed it, whose Connection's
+/// Client serves it, and its settings: a resume starts it again on the
+/// Run's committed state.
+pub type Driver = Arc<
+    dyn Fn(Run, CallContext, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+>;
+
+/// A call's answer as a [`Guard`] gives it in place of its handler's: the
+/// result, as JSON, or its error.
+pub type GuardAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// What a contribution asks of each of its calls before its handler, given
+/// the operation, the call's params as they arrived and its context: an
+/// answer given in the handler's place, or `None` to let the handler
+/// answer. It runs when the request arrives, as the handler does.
+pub type Guard =
+    Arc<dyn Fn(&'static Operation, &Value, &CallContext) -> Option<GuardAnswer> + Send + Sync>;
+
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
 pub struct Handler {
     operation: &'static Operation,
     call: Arc<dyn Fn(Value, CallContext) -> Answer + Send + Sync>,
     streams: bool,
+    input: Option<(&'static str, usize)>,
 }
 
 impl Handler {
     /// Handles `operation` with `handle`, which takes the operation's params
     /// type and answers its result type; params that do not read as `P`,
     /// such as an array where a struct belongs, answer `invalid_params`.
+    /// `handle` itself is called when the request arrives, before the
+    /// Connection reads its next message, and its future runs as a task:
+    /// what it does before returning its future, such as arming a route, is
+    /// done in the order the Client sent its calls (ADR 0080).
     pub fn new<P, R, F, Fut>(operation: &'static Operation, handle: F) -> Self
     where
         P: DeserializeOwned + Send + 'static,
@@ -292,15 +424,17 @@ impl Handler {
         F: Fn(P, CallContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R, CallError>> + Send + 'static,
     {
-        let handle = Arc::new(handle);
         let call = move |params: Value, context: CallContext| -> Answer {
-            let read = params::read::<P>(params);
-            let handle = Arc::clone(&handle);
-            Box::pin(async move {
-                let params = read.map_err(|error| {
+            // `handle` runs when the request arrives, before the next one
+            // is read, so what it does before its future (arming a route or
+            // a waiter, ADR 0080) is done in the Connection's arrival order.
+            let answering = params::read::<P>(params)
+                .map(|params| handle(params, context))
+                .map_err(|error| {
                     CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
-                })?;
-                let result = handle(params, context).await?;
+                });
+            Box::pin(async move {
+                let result = answering?.await?;
                 serde_json::to_value(result).map_err(|error| {
                     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
                 })
@@ -310,13 +444,14 @@ impl Handler {
             operation,
             call: Arc::new(call),
             streams: false,
+            input: None,
         }
     }
 
     /// The same handler, whose calls stream notifications under the credits
     /// their Client grants; only its calls get credits and a stream.
     #[must_use]
-    pub(crate) fn streaming(mut self) -> Self {
+    pub fn streaming(mut self) -> Self {
         self.streams = true;
         self
     }
@@ -324,6 +459,23 @@ impl Handler {
     /// Whether its calls stream notifications.
     pub(crate) fn streams(&self) -> bool {
         self.streams
+    }
+
+    /// The same handler, whose calls take the notifications `method` that
+    /// name them as their input, through [`CallContext::input`], at most
+    /// `room` of them unread: the most its calls' credits let a Client
+    /// send unanswered. A Client that sends one more fails the call's next
+    /// read with `invalid_params`.
+    #[must_use]
+    pub fn taking_input(mut self, method: &'static str, room: usize) -> Self {
+        self.input = Some((method, room));
+        self
+    }
+
+    /// The notification its calls take as their input, with their room,
+    /// if any.
+    pub(crate) fn input(&self) -> Option<(&'static str, usize)> {
+        self.input
     }
 
     /// The operation it handles.
@@ -345,19 +497,68 @@ pub struct Contribution {
     politeness_tables: Vec<PolitenessTables>,
     drivers: Vec<(RunKind, Driver)>,
     admission_gates: Option<Arc<dyn Gates>>,
+    report_parts: Vec<Arc<dyn ReportPart>>,
+    progress_parts: Vec<Arc<dyn ProgressPart>>,
+    clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
+    needs_you_sources: Vec<NeedsYouSource>,
+    controls: Vec<(&'static Setting, Option<Recorded>)>,
+    secret_providers: Vec<(Provider, ProviderFactory)>,
 }
 
 impl Contribution {
     /// An empty contribution of the crate or concern `name`.
     pub fn new(name: &'static str) -> Self {
         Self {
+            secret_providers: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
             politeness_tables: Vec::new(),
             drivers: Vec::new(),
             admission_gates: None,
+            report_parts: Vec::new(),
+            progress_parts: Vec::new(),
+            clean_up_versions: None,
+            needs_you_sources: Vec::new(),
+            controls: Vec::new(),
         }
+    }
+
+    /// The same, reporting `setting` as a switchable control (ADR 0016): a
+    /// Run that starts with a value of it that weakens is recorded once in
+    /// the Audit log, warned of once through the host's logging and lists
+    /// it in its report's `weakened`, as the `security.*` keys are.
+    #[must_use]
+    pub fn with_control(mut self, setting: &'static Setting) -> Self {
+        self.controls.push((setting, None));
+        self
+    }
+
+    /// The same, recording a Run's value of `setting` that weakens as the
+    /// Audit log kind `kind`, once per Run, with the value, its built-in
+    /// default `built_in` and the layer that set it, warned of once through
+    /// the host's logging and listed in its report's `weakened`: Foxhound's
+    /// Politeness and Site-preferences values that press a site harder (ADR
+    /// 0086).
+    #[must_use]
+    pub fn with_recorded_weakening(
+        mut self,
+        setting: &'static Setting,
+        kind: &'static SharedTypeValue,
+        built_in: fn() -> Value,
+    ) -> Self {
+        self.controls.push((setting, Some((kind, built_in))));
+        self
+    }
+
+    /// The same, answering `provider`'s Secret references with the provider
+    /// `factory` builds for each Run from its settings (ADR 0129), such as
+    /// a built-in external provider configured by
+    /// `secret_providers.<scheme>.*`.
+    #[must_use]
+    pub fn with_secret_provider(mut self, provider: Provider, factory: ProviderFactory) -> Self {
+        self.secret_providers.push((provider, factory));
+        self
     }
 
     /// The same, driving the Runs of `kind` it starts with `driver`, which a
@@ -372,6 +573,26 @@ impl Contribution {
     #[must_use]
     pub fn with_handler(mut self, handler: Handler) -> Self {
         self.handlers.push(handler);
+        self
+    }
+
+    /// The same, each of its handlers' calls asking `guard` first, whose
+    /// answer, when it gives one, the call takes in place of its handler's.
+    #[must_use]
+    pub fn guarded(mut self, guard: &Guard) -> Self {
+        for handler in &mut self.handlers {
+            let (inner, operation, guard) = (
+                Arc::clone(&handler.call),
+                handler.operation,
+                Arc::clone(guard),
+            );
+            handler.call = Arc::new(move |params: Value, context: CallContext| {
+                match guard(operation, &params, &context) {
+                    Some(answer) => answer,
+                    None => inner(params, context),
+                }
+            });
+        }
         self
     }
 
@@ -399,9 +620,109 @@ impl Contribution {
         self
     }
 
+    /// The same, adding `part` to each Run's report when the Run ends (ADR
+    /// 0102).
+    #[must_use]
+    pub fn with_report_part(mut self, part: Arc<dyn ReportPart>) -> Self {
+        self.report_parts.push(part);
+        self
+    }
+
+    /// The same, adding `part` to each value of a Run's progress, read from
+    /// its committed state (ADR 0102).
+    #[must_use]
+    pub fn with_progress_part(mut self, part: Arc<dyn ProgressPart>) -> Self {
+        self.progress_parts.push(part);
+        self
+    }
+
+    /// The same, passing in `versions` as the Clean-up rules that choose
+    /// the version each new Run holds to (ADR 0047).
+    #[must_use]
+    pub fn with_clean_up_versions(mut self, versions: Arc<dyn CleanUpVersions>) -> Self {
+        self.clean_up_versions = Some(versions);
+        self
+    }
+
+    /// The same, adding `source` to "Needs you" (spec #592): its items join
+    /// the one list, whatever their kind, without the engine naming it
+    /// (ADR 0087).
+    #[must_use]
+    pub fn with_needs_you_source(mut self, source: NeedsYouSource) -> Self {
+        self.needs_you_sources.push(source);
+        self
+    }
+
     /// Who contributes it.
     pub fn name(&self) -> &'static str {
         self.name
+    }
+}
+
+/// One file of a Console build: its path from the build's root, such as
+/// `/assets/index-4f2a.js`, and its bytes, brotli-compressed.
+#[derive(Clone, Copy, Debug)]
+pub struct ConsoleFile {
+    pub(crate) path: &'static str,
+    pub(crate) brotli: &'static [u8],
+}
+
+impl ConsoleFile {
+    /// The file at `path`, such as `/index.html`, holding `brotli`.
+    pub const fn new(path: &'static str, brotli: &'static [u8]) -> Self {
+        Self { path, brotli }
+    }
+}
+
+/// A Product's Console build, as its executable embeds it: brotli files
+/// only, `xtask console build`'s output (ADR 0057), and the routes of its
+/// screens, which its package commits as plain data (ADR 0072).
+#[derive(Debug)]
+pub struct ConsoleBuild {
+    files: &'static [ConsoleFile],
+    routes: &'static [&'static str],
+}
+
+impl ConsoleBuild {
+    /// The build made of `files`, whose page shows each of `routes`, such
+    /// as `/settings`, or `/runs/$run`, whose segment `$run` stands for
+    /// any one segment.
+    pub const fn new(files: &'static [ConsoleFile], routes: &'static [&'static str]) -> Self {
+        Self { files, routes }
+    }
+
+    /// The file a request's path names: `/` and each route of the build
+    /// name the page itself, which shows the route's screen.
+    pub(crate) fn file(&self, path: &str) -> Option<&ConsoleFile> {
+        let path = if path == "/" || self.routes.iter().any(|route| matches_route(route, path)) {
+            "/index.html"
+        } else {
+            path
+        };
+        self.files.iter().find(|file| file.path == path)
+    }
+}
+
+/// Whether `path` is one of `route`'s: the same segments, a segment of
+/// `route` that begins with `$` standing for any one that is not empty.
+fn matches_route(route: &str, path: &str) -> bool {
+    let mut routes = route.split('/');
+    let mut paths = path.split('/');
+    loop {
+        match (routes.next(), paths.next()) {
+            (None, None) => return true,
+            (Some(expected), Some(given)) => {
+                let fits = if expected.starts_with('$') {
+                    !given.is_empty()
+                } else {
+                    expected == given
+                };
+                if !fits {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
     }
 }
 
@@ -430,6 +751,14 @@ pub enum CompositionError {
     #[error("both `{first}` and `{second}` pass in a gate in admission")]
     DuplicateGates {
         /// The first contribution that passes one in.
+        first: &'static str,
+        /// The second.
+        second: &'static str,
+    },
+    /// Two Clean-up rules.
+    #[error("both `{first}` and `{second}` pass in the Clean-up rules")]
+    DuplicateCleanUpVersions {
+        /// The first contribution that passes them in.
         first: &'static str,
         /// The second.
         second: &'static str,
@@ -496,6 +825,54 @@ impl Composition {
             .collect()
     }
 
+    /// What every contribution adds to each Run's report, in order.
+    pub(crate) fn report_parts(&self) -> Vec<Arc<dyn ReportPart>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.report_parts.iter().cloned())
+            .collect()
+    }
+
+    /// What every contribution adds to each value of a Run's progress, in
+    /// order.
+    pub(crate) fn progress_parts(&self) -> Vec<Arc<dyn ProgressPart>> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.progress_parts.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's switchable controls.
+    pub(crate) fn controls(&self) -> Controls {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.controls.iter().copied())
+            .fold(
+                Controls::default(),
+                |controls, (setting, kind)| match kind {
+                    Some((kind, built_in)) => controls.with_recorded(setting, kind, built_in),
+                    None => controls.with(setting),
+                },
+            )
+    }
+
+    /// Every contribution's Secret providers built for each Run, in order:
+    /// a later one for a scheme replaces an earlier.
+    pub fn secret_providers(&self) -> Vec<(Provider, ProviderFactory)> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.secret_providers.iter().cloned())
+            .collect()
+    }
+
+    /// Every contribution's sources of "Needs you", in order.
+    pub(crate) fn needs_you_sources(&self) -> Vec<NeedsYouSource> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.needs_you_sources.iter().cloned())
+            .collect()
+    }
+
     /// The one gate in admission the contributions pass in, if any.
     pub(crate) fn admission_gates(&self) -> Result<Option<Arc<dyn Gates>>, CompositionError> {
         let mut passed = self.contributions.iter().filter_map(|contribution| {
@@ -506,6 +883,20 @@ impl Composition {
             return Err(CompositionError::DuplicateGates { first, second });
         }
         Ok(first.map(|(_, gates)| gates))
+    }
+
+    /// The one Clean-up rules the contributions pass in, if any.
+    pub(crate) fn clean_up_versions(
+        &self,
+    ) -> Result<Option<Arc<dyn CleanUpVersions>>, CompositionError> {
+        let mut passed = self.contributions.iter().filter_map(|contribution| {
+            Some((contribution.name, contribution.clean_up_versions.clone()?))
+        });
+        let first = passed.next();
+        if let (Some((first, _)), Some((second, _))) = (&first, passed.next()) {
+            return Err(CompositionError::DuplicateCleanUpVersions { first, second });
+        }
+        Ok(first.map(|(_, versions)| versions))
     }
 
     /// Each operation's one handler.

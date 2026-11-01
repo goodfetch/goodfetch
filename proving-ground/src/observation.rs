@@ -2,7 +2,8 @@
 //! recorded as the Proving ground saw it (method, target, headers in the
 //! order sent, cookies, HTTP message signature, the connection's TLS
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
-//! timing), the bytes each
+//! timing), every TLS handshake's `ClientHello` whether or not it
+//! completed, the bytes each
 //! request and each host received and sent, the Effects the site
 //! carried out, what its pages' own scripts reported, and the findings of
 //! the Crawl families (a page fetched twice, a trap followed, a honeypot
@@ -10,7 +11,9 @@
 //! never a tool's report. The connection record beside them lists every
 //! connection the Proving ground's listeners accepted and every relay its
 //! forward proxies carried out, each entry with the time step it came at,
-//! which `PUT /time-step` sets.
+//! which `PUT /time-step` sets; and `GET /network-fixtures` serves the
+//! addresses of the network fixtures `serve` reported, for a harness that
+//! knows only the Proving ground's address.
 //!
 //! Bytes are counted twice over, both as they cross the wire:
 //!
@@ -55,6 +58,11 @@ pub(crate) struct Observations {
     time_step: Mutex<u64>,
     state: Mutex<State>,
     record: ConnectionRecord,
+    /// What `serve` reported of its network fixtures, once bound.
+    network_fixtures: Mutex<Option<serde_json::Value>>,
+    /// Whether the `limited` proxy holds each request it counts until a
+    /// harness releases it (`PUT /limited-proxy-hold`).
+    limited_hold: tokio::sync::watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -70,7 +78,28 @@ struct State {
     reports: Vec<ReportRecord>,
     findings: Vec<FindingRecord>,
     unrecorded_findings: u64,
+    /// The host name of each handshake that presented a client certificate,
+    /// in order.
+    client_certificates: Vec<String>,
+    /// Each TLS handshake's `ClientHello`, in order, whether or not the
+    /// handshake completed.
+    tls_handshakes: Vec<Handshake>,
 }
+
+/// A TLS handshake a connection began: its `ClientHello`, recorded before
+/// the server answers, so a client that refuses the Proving ground's
+/// certificate, as a browser trusting only its own roots does, still shows
+/// its fingerprint.
+#[derive(Serialize)]
+struct Handshake {
+    connection: u64,
+    #[serde(flatten)]
+    hello: Arc<ClientHello>,
+}
+
+/// The most handshakes that presented a client certificate kept (STYLE.md:
+/// every buffer is bounded).
+const CLIENT_CERTIFICATE_LIMIT: usize = 10_000;
 
 /// Bytes received from and sent to a client.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize)]
@@ -420,6 +449,8 @@ struct Document<'a> {
     unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
+    client_certificates: &'a [String],
+    tls_handshakes: &'a [Handshake],
     #[serde(flatten)]
     record: &'a connection_record::Document<'a>,
 }
@@ -433,7 +464,40 @@ impl Observations {
             time_step: Mutex::new(0),
             state: Mutex::default(),
             record: ConnectionRecord::default(),
+            network_fixtures: Mutex::new(None),
+            limited_hold: tokio::sync::watch::Sender::new(false),
         }
+    }
+
+    /// Sets whether the `limited` proxy holds each request it counts until
+    /// it is released, so a harness that sends two at once knows they meet
+    /// there, however late the second arrives.
+    pub(crate) fn set_limited_hold(&self, held: bool) {
+        self.limited_hold.send_replace(held);
+    }
+
+    /// Waits while the `limited` proxy's hold is on.
+    pub(crate) async fn limited_released(&self) {
+        let mut held = self.limited_hold.subscribe();
+        // The sender lives as long as these observations, so the wait ends
+        // only once the hold is off.
+        let _ = held.wait_for(|held| !*held).await;
+    }
+
+    /// Whether the `limited` proxy's hold is on.
+    pub(crate) fn limited_held(&self) -> bool {
+        *self.limited_hold.borrow()
+    }
+
+    /// Keeps what `serve` reports of its network fixtures, which
+    /// `GET /network-fixtures` serves.
+    pub(crate) fn set_network_fixtures(&self, fixtures: serde_json::Value) {
+        *self.network_fixtures.lock() = Some(fixtures);
+    }
+
+    /// What `serve` reported of its network fixtures, once they are bound.
+    pub(crate) fn network_fixtures(&self) -> Option<serde_json::Value> {
+        self.network_fixtures.lock().clone()
     }
 
     /// The host names observed, each with its task, if any.
@@ -473,6 +537,15 @@ impl Observations {
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock()
+    }
+
+    /// Records that a handshake for the host name `host` presented a client
+    /// certificate the host accepted.
+    pub(crate) fn client_certificate(&self, host: &str) {
+        let mut state = self.state();
+        if state.client_certificates.len() < CLIENT_CERTIFICATE_LIMIT {
+            state.client_certificates.push(host.to_owned());
+        }
     }
 
     /// Starts observing a new connection the site's listener accepted from
@@ -592,6 +665,8 @@ impl Observations {
                 reports: &state.reports,
                 findings: &state.findings,
                 unrecorded_findings: state.unrecorded_findings,
+                client_certificates: &state.client_certificates,
+                tls_handshakes: &state.tls_handshakes,
                 tasks,
                 hosts: &state.hosts,
                 record,
@@ -699,7 +774,16 @@ impl Connection {
         if let Some(name) = hello.sni.clone() {
             self.decide_host(&mut state, &name);
         }
-        state.tls = Some(Arc::new(hello));
+        let hello = Arc::new(hello);
+        state.tls = Some(Arc::clone(&hello));
+        drop(state);
+        let mut observations = self.observations.state();
+        if observations.tls_handshakes.len() < REQUEST_LIMIT {
+            observations.tls_handshakes.push(Handshake {
+                connection: self.id,
+                hello,
+            });
+        }
     }
 
     /// Records a request whose head has arrived, if its host is served; a

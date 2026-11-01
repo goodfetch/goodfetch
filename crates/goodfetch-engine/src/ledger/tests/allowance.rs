@@ -6,7 +6,8 @@
 //!
 //! Covers: story:3-75
 
-use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_protocol::run::LimitSetter;
+use goodfetch_protocol::usage::Limit;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 

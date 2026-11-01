@@ -8,7 +8,7 @@
 //! `run.failed_requests` lists the latest outcome of each work item
 //! `run.retry_failed` would re-admit.
 
-use goodfetch_engine::run::run_error;
+use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::outcomes::{
@@ -32,6 +32,7 @@ pub(crate) fn handlers() -> [Handler; 2] {
 struct Filter {
     kinds: Option<String>,
     labels: Option<String>,
+    codes: Option<String>,
 }
 
 impl Filter {
@@ -48,6 +49,10 @@ impl Filter {
                 .labels
                 .as_ref()
                 .map(|labels| names(labels.iter().map(String::as_str).collect())),
+            codes: params
+                .codes
+                .as_ref()
+                .map(|codes| names(codes.iter().map(String::as_str).collect())),
         }
     }
 }
@@ -63,6 +68,9 @@ async fn outcomes(
     params: RunOutcomesParams,
     context: CallContext,
 ) -> Result<CrawlRequestOutcomes, CallError> {
+    if let Some(answer) = through_owner(&context, &RUN_OUTCOMES, &params.run_id, &params).await? {
+        return Ok(answer);
+    }
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context
         .runs()
@@ -76,7 +84,7 @@ async fn outcomes(
         Some(OutcomesAfter::Now(_)) => reader.read(last_position).await.map_err(failed)?,
     };
     loop {
-        let live = reader.is_live();
+        let live = reader.is_live().await;
         let page = read_page(&mut reader, after, &filter)
             .await
             .map_err(failed)?;
@@ -108,6 +116,11 @@ async fn failed_requests(
     params: RunFailedRequestsParams,
     context: CallContext,
 ) -> Result<FailedRequests, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &RUN_FAILED_REQUESTS, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context
         .runs()
@@ -163,6 +176,10 @@ fn page(connection: &Connection, after: u64, filter: &Filter) -> rusqlite::Resul
              WHERE position > ?1 AND position <= ?2
                AND (?3 IS NULL OR kind IN (SELECT value FROM json_each(?3)))
                AND (?4 IS NULL OR label IN (SELECT value FROM json_each(?4)))
+               AND (?6 IS NULL OR EXISTS (
+                 SELECT 1 FROM json_each(outcome, '$.errors') AS error
+                 WHERE json_extract(error.value, '$.code') IN (SELECT value FROM json_each(?6))
+               ))
              ORDER BY position LIMIT ?5",
         )?
         .query_map(
@@ -172,6 +189,7 @@ fn page(connection: &Connection, after: u64, filter: &Filter) -> rusqlite::Resul
                 filter.kinds.as_deref(),
                 filter.labels.as_deref(),
                 integer(u64::try_from(OUTCOMES_PAGE).unwrap_or(u64::MAX)),
+                filter.codes.as_deref(),
             ),
             |row| row.get::<_, String>(0),
         )?

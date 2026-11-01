@@ -19,6 +19,12 @@ use crate::task::{self, Effect, Entry, Expected, Kind, Record, Task};
 /// The host name the family is served on.
 pub(crate) const HOST: &str = "adversarial.test";
 
+/// A host name the family also answers on, which a browser resolves to
+/// loopback itself, as every `*.localhost` name: a served test opens the
+/// escape and Daemon pages there with no resolver of its own, as a local
+/// page.
+const LOCAL_HOST: &str = "adversarial.localhost";
+
 pub(crate) const FAMILY: &str = "adversarial";
 
 const ITEMS: u64 = 8;
@@ -90,7 +96,9 @@ const TASKS: u32 = 4;
 
 /// Every host name the family is served on, each with its task.
 pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
-    task::family_hosts(FAMILY, HOST, TASKS)
+    let mut hosts = task::family_hosts(FAMILY, HOST, TASKS);
+    hosts.push((LOCAL_HOST.to_owned(), None));
+    hosts
 }
 
 /// Answers a request to one of the family's host names, given the
@@ -103,7 +111,7 @@ pub(crate) fn respond(
     host: &str,
     request: &Request<'_>,
 ) -> Option<(Reply, Option<Recorded>)> {
-    if !task::serves(host, HOST, TASKS) {
+    if host != LOCAL_HOST && !task::serves(host, HOST, TASKS) {
         return None;
     }
     // A `Host` with anything but a host name and a port is named by its host

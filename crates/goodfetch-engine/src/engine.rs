@@ -15,25 +15,40 @@ use std::sync::Arc;
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
-use goodfetch_protocol::run::{RunKind, RunOwner};
+use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
+use goodfetch_protocol::run::RunOwner;
+use goodfetch_protocol::secret_reference::Provider;
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles, relay};
+use crate::audit::AuditEvents;
 use crate::clock::Clock;
-use crate::composition::{Composition, CompositionError};
-use crate::console::{self, ConsoleBuild};
+use crate::composition::{Composition, CompositionError, ConsoleBuild};
+use crate::console;
+use crate::controls::Controls;
 use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
-use crate::home::{Home, RunStateLocation};
+use crate::governor::{Governor, System};
+use crate::home::{Home, RunStateLocation, major_name};
+use crate::known_certificates::KnownCertificates;
+use crate::ledger::Ledger;
 use crate::log::LogEvents;
+use crate::mask::Masks;
+use crate::metrics::Metrics;
+use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
+use crate::people::{AccountsStore, ConsoleKey, SignInDriver, SignIns, SingleUserLink, os_user};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{Driver, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::sandbox_probe;
+use crate::secrets::{self, Keychain, ProviderFactory};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -42,16 +57,28 @@ use crate::transition::{
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
 
+/// How many Connections the Console's server opened wait for the Daemon to
+/// serve them before it waits too.
+const CONSOLE_CONNECTIONS: usize = 16;
+
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
-    drivers: BTreeMap<RunKind, Driver>,
+    report_parts: Vec<Arc<dyn ReportPart>>,
+    progress_parts: Vec<Arc<dyn ProgressPart>>,
+    clean_up: Option<Arc<dyn CleanUpVersions>>,
     gates: Option<Arc<dyn Gates>>,
+    needs_you_sources: Vec<NeedsYouSource>,
+    secret_providers: Vec<(Provider, ProviderFactory)>,
+    controls: Controls,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
+    metrics: Metrics,
+    system: Option<System>,
+    audit_events: Option<AuditEvents>,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -74,6 +101,10 @@ pub struct Dependencies {
     /// The engine's environment map, which `main` reads once (ADR 0083)
     /// and `env:` Secret references resolve in.
     pub environment: BTreeMap<OsString, OsString>,
+    /// The OS keychain `keychain:` Secret references resolve in, whose
+    /// absence makes the encrypted local file `run_state.key_reference`'s
+    /// default: `Keychain::os()` in `main`, absent in most tests.
+    pub keychain: Keychain,
 }
 
 impl Engine {
@@ -83,15 +114,41 @@ impl Engine {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
                 handlers: composition.handlers()?,
-                log_events: LogEvents::new(),
+                drivers: Arc::new(composition.drivers()),
+                log_events: None,
+                masks: Masks::new(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
-            drivers: composition.drivers(),
+            report_parts: composition.report_parts(),
+            progress_parts: composition.progress_parts(),
+            clean_up: composition.clean_up_versions()?,
             gates: composition.admission_gates()?,
+            needs_you_sources: composition.needs_you_sources(),
+            secret_providers: composition.secret_providers(),
+            controls: composition.controls(),
             events: EventsOptions::default(),
             console: composition.console(),
+            metrics: Metrics::none(),
+            system: None,
+            audit_events: None,
         })
+    }
+
+    /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
+    /// The same, its Resource governor sampling `system` (ADR 0040), as
+    /// each Product's executable reads the OS it runs on; without it, the
+    /// governor holds each kind of work at its default ceiling.
+    #[must_use]
+    pub fn with_governor(mut self, system: System) -> Self {
+        self.system = Some(system);
+        self
     }
 
     /// The same, each of its Connections receiving the log events of
@@ -102,8 +159,33 @@ impl Engine {
         self.dispatch = Arc::new(Dispatch {
             identity: Arc::clone(&self.dispatch.identity),
             handlers: self.dispatch.handlers.clone(),
-            log_events,
+            drivers: Arc::clone(&self.dispatch.drivers),
+            log_events: Some(log_events),
+            masks: self.dispatch.masks.clone(),
         });
+        self
+    }
+
+    /// The same, masking every live Run's resolved values with `masks`,
+    /// which the process's log writers also pass their lines through
+    /// (spec #564); without it the engine masks with its own.
+    #[must_use]
+    pub fn with_masks(mut self, masks: Masks) -> Self {
+        self.dispatch = Arc::new(Dispatch {
+            identity: Arc::clone(&self.dispatch.identity),
+            handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
+            log_events: self.dispatch.log_events.clone(),
+            masks,
+        });
+        self
+    }
+
+    /// The same, its Audit log also sending each entry it appends to
+    /// `events`, the OpenTelemetry events of `audit.otlp` (ADR 0016).
+    #[must_use]
+    pub fn with_audit_events(mut self, events: AuditEvents) -> Self {
+        self.audit_events = Some(events);
         self
     }
 
@@ -146,7 +228,7 @@ impl Engine {
             owner,
             runs,
             events,
-            Access::Attached(None),
+            Access::Attached(None, None),
             clock,
         )
         .await;
@@ -168,25 +250,27 @@ impl Engine {
     ) -> DaemonEnd {
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
+        let home = dependencies.home.clone();
+        let person = os_user(&dependencies.environment);
         let (runs, events) = self.start_runs(
             dependencies,
             &owner,
             Some(RunOwner::Daemon(options.endpoint.clone())),
             options.install.take(),
+            self.console_links(&options.console),
         );
-        let console = match (
-            self.console,
-            std::mem::replace(&mut options.console, DaemonConsole::Absent),
-        ) {
-            (Some(build), DaemonConsole::Listening { listener, url }) => {
-                owner.spawn(console::serve(build, listener, owner.child()));
-                ConsoleState::Serving(url)
-            }
-            (_, DaemonConsole::Failed(failure)) => ConsoleState::Failed(failure),
-            (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
-                ConsoleState::Absent
-            }
+        let opening = ConsoleOpening {
+            token: options.token.clone(),
+            home: &home,
+            person,
+            runs: &runs,
+            clock,
+            owner: &owner,
         };
+        let (console, sign_ins, console_connections) = self.open_console(
+            std::mem::replace(&mut options.console, DaemonConsole::Absent),
+            opening,
+        );
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),
@@ -194,6 +278,9 @@ impl Engine {
                 events,
                 clock,
                 console,
+                console_connections,
+                metrics: self.metrics.clone(),
+                sign_ins,
             },
             listener,
             options,
@@ -223,13 +310,52 @@ impl Engine {
         owner: &TaskOwner,
         reached_at: Option<RunOwner>,
         install: Option<InstallDatabase>,
+        console: Option<String>,
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
-        let settings = Settings::new(
+        let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
-            owner.child(),
+            owner,
+            &dependencies,
+        );
+        let governor = match &self.system {
+            Some(system) => {
+                let governor =
+                    Governor::start(system.clone(), settings.clone(), dependencies.clock, owner);
+                owner.spawn(report_samples(
+                    governor.system_info(),
+                    events.clone(),
+                    self.metrics.clone(),
+                    owner.token().clone(),
+                ));
+                governor
+            }
+            None => Governor::unsampled(),
+        };
+        let needs_you = NeedsYou::start(
+            &self.needs_you_sources,
+            SourceContext {
+                clock: dependencies.clock,
+                storage: governor.storage(),
+                run_index: dependencies
+                    .home
+                    .run_index(&self.identity().product_version),
+                version: self.identity().product_version.clone(),
+                ledger: Ledger::at(
+                    dependencies.home.usage_ledger(),
+                    dependencies.run_state.vfs.clone(),
+                ),
+                settings: settings.clone(),
+                known_certificates: KnownCertificates::of(
+                    &dependencies.home,
+                    dependencies.run_state.vfs.clone(),
+                ),
+                owner: Arc::new(owner.child()),
+            },
+            events.clone(),
+            owner,
         );
         let forwarder = Arc::new(ToOwner {
             home: dependencies.home.clone(),
@@ -238,7 +364,9 @@ impl Engine {
         });
         let runs = Runs::start_registry(
             RunsSetup {
+                keychain: dependencies.keychain,
                 settings,
+                audit_events: self.audit_events.clone(),
                 product: self.identity().product,
                 reached_at,
                 forwarder,
@@ -255,14 +383,23 @@ impl Engine {
                 },
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
-                drivers: self.drivers.clone(),
+                report_parts: self.report_parts.clone(),
+                progress_parts: self.progress_parts.clone(),
+                clean_up: self.clean_up.clone(),
+                console,
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),
                 clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
+                metrics: self.metrics.clone(),
+                governor,
                 environment: dependencies.environment,
+                needs_you,
+                controls: self.controls.clone(),
+                masks: self.dispatch.masks.clone(),
+                secret_providers: self.secret_providers.clone(),
             },
             owner,
         );
@@ -314,14 +451,37 @@ impl Engine {
     /// Dropping the future cancels nothing it started; run it to its end.
     pub async fn run_attached(
         &self,
+        network: Network,
+        dependencies: Dependencies,
+    ) -> Result<(), TransportError> {
+        self.run_attached_with_console(network, dependencies, DaemonConsole::Absent)
+            .await
+    }
+
+    /// Runs as an Attached engine, as [`Engine::run_attached`] does, that
+    /// also serves `console`, the Console its script asked for with an
+    /// address of its own (ADR 0031): its stdio's `hello` answers the
+    /// Console's sign-in link, under a per-launch token, and the Console
+    /// stops listening when the engine stops, so nothing listens once the
+    /// script has ended. An engine whose composition carries no Console
+    /// build serves none.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels nothing it started; run it to its end.
+    pub async fn run_attached_with_console(
+        &self,
         mut network: Network,
         dependencies: Dependencies,
+        console: DaemonConsole,
     ) -> Result<(), TransportError> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
+        let home = dependencies.home.clone();
+        let person = os_user(&dependencies.environment);
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -334,16 +494,33 @@ impl Engine {
                 .as_ref()
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
             None,
+            self.console_links(&console),
         );
         let connection_owner = owner.child();
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
+        // The private endpoint's and the Console's Connections, which the
+        // stdio Connection does not wait for.
+        let accepting = owner.child();
+        let console_link = self.serve_scripts_console(
+            console,
+            ConsoleOpening {
+                token: String::new(),
+                home: &home,
+                person,
+                runs: &runs,
+                clock,
+                owner: &owner,
+            },
+            &accepting,
+            &events,
+        );
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
             &connection_owner,
             runs.clone(),
             events.clone(),
-            Access::Attached(reported),
+            Access::Attached(reported, console_link),
             clock,
         );
         let gone = async {
@@ -352,7 +529,6 @@ impl Engine {
                 None => std::future::pending().await,
             }
         };
-        let accepting = owner.child();
         let mut private_files = None;
         if let Some((listener, _, files)) = private {
             accepting.spawn(serve_private_endpoint(
@@ -384,6 +560,256 @@ impl Engine {
         owner.stop().await;
         drop(private_files);
         Ok(())
+    }
+}
+
+/// What opening a Console takes beside the Console its starter set up.
+struct ConsoleOpening<'a> {
+    /// The token its single-user sign-in link carries.
+    token: String,
+    home: &'a Home,
+    /// The OS user its single-user sign-in names.
+    person: String,
+    runs: &'a Runs,
+    clock: Clock,
+    owner: &'a TaskOwner,
+}
+
+impl Engine {
+    /// The address links to `console` name (ADR 0031): its
+    /// `console.public_url` when set, else its own URL; none when the
+    /// engine serves no Console.
+    fn console_links(&self, console: &DaemonConsole) -> Option<String> {
+        match (&self.console, console) {
+            (
+                Some(_),
+                DaemonConsole::Listening {
+                    url, public_url, ..
+                },
+            ) => Some(console::links::link_base(url, public_url.as_deref())),
+            _ => None,
+        }
+    }
+
+    /// Serves an Attached engine's own `console`, its pages' Connections
+    /// tasks of `connections` reaching the engine's Runs, under a sign-in
+    /// token of this launch: its sign-in link, `<url>#token=<token>`; none
+    /// when it serves no Console.
+    fn serve_scripts_console(
+        &self,
+        console: DaemonConsole,
+        opening: ConsoleOpening<'_>,
+        connections: &TaskOwner,
+        events: &Events,
+    ) -> Option<String> {
+        if self.console.is_none() || !matches!(console, DaemonConsole::Listening { .. }) {
+            return None;
+        }
+        let token = match crate::endpoint::new_token() {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::error!(%error, "the OS generator gave no sign-in token, so the script's Console does not start");
+                return None;
+            }
+        };
+        let runs = opening.runs.clone();
+        let clock = opening.clock;
+        let opening = ConsoleOpening {
+            token: token.clone(),
+            ..opening
+        };
+        match self.open_console(console, opening) {
+            (ConsoleState::Serving(url), Some(sign_ins), opened) => {
+                connections.spawn(serve_attached_console(
+                    Arc::clone(&self.dispatch),
+                    opened,
+                    sign_ins,
+                    connections.child(),
+                    runs,
+                    events.clone(),
+                    clock,
+                ));
+                Some(format!("{url}#token={token}"))
+            }
+            _ => None,
+        }
+    }
+
+    /// Serves `console` with this engine's Console build, its tasks those
+    /// of `opening`'s owner: where it is, its sign-in driver, and the
+    /// Connections its pages open; or why it serves none.
+    fn open_console(
+        &self,
+        console: DaemonConsole,
+        opening: ConsoleOpening<'_>,
+    ) -> (
+        ConsoleState,
+        Option<SignInDriver>,
+        tokio::sync::mpsc::Receiver<rpc::ConsoleConnection>,
+    ) {
+        let (opened_connections, console_connections) =
+            tokio::sync::mpsc::channel(CONSOLE_CONNECTIONS);
+        let ConsoleOpening {
+            token,
+            home,
+            person,
+            runs,
+            clock,
+            owner,
+        } = opening;
+        let (state, sign_ins) = match (self.console, console) {
+            (
+                Some(build),
+                DaemonConsole::Listening {
+                    listener,
+                    url,
+                    public_url: _,
+                    sign_in,
+                    content,
+                },
+            ) => {
+                let sign_ins = SignInDriver::new(SignIns {
+                    link: SingleUserLink::new(token),
+                    person,
+                    store: AccountsStore::at(home.accounts_store(&self.identity().product_version)),
+                    key: ConsoleKey::at(home.console_key()),
+                    audit: runs.audit().clone(),
+                    policy: sign_in,
+                    clock,
+                    owner: Arc::new(owner.child()),
+                });
+                owner.spawn(console::serve(
+                    console::Served {
+                        build,
+                        listener,
+                        sign_ins: sign_ins.clone(),
+                        cookie: format!(
+                            "goodfetch_console_{}",
+                            major_name(&self.identity().product_version)
+                        ),
+                        connections: opened_connections,
+                        runs: runs.clone(),
+                        clock,
+                        content,
+                    },
+                    owner.child(),
+                ));
+                (ConsoleState::Serving(url), Some(sign_ins))
+            }
+            (_, DaemonConsole::Failed(failure)) => (ConsoleState::Failed(failure), None),
+            (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
+                (ConsoleState::Absent, None)
+            }
+        };
+        (state, sign_ins, console_connections)
+    }
+}
+
+/// Serves each Connection the pages of an Attached engine's own Console
+/// open, every one a task of `owner`, reaching the engine's Runs: no
+/// Daemon answers them, and their Runs end with the engine's.
+async fn serve_attached_console(
+    dispatch: Arc<Dispatch>,
+    mut connections: tokio::sync::mpsc::Receiver<rpc::ConsoleConnection>,
+    sign_ins: SignInDriver,
+    owner: TaskOwner,
+    runs: Runs,
+    events: Events,
+    clock: Clock,
+) {
+    let stopped = owner.token().clone();
+    loop {
+        let connection = tokio::select! {
+            biased;
+            () = stopped.cancelled() => return,
+            next = connections.recv() => match next {
+                Some(connection) => connection,
+                // The Console's server stopped.
+                None => return,
+            },
+        };
+        let (dispatch, sign_ins, runs, events) = (
+            Arc::clone(&dispatch),
+            sign_ins.clone(),
+            runs.clone(),
+            events.clone(),
+        );
+        let its_owner = owner.child();
+        let closed = its_owner.token().clone();
+        owner.spawn(async move {
+            let side = rpc::ConsoleSide {
+                daemon: None,
+                sign_ins,
+            };
+            let served =
+                rpc::serve_console(dispatch, connection, &its_owner, runs, events, side, clock);
+            // The engine's stop closes the Console's Connections with it.
+            tokio::select! {
+                biased;
+                () = closed.cancelled() => {}
+                () = served => {}
+            }
+            its_owner.stop().await;
+        });
+    }
+}
+
+/// Sends each of the Resource governor's samples as `engine.system_info`
+/// to the subscriptions that take it, and records it in the runtime's
+/// metrics, until `token` is cancelled.
+/// The engine's settings, whose host defaults are the keychain's and
+/// Chromium's sandbox probe's. The probe starts now, at startup, once for
+/// the process (ADR 0049); the host's defaults wait for its answer, which
+/// each browser launch reads.
+fn host_settings(
+    files: SettingsFiles,
+    product: goodfetch_protocol::catalog::Product,
+    owner: &TaskOwner,
+    dependencies: &Dependencies,
+) -> Settings {
+    let probing = Arc::new(owner.child());
+    let environment = Arc::new(dependencies.environment.clone());
+    {
+        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        owner.spawn(async move {
+            probing
+                .blocking(move || {
+                    sandbox_probe::probed_in(&environment);
+                })
+                .await;
+        });
+    }
+    let keychain = dependencies.keychain.clone();
+    Settings::with_host(files, product, owner.child(), move || {
+        let keychain = keychain.clone();
+        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        Box::pin(async move {
+            let probed = probing
+                .blocking(move || sandbox_probe::probed_in(&environment))
+                .await;
+            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, probed)
+        })
+    })
+}
+
+async fn report_samples(
+    mut samples: watch::Receiver<Option<SystemInfo>>,
+    events: Events,
+    metrics: Metrics,
+    token: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            () = token.cancelled() => return,
+            changed = samples.changed() => if changed.is_err() {
+                return;
+            },
+        }
+        let sample = samples.borrow_and_update().clone();
+        if let Some(sample) = sample {
+            metrics.governor(&sample);
+            events.publish(&SYSTEM_INFO, None, &sample).await;
+        }
     }
 }
 

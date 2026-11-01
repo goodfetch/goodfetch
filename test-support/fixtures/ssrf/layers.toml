@@ -1,0 +1,211 @@
+# The layers Collie carries the SSRF case table to (ADR 0067; spec #563's
+# story 89; TESTING.md, Egress and hostile input). Each `[layers.<name>]`
+# is one layer a request of the run passes that holds it to the egress
+# policy, with the runners that apply `cases.toml` to it: each runner is a
+# test, `<file relative to the workspace's root>::<function>`, and the
+# families whose cases it runs. A runner takes its cases through
+# `goodfetch-test-support`'s `Runner::committed(layer, file!(), "<function>")`,
+# which gives it every case of those families, and runs them with
+# `Runner::run`, which also runs its positive controls and fails when it
+# has none. A layer runs every family of `every_layer`, or says in
+# `not_run` why it never meets one; a layer not built yet is `pending`,
+# with the ticket that builds it and the families its runner will run.
+# The Quick suite (`goodfetch-test-support`'s
+# `every_layer_collie_carries_has_runners_for_every_family_of_the_ssrf_table`)
+# fails on a built layer with no runner, a family of `every_layer` a layer
+# skips, a family of the table no layer runs, and a runner its file does
+# not hold. Foxhound's layers (the Frontier, its HTTP tiers, its Sinks) are
+# its own spec's (#565) and not listed here.
+# Schema: `../schemas/ssrf-layers.schema.json`.
+
+every_layer = [
+    "encoding",
+    "ipv6_form",
+    "special_purpose_block",
+    "mixed_answers",
+    "redirect",
+    "rebinding",
+    "upstream_proxy",
+]
+
+[layers.classification]
+summary = "`egress`'s classification in process, on every OS: each case's URL judged as a request, then the addresses its host stands for (its literal address, or the `ScriptedResolver`'s answers in turn) judged as the connections that would try them; a redirect's location judged as the next hop's request; nothing connects."
+runners = [
+    { test = "crates/goodfetch-engine/src/egress/tests/ssrf.rs::every_case_of_the_table_is_refused_before_a_connection_would_try_its_target", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "redirect",
+        "upstream_proxy",
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-engine/src/egress/tests/ssrf.rs::a_rebinding_name_is_refused_on_the_connection_after_its_answer_changes", families = [
+        "rebinding",
+    ] },
+]
+
+[layers.http_client]
+summary = "The engine's own HTTP client (`http_client::PageTraffic`) against the Proving ground, whose connection record is the oracle: a case's lookups as the `resolve` mapping, an upstream proxy case through the Proving ground's open proxy, and rebinding end to end on Linux in a `DnsNamespace` whose resolver is the Proving ground's DNS fixture."
+runners = [
+    { test = "crates/goodfetch-engine/tests/it/resolved_address.rs::every_address_case_of_the_ssrf_table_is_refused_before_any_connection", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+    ] },
+    { test = "crates/goodfetch-engine/tests/it/upstream_proxy.rs::every_upstream_proxy_case_of_the_ssrf_table_is_refused_before_the_proxy_sees_it", families = [
+        "upstream_proxy",
+    ] },
+    { test = "crates/goodfetch-engine/tests/it/egress.rs::every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection", families = [
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-engine/tests/it/resolved_address.rs::in_the_namespace_every_rebinding_case_of_the_ssrf_table_is_refused_on_its_second_connection", families = [
+        "rebinding",
+    ] },
+]
+not_run.redirect = "`PageTraffic::get` follows no redirect: it answers a 3xx as the site gave it, and a hop its caller sends is a request of its own, which this layer's other runners judge."
+
+[layers.operator_endpoints]
+summary = "The engine's HTTP client to an Operator-configured endpoint (ADR 0017), the OTLP collector its first, under an Operator policy that sets `egress.no_private_endpoints`, against the Proving ground: each case's URL as the collector's, its lookups as the `network.resolve` mapping; the positive control is the same switch off."
+runners = [
+    { test = "crates/goodfetch-engine/tests/it/operator_endpoints.rs::every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects", families = [
+        "operator_endpoint",
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+    ] },
+]
+not_run.redirect = "An Operator-configured endpoint's request follows no redirect (`http_client::ConfiguredEndpoint`)."
+not_run.rebinding = "An endpoint's export looks its host up on each connection through `http_client`'s lookup, the one the `http_client` layer's rebinding runner holds; an endpoint's own name is the Operator's, which the run's pages cannot answer."
+not_run.upstream_proxy = "An Operator-configured endpoint goes direct, never through the run's upstream proxy (ADR 0017's endpoint class)."
+
+[layers.session_proxy]
+summary = "A Session's upstream proxy at its open (`goodfetch-page`'s `proxy`, ADR 0017), in process, on every OS: each case's URL as the proxy's, its lookups answered in turn, one open for each of its fetches, under an Operator policy that sets `egress.no_private_endpoints`; the oracle is the addresses the loopback relay is given to dial, which it dials alone. The positive control is a proxy on loopback with the switch off."
+runners = [
+    { test = "crates/goodfetch-page/src/proxy/tests.rs::every_operator_endpoint_case_of_the_ssrf_table_is_refused_at_the_sessions_open", families = [
+        "operator_endpoint",
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "rebinding",
+    ] },
+]
+not_run.redirect = "A Session's open sends nothing to its proxy: it looks the proxy's host up and judges it, and no answer is read."
+not_run.upstream_proxy = "The family's cases are a site's address behind the proxy, which the `egress_relay` layer judges per connection; this layer judges the proxy's own address."
+
+[layers.egress_relay]
+summary = "A browser Session's egress relay (`goodfetch-page`'s `egress_relay`, ADR 0017) in process, on every OS: the browser end and the network beyond are in-memory streams, names resolve through the `ScriptedResolver`, and the oracle is the connections the relay opened, which stand for the Proving ground's record; each case sent as the browser sends it (a plain request in absolute form, a tunnel for `https:`) and as a tunnel, through the Session's upstream proxy for the proxy's cases."
+runners = [
+    { test = "crates/goodfetch-page/src/egress_relay/tests.rs::every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_relay", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "upstream_proxy",
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-page/src/egress_relay/tests.rs::a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached", families = [
+        "rebinding",
+    ] },
+]
+not_run.redirect = "The relay judges each connection and never reads a response: the browser follows a redirect, and its hop meets the relay as a connection of its own, which the `chromium_navigation` layer's redirect runner drives."
+
+[layers.tls_relay]
+summary = "The egress relay's terminating mode (ADR 0042), in process: each case sent as a tunnel to a host the Run lists for a certificate exception, which the relay would terminate."
+runners = [
+    { test = "crates/goodfetch-page/src/egress_relay/tests.rs::every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_relay", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "upstream_proxy",
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-page/src/egress_relay/tests.rs::a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached", families = [
+        "rebinding",
+    ] },
+]
+not_run.redirect = "As for `egress_relay`: a terminated tunnel's redirect is the browser's to follow, on a connection of its own."
+
+[layers.local_address_relay]
+summary = "The egress relay of a Session with local addresses (ADR 0044), in process on its own TCP network, every connection bound to `127.0.0.1` and every name resolved by the engine's resolver from it, against a loopback listener whose accepted connections are the oracle; a case's lookups as the Run's `network.resolve` mapping."
+runners = [
+    { test = "crates/goodfetch-page/src/egress_relay/tests.rs::with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_relay", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "domain_policy",
+    ] },
+]
+not_run.redirect = "As for `egress_relay`: the browser follows a redirect, on a connection of its own."
+not_run.rebinding = "A Session with local addresses resolves through the engine's resolver bound to them (`LocalBinding::lookup`), whose every answer the relay judges as `egress_relay`'s rebinding runner shows; the scripted resolver cannot stand in for a bound one."
+not_run.upstream_proxy = "A Session with local addresses and an upstream proxy binds only its connection to the proxy, which the relay reaches with no lookup of the case's name: `egress_relay`'s runner holds the proxy path."
+
+[layers.chromium_navigation]
+summary = "A browser Session on Chromium through Collie's executable, against the Proving ground, whose request record is the oracle: each case's URL as the program's own navigation (`page.goto`), every redirect status and kind on the Proving ground's redirect pages, a case's lookups as the Run's `network.resolve` mapping, which the relay judges as any answer, and an upstream proxy case through the Proving ground's open proxy."
+runners = [
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_encoding_and_ipv6_form_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium", families = [
+        "encoding",
+        "ipv6_form",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_special_purpose_block_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium", families = [
+        "special_purpose_block",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium", families = [
+        "mixed_answers",
+        "upstream_proxy",
+        "domain_policy",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium", families = [
+        "redirect",
+    ] },
+]
+not_run.rebinding = "Chromium resolves no name of a Session's own: every connection goes to the Session's egress relay, which looks the name up again and judges each answer, as the `egress_relay` layer's rebinding runner shows; end to end in a `DnsNamespace` it joins with the issue this ticket's report names."
+
+[layers.chromium_request_kinds]
+summary = "A browser Session on Chromium through Collie's executable: each case as the Proving ground's request kinds page makes it (ADR 0014: a subresource, an out-of-process frame's request, a dedicated and a shared worker's, a service worker's as it installs, a WebSocket), every case of a kind from one page, the Proving ground's request record the oracle and the Run trace's `page.request_failed` the typed refusal; a case a kind never brings to the engine (a URL the WHATWG parser refuses; `0.0.0.0` and `::`, which Chromium refuses to a `fetch` itself; a dedicated or service worker's domain policy refusals, which no record sees, #632's gap) reaches nothing, with no refusal recorded."
+runners = [
+    { test = "crates/goodfetch-collie/tests/it/request_kinds.rs::every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_chromium", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "domain_policy",
+    ] },
+]
+not_run.redirect = "A redirect is a navigation's hop, the `chromium_navigation` layer's: a subresource's or a worker's redirect meets the same relay as a connection of its own."
+not_run.rebinding = "As for `chromium_navigation`: every kind's connection goes to the Session's egress relay, which resolves the name itself."
+not_run.upstream_proxy = "Every kind's connection reaches the upstream proxy only through the Session's egress relay, whose runner holds the proxy path; the `chromium_navigation` layer drives it end to end."
+
+[layers.borrowed_browser]
+summary = "A Borrowed browser (ADR 0056) through Collie's executable: a test-started Chrome with a debugging port that the engine holds to the policy by interception alone, resolving each host itself; each case as the program's navigation, at the stand-in's port, a case's lookups as the Run's `network.resolve` mapping; a redirect case as the stand-in's page answering with its redirect, each hop judged by interception as the browser follows it."
+runners = [
+    { test = "crates/goodfetch-collie/tests/it/borrowed_browser.rs::every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception", families = [
+        "borrowed_browser",
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/borrowed_browser.rs::every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_browser", families = [
+        "redirect",
+    ] },
+]
+not_run.rebinding = "The browser resolves names itself, so a rebinding answer reaches it: the gap a Borrowed Session's Provenance records (ADR 0056)."
+not_run.upstream_proxy = "A Borrowed browser is someone's running browser, whose proxy the engine does not set."
+
+[layers.lent_page]
+summary = "A Lent page's client (ADR 0089): a browser context with its own proxy, or an extension, refused by the endpoint with `cdp_command_refused`, and raw CDP through the relay."
+pending = { joins = "#661 (A04-50)", families = ["lent_page_client"] }
+
+[layers.plugin_traffic]
+summary = "A Plugin's own requests (ADR 0017), which meet the run's egress policy."
+pending = { joins = "area 7's Plugin network ticket", families = ["plugin_traffic"] }
+
+[layers.notification_webhooks]
+summary = "Notification webhooks under `egress.no_private_endpoints`, as rows of the `operator_endpoint` family with their own `kind`."
+pending = { joins = "area 11's Notification webhooks", families = ["operator_endpoint"] }

@@ -1,7 +1,7 @@
 //! The Browser cache's contracts (ADRs 0024, 0043, 0098 and 0115): the
 //! Pinned artifacts a Product version names, the entry each one keeps in the
 //! cache, the Error codes of a missing build, the download's progress event,
-//! `browser_cache.max_unused_age`, and what `browsers install` and `browsers
+//! `browser_cache.max_unused_age`, and what `browser install` and `browsers
 //! clean` print under `--json` (ADR 0069). Collie carries them, since Collie
 //! launches browsers (ADR 0088).
 //!
@@ -107,7 +107,7 @@ pub struct BrowserCacheEntry {
 /// A build the engine needs and cannot fetch (ADR 0115).
 pub const BROWSER_NOT_INSTALLED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "browser_not_installed",
-    description: "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
+    description: "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -176,7 +176,7 @@ pub enum ChromeChannel {
 /// A pinned download `offline` refused (ADRs 0043 and 0115).
 pub const ARTIFACT_UNAVAILABLE_OFFLINE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "artifact_unavailable_offline",
-    description: "The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+    description: "The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
@@ -206,7 +206,7 @@ pub struct ArtifactUnavailableOfflineDetails {
 /// A pinned download that failed (ADR 0115).
 pub const ARTIFACT_DOWNLOAD_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "artifact_download_failed",
-    description: "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+    description: "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
     group: ErrorGroup::Unavailable,
     retryable: true,
     exit_code: None,
@@ -294,24 +294,24 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `browsers install --json` prints.
+/// What `browser install --json` prints (spec #608).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BrowsersInstallOutput {
-    /// The Browser cache's path.
+pub struct BrowserInstalled {
+    /// Each build the Product version pins for this platform, and what
+    /// installing it did.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub cache: String,
-    /// Each Pinned artifact of the Product version, and what installing it
-    /// did.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub artifacts: Vec<InstalledArtifact>,
+    pub builds: Vec<InstalledBuild>,
 }
 
-/// One artifact `browsers install` made sure of.
+/// One build `browser install` made sure of.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct InstalledArtifact {
-    /// The artifact.
+pub struct InstalledBuild {
+    /// Its name, such as `chrome-for-testing`.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub artifact: ArtifactId,
+    pub name: String,
+    /// Its build ID, such as `141.0.7390.54-linux64`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: String,
     /// Whether it was downloaded now or already there.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub outcome: InstallOutcome,
@@ -327,22 +327,38 @@ pub enum InstallOutcome {
     AlreadyInstalled,
 }
 
-/// What `browsers clean --json` prints.
+/// What `browser clean --json` prints (spec #608): what it deleted, or
+/// would delete under `--dry-run`, which is what a `browser clean` right
+/// after deletes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BrowsersCleanOutput {
-    /// The Browser cache's path.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub cache: String,
+pub struct BrowserCleaned {
     /// Whether it only listed what it would delete.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dry_run: bool,
-    /// What it deleted, or would delete under `--dry-run`.
+    /// What it deleted, or would delete under `--dry-run`, in order.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub deleted: Vec<ArtifactId>,
-    /// Why it cleaned nothing, when it did not run.
+    pub removed: Vec<RemovedBuild>,
+    /// The bytes those take on disk, freed unless `--dry-run`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes_freed: u64,
+    /// Why it cleaned nothing, when it did not run; absent when it ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub not_cleaned: Option<NotCleaned>,
+}
+
+/// One build `browser clean` deleted, or would delete.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RemovedBuild {
+    /// Its name, such as `chrome-for-testing`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its build ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: String,
+    /// The bytes its files take on disk.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: u64,
 }
 
 /// Why the clean-up did not run.

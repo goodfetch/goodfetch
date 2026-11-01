@@ -32,11 +32,19 @@ fn page(proving_ground: &ProvingGround, path: &str) -> String {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
+    /// A page depends on the seed and its place only: the first Proving
+    /// ground serves another page before the compared one, the second none.
+    ///
     /// Covers: story:2-28, story:2-30
     #[test]
-    fn the_same_seed_serves_byte_identical_pages(seed: u64, path in catalog_page()) {
+    fn the_same_seed_serves_byte_identical_pages(
+        seed: u64,
+        earlier in catalog_page(),
+        path in catalog_page(),
+    ) {
         let first = ProvingGround::start(seed);
         let second = ProvingGround::start(seed);
+        page(&first, &earlier);
 
         let pages = (page(&first, &path), page(&second, &path));
 

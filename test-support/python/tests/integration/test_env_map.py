@@ -15,7 +15,7 @@ from goodfetch_test_support import TestEnv
 
 def test_engine(env: Mapping[str, str], test_env: TestEnv) -> None:
     assert env["GOODFETCH_HOME"] == str(test_env.home)
-    assert env["GOODFETCH_COLLIE_ENGINE_PATH"] == "stand-in/goodfetch-collie"
+    assert env["GOODFETCH_COLLIE_ENGINE_PATH"] == {collie!r}
     assert "GOODFETCH_FOXHOUND_ENGINE_PATH" not in env
 """
 
@@ -33,27 +33,32 @@ def product() -> Product:
 
 def test_engine(env: Mapping[str, str], test_env: TestEnv) -> None:
     assert env["GOODFETCH_HOME"] == str(test_env.home)
-    assert env["GOODFETCH_FOXHOUND_ENGINE_PATH"] == "stand-in/goodfetch-foxhound"
+    assert env["GOODFETCH_FOXHOUND_ENGINE_PATH"] == {foxhound!r}
     assert "GOODFETCH_COLLIE_ENGINE_PATH" not in env
 """
 
 
 def manifest(test_env: TestEnv, **entries: str) -> dict[str, str]:
-    """The real `goodfetch-test-env` beside stand-in paths for the Products."""
+    """The real `goodfetch-test-env` beside the given Products' entries."""
     return {"test_env": str(test_env.tools.path(Tool.TEST_ENV)), **entries}
+
+
+def products(test_env: TestEnv) -> dict[str, str]:
+    """The commit's executables of both Products, from the test tool manifest."""
+    return {
+        "collie": str(test_env.tools.path(Tool.COLLIE)),
+        "foxhound": str(test_env.tools.path(Tool.FOXHOUND)),
+    }
 
 
 def test_env_map_names_collies_executable_by_default(
     sample_run: "SampleRun", test_env: TestEnv
 ) -> None:
     """A test runs Collie's executable unless it needs Foxhound (ADR 0094)."""
-    tools = manifest(
-        test_env,
-        collie="stand-in/goodfetch-collie",
-        foxhound="stand-in/goodfetch-foxhound",
-    )
+    executables = products(test_env)
+    tools = manifest(test_env, **executables)
 
-    outcome = sample_run.run(COLLIE_TEST, tools=tools)
+    outcome = sample_run.run(COLLIE_TEST.format(**executables), tools=tools)
 
     assert outcome.results == {"test_engine": "passed"}, outcome.output
 
@@ -62,13 +67,10 @@ def test_env_map_names_foxhounds_executable_for_a_test_that_needs_it(
     sample_run: "SampleRun", test_env: TestEnv
 ) -> None:
     """A test that overrides `product` with Foxhound gets Foxhound's variable alone."""
-    tools = manifest(
-        test_env,
-        collie="stand-in/goodfetch-collie",
-        foxhound="stand-in/goodfetch-foxhound",
-    )
+    executables = products(test_env)
+    tools = manifest(test_env, **executables)
 
-    outcome = sample_run.run(FOXHOUND_TEST, tools=tools)
+    outcome = sample_run.run(FOXHOUND_TEST.format(**executables), tools=tools)
 
     assert outcome.results == {"test_engine": "passed"}, outcome.output
 
@@ -77,8 +79,9 @@ def test_env_map_fails_when_the_manifest_lacks_the_products_executable(
     sample_run: "SampleRun", test_env: TestEnv
 ) -> None:
     """A manifest without Collie's executable fails the fixture, never the SDK later."""
-    tools = manifest(test_env, foxhound="stand-in/goodfetch-foxhound")
+    foxhound = products(test_env)["foxhound"]
+    tools = manifest(test_env, foxhound=foxhound)
 
-    outcome = sample_run.run(COLLIE_TEST, tools=tools)
+    outcome = sample_run.run(COLLIE_TEST.format(collie="none"), tools=tools)
 
     assert outcome.results == {"test_engine": "error"}, outcome.output

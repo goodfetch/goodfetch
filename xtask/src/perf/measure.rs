@@ -3,7 +3,9 @@
 //! 0043):
 //!
 //! - **build**, before the deny: checks the base out into its own worktree
-//!   under the output folder, fetches what its lockfile needs, lends it the
+//!   under the output folder, fetches what its lockfile needs, builds the
+//!   Console of the head and, with its own packages, of the base when each
+//!   has a `.size-limit.json`, which measures it, else lends the base the
 //!   head's Console build when its Collie executable embeds one, and builds the
 //!   head's selected bench targets and every bench target the base has in a
 //!   selected crate, into the one target folder, so the base's dependencies
@@ -114,6 +116,14 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
         &["worktree", "add", "--force", "--detach", "--quiet"],
         &[&tree.to_string_lossy(), &commit],
     )?;
+    // size-limit measures each side's own Console build (ADR 0071).
+    if root.join(SIZE_LIMIT_CONFIG).is_file() {
+        crate::console::build(root)?;
+    }
+    if tree.join(SIZE_LIMIT_CONFIG).is_file() {
+        crate::console::install(&tree)?;
+        crate::console::build(&tree)?;
+    }
     let target_directory = metadata::target_directory(cargo, root)?;
     let base_target_directory = target_directory.join(BASE_TARGET);
     // Every bench target the base has in a selected crate, so a target the

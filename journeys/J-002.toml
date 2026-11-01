@@ -20,6 +20,8 @@ covers = [
   "story:1-1",
   "story:1-2",
   "story:1-3",
+  "story:11-1130",
+  "story:11-1132",
 ]
 
 [proving_ground]
@@ -53,9 +55,11 @@ text = "The installed package runs, and reports the commit's Product version, th
 
 [[expect]]
 text = "The install ran no install script and reached no registry beyond the commit's packages"
+surfaces = ["sdk-rust", "sdk-typescript", "sdk-python"]
 
 [[expect]]
 text = "The installed package is the one platform package of its language for every runtime version Foxhound supports, such as one `py3-none` platform wheel for every supported CPython"
+surfaces = ["sdk-rust", "sdk-typescript", "sdk-python"]
 
 [[expect]]
 text = "The oracle verifies the crawl's Records"

@@ -15,7 +15,9 @@
 #     CAP_NET_ADMIN for `tc netem`, as ci/vm/start.sh gives the job's
 #     container; `ci/os-services.sh setup` starts every Linux OS service
 #     there but the user's service manager, and a missing one fails, as in CI.
-#   - On Linux the Pre-merge suite runs these tests on the host itself.
+#   - On Linux the Pre-merge suite runs these tests on the host itself,
+#     after ci/pre-merge.sh's `ci/os-services.sh setup`, where a missing
+#     service fails instead of skipping them.
 #   - Without a container engine it lists itself as skipped with the reason
 #     (ADR 0061), as ci/perf.sh does.
 set -euo pipefail

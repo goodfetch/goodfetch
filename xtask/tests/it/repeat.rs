@@ -326,6 +326,58 @@ fn oldest_quarantined_tests_are_the_ones_repeated() {
     );
 }
 
+/// nextest's default filter leaves the LazyFS power cuts out (ADR 0060), and
+/// a stress filterset only narrows it: on a host with LazyFS, `repeat`
+/// lifts the default filter so a selected `lazyfs::` test runs every time.
+#[test]
+fn a_lazyfs_test_is_repeated_past_the_default_filter_where_lazyfs_is() {
+    let workspace = Workspace::from_fixture("quarantine");
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "repeat",
+            "--count",
+            "20",
+            "--test",
+            "nextest=sample::it lazyfs::an_unsynced_write_is_lost",
+        ],
+        &[("GOODFETCH_LAZYFS", std::ffi::OsStr::new("/opt/lazyfs"))],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        outcome
+            .stdout
+            .lines()
+            .any(|line| line == "nextest\t1\t--ignore-default-filter"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// Without LazyFS, a selected `lazyfs::` test fails the run rather than
+/// being dropped by the default filter, so its stress runs are never
+/// silently skipped (TESTING.md, Before merge).
+#[test]
+fn a_lazyfs_test_fails_the_repeat_where_lazyfs_is_missing() {
+    let workspace = Workspace::from_fixture("quarantine");
+
+    let outcome = workspace.xtask(&[
+        "repeat",
+        "--count",
+        "20",
+        "--test",
+        "nextest=sample::it lazyfs::an_unsynced_write_is_lost",
+    ]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome.stderr.contains("GOODFETCH_LAZYFS"),
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// A nextest test that fails on its second run only, so the last run passes.
 const FAILS_ON_ITS_SECOND_RUN: &str = r#"#[cfg(test)]
 mod tests {

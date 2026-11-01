@@ -1,0 +1,12 @@
+---
+source: crates/goodfetch-collie/tests/it/daemon_commands.rs
+expression: "serde_json::to_string_pretty(&shown).unwrap()"
+---
+{
+  "address": "[address]",
+  "console_url": null,
+  "major": "0.0",
+  "pid": "[pid]",
+  "product": "collie",
+  "version": "0.0.0"
+}

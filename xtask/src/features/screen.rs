@@ -19,9 +19,9 @@ use super::files::{Kind, RouteList, Status};
 
 /// The Console's folder, whose packages sit one level below it.
 const CONSOLE: &str = "console";
-/// The folder of Foxhound's screens' package, which Collie's Console build
-/// does not depend on (ADR 0087).
-const FOXHOUND_SCREENS: &str = "foxhound-screens";
+/// The folder of Foxhound's Console package, `@goodfetch/console-foxhound`,
+/// which Collie's Console build does not depend on (ADR 0087).
+const FOXHOUND_SCREENS: &str = "foxhound";
 /// A package's route list.
 const ROUTE_LIST: &str = "routes.json";
 

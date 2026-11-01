@@ -45,6 +45,64 @@ pub struct Task {
     pub description: String,
     /// Its digest, which ignores the port.
     pub digest: String,
+    /// The account it logs in with, when it has one.
+    #[serde(default)]
+    pub account: Option<TaskAccount>,
+}
+
+/// The account a task logs in with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct TaskAccount {
+    /// Its username.
+    pub username: String,
+    /// Its password.
+    pub password: String,
+}
+
+/// The network fixtures a local copy serves beside its pages, as far as the
+/// harness reaches them.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct NetworkFixtures {
+    /// Each forward proxy's address (`host:port`), by name: `open`,
+    /// `refusing_tunnels`, `down`, `socks5` and one per proxy kind.
+    pub proxies: std::collections::BTreeMap<String, String>,
+    /// The credentials its proxies that ask for them take, when it serves
+    /// any.
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentials>,
+}
+
+/// The username and password a local copy's proxies take.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ProxyCredentials {
+    /// The username.
+    pub username: String,
+    /// The password.
+    pub password: String,
+}
+
+/// A Secret canary the Proving ground planted (ADR 0067): its value, the
+/// task whose login flow uses it, and the account that logs in there.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct PlantedCanary {
+    /// Its ID among the Proving ground's plants.
+    pub id: String,
+    /// The task of its login flow, such as `canaries/3`.
+    pub task: String,
+    /// The fake secret.
+    pub value: String,
+    /// The account its flow logs in with, when it has one.
+    #[serde(default)]
+    pub account: Option<CanaryAccount>,
+}
+
+/// The account a canary's login flow logs in with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct CanaryAccount {
+    /// Its username.
+    pub username: String,
+    /// Its password.
+    pub password: String,
 }
 
 /// A result submitted to the oracle: the task, the status the tool reported
@@ -57,6 +115,52 @@ pub struct Submission<'a, R> {
     pub status: &'a str,
     /// The Records.
     pub records: &'a [R],
+}
+
+/// The targets the engine and the browser ask a site for on their own: the
+/// robots.txt read of a document's origin (ADR 0086) and Chromium's icon.
+pub const OWN_TARGETS: [&str; 2] = ["/robots.txt", "/favicon.ico"];
+
+/// Each request the Proving ground's page hosts received, in arrival order,
+/// as its observations list them: what a case counts through. A site sees
+/// requests no case asked for, which land before or after any count a case
+/// takes (ADR 0064): the robots.txt the engine reads of each document's
+/// origin, which nothing a case calls waits for (ADR 0086), and the icon
+/// Chromium asks for on its own. [`of_the_case`](Self::of_the_case) leaves
+/// them out; a case whose claim covers them reads [`every`](Self::every).
+/// `xtask received-requests` refuses a read of the observations' requests
+/// anywhere else.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReceivedRequests(Vec<serde_json::Value>);
+
+impl ReceivedRequests {
+    /// The requests of a Proving ground's `observations`; none when they
+    /// hold no list of requests, so each check over them fails.
+    pub fn of(observations: &serde_json::Value) -> Self {
+        Self(
+            observations["requests"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        )
+    }
+
+    /// The requests the case is about: every one but those for
+    /// [`OWN_TARGETS`], which the engine and the browser send on their own,
+    /// whenever they like.
+    pub fn of_the_case(&self) -> impl Iterator<Item = &serde_json::Value> {
+        self.0.iter().filter(|request| {
+            !OWN_TARGETS
+                .iter()
+                .any(|target| request["target"].as_str() == Some(target))
+        })
+    }
+
+    /// Every request, the robots.txt reads and icons included, for a claim
+    /// about them or about all a site saw.
+    pub fn every(&self) -> impl Iterator<Item = &serde_json::Value> {
+        self.0.iter()
+    }
 }
 
 impl ProvingGround {
@@ -131,6 +235,49 @@ impl ProvingGround {
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
 
+    /// Its seed's certificate authority as PEM (`GET
+    /// /certificate-authority`), which signs every host name's leaf: a
+    /// client that trusts it reaches the host names over TLS.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or answers another status
+    /// than 200.
+    pub fn certificate_authority(&self) -> Result<String, ProvingGroundError> {
+        let url = format!("http://{}/certificate-authority", self.address);
+        Self::answer(&url, self.agent.get(&url).call())
+    }
+
+    /// The requests of its [`observations`](Self::observations).
+    ///
+    /// # Errors
+    ///
+    /// As [`observations`](Self::observations).
+    pub fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
+        self.observations()
+            .map(|observations| ReceivedRequests::of(&observations))
+    }
+
+    /// Its network fixtures (`GET /network-fixtures`): each forward proxy's
+    /// address by name; none for a copy that serves none, such as the
+    /// online one.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, answers another status
+    /// than 200 or 404, or serves no JSON.
+    pub fn network_fixtures(&self) -> Result<Option<NetworkFixtures>, ProvingGroundError> {
+        let url = format!("http://{}/network-fixtures", self.address);
+        let body = match Self::answer(&url, self.agent.get(&url).call()) {
+            Ok(body) => body,
+            Err(ProvingGroundError::Status { status: 404, .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        serde_json::from_str(&body)
+            .map(Some)
+            .map_err(|source| ProvingGroundError::Unreadable { url, source })
+    }
+
     /// Sets the Proving ground's time step, which its time-dependent pages
     /// follow: the `pacing` family holds each answer longer at each step.
     ///
@@ -146,6 +293,43 @@ impl ProvingGround {
                 .send_json(serde_json::json!({ "step": step })),
         )
         .map(drop)
+    }
+
+    /// Turns the `limited` proxy's hold on or off: while it is on, the
+    /// proxy holds the first request it counts until it is turned off, so
+    /// two requests sent at once meet there however late the second comes.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or refuses the hold.
+    pub fn set_limited_proxy_hold(&self, held: bool) -> Result<(), ProvingGroundError> {
+        let url = format!("http://{}/limited-proxy-hold", self.address);
+        Self::answer(
+            &url,
+            self.agent
+                .put(&url)
+                .send_json(serde_json::json!({ "held": held })),
+        )
+        .map(drop)
+    }
+
+    /// Plants a Secret canary of `kind`, such as `session_cookie`, through
+    /// its login flow (`POST /canaries`, ADR 0067): the Proving ground draws
+    /// the value and records every request that carries it.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached, refuses the kind or
+    /// answers no plant.
+    pub fn plant_canary(&self, kind: &str) -> Result<PlantedCanary, ProvingGroundError> {
+        let url = format!("http://{}/canaries", self.address);
+        let body = Self::answer(
+            &url,
+            self.agent
+                .post(&url)
+                .send_json(serde_json::json!({ "kind": kind })),
+        )?;
+        serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
 
     /// The oracle's answer for a submitted result.
@@ -223,3 +407,6 @@ pub enum ProvingGroundError {
         source: serde_json::Error,
     },
 }
+
+#[cfg(test)]
+mod tests;

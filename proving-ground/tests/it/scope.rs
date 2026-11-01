@@ -2,7 +2,9 @@
 //! its own host, its `www` host, a subdomain, its own host over `https`, a
 //! sister domain and an off-site host, all on the port the request named;
 //! the `www` page links back and to the subdomain; an unlinked page
-//! redirects off site; and each request's host is in the observations.
+//! redirects off site; an unlinked page a browser may keep in its cache;
+//! an unlinked page that keeps a mark in a cookie and in `localStorage`;
+//! and each request's host is in the observations.
 //! Covers: story:2-33
 
 use serde_json::Value;
@@ -106,5 +108,69 @@ fn the_www_page_links_back_and_the_moved_page_redirects_off_site() {
             Some(format!("http://elsewhere.test:{port}/offsite")),
             vec![Value::from("www.scope.test"), Value::from("scope.test")]
         )
+    );
+}
+
+#[test]
+fn the_cached_page_lets_a_browser_keep_it_for_an_hour() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let cached = proving_ground.get(&proving_ground.url("scope.test", "/cached"));
+
+    assert_eq!(
+        (
+            cached.status,
+            cached.header("cache-control").map(str::to_owned),
+            field(&cached.body, r#"data-id="([^"]+)""#)
+        ),
+        (
+            200,
+            Some("max-age=3600".to_owned()),
+            Some("S-CACHED".to_owned())
+        )
+    );
+}
+
+#[test]
+fn the_storage_page_keeps_its_mark_in_a_cookie_and_its_report_answers() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let marked = proving_ground.get(&proving_ground.url("scope.test", "/storage?mark=first-1"));
+    let unmarked = proving_ground.get(&proving_ground.url("scope.test", "/storage?mark=a%3Bb"));
+    let report = proving_ground.get(&proving_ground.url("scope.test", "/storage/found?mark=none"));
+
+    assert_eq!(
+        (
+            marked.status,
+            marked.header("set-cookie").map(str::to_owned),
+            unmarked.header("set-cookie").map(str::to_owned),
+            report.status,
+        ),
+        (
+            200,
+            Some("mark=first-1; Path=/; SameSite=Lax".to_owned()),
+            Some("mark=none; Path=/; SameSite=Lax".to_owned()),
+            200,
+        )
+    );
+}
+
+#[test]
+fn the_quiet_page_shows_its_mark_or_none_for_an_unsafe_one_and_answers_the_status_asked() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let marked = proving_ground.get(&proving_ground.url("scope.test", "/quiet?mark=turns-1"));
+    let unmarked = proving_ground.get(&proving_ground.url("scope.test", "/quiet?mark=a%3Bb"));
+    let refusing =
+        proving_ground.get(&proving_ground.url("scope.test", "/quiet?mark=x&status=429"));
+
+    assert_eq!(
+        (
+            marked.status,
+            marked.body.contains("<p id=\"mark\">turns-1</p>"),
+            unmarked.body.contains("<p id=\"mark\">none</p>"),
+            refusing.status,
+        ),
+        (200, true, true, 429)
     );
 }

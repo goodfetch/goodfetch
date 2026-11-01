@@ -1,43 +1,55 @@
-//! The Session pool in run state (ADRs 0002 and 0006): the tables of a
-//! crawl's Sessions, each by the position it opened at, with its proxy
-//! tier, when it opened, its uses, its error score and, once retired, why;
-//! and of each domain key's proxy tier once a block moved it up. The pool
-//! reads them when its crawl starts or resumes, and writes what changed
-//! since its last write inside one of the run-state writer's commits.
+//! The Session pools in run state (ADRs 0002 and 0006): the tables of a
+//! crawl's Sessions, each by its pool (the Label that owns it, or `''` for
+//! the Run's) and the position it opened at there, with its proxy tier,
+//! when it opened, its uses, its error score and, once retired, why; and of
+//! each domain key a block moved, with its proxy tier and whether it moved
+//! to the browser tier; and of the local-address blocks a block retired a
+//! Session of on each domain key (ADR 0044). The pools read them when their crawl starts or
+//! resumes, and write what changed since their last write inside one of
+//! the run-state writer's commits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::session_pool::ProxyTier;
 use rusqlite::Connection;
 
-/// The tables of a crawl's Sessions and its domains' proxy tiers.
+use crate::labels::PoolKey;
+
+/// The tables of a crawl's Sessions and its domains' tiers.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-session-pool",
     statements: &[
         "CREATE TABLE IF NOT EXISTS pool_sessions (
-            position INTEGER NOT NULL PRIMARY KEY,
+            pool TEXT NOT NULL,
+            position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
-            retired_because TEXT
+            retired_because TEXT,
+            address_ordinal INTEGER,
+            PRIMARY KEY (pool, position)
         ) STRICT",
-        "CREATE INDEX IF NOT EXISTS pool_sessions_open ON pool_sessions (position)
+        "CREATE INDEX IF NOT EXISTS pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL",
         "CREATE TABLE IF NOT EXISTS pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
-            proxy_tier TEXT NOT NULL
+            proxy_tier TEXT NOT NULL,
+            browser INTEGER NOT NULL
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS pool_blocked_address_blocks (
+            domain_key TEXT NOT NULL,
+            block TEXT NOT NULL,
+            PRIMARY KEY (domain_key, block)
         ) STRICT",
     ],
 };
 
-/// One Session of the pool as run state keeps it.
+/// One Session of a pool as run state keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StoredSession {
-    /// The position it opened at, from 1, which names it.
-    pub(crate) position: u64,
     pub(crate) proxy_tier: ProxyTier,
     pub(crate) opened_at: SystemTime,
     pub(crate) uses: u64,
@@ -45,68 +57,120 @@ pub(crate) struct StoredSession {
     pub(crate) error_score: f64,
     /// Why it was retired; `None` while it is open.
     pub(crate) retired_because: Option<&'static str>,
+    /// The position of the Run's local-address rotation it took its
+    /// addresses from; `None` without `egress.local_addresses`.
+    pub(crate) address_ordinal: Option<u64>,
 }
 
-/// What a pool reads from run state.
+/// Where a block moved one domain key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StoredTier {
+    pub(crate) proxy_tier: ProxyTier,
+    /// Whether a Challenge moved it to the browser tier.
+    pub(crate) browser: bool,
+}
+
+impl Default for StoredTier {
+    fn default() -> Self {
+        Self {
+            proxy_tier: ProxyTier::None,
+            browser: false,
+        }
+    }
+}
+
+/// What the pools read from run state.
 #[derive(Debug, Default)]
 pub(crate) struct Stored {
-    /// Its open Sessions, by position.
-    pub(crate) open: BTreeMap<u64, StoredSession>,
-    /// How many Sessions it ever opened.
-    pub(crate) opened: u64,
-    /// Each domain key a block moved up, with its proxy tier.
-    pub(crate) tiers: BTreeMap<String, ProxyTier>,
+    /// Their open Sessions, by pool and position.
+    pub(crate) open: BTreeMap<(PoolKey, u64), StoredSession>,
+    /// How many Sessions each pool ever opened.
+    pub(crate) opened: BTreeMap<PoolKey, u64>,
+    /// Each domain key a block moved.
+    pub(crate) tiers: BTreeMap<String, StoredTier>,
+    /// The local-address rotation's next position.
+    pub(crate) next_ordinal: u64,
+    /// The address blocks blocked on each domain key.
+    pub(crate) blocked: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// Reads the pool of a run file whose tables exist.
+/// Reads the pools of a run file whose tables exist.
 pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
-    let opened: i64 = connection.query_row(
-        "SELECT coalesce(max(position), 0) FROM pool_sessions",
-        [],
-        |row| row.get(0),
-    )?;
+    let opened = connection
+        .prepare("SELECT pool, max(position) FROM pool_sessions GROUP BY pool")?
+        .query_map([], |row| {
+            Ok((pool(row.get::<_, String>(0)?), unsigned(row.get(1)?)))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
     let open = connection
         .prepare(
-            "SELECT position, proxy_tier, opened_at, uses, error_score FROM pool_sessions
-             WHERE retired_because IS NULL ORDER BY position",
+            "SELECT pool, position, proxy_tier, opened_at, uses, error_score, address_ordinal
+             FROM pool_sessions
+             WHERE retired_because IS NULL ORDER BY pool, position",
         )?
         .query_map([], |row| {
-            Ok(StoredSession {
-                position: unsigned(row.get(0)?),
-                proxy_tier: tier(&row.get::<_, String>(1)?)?,
-                opened_at: UNIX_EPOCH + Duration::from_millis(unsigned(row.get(2)?)),
-                uses: unsigned(row.get(3)?),
-                error_score: row.get(4)?,
-                retired_because: None,
-            })
+            Ok((
+                (pool(row.get::<_, String>(0)?), unsigned(row.get(1)?)),
+                StoredSession {
+                    proxy_tier: tier(&row.get::<_, String>(2)?)?,
+                    opened_at: UNIX_EPOCH + Duration::from_millis(unsigned(row.get(3)?)),
+                    uses: unsigned(row.get(4)?),
+                    error_score: row.get(5)?,
+                    retired_because: None,
+                    address_ordinal: row.get::<_, Option<i64>>(6)?.map(unsigned),
+                },
+            ))
         })?
-        .map(|session| session.map(|session| (session.position, session)))
         .collect::<rusqlite::Result<_>>()?;
     let tiers = connection
-        .prepare("SELECT domain_key, proxy_tier FROM pool_tiers")?
+        .prepare("SELECT domain_key, proxy_tier, browser FROM pool_tiers")?
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, tier(&row.get::<_, String>(1)?)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                StoredTier {
+                    proxy_tier: tier(&row.get::<_, String>(1)?)?,
+                    browser: row.get(2)?,
+                },
+            ))
         })?
         .collect::<rusqlite::Result<_>>()?;
+    let next_ordinal = connection.query_row(
+        "SELECT max(address_ordinal) + 1 FROM pool_sessions",
+        [],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    let mut blocked: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut blocks =
+        connection.prepare("SELECT domain_key, block FROM pool_blocked_address_blocks")?;
+    for row in blocks.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (domain_key, block) = row?;
+        blocked.entry(domain_key).or_default().insert(block);
+    }
     Ok(Stored {
         open,
-        opened: unsigned(opened),
+        opened,
         tiers,
+        next_ordinal: next_ordinal.map_or(0, unsigned),
+        blocked,
     })
 }
 
-/// What changed in a pool since its last write: the Sessions opened,
-/// served, scored or retired, and the domain keys moved up.
+/// What changed in the pools since their last write: the Sessions opened,
+/// served, scored or retired, and the domain keys moved.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Changes {
-    pub(crate) sessions: BTreeMap<u64, StoredSession>,
-    pub(crate) tiers: BTreeMap<String, ProxyTier>,
+    pub(crate) sessions: BTreeMap<(PoolKey, u64), StoredSession>,
+    pub(crate) tiers: BTreeMap<String, StoredTier>,
+    /// The address blocks newly blocked, by domain key.
+    pub(crate) blocked: BTreeSet<(String, String)>,
 }
 
 impl Changes {
     /// Whether nothing changed.
     pub fn is_empty(&self) -> bool {
-        self.sessions.is_empty() && self.tiers.is_empty()
+        self.sessions.is_empty() && self.tiers.is_empty() && self.blocked.is_empty()
     }
 
     /// Writes the changes into the run file, inside the caller's commit.
@@ -117,36 +181,64 @@ impl Changes {
     pub fn write(&self, connection: &Connection) -> rusqlite::Result<()> {
         let mut session = connection.prepare(
             "INSERT INTO pool_sessions
-                (position, proxy_tier, opened_at, uses, error_score, retired_because)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT (position) DO UPDATE SET
+                (pool, position, proxy_tier, opened_at, uses, error_score, retired_because,
+                 address_ordinal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT (pool, position) DO UPDATE SET
                 uses = excluded.uses,
                 error_score = excluded.error_score,
                 retired_because = excluded.retired_because",
         )?;
-        for stored in self.sessions.values() {
+        for ((pool, position), stored) in &self.sessions {
             let opened_at = stored
                 .opened_at
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis();
             session.execute((
-                integer(stored.position),
+                pool_name(pool),
+                integer(*position),
                 stored.proxy_tier.as_str(),
                 i64::try_from(opened_at).unwrap_or(i64::MAX),
                 integer(stored.uses),
                 stored.error_score,
                 stored.retired_because,
+                stored.address_ordinal.map(integer),
             ))?;
         }
         let mut tier = connection.prepare(
-            "INSERT INTO pool_tiers (domain_key, proxy_tier) VALUES (?1, ?2)
-             ON CONFLICT (domain_key) DO UPDATE SET proxy_tier = excluded.proxy_tier",
+            "INSERT INTO pool_tiers (domain_key, proxy_tier, browser) VALUES (?1, ?2, ?3)
+             ON CONFLICT (domain_key) DO UPDATE SET
+                proxy_tier = excluded.proxy_tier,
+                browser = excluded.browser",
         )?;
-        for (domain_key, proxy_tier) in &self.tiers {
-            tier.execute((domain_key, proxy_tier.as_str()))?;
+        for (domain_key, stored) in &self.tiers {
+            tier.execute((domain_key, stored.proxy_tier.as_str(), stored.browser))?;
+        }
+        let mut block = connection.prepare(
+            "INSERT OR IGNORE INTO pool_blocked_address_blocks (domain_key, block) VALUES (?1, ?2)",
+        )?;
+        for (domain_key, blocked) in &self.blocked {
+            block.execute((domain_key, blocked))?;
         }
         Ok(())
+    }
+}
+
+/// How run state names `pool`: its Label, or `''` for the Run's.
+fn pool_name(pool: &PoolKey) -> &str {
+    match pool {
+        PoolKey::Run => "",
+        PoolKey::Label(label) => label,
+    }
+}
+
+/// The pool run state names `name`.
+fn pool(name: String) -> PoolKey {
+    if name.is_empty() {
+        PoolKey::Run
+    } else {
+        PoolKey::Label(name)
     }
 }
 

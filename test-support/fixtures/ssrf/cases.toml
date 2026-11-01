@@ -2,8 +2,8 @@
 # through `goodfetch-test-support`'s `SsrfTable::committed()` and
 # `run_cases`. Its format is `SsrfTable`, whose JSON Schema `xtask codegen`
 # commits as `../schemas/ssrf-cases.schema.json`. The Quick suite fails when a
-# block of the IANA registries beside this file that is not globally
-# reachable has no case, when a case names an unknown family or block, or
+# block of the IANA registries (`crates/goodfetch-protocol/iana/`) that is not
+# globally reachable has no case, when a case names an unknown family or block, or
 # when two cases share a name.
 #
 # Each case gives:
@@ -13,8 +13,10 @@
 #   layer's public stand-in (the Proving ground's address end to end);
 # - `redirect`, how the public stand-in answers `url`, when it redirects;
 # - `fetches`, how many times the run requests `url` (1 when absent);
-# - `target`, the address no connection may reach, and `block`, the IANA
-#   block it lies in;
+# - `domains`, the domain policy it runs under (`allowed`, `["*"]` when
+#   absent, and `blocked`), every host allowed when absent;
+# - `target`, the address no connection may reach (`public` for the
+#   public stand-in), and `block`, the IANA block it lies in;
 # - `refusal`, the typed refusal every layer gives.
 #
 # Host names are under `.test` (RFC 6761), so no case resolves outside its
@@ -777,6 +779,24 @@ route = { via = "upstream_proxy" }
 target = "127.0.0.1"
 refusal = { code = "egress_refused", rule = "private_address" }
 
+[[cases]]
+name = "mixed_answers_through_the_proxy"
+family = "upstream_proxy"
+url = "http://mixed.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "mixed_answers_through_a_connect_tunnel"
+family = "upstream_proxy"
+url = "https://mixed.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "mixed.ssrf.test", answers = ["public", "fd00::1"] }]
+target = "fd00::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # Plugin traffic: a Plugin's own requests meet the same checks.
 
 [[cases]]
@@ -822,6 +842,90 @@ redirect = { kind = "status", status = 302, location = "http://127.0.0.1/" }
 target = "127.0.0.1"
 refusal = { code = "egress_refused", rule = "private_address" }
 
+# An Operator-configured endpoint under an Operator policy that sets
+# `egress.no_private_endpoints` (ADR 0017), as Goodfetch Cloud does: an
+# endpoint that resolves to an address that is not globally reachable is
+# refused before it connects. The engine's HTTP client runs these on its
+# first endpoint, the OTLP collector; Notification webhooks (area 11) and
+# Sink webhooks (Foxhound's area 6) join with their own `kind` when they are
+# built.
+
+[[cases]]
+name = "endpoint_on_loopback"
+family = "operator_endpoint"
+url = "http://127.0.0.1/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_on_ipv6_loopback"
+family = "operator_endpoint"
+url = "http://[::1]/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "::1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_an_encoded_address"
+family = "operator_endpoint"
+url = "http://0x7f000001/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_an_ipv4_mapped_address"
+family = "operator_endpoint"
+url = "http://[::ffff:127.0.0.1]/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_on_cloud_metadata"
+family = "operator_endpoint"
+url = "http://169.254.169.254/latest/meta-data/"
+route = { via = "operator_endpoint", kind = "otlp" }
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_a_private_name"
+family = "operator_endpoint"
+url = "http://collector.ssrf.test/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+lookups = [{ name = "collector.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "endpoint_at_a_name_with_a_loopback_answer"
+family = "operator_endpoint"
+url = "http://webhook.ssrf.test/v1/traces"
+route = { via = "operator_endpoint", kind = "otlp" }
+lookups = [{ name = "webhook.ssrf.test", answers = ["127.0.0.1", "10.0.0.1"] }]
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# A Session's upstream proxy whose name rebinds between two lookups (ADR
+# 0067's "rebinding; the upstream proxy path"; deep review finding 577-1):
+# what a connection is given to dial is the answer that was judged, so the
+# private answer is refused on the use after it changed.
+
+[[cases]]
+name = "proxy_endpoint_that_rebinds"
+family = "operator_endpoint"
+url = "http://rebind-proxy.ssrf.test/"
+route = { via = "operator_endpoint", kind = "proxy" }
+lookups = [
+    { name = "rebind-proxy.ssrf.test", answers = ["public"] },
+    { name = "rebind-proxy.ssrf.test", answers = ["127.0.0.1"] },
+]
+fetches = 2
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # A Lent page's client: a browser context with its own proxy, or an
 # extension, would leave through no relay; the endpoint refuses both (ADR
 # 0089).
@@ -851,3 +955,189 @@ url = "http://127.0.0.1/"
 route = { via = "extension" }
 target = "127.0.0.1"
 refusal = { code = "cdp_command_refused" }
+
+# A Borrowed browser (ADR 0056): no relay can be put under a browser that is
+# already running, so the engine judges each of its page's requests at
+# interception, resolving the host itself and refusing every answer that is
+# not globally reachable, before the browser connects. `lookups` are the
+# engine's answers; the browser resolves names itself, so a rebinding
+# answer reaches it, the gap Provenance records, and this family holds no
+# rebinding case. A layer runs each URL on its public stand-in's port.
+
+[[cases]]
+name = "borrowed_to_loopback"
+family = "borrowed_browser"
+url = "http://127.0.0.1/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_an_encoded_loopback"
+family = "borrowed_browser"
+url = "http://0x7f000001/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_an_ipv4_mapped_loopback"
+family = "borrowed_browser"
+url = "http://[::ffff:127.0.0.1]/"
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_cloud_metadata"
+family = "borrowed_browser"
+url = "http://169.254.169.254/latest/meta-data/"
+target = "169.254.169.254"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_a_private_name"
+family = "borrowed_browser"
+url = "http://internal.borrowed.ssrf.test/"
+lookups = [{ name = "internal.borrowed.ssrf.test", answers = ["10.0.0.1"] }]
+target = "10.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "borrowed_to_mixed_answers"
+family = "borrowed_browser"
+url = "http://mixed.borrowed.ssrf.test/"
+lookups = [{ name = "mixed.borrowed.ssrf.test", answers = ["public", "192.168.1.20"] }]
+target = "192.168.1.20"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+# The domain policy (ADRs 0014, 0100 and 0120): a host `egress.allowed_domains`
+# does not list, or `egress.blocked_domains` lists, in any spelling the URL
+# parser accepts, is refused before any lookup. Each name resolves to the
+# public stand-in, so only the policy stands between the run and its target.
+
+[[cases]]
+name = "host_not_allowed"
+family = "domain_policy"
+url = "http://elsewhere.test/offsite"
+domains = { allowed = ["scope.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "name_ending_in_an_allowed_host_without_a_dot"
+family = "domain_policy"
+url = "http://notscope.test/"
+domains = { allowed = ["scope.test"] }
+lookups = [{ name = "notscope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "empty_allowed_list"
+family = "domain_policy"
+url = "http://scope.test/"
+domains = { allowed = [] }
+lookups = [{ name = "scope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_subdomain_of_an_allowed_host"
+family = "domain_policy"
+url = "http://shop.scope.test/cart"
+domains = { allowed = ["scope.test"], blocked = ["shop.scope.test"] }
+lookups = [{ name = "shop.scope.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_under_every_host_allowed"
+family = "domain_policy"
+url = "http://elsewhere.test/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_in_capitals"
+family = "domain_policy"
+url = "http://ELSEWHERE.Test/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_with_a_trailing_dot"
+family = "domain_policy"
+url = "http://elsewhere.test./offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test.", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_host_with_a_percent_encoded_dot"
+family = "domain_policy"
+url = "http://elsewhere%2Etest/offsite"
+domains = { blocked = ["elsewhere.test"] }
+lookups = [{ name = "elsewhere.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_name_in_punycode"
+family = "domain_policy"
+url = "http://xn--bcher-kva.example.test/"
+domains = { blocked = ["bücher.example.test"] }
+lookups = [{ name = "xn--bcher-kva.example.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_name_in_unicode"
+family = "domain_policy"
+url = "http://bücher.example.test/"
+domains = { blocked = ["xn--bcher-kva.example.test"] }
+lookups = [{ name = "xn--bcher-kva.example.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_decimal"
+family = "domain_policy"
+url = "http://2130706433/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_hexadecimal"
+family = "domain_policy"
+url = "http://0x7f000001/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_in_octal_parts"
+family = "domain_policy"
+url = "http://0177.0.0.01/"
+domains = { blocked = ["127.0.0.1"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "blocked_address_written_in_decimal"
+family = "domain_policy"
+url = "http://127.0.0.1/"
+domains = { blocked = ["2130706433"] }
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "domain_policy" }
+
+[[cases]]
+name = "url_that_does_not_parse"
+family = "domain_policy"
+url = "http://[::1/"
+target = "public"
+refusal = { code = "egress_refused", rule = "domain_policy" }

@@ -1,0 +1,11 @@
+# Which of goodfetch-dataset's top-level modules may import which (ADR 0126).
+[modules]
+declaration = ["records", "rejections"]
+encoding = []
+export = ["declaration", "encoding", "records"]
+page = ["declaration", "records"]
+reader = ["declaration", "records"]
+records = ["rejections"]
+rejected_records = ["declaration", "rejections"]
+rejections = []
+resume = ["declaration"]

@@ -127,7 +127,7 @@ const PYTEST_SDK: &str = "pytest sdks/python/foxhound/tests/journeys/test_j003.p
     CONSOLE
 )]
 #[case::pytest(PYTEST, "\"id\": \"J-003\"", "\"id\": \"J-009\"", PYTEST_SDK)]
-fn test_naming_an_unknown_journey_fails(
+fn a_test_naming_an_unknown_journey_fails(
     #[case] listing: &str,
     #[case] from: &str,
     #[case] to: &str,
@@ -155,7 +155,7 @@ fn test_naming_an_unknown_journey_fails(
     "nextest goodfetch-foxhound::it journeys::j002::cli"
 )]
 #[case::pytest(PYTEST, "\"id\": \"J-003\"", "\"id\": \"J-002\"", PYTEST_SDK)]
-fn test_naming_a_retired_journey_fails(
+fn a_test_naming_a_retired_journey_fails(
     #[case] listing: &str,
     #[case] from: &str,
     #[case] to: &str,
@@ -253,7 +253,7 @@ fn foxhound_cli_test_of_a_collie_journey_without_cli_fails() {
 }
 
 #[test]
-fn test_of_a_surface_its_journey_does_not_list_fails() {
+fn a_test_of_a_surface_its_journey_does_not_list_fails() {
     let workspace = catalog();
     workspace.edit(
         PLAYWRIGHT,
@@ -311,6 +311,25 @@ fn journey_test_carrying_no_single_variant_fails(
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// Playwright reports a test of test support's `journey` with its surface's
+/// tag twice: the test's own `@console`, and the one it reads from its
+/// group's title, `J-001@console`. A tag carried twice is still one tag.
+#[test]
+fn playwright_test_carrying_its_surface_tag_twice_carries_one_variant() {
+    let workspace = catalog();
+    workspace.edit(
+        PLAYWRIGHT,
+        "[\"J-001\", \"console\"]",
+        "[\"console\", \"J-001\", \"console\"]",
+    );
+
+    let outcome = check(&workspace);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(untested(&outcome), Vec::<String>::new());
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]

@@ -9,9 +9,10 @@
 //! Daemon a service manager started at the first connection takes the
 //! listening socket it was handed instead (launchd's, systemd's).
 //! This is the only module that opens stdin, stdout, the protocol's sockets,
-//! the Console's listener and the Politeness file's wake endpoints (a Unix
-//! socket on macOS and Linux, a named pipe on Windows, ADR 0053); the other
-//! listeners join here with the tickets that add them.
+//! the Console's listener, the ops listener (ADR 0050) and the Politeness
+//! file's wake endpoints (a Unix socket on macOS and Linux, a named pipe on
+//! Windows, ADR 0053); the other listeners join here with the tickets that
+//! add them.
 //! The engine's own outbound connections, which the Simulation never
 //! carries, open in `http_client`.
 
@@ -28,13 +29,23 @@ use tokio::sync::mpsc;
 
 #[cfg(unix)]
 mod activation;
+mod socket_folder;
+#[cfg(test)]
+mod tests;
 mod wake;
 
+pub use socket_folder::{
+    LONGEST_SOCKET_PATH, socket_folder, socket_folder_in, temporary_folder_for_sockets,
+};
 pub use wake::{WakeListener, is_gone, listen_wakes, wake};
 
 /// The name of the socket a launch agent's `Sockets` defines for the
 /// Daemon, which it asks launchd for.
 pub const LAUNCHD_SOCKETS: &str = "Listeners";
+
+/// The name of the socket a launch agent's `Sockets` defines for the
+/// Console's address, which the Daemon asks launchd for (ADR 0031).
+pub const LAUNCHD_CONSOLE_SOCKET: &str = "Console";
 
 /// How many bytes an in-memory Connection buffers in each direction before
 /// its writer waits.
@@ -221,7 +232,13 @@ impl Network {
     ) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
         match self {
             Self::InMemory(_) => Ok(None),
+            #[cfg(unix)]
             Self::Os => activated_os(environment),
+            #[cfg(not(unix))]
+            Self::Os => {
+                let _ = environment;
+                Ok(None)
+            }
         }
     }
 }
@@ -260,11 +277,106 @@ fn activated_os(
     )))
 }
 
+/// A port the OS chose, held for the listener a service manager opens on it
+/// later, its Console socket for the Daemon it starts (ADR 0031), until
+/// dropped once that listener is open: a socket bound with port reuse that
+/// never listens. The OS refuses the port to every other socket but one of
+/// the same user that asks for port reuse on this very port, as a socket
+/// unit's `ReusePort=yes` does; it picks no held port for another port 0, and
+/// nothing connects here, since the socket never listens (#1821).
+#[derive(Debug)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+)]
+pub struct HeldPort {
+    address: std::net::SocketAddr,
+    _socket: tokio::net::TcpSocket,
+}
+
+impl HeldPort {
+    /// The host the hold was asked for, on the port held.
+    #[must_use]
+    pub fn address(&self) -> std::net::SocketAddr {
+        self.address
+    }
+}
+
+/// Holds a port the OS chooses on `host`, for a listener that opens later:
+/// never a port bound and let go, which another program could take first.
+///
+/// # Errors
+///
+/// When the OS refuses to bind on `host`, or has no port reuse to hold a port
+/// with (Windows, whose service has no socket).
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+)]
+pub fn hold_free_port(host: std::net::IpAddr) -> io::Result<HeldPort> {
+    let socket = if host.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseport(true)?;
+    socket.bind(std::net::SocketAddr::new(host, 0))?;
+    Ok(HeldPort {
+        address: socket.local_addr()?,
+        _socket: socket,
+    })
+}
+
+/// Holds a port the OS chooses on `host`: not on this OS, which has no port
+/// reuse to hold one with and no service socket that would listen on it.
+///
+/// # Errors
+///
+/// Always.
 #[cfg(not(unix))]
-fn activated_os(
-    _environment: &BTreeMap<OsString, OsString>,
-) -> io::Result<Option<(DaemonListener, DaemonEndpoint)>> {
-    Ok(None)
+pub fn hold_free_port(_host: std::net::IpAddr) -> io::Result<HeldPort> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "this OS has no port reuse to hold a port with",
+    ))
+}
+
+/// The Console's listener a service manager handed this process, which it
+/// started at the first connection to the Console's address (ADR 0031): the
+/// second socket systemd passes, or launchd's [`LAUNCHD_CONSOLE_SOCKET`];
+/// `None` when it handed over none. Taken once.
+///
+/// # Errors
+///
+/// When the OS refuses the handed-over socket.
+pub fn activated_console(
+    environment: &BTreeMap<OsString, OsString>,
+) -> io::Result<Option<ConsoleListener>> {
+    #[cfg(unix)]
+    {
+        let Some(descriptor) = activation::take_console(environment, LAUNCHD_CONSOLE_SOCKET)?
+        else {
+            return Ok(None);
+        };
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the transport module is the one place that opens sockets (ADR 0060)"
+        )]
+        let listener = std::net::TcpListener::from(descriptor);
+        listener.set_nonblocking(true)?;
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the transport module is the one place that opens sockets (ADR 0060)"
+        )]
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        Ok(Some(ConsoleListener(listener)))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = environment;
+        Ok(None)
+    }
 }
 
 #[cfg(unix)]
@@ -496,10 +608,21 @@ impl ConsoleListener {
     /// # Cancel safety
     ///
     /// Dropping the future loses no connection.
-    pub(crate) async fn accept(&self) -> io::Result<ConsoleStream> {
+    pub async fn accept(&self) -> io::Result<ConsoleStream> {
         let (stream, _) = self.0.accept().await?;
         stream.set_nodelay(true)?;
         Ok(ConsoleStream(stream))
+    }
+}
+
+impl ConsoleStream {
+    /// The address of the browser that opened it.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub(crate) fn peer_address(&self) -> io::Result<std::net::SocketAddr> {
+        self.0.peer_addr()
     }
 }
 
@@ -514,6 +637,95 @@ impl AsyncRead for ConsoleStream {
 }
 
 impl AsyncWrite for ConsoleStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(context)
+    }
+}
+
+/// The ops listener (ADR 0050): TCP at `ops.address`, on which a Daemon
+/// serves its probes and `/metrics` over HTTP.
+pub struct OpsListener(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpListener,
+);
+
+/// One connection a probe or a scraper opened to the ops listener.
+pub struct OpsStream(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    tokio::net::TcpStream,
+);
+
+/// Listens for probes and scrapers at `address`; port 0 takes a free port,
+/// which [`OpsListener::local_address`] answers.
+///
+/// # Errors
+///
+/// When the OS refuses the address, such as a port another program holds
+/// (`AddrInUse`).
+///
+/// # Cancel safety
+///
+/// Dropping the future before it resolves leaves no listener.
+pub async fn listen_ops(address: std::net::SocketAddr) -> io::Result<OpsListener> {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    Ok(OpsListener(listener))
+}
+
+impl OpsListener {
+    /// The address it listens at, its port the one the OS chose for port 0.
+    ///
+    /// # Errors
+    ///
+    /// When the OS cannot say.
+    pub fn local_address(&self) -> io::Result<std::net::SocketAddr> {
+        self.0.local_addr()
+    }
+
+    /// The next connection.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no connection.
+    pub(crate) async fn accept(&self) -> io::Result<OpsStream> {
+        let (stream, _) = self.0.accept().await?;
+        stream.set_nodelay(true)?;
+        Ok(OpsStream(stream))
+    }
+}
+
+impl AsyncRead for OpsStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for OpsStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,

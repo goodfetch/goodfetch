@@ -1,0 +1,74 @@
+{
+  "name": "known-certificates",
+  "schema": {
+    "$defs": {
+      "CertificatePin": {
+        "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
+        "properties": {
+          "changed_spki_sha256": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the key the host presented instead, which stopped it\nwith `certificate_changed`, as `sha256/` and its standard base64: the\nkey `certs.accept` pins in its place. None while no change waits.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "arrived_in": "0.1",
+            "description": "The host, as the URL parser leaves it.",
+            "type": "string"
+          },
+          "pinned_at": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PointInTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "When it was pinned; none when the row cannot be read."
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RunId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The Run whose connection pinned it; none outside a Run or when the\nrow cannot be read."
+          },
+          "spki_sha256": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as\n`sha256/` and its standard base64; none when the row cannot be read,\nwhich stops the host as a changed key.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "type": "object"
+      },
+      "PointInTime": {
+        "description": "A point in time in UTC, as RFC 3339.",
+        "format": "date-time",
+        "type": "string"
+      },
+      "RunId": {
+        "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
+        "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
+        "type": "string"
+      }
+    },
+    "$ref": "#/$defs/CertificatePin"
+  },
+  "storage": "sqlite",
+  "version": "0.1"
+}

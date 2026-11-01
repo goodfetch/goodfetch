@@ -19,8 +19,9 @@ use std::path::PathBuf;
 
 use goodfetch_engine::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceSizing};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength};
-use goodfetch_protocol::usage::{Limit, LimitSetter, ManagedLimit};
+use goodfetch_protocol::usage::{Limit, ManagedLimit};
 
 /// ADR 0059's test `Clock` start.
 const START: &str = "2026-01-05T09:00:00Z";

@@ -77,7 +77,7 @@ vm_deny() {
     while read -r host port; do
       getent ahosts \"\$host\" | awk -v host=\"\$host\" -v port=\"\$port\" '{ print host, port, \$1 }' ||
         echo \"warning: \$host did not resolve, so the job cannot reach it\" >&2
-    done <$files/endpoints.txt | sort -u
+    done <$files/endpoints.txt | LC_ALL=C sort -u
   " >"$root/$files/resolved.txt"
 
   uid=$(vm_shell id -u)
@@ -128,7 +128,7 @@ namespace_deny() {
   while read -r host port; do
     getent ahostsv4 "$host" | awk -v host="$host" -v port="$port" '{ print host, port, $1 }' ||
       echo "warning: $host did not resolve, so the job cannot reach it" >&2
-  done <"$root/$files/endpoints.txt" | sort -u >"$root/$files/resolved.txt"
+  done <"$root/$files/endpoints.txt" | LC_ALL=C sort -u >"$root/$files/resolved.txt"
   host_xtask rules --job "$job" --resolved "$files/resolved.txt" --uid "$(id -u)" >"$root/$files/rules.nft"
   if ! command -v nft >/dev/null; then
     sudo apt-get install -y -qq nftables

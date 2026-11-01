@@ -1,0 +1,45 @@
+# Spider's side of `just compare-spider` (ADR 0134): one crawl of the
+# Proving ground's 1,000-page site with Spider, the open-source crate at a
+# pinned version in its HTTP mode (no `chrome` feature), run locally. It is
+# no workspace member, so Spider's dependencies stay out of the Products'
+# lock file; its own Cargo.lock pins them, and the recipe builds it with
+# `--locked` and the workspace's release settings.
+[package]
+name = "goodfetch-compare-spider"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+spider = { version = "=2.53.9", default-features = false, features = ["basic", "sync"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Spider's `basic` features take native TLS, which is OpenSSL on Linux:
+# built from its source there, so no system OpenSSL is needed. The crawl is
+# plain HTTP, so TLS never runs; macOS's native TLS is the system's own.
+# Also a build dependency, so the proc-macros Spider's `disk` feature
+# builds for the host (sqlx's) link the same vendored OpenSSL.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "=0.10.81", features = ["vendored"] }
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+openssl = { version = "=0.10.81", features = ["vendored"] }
+
+[workspace]
+
+# The workspace's release profile, so neither tool is built with more
+# optimization than the other.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare-spider ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

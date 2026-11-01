@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc eb1e5e2281ca490d0008dbd1cc3e98c29fa345056006853548ede2d9919a9d44 # shrinks to ((), [FuzzedCall { method: "run.start", params: Object {"project": Array [String(""), Object {}]}, invalidity: Some(RefusedValue { property: "project" }) }], None)
 cc 571ee46ed0a9c5a9b9d8b25ea86294d9c972406adedcceb9d8c97d4c628f0b66 # shrinks to ((), [FuzzedCall { method: "config.explain", params: Object {"settings": Null}, invalidity: Some(RefusedValue { property: "settings" }) }], None)
+cc 7669c3b46082483bd98af56819c99a72eab4d544abed4a384d6b60517cda9ac6 # shrinks to ((), [FuzzedCall { method: "run.start", params: Object {"_meta": Array []}, invalidity: Some(RefusedValue { property: "_meta" }) }], None)

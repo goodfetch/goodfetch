@@ -11,12 +11,14 @@ fn every_key_of_the_schema_names_its_area_first() {
         .map(|setting| setting.name)
         .filter(|name| {
             let segments: Vec<&str> = name.split('.').collect();
+            // snake_case: a lowercase letter first, then lowercase letters,
+            // digits and underscores, as `egress.rotation_block.ipv4`.
             segments.len() < 2
                 || segments.iter().any(|segment| {
-                    segment.is_empty()
-                        || !segment
-                            .bytes()
-                            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                    !segment.starts_with(|first: char| first.is_ascii_lowercase())
+                        || !segment.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        })
                 })
         })
         .collect();

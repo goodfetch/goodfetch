@@ -1,0 +1,1506 @@
+---
+source: crates/goodfetch-collie/src/executable/tests.rs
+expression: tree
+---
+$ goodfetch-foxhound --help
+Foxhound, Goodfetch's Product for crawling, which contains Collie.
+
+Usage: goodfetch-foxhound [OPTIONS] <COMMAND>
+
+Commands:
+  browser          Manages the browser builds this version pins in the Browser cache
+  audit            Exports and verifies the user's Audit log
+  certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
+  console          Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
+  config           Shows the settings and where each value comes from
+  daemon           Starts, stops and shows the Daemon of this executable's major, which both Products share
+  runs             Works on the runs of this executable's major, of both Products
+  usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
+  upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+  engine           Calls the catalog's `engine` operations
+  events           Calls the catalog's `events` operations
+  needs-you        Calls the catalog's `needs_you` operations
+  run              Calls the catalog's `run` operations
+  session          Calls the catalog's `session` operations
+  page             Calls the catalog's `page` operations
+  locator          Calls the catalog's `locator` operations
+  response         Calls the catalog's `response` operations
+  key-value-store  Calls the catalog's `key_value_store` operations
+  sample           Calls the catalog's `sample` operations
+  crawl            Calls the catalog's `crawl` operations
+  dataset          Calls the catalog's `dataset` operations
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound attached-engine --help
+Runs as an Attached engine over stdio, which stops at the end of its input: what an SDK starts
+
+Usage: goodfetch-foxhound attached-engine [OPTIONS]
+
+Options:
+      --console-address <ADDRESS>  Serves the engine's own Console at this `host:port` while it runs, as a script that wants no Daemon asks (ADR 0031); its `hello` answers the Console's sign-in link. Port 0 takes a free port. None by default: an Attached engine serves no Console
+      --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                       Print help
+
+$ goodfetch-foxhound browser --help
+Manages the browser builds this version pins in the Browser cache
+
+Usage: goodfetch-foxhound browser [OPTIONS] <COMMAND>
+
+Commands:
+  install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+  clean    Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound browser install --help
+Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
+
+Usage: goodfetch-foxhound browser install [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound browser clean --help
+Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
+
+Usage: goodfetch-foxhound browser clean [OPTIONS]
+
+Options:
+      --dry-run       Lists what it would delete, and deletes nothing
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound audit --help
+Exports and verifies the user's Audit log
+
+Usage: goodfetch-foxhound audit [OPTIONS] <COMMAND>
+
+Commands:
+  export  Writes the user's Audit log to stdout as JSONL: one entry per line, in sequence, each with the hash that chains it to the line before it, the anchor first when `audit.retention` pruned its beginning. `audit verify --file` verifies what it wrote
+  verify  Verifies the user's Audit log, or with `--file` an export of it: every entry's hash chains it to the one before it, from the first or from the anchor a pruning left, and the log's head file names its last. Prints that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry shows
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound audit export --help
+Writes the user's Audit log to stdout as JSONL: one entry per line, in sequence, each with the hash that chains it to the line before it, the anchor first when `audit.retention` pruned its beginning. `audit verify --file` verifies what it wrote
+
+Usage: goodfetch-foxhound audit export [OPTIONS]
+
+Options:
+      --json          Prints a failure as JSON on stdout; the entries are JSON either way
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound audit verify --help
+Verifies the user's Audit log, or with `--file` an export of it: every entry's hash chains it to the one before it, from the first or from the anchor a pruning left, and the log's head file names its last. Prints that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry shows
+
+Usage: goodfetch-foxhound audit verify [OPTIONS]
+
+Options:
+      --file <FILE>   A file `audit export` wrote, verified in place of the log; it has no head file, so its tail is its last line
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound certs --help
+Lists, accepts and forgets the certificate pins of the user's known-certificates store
+
+Usage: goodfetch-foxhound certs [OPTIONS] <COMMAND>
+
+Commands:
+  list    Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
+  accept  Pins the changed key that stopped a host in place of its pin: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+  forget  Removes a host's pin, so its next connection under trust on first use pins again: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound certs list --help
+Lists the caller's pins in the known-certificates store: each host whose invalid certificate was accepted on first use, the SHA-256 of its public key, when and by which Run. Another person's pins on a shared Daemon are never listed. A row the engine cannot read is listed without its hash; it stops its host as a changed key
+
+Usage: goodfetch-foxhound certs list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound certs accept --help
+Pins the changed key that stopped a host in place of its pin: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Usage: goodfetch-foxhound certs accept [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  The pinned host
+
+Options:
+      --json          Refused: a person answers at a terminal, never under `--json`
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound certs forget --help
+Removes a host's pin, so its next connection under trust on first use pins again: a person's answer, asked at the terminal, and refused with `person_required` under `--json` or when stdin is no terminal
+
+Usage: goodfetch-foxhound certs forget [OPTIONS] <HOST>
+
+Arguments:
+  <HOST>  The pinned host
+
+Options:
+      --json          Refused: a person answers at a terminal, never under `--json`
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound console --help
+Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
+
+Usage: goodfetch-foxhound console [OPTIONS]
+
+Options:
+      --no-browser    Opens no browser: prints the sign-in link instead
+      --json          Prints the sign-in link as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound config --help
+Shows the settings and where each value comes from
+
+Usage: goodfetch-foxhound config [OPTIONS] <COMMAND>
+
+Commands:
+  explain  Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound config explain --help
+Shows each effective setting, the layer that set it and the layer that locked it: the built-in default, the Operator policy, user configuration, the project configuration or these flags
+
+Usage: goodfetch-foxhound config explain [OPTIONS] [KEYS]...
+
+Arguments:
+  [KEYS]...  Keys, or prefixes of keys such as `timeout`, to show; every key when none
+
+Options:
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --project <PROJECT>  Reads this project configuration instead of the `goodfetch.toml` found from the working folder upward
+      --json               Prints the result as JSON
+      --daemon             Asks the Daemon of the major, starting it if none runs, instead of resolving in this process
+      --attached           Resolves in this process, as it does unless `--daemon` is given
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound daemon --help
+Starts, stops and shows the Daemon of this executable's major, which both Products share
+
+Usage: goodfetch-foxhound daemon [OPTIONS] <COMMAND>
+
+Commands:
+  start                Starts the Daemon, the major's pick, unless one runs
+  stop                 Stops the Daemon; its live Runs stop with it
+  restart              Stops the Daemon, then starts the major's pick
+  status               Shows whether the Daemon runs, as which Product, and its Clients
+  health               Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
+  install              Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+  uninstall            Removes the major's per-user service, stopping its Daemon
+  rotate-token         Replaces the persistent token of the major's Daemon and the HTTP listener's token: an installed service's Daemon stops with every Connection that opened with the old one, and a Daemon started after it refuses the old one
+  http-listener-token  Prints the token the Daemon's HTTP listener takes, for a workflow tool's configuration: on stdout, and nowhere else
+  run                  Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon start --help
+Starts the Daemon, the major's pick, unless one runs
+
+Usage: goodfetch-foxhound daemon start [OPTIONS]
+
+Options:
+      --keep-alive    Never stops it after `daemon.idle_timeout` with no Client
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon stop --help
+Stops the Daemon; its live Runs stop with it
+
+Usage: goodfetch-foxhound daemon stop [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon restart --help
+Stops the Daemon, then starts the major's pick
+
+Usage: goodfetch-foxhound daemon restart [OPTIONS]
+
+Options:
+      --keep-alive    Never stops it after `daemon.idle_timeout` with no Client
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon status --help
+Shows whether the Daemon runs, as which Product, and its Clients
+
+Usage: goodfetch-foxhound daemon status [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon health --help
+Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
+
+Usage: goodfetch-foxhound daemon health [OPTIONS]
+
+Options:
+      --live          Says whether it is live instead, as `/livez` does
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon install --help
+Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+
+Usage: goodfetch-foxhound daemon install [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon uninstall --help
+Removes the major's per-user service, stopping its Daemon
+
+Usage: goodfetch-foxhound daemon uninstall [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon rotate-token --help
+Replaces the persistent token of the major's Daemon and the HTTP listener's token: an installed service's Daemon stops with every Connection that opened with the old one, and a Daemon started after it refuses the old one
+
+Usage: goodfetch-foxhound daemon rotate-token [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon http-listener-token --help
+Prints the token the Daemon's HTTP listener takes, for a workflow tool's configuration: on stdout, and nowhere else
+
+Usage: goodfetch-foxhound daemon http-listener-token [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon run --help
+Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+
+Usage: goodfetch-foxhound daemon run [OPTIONS]
+
+Options:
+      --json          Prints the Daemon's status as JSON once it listens, before its logs
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound daemon launched --help
+Runs as the Daemon a start or the installed service launched, from a versioned copy
+
+Usage: goodfetch-foxhound daemon launched [OPTIONS]
+
+Options:
+      --copy <COPY>               The build of the versioned copy it runs from
+      --keep-alive                Never stops it after `daemon.idle_timeout` with no Client
+      --service                   Started by the major's service: starts the pick in its place when it is not the pick, and takes the socket its service manager hands over
+      --environment <NAME=VALUE>  A deployment variable the service passes, as `NAME=VALUE`; repeatable
+      --color <WHEN>              When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                      Print help
+
+$ goodfetch-foxhound runs --help
+Works on the runs of this executable's major, of both Products
+
+Usage: goodfetch-foxhound runs [OPTIONS] <COMMAND>
+
+Commands:
+  reindex  Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound runs reindex --help
+Rebuilds the Run index from the run folders: the configured locations and the given paths. A run it does not find stays listed as missing; a run discarded on purpose stays erased
+
+Usage: goodfetch-foxhound runs reindex [OPTIONS] [PATHS]...
+
+Arguments:
+  [PATHS]...  Run folders, or folders of run folders, to look in as well
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound usage --help
+Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
+
+Usage: goodfetch-foxhound usage [OPTIONS] <COMMAND>
+
+Commands:
+  list   Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+  set    Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+  raise  Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound usage list --help
+Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left
+
+Usage: goodfetch-foxhound usage list [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound usage set --help
+Adds a Limit of the caller's own to the Usage ledger, which holds beside the others: the tightest one holds, so it can only lower what applies. Answers it with its Usage
+
+Usage: goodfetch-foxhound usage set [OPTIONS] --amount <AMOUNT> --scope <SCOPE> --usage-kind <USAGE_KIND>
+
+Options:
+      --amount <AMOUNT>          How much it allows per period: a count of the Usage kind, or millionths of the currency
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over; none for a Limit that never starts again
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the caller's own when absent (its Client connection, its person, the engine's Daemon, the install)
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                     Print help
+
+$ goodfetch-foxhound usage raise --help
+Raises a Limit, in place of the ones of its scope, Usage kind, currency and period but a managed Operator policy's: a person's answer, asked at the terminal, and refused with `person_required` when stdin is no terminal
+
+Usage: goodfetch-foxhound usage raise [OPTIONS] --scope <SCOPE> --usage-kind <USAGE_KIND> --amount <AMOUNT>
+
+Options:
+      --scope <SCOPE>            The scope's kind
+      --scope-id <SCOPE_ID>      Which one of its kind; the person's own when absent
+      --usage-kind <USAGE_KIND>  The Usage kind it caps
+      --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
+      --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
+      --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                     Print help
+
+$ goodfetch-foxhound upgrade-files --help
+Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+
+Usage: goodfetch-foxhound upgrade-files [OPTIONS]
+
+Options:
+      --from <MAJOR>  The older major to upgrade from, such as `1` or `0.4`; the newest older major Goodfetch home holds when not given
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound engine --help
+Calls the catalog's `engine` operations
+
+Usage: goodfetch-foxhound engine [OPTIONS] <COMMAND>
+
+Commands:
+  info  Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound engine info --help
+Says which Product the engine runs as, its Product version and major, and the protocol version it speaks
+
+Usage: goodfetch-foxhound engine info [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound events --help
+Calls the catalog's `events` operations
+
+Usage: goodfetch-foxhound events [OPTIONS] <COMMAND>
+
+Commands:
+  subscribe  Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Given `system_info`, it also takes the Resource governor's periodic `engine.system_info`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound events subscribe --help
+Subscribes to the engine's events. The call stays in flight, sending its events in `$/events` batches, never more than the credits granted with `$/credit`, until it is cancelled. No producer waits for a subscription: a lossless event is never dropped unseen, and a subscription whose queue is full falls behind, dropping its queued lossless events, and next sends `events.resync`, then the stream. A telemetry event is coalesced with the unsent one of the same kind and scope, and counts it as `dropped`. Given `after`, the last event read, it resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Given `system_info`, it also takes the Resource governor's periodic `engine.system_info`
+
+Usage: goodfetch-foxhound events subscribe [OPTIONS] --follow
+
+Options:
+      --follow         Prints what the call sends as it arrives, until it ends
+      --after <AFTER>  The last event the Client read, `{engine_instance, position}`: the subscription resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Absent, it starts with the next event
+      --system-info    Whether it also takes `engine.system_info`, the Resource governor's periodic readings; false by default, so a subscription that reads only what changes sees no periodic event
+      --json           Prints what the call sends as one JSON object per line
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-foxhound needs-you --help
+Calls the catalog's `needs_you` operations
+
+Usage: goodfetch-foxhound needs-you [OPTIONS] <COMMAND>
+
+Commands:
+  list     Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+  dismiss  Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound needs-you list --help
+Lists what waits for a person across every Run in the Run index and the stores beside it, the longest waiting first, a page at a time: `after` takes the `next` of the page before. `kinds` keeps the items of those kinds. Each change after the answer arrives as `needs_you.changed` on the event stream
+
+Usage: goodfetch-foxhound needs-you list [OPTIONS]
+
+Options:
+      --after <AFTER>  The `next` of the page read before: the list goes on after it
+      --kinds <KINDS>  Only the items of these kinds; every kind when absent
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-foxhound needs-you dismiss --help
+Hides an item of "Needs you" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`
+
+Usage: goodfetch-foxhound needs-you dismiss [OPTIONS] --item <ITEM>
+
+Options:
+      --item <ITEM>   The item's ID
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run --help
+Calls the catalog's `run` operations
+
+Usage: goodfetch-foxhound run [OPTIONS] <COMMAND>
+
+Commands:
+  new-page          Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+  new-session       Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call
+  start             Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+  finish            Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
+  stop              Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does
+  abort             Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+  usage             Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage
+  progress          Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`
+  report            Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`
+  list              Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036)
+  checkpoint        Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+  pause             Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
+  migrate           Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
+  resume            Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+  seeds             Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds
+  add-seed          Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+  add-seeds         Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+  records           Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`
+  export            Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named: `json`, one array of the Records' values, indented as `export.json.indent` says; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record; `parquet`, `avro` and `arrow_ipc`, the same columns typed: a column whose values are all `true` or `false` is boolean, all whole numbers a 64-bit integer, all numbers a 64-bit float, and any other a string holding each cell's text, every column nullable, an Avro field's name made a valid Avro name with the field's own in its `doc`; `xml`, a root element named by `export.xml.root` holding one element per Record named by `export.xml.record`, each field an element of its name (`field` with a `name` attribute where its name is no XML name), an object's fields as elements, an array's values as `item` elements, and `null` an empty element with `xsi:nil="true"`; `rss` and `atom`, a feed named after the Dataset of one item or entry per Record, its title, link, date and summary taken from the fields the `export.feed.*` settings name. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`
+  outcomes          Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds`, `labels` and `codes` (an Error code any of the request's failed attempts failed with), run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`
+  failed-requests   Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed
+  retry-failed      Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry
+  rejected-records  Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run new-page --help
+Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call
+
+Usage: goodfetch-foxhound run new-page [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run
+
+Options:
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound run new-session --help
+Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call
+
+Usage: goodfetch-foxhound run new-session [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run
+
+Options:
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --source <SOURCE>    `session.source` for this Session alone: left out, the Run's or the connection's applies; `null`, the Session opens fresh (ADRs 0083 and 0092)
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound run start --help
+Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise
+
+Usage: goodfetch-foxhound run start [OPTIONS]
+
+Options:
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>    The Run's ID; the engine generates a lowercase ULID when it is absent. An existing ID returns that Run when the caller and the inputs match, and fails with `run_conflict` otherwise
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>        The Run's opaque tags
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound run finish --help
+Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait
+
+Usage: goodfetch-foxhound run finish [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified    Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-foxhound run stop --help
+Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete` as an abort by its program, resumable by its Run ID, and answers its Run report; an ended Run's report is answered as it is. The wait is bounded by `timeout.close`, or the call's `timeout`: past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point. A Run that ended `failed` fails the call as `run.finish` does
+
+Usage: goodfetch-foxhound run stop [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified    Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
+
+$ goodfetch-foxhound run abort --help
+Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names
+
+Usage: goodfetch-foxhound run abort [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --forwarded         Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
+      --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-foxhound run usage --help
+Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage
+
+Usage: goodfetch-foxhound run usage [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run progress --help
+Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`
+
+Usage: goodfetch-foxhound run progress [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --after <AFTER>  The position of the value the reader last read: the answer is the latest value after it, once one comes. Absent, the Run's progress at once
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-foxhound run report --help
+Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`
+
+Usage: goodfetch-foxhound run report [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-foxhound run list --help
+Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, the Recipe, Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID or tags, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036)
+
+Usage: goodfetch-foxhound run list [OPTIONS]
+
+Options:
+      --completeness <COMPLETENESS>  Their Completeness: only Runs that ended have one
+      --ended <ENDED>                When they ended: only Runs that ended match
+      --lifecycle <LIFECYCLE>        Their Lifecycle
+      --occurrence <OCCURRENCE>      The occurrence that started the Runs, by its ID
+      --order <ORDER>                Which way, descending by default
+      --product <PRODUCT>            The Product the Runs need (ADR 0098)
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --recipe <RECIPE>              The Recipe the Runs ran, by its name, as their reserved `goodfetch.recipe` tag names it
+      --schedule <SCHEDULE>          The Schedule that started the Runs, by its ID
+      --sort <SORT>                  What the rows are sorted by, when they started by default; rows that compare equal follow in Run ID order
+      --started <STARTED>            When they started
+      --tags <TAGS>                  Tags each row carries, every one of them
+      --text <TEXT>                  Text found, ignoring case, in their Run ID or one of their tags, their Recipe's among them
+      --trigger <TRIGGER>            What fired the occurrence that started the Runs
+      --verdict <VERDICT>            Their Verdict: only Runs that ended have one
+      --watch-runs                   Whether Watch runs are listed too; they are left out by default (ADR 0036)
+      --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                         Print help
+
+$ goodfetch-foxhound run checkpoint --help
+Writes a Checkpoint of a live Run now, through SQLite's online backup, where `location` says or where the engine keeps the Run's Checkpoints, and answers it once its file is complete, with its size, digest, run epoch and journal position. A Checkpoint the engine cannot write fails with `file_write_failed` and leaves no file
+
+Usage: goodfetch-foxhound run checkpoint [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                 Print help
+
+$ goodfetch-foxhound run pause --help
+Pauses a live Run: checkpoints it, then stops it at its next safe point, `stopped` with the stop reason `pause` and resumable by its Run ID with `run.resume`, after a restart too. Answers its Run report, which names the Checkpoint
+
+Usage: goodfetch-foxhound run pause [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help              Print help
+
+$ goodfetch-foxhound run migrate --help
+Migrates a live Run: checkpoints it where `location` says or where the engine keeps its Checkpoints, then stops it at its next safe point, `stopped` with the stop reason `migrate`, to be resumed from that Checkpoint on another machine. Answers its Run report, which names the Checkpoint
+
+Usage: goodfetch-foxhound run migrate [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
+      --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --require-verified     Exits 21 when the Run ended with a Verdict other than `verified`
+      --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                 Print help
+
+$ goodfetch-foxhound run resume --help
+Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`
+
+Usage: goodfetch-foxhound run resume [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The Run's ID
+
+Options:
+      --checkpoint <CHECKPOINT>  A Checkpoint to resume from, a path on the engine's machine, which becomes the Run's state in this engine's run folder; by default the Run resumes from its run file on this machine
+      --project <PROJECT>        The project configuration the Client found, layer 3 (ADR 0083)
+      --set <KEY=VALUE>          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->        Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                     Print help
+
+$ goodfetch-foxhound run seeds --help
+Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds
+
+Usage: goodfetch-foxhound run seeds [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run add-seed --help
+Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+
+Usage: goodfetch-foxhound run add-seed [OPTIONS] --seed <SEED> <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --attempt <ATTEMPT>  The attempt that adds it, when a handler adds it through its context's `run`; absent, the program adds it from outside any attempt
+      --seed <SEED>        The seed
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound run add-seeds --help
+Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`
+
+Usage: goodfetch-foxhound run add-seeds [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --json          Prints what the call answers each batch of stdin's lines with as one JSON object per line
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run records --help
+Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`
+
+Usage: goodfetch-foxhound run records [OPTIONS] --dataset <DATASET> <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --follow             Prints what the call sends as it arrives, until it ends, rather than once it ended
+      --after <AFTER>      The number of the last Record the reader handled: the call starts after it. Absent, it starts at the Dataset's first Record
+      --dataset <DATASET>  The Dataset's name
+      --through <THROUGH>  The number of the last Record to read, such as the last one committed when the reader began (`dataset.page`'s `through`): the call answers once it sent every Record numbered through it, waiting on a live Run for those not committed yet. Absent, it follows a live Run until the Run ends
+      --wall <true|false>  `true` reads only the Records whose page was read past a Wall, `false` only the others; absent, every Record (ADR 0052) [possible values: true, false]
+      --json               Prints what the call sent as one JSON array, or under `--follow` one JSON object per line
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound run export --help
+Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named: `json`, one array of the Records' values, indented as `export.json.indent` says; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record; `parquet`, `avro` and `arrow_ipc`, the same columns typed: a column whose values are all `true` or `false` is boolean, all whole numbers a 64-bit integer, all numbers a 64-bit float, and any other a string holding each cell's text, every column nullable, an Avro field's name made a valid Avro name with the field's own in its `doc`; `xml`, a root element named by `export.xml.root` holding one element per Record named by `export.xml.record`, each field an element of its name (`field` with a `name` attribute where its name is no XML name), an object's fields as elements, an array's values as `item` elements, and `null` an empty element with `xsi:nil="true"`; `rss` and `atom`, a feed named after the Dataset of one item or entry per Record, its title, link, date and summary taken from the fields the `export.feed.*` settings name. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`
+
+Usage: goodfetch-foxhound run export [OPTIONS] --format <FORMAT> --out <PATH|-> <RUN_ID> <DATASET>
+
+Arguments:
+  <RUN_ID>   The crawl's Run
+  <DATASET>  The Dataset's name
+
+Options:
+      --compression <COMPRESSION>  The compression; absent, `none`
+      --format <FORMAT>            The format
+      --project <PROJECT>          The project configuration the Client found, layer 3 (ADR 0083)
+      --set <KEY=VALUE>            Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->          Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --wall <true|false>          `true` writes only the Records whose page was read past a Wall, `false` only the others; absent, every Record (ADR 0052) [possible values: true, false]
+      --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --out <PATH|->               Writes the Export's file to PATH, whole or not at all, or its bytes to standard output for `-`
+      --json                       Prints the result as JSON
+      --attached                   Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                     Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                       Print help
+
+$ goodfetch-foxhound run outcomes --help
+Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds`, `labels` and `codes` (an Error code any of the request's failed attempts failed with), run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`
+
+Usage: goodfetch-foxhound run outcomes [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --follow           Asks for page after page, printing each item as it arrives, until the Run ends
+      --after <AFTER>    Where to start: after this position, or `now` for the next commit on; absent, from the first outcome
+      --codes <CODES>    Only outcomes of requests one of whose failed attempts failed with one of these Error codes; absent, every outcome
+      --kinds <KINDS>    Only outcomes of these kinds; absent, every kind
+      --labels <LABELS>  Only outcomes of requests of these Labels; absent, every Label
+      --json             Prints the result as JSON, or under `--follow` each item as one JSON object per line
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help             Print help
+
+$ goodfetch-foxhound run failed-requests --help
+Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed
+
+Usage: goodfetch-foxhound run failed-requests [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --blocked       Also the requests whose latest outcome is `blocked`
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound run retry-failed --help
+Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once, unless the crawl is already ending its Run: the call then waits for that end and re-admits them as on an ended Run. On an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first. It is not sent again after a lost Connection, which fails it with `connection_lost`: `run.failed_requests` then lists the requests still to retry
+
+Usage: goodfetch-foxhound run retry-failed [OPTIONS] <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --blocked            Also the requests whose latest outcome is `blocked`
+      --project <PROJECT>  The project configuration the Client found, layer 3 (ADR 0083), read as `settings` is
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound run rejected-records --help
+Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`
+
+Usage: goodfetch-foxhound run rejected-records [OPTIONS] --dataset <DATASET> <RUN_ID>
+
+Arguments:
+  <RUN_ID>  The crawl's Run
+
+Options:
+      --follow             Asks for page after page, printing each item as it arrives, until the Run ends
+      --after <AFTER>      The number of the last entry a reader handled; absent, from the first
+      --dataset <DATASET>  The Dataset whose rejection table to read
+      --json               Prints the result as JSON, or under `--follow` each item as one JSON object per line
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound session --help
+Calls the catalog's `session` operations
+
+Usage: goodfetch-foxhound session [OPTIONS] <COMMAND>
+
+Commands:
+  new-page  Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`
+  close     Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing
+  pages     Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound session new-page --help
+Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`
+
+Usage: goodfetch-foxhound session new-page [OPTIONS] <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  The Session
+
+Options:
+      --set <KEY=VALUE>    Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound session close --help
+Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing
+
+Usage: goodfetch-foxhound session close [OPTIONS] <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  The Session
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound session pages --help
+Lists the Session's open pages, in the order they opened: those the program opened and the popups its pages opened. Once the Session is closed, it raises `closed`
+
+Usage: goodfetch-foxhound session pages [OPTIONS] <SESSION_ID>
+
+Arguments:
+  <SESSION_ID>  The Session
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound page --help
+Calls the catalog's `page` operations
+
+Usage: goodfetch-foxhound page [OPTIONS] <COMMAND>
+
+Commands:
+  goto        Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`
+  reload      Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+  go-back     Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121)
+  go-forward  Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
+  formats     Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it
+  body        Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+  close       Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound page goto --help
+Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`
+
+Usage: goodfetch-foxhound page goto [OPTIONS] --url <URL> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --timeout <DURATION>       How long the navigation may take, in milliseconds, at least 1: absent for `timeout.navigation`, `null` for none, though an enclosing timeout still applies (ADR 0080). Its waits for permits count against it no more than against the setting
+      --url <URL>                The URL
+      --wait-until <WAIT_UNTIL>  When the navigation answers; `load` when absent
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-foxhound page reload --help
+Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`
+
+Usage: goodfetch-foxhound page reload [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound page go-back --help
+Goes back one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go back to. The back/forward cache is off, so the document always loads again (ADR 0121)
+
+Usage: goodfetch-foxhound page go-back [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound page go-forward --help
+Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121)
+
+Usage: goodfetch-foxhound page go-forward [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound page formats --help
+Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it
+
+Usage: goodfetch-foxhound page formats [OPTIONS] --formats <FORMATS> <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --formats <FORMATS>  The formats
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound page body --help
+Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size
+
+Usage: goodfetch-foxhound page body [OPTIONS] --follow --body <BODY> --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --body <BODY>      Its ID
+      --run-id <RUN_ID>  The Run whose folder holds it
+      --json             Prints what the call sends as one JSON object per line
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-foxhound page close --help
+Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that
+
+Usage: goodfetch-foxhound page close [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --run-before-unload <true|false>  Runs the page's `beforeunload` handlers first, whose dialog goes to the page's dialog handlers; false when absent [possible values: true, false]
+      --json                            Prints the result as JSON
+      --attached                        Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>                    When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                            Print help
+
+$ goodfetch-foxhound locator --help
+Calls the catalog's `locator` operations
+
+Usage: goodfetch-foxhound locator [OPTIONS] <COMMAND>
+
+Commands:
+  click  Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085)
+  fill   Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`
+  press  Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085)
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound locator click --help
+Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085)
+
+Usage: goodfetch-foxhound locator click [OPTIONS] --locator <LOCATOR>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound locator fill --help
+Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`
+
+Usage: goodfetch-foxhound locator fill [OPTIONS] --locator <LOCATOR> --value <VALUE>
+
+Options:
+      --locator <LOCATOR>  The locator
+      --value <VALUE>      The text the field holds afterwards; an empty text clears it
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound locator press --help
+Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085)
+
+Usage: goodfetch-foxhound locator press [OPTIONS] --key <KEY> --locator <LOCATOR>
+
+Options:
+      --key <KEY>          A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by Playwright's key names
+      --locator <LOCATOR>  The locator
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound response --help
+Calls the catalog's `response` operations
+
+Usage: goodfetch-foxhound response [OPTIONS] <COMMAND>
+
+Commands:
+  body  Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound response body --help
+Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does
+
+Usage: goodfetch-foxhound response body [OPTIONS] --page-id <PAGE_ID> --request-id <REQUEST_ID>
+
+Options:
+      --page-id <PAGE_ID>        The page
+      --request-id <REQUEST_ID>  The request's hop, by the engine's ID for it
+      --timeout <DURATION>       How long the read may wait for its request to end and its body to be read, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none, though an enclosing timeout still applies (ADR 0080)
+      --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                     Print help
+
+$ goodfetch-foxhound key-value-store --help
+Calls the catalog's `key_value_store` operations
+
+Usage: goodfetch-foxhound key-value-store [OPTIONS] <COMMAND>
+
+Commands:
+  get        Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first
+  set        Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`
+  get-bytes  Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first
+  set-bytes  Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+  delete     Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged
+  keys       Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound key-value-store get --help
+Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first
+
+Usage: goodfetch-foxhound key-value-store get [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --attempt <ATTEMPT>  The crawl attempt whose handler's `ctx.run` reads or deletes the key: a read sees what the attempt staged, and a delete is staged with the attempt (ADR 0093). Absent, the call reads or commits at once
+      --key <KEY>          The key
+      --run-id <RUN_ID>    The Run whose store it is
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound key-value-store set --help
+Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`
+
+Usage: goodfetch-foxhound key-value-store set [OPTIONS] --key <KEY> --run-id <RUN_ID> --value <VALUE>
+
+Options:
+      --attempt <ATTEMPT>  The crawl attempt whose handler's `ctx.run` sets the key: the write is staged with the attempt and commits with it, or is discarded with it (ADR 0093). Absent, the value is committed at once
+      --key <KEY>          The key
+      --run-id <RUN_ID>    The Run whose store it is
+      --value <VALUE>      The value: any JSON but a top-level null, which `value_invalid` refuses; a nested null is kept
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound key-value-store get-bytes --help
+Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first
+
+Usage: goodfetch-foxhound key-value-store get-bytes [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --attempt <ATTEMPT>  The crawl attempt whose handler's `ctx.run` reads or deletes the key: a read sees what the attempt staged, and a delete is staged with the attempt (ADR 0093). Absent, the call reads or commits at once
+      --key <KEY>          The key
+      --run-id <RUN_ID>    The Run whose store it is
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound key-value-store set-bytes --help
+Commits bytes with their content type for a key in a live Run's Key-value store, replacing what it held: the last commit wins. Bytes over 1 MiB are kept as a file in the Run's folder, which its Checkpoints carry
+
+Usage: goodfetch-foxhound key-value-store set-bytes [OPTIONS] --content <CONTENT> --content-type <CONTENT_TYPE> --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --attempt <ATTEMPT>            The crawl attempt whose handler's `ctx.run` sets the bytes: the write is staged with the attempt and commits with it, a kept file written only then, or is discarded with it (ADR 0093). Absent, the bytes are committed at once
+      --content <CONTENT>            The bytes, in Base64
+      --content-type <CONTENT_TYPE>  Their content type, such as `image/png`
+      --key <KEY>                    The key
+      --run-id <RUN_ID>              The Run whose store it is
+      --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                         Print help
+
+$ goodfetch-foxhound key-value-store delete --help
+Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged
+
+Usage: goodfetch-foxhound key-value-store delete [OPTIONS] --key <KEY> --run-id <RUN_ID>
+
+Options:
+      --attempt <ATTEMPT>  The crawl attempt whose handler's `ctx.run` reads or deletes the key: a read sees what the attempt staged, and a delete is staged with the attempt (ADR 0093). Absent, the call reads or commits at once
+      --key <KEY>          The key
+      --run-id <RUN_ID>    The Run whose store it is
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound key-value-store keys --help
+Sends the committed keys of a Run's Key-value store that start with `prefix`, in the order of their Unicode scalar values, in `$/key` notifications, one per credit granted with `$/credit`, then answers how many it sent. Takes no writer lock
+
+Usage: goodfetch-foxhound key-value-store keys [OPTIONS] --follow --run-id <RUN_ID>
+
+Options:
+      --follow           Prints what the call sends as it arrives, until it ends
+      --prefix <PREFIX>  The prefix of the keys it sends; every key when left out
+      --run-id <RUN_ID>  The Run whose store it is
+      --json             Prints what the call sends as one JSON object per line
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-foxhound sample --help
+Calls the catalog's `sample` operations
+
+Usage: goodfetch-foxhound sample [OPTIONS] <COMMAND>
+
+Commands:
+  echo   Repeats a text back to the caller
+  crawl  Visits sample pages, each repeating a text
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound sample echo --help
+Repeats a text back to the caller
+
+Usage: goodfetch-foxhound sample echo [OPTIONS] --text <TEXT>
+
+Options:
+      --text <TEXT>   The text to repeat
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
+
+$ goodfetch-foxhound sample crawl --help
+Visits sample pages, each repeating a text
+
+Usage: goodfetch-foxhound sample crawl [OPTIONS] --echo <ECHO> --pages <PAGES>
+
+Options:
+      --echo <ECHO>    The text each page repeats, a type Collie's catalog defines. No request's params type, which holds `_meta` (ADR 0132), is another type's member
+      --pages <PAGES>  How many pages to visit
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help
+
+$ goodfetch-foxhound crawl --help
+Calls the catalog's `crawl` operations
+
+Usage: goodfetch-foxhound crawl [OPTIONS] <COMMAND>
+
+Commands:
+  start  Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound crawl start --help
+Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID
+
+Usage: goodfetch-foxhound crawl start [OPTIONS] [URL]...
+
+Arguments:
+  [URL]...  A seed of the crawl, its URL; repeatable
+
+Options:
+      --labels <LABELS>       The crawl's Labels, by name, each with its Payload's JSON Schema or none, and its own settings (ADRs 0082 and 0093): a scope between the Run and its requests. A Payload of a declared schema is checked against it at every enqueue; a Label the crawl does not declare takes any Payload
+      --project <PROJECT>     The project configuration the Client found, layer 3 (ADR 0083)
+      --run-id <RUN_ID>       The Run's ID, as `run.start` takes it
+      --set <KEY=VALUE>       Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
+      --settings <FILE|->     Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
+      --tags <TAGS>           The Run's opaque tags
+      --color <WHEN>          When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --format <NAME>         A format each page's Record holds, as `page.formats` gives it; repeatable; `markdown` when neither a format nor a field is given [possible values: contacts, html, images, links, markdown, media, metadata, tables, text]
+      --field <NAME=LOCATOR>  A named field each page's Record holds: the text of the first element a CSS selector, or an XPath expression after `xpath:`, finds; repeatable
+      --fields <FILE|->       Reads named fields, each with its locator and its Value transform, as one JSON object by name in FILE, or from standard input for `-`; `--field` beats it
+      --links <FOLLOW>        Which pages the crawl fetches beyond its seeds: every link its scope admits, its sites' sitemaps, or none; `scope` by default [possible values: scope, sitemap, none]
+      --seeds-file <FILE|->   Reads more seeds from FILE, or from standard input for `-`, one per line: a URL, or a seed as JSON
+      --follow                Follows the Run's progress until it ends, and exits by how it ended; a first interrupt checkpoints the Run
+      --require-verified      Exits 21 when the Run ended with a Verdict other than `verified`
+      --json                  Prints the result as JSON
+      --attached              Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                  Print help
+
+$ goodfetch-foxhound dataset --help
+Calls the catalog's `dataset` operations
+
+Usage: goodfetch-foxhound dataset [OPTIONS] <COMMAND>
+
+Commands:
+  list   Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none
+  page   Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`
+  query  Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound dataset list --help
+Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none
+
+Usage: goodfetch-foxhound dataset list [OPTIONS] --run-id <RUN_ID>
+
+Options:
+      --run-id <RUN_ID>  The crawl's Run
+      --json             Prints the result as JSON
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help             Print help
+
+$ goodfetch-foxhound dataset page --help
+Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`
+
+Usage: goodfetch-foxhound dataset page [OPTIONS] --dataset <DATASET> --run-id <RUN_ID>
+
+Options:
+      --after <AFTER>      The number of the last Record of the previous page, its `next`: the page starts after that Record in the page's order. Absent, at the first
+      --columns <COLUMNS>  The top-level fields each Record's value keeps; absent, every one
+      --dataset <DATASET>  The Dataset's name
+      --filter <FILTER>    Which Records to take; absent, every one
+      --limit <LIMIT>      The most Records the page carries, from 1 to 1000; absent, 100
+      --run-id <RUN_ID>    The crawl's Run
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --sort <SORT>        Their order; absent, by number
+      --through <THROUGH>  The previous page's `through`, so every page reads the Records committed when the first was read. Absent, the last number committed now
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help               Print help
+
+$ goodfetch-foxhound dataset query --help
+Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`
+
+Usage: goodfetch-foxhound dataset query [OPTIONS] --runs <RUNS> --sql <SQL>
+
+Options:
+      --limit <LIMIT>  The most rows it returns, at most `dataset.query.max_rows`; absent, that setting's value
+      --runs <RUNS>    The runs it reads, from 1 to 100: only these are registered
+      --sql <SQL>      One `SELECT` or `WITH` statement
+      --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help           Print help

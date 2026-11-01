@@ -3,15 +3,27 @@
 //! commit survives a power cut, and one writer, an actor of the run's owner
 //! that commits every write its mailbox holds in one transaction. Each
 //! commit is accepted only under the writer's run epoch: a writer whose
-//! epoch the file no longer holds commits nothing. The file opens through a
+//! epoch the file no longer holds commits nothing. A commit that meets a full
+//! disk or an I/O error (`SQLITE_FULL`, `SQLITE_IOERR`, and the
+//! `SQLITE_CORRUPT` SQLite reports for a read that met EIO) at any of its
+//! writes is rolled back with `ROLLBACK`, as SQLite advises, so the file is
+//! the same after any of them; the writes queued after the failing one never
+//! run, since SQLite may have ended the transaction already, and nothing of
+//! the commit is acknowledged, and the writer
+//! says so to whoever watches its storage failures, which stop its Run
+//! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
-//! committed state waits on for more, never holding the writer back.
+//! committed state waits on for more, never holding the writer back. The
+//! writer stops once every handle on it is gone, or once its last write
+//! commits, as a Run's end writes its record: whatever any handle queues
+//! after that is refused (#1763).
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
 //! as a crawl's work items.
 
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::ProtocolVersion;
@@ -26,6 +38,10 @@ pub mod install;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
+
+/// How long the writer's switch of a new file to WAL waits while another
+/// connection holds the file.
+const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
@@ -44,12 +60,14 @@ const SCHEMA: &[&str] = &[
         started_at TEXT NOT NULL,
         ended_at TEXT,
         policy_version TEXT,
-        weakened_by TEXT NOT NULL DEFAULT '[]',
+        weakened TEXT NOT NULL DEFAULT '[]',
         journal_position INTEGER NOT NULL DEFAULT 0,
         binding TEXT,
         clean_up_digest TEXT,
         uncapped INTEGER NOT NULL DEFAULT 0,
-        progress_message TEXT
+        progress_message TEXT,
+        nothing_done TEXT,
+        report TEXT
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
     // What the Run used of each Slice of the Usage ledger, by run epoch (ADR
@@ -59,6 +77,34 @@ const SCHEMA: &[&str] = &[
         epoch INTEGER NOT NULL,
         used INTEGER NOT NULL,
         PRIMARY KEY (slice_id, epoch)
+    ) STRICT",
+    // What the Run used of each Usage kind, by currency ('' for a count),
+    // which its report and `run.usage` give (ADR 0101).
+    "CREATE TABLE IF NOT EXISTS usage_totals (
+        usage_kind TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, currency)
+    ) STRICT",
+    // What the Run used of each part of a Usage kind, such as the proxy
+    // kinds of `proxy_bytes` (ADR 0021), which its report and `run.usage`
+    // give beside the kind's total.
+    "CREATE TABLE IF NOT EXISTS usage_parts (
+        usage_kind TEXT NOT NULL,
+        part TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY (usage_kind, part)
+    ) STRICT",
+    // The Run's data key, wrapped by its key-encryption key, once it has
+    // one (ADR 0015).
+    crate::run_key::TABLE,
+    // The warnings the Run's owners handed over, in order (ADR 0102).
+    "CREATE TABLE IF NOT EXISTS warnings (
+        position INTEGER NOT NULL PRIMARY KEY,
+        code TEXT NOT NULL,
+        message TEXT NOT NULL,
+        sessions TEXT NOT NULL,
+        folder TEXT
     ) STRICT",
 ];
 
@@ -72,6 +118,12 @@ pub struct RunStateTables {
     /// Their statements.
     pub statements: &'static [&'static str],
 }
+
+/// The run file writer's page cache, in KiB: a bounded cache over what the
+/// file keeps on disk, such as the Frontier's exact visited set, sized so
+/// a Frontier of 100,000 URLs keeps under ADR 0134's 8 heap bytes per URL
+/// (SQLite's default of 2,000 KiB alone is 20).
+pub const PAGE_CACHE_KIB: u32 = 512;
 
 /// How a run file opens.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -154,6 +206,16 @@ pub enum RunStateError {
         /// minor refused this engine.
         install: Option<String>,
     },
+    /// The disk was full or failed an I/O at one of the commit's writes or at
+    /// the commit itself (ADR 0122): it was rolled back, and nothing of it is
+    /// acknowledged.
+    #[error("run state at `{path}` could not be written to its storage: {message}")]
+    Storage {
+        /// The run file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
     /// The writer has stopped.
     #[error("the run file's writer has stopped")]
     Closed,
@@ -173,24 +235,111 @@ impl RunStateError {
 
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// A write: given the transaction, it runs its work and answers how to
-/// report it once the commit ends; given none, it reports the failure only.
-type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> Completion + Send>;
+/// report it once the commit ends, and the failure that ends its group when
+/// its work met a full disk or an I/O error or left the transaction in a
+/// state the writer cannot know; given none, it reports the failure only.
+type QueuedWrite =
+    Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
+
+/// A write in the writer's queue, and whether it is the writer's last.
+struct Queued {
+    write: QueuedWrite,
+    last: bool,
+}
+
+/// `work` as a write the writer's actor runs in its next commit, and the
+/// answer it sends once that commit ends.
+fn queued<T, F>(work: F) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+{
+    let (answer, answered) = oneshot::channel();
+    let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
+        let mut ends_group = None;
+        let done = match transaction {
+            Some((connection, path)) => {
+                run_in_savepoint(connection, work).map_err(|Failed { error, ended }| {
+                    if ended {
+                        ends_group = Some(commit_error(path, &error));
+                    }
+                    sqlite_error(path, &error)
+                })
+            }
+            None => Err(RunStateError::Closed),
+        };
+        let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
+            let _ = answer.send(committed.and(done));
+        });
+        (completion, ends_group)
+    });
+    (job, answered)
+}
+
+/// A place [`RunState::reserve`] took in the writer's queue; dropped
+/// unused, it frees the place.
+pub struct ReservedWrite(mpsc::OwnedPermit<Queued>);
+
+impl std::fmt::Debug for ReservedWrite {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReservedWrite")
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReservedWrite {
+    /// Queues `work` in the place, at once, as [`RunState::write`] would
+    /// have queued it, and answers the future of what it returns once its
+    /// commit is acknowledged, with [`RunState::write`]'s errors: `Closed`
+    /// too once the writer stopped without running it, after its last
+    /// write. Dropping that future does not withdraw the write.
+    pub fn write<T, F>(
+        self,
+        work: F,
+    ) -> impl Future<Output = Result<T, RunStateError>> + Send + 'static
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (write, answered) = queued(work);
+        let mailbox = self.0.send(Queued { write, last: false });
+        async move {
+            // A write the writer ran answers before its mailbox goes; one
+            // sent once it went waits in no mailbox.
+            tokio::select! {
+                biased;
+                answered = answered => answered.map_err(|_| RunStateError::Closed)?,
+                () = mailbox.closed() => Err(RunStateError::Closed),
+            }
+        }
+    }
+}
 
 /// The writer of one run file: a handle to its actor, which any task may
 /// clone and send writes to.
 #[derive(Clone, Debug)]
 pub struct RunState {
-    mailbox: mpsc::Sender<QueuedWrite>,
+    mailbox: mpsc::Sender<Queued>,
     path: PathBuf,
     epoch: u64,
+    watched: std::sync::Arc<Watched>,
+}
+
+/// What a writer's watchers follow: its acknowledged commits and its first
+/// storage failure.
+#[derive(Debug)]
+struct Watched {
     commits: watch::Receiver<u64>,
+    failures: watch::Receiver<Option<String>>,
 }
 
 impl RunState {
     /// Opens the run file at `path` as its writer under run epoch `epoch`,
     /// creating it and the tables of `tables` when it does not exist, its
     /// actor one of `owner`'s. The writer stops once every handle is
-    /// dropped, and `owner` waits for it.
+    /// dropped, or once [`RunState::write_last`] committed, and `owner`
+    /// waits for it.
     ///
     /// # Errors
     ///
@@ -216,17 +365,39 @@ impl RunState {
         let actor_path = path.clone();
         let mut connection = connection;
         let (committed, commits) = watch::channel(0_u64);
+        let (failed, failures) = watch::channel(None);
         owner
-            .actor("run-state-writer", jobs, move |group: Vec<QueuedWrite>| {
-                commit_group(&mut connection, &actor_path, epoch, group, &committed);
+            .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
+                let signals = Signals {
+                    commits: &committed,
+                    failures: &failed,
+                };
+                let last = group.iter().position(|queued| queued.last);
+                let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
+                let group = group.into_iter().map(|queued| queued.write).collect();
+                commit_group(&mut connection, &actor_path, epoch, group, &signals);
+                for queued in refused {
+                    (queued.write)(None).0(Err(RunStateError::Closed));
+                }
+                if last.is_some() {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
             })
             .map_err(|error| sqlite_error(&path, &error))?;
         Ok(Self {
             mailbox,
             path,
             epoch,
-            commits,
+            watched: std::sync::Arc::new(Watched { commits, failures }),
         })
+    }
+
+    /// The first commit that met a full disk or an I/O error, as SQLite
+    /// named it, once one did (ADR 0122): none until then.
+    pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
+        self.watched.failures.clone()
     }
 
     /// The run file's path.
@@ -244,7 +415,7 @@ impl RunState {
     /// on it for more committed state. Its sender is gone once the writer
     /// stops.
     pub fn commits(&self) -> watch::Receiver<u64> {
-        self.commits.clone()
+        self.watched.commits.clone()
     }
 
     /// Runs `work` in the writer's next commit, grouped with every write
@@ -265,23 +436,65 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let (answer, answered) = oneshot::channel();
-        let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
-            let done = match transaction {
-                Some((connection, path)) => {
-                    run_in_savepoint(connection, work).map_err(|error| sqlite_error(path, &error))
-                }
-                None => Err(RunStateError::Closed),
-            };
-            Box::new(move |committed: Result<(), RunStateError>| {
-                let _ = answer.send(committed.and(done));
-            })
-        });
+        self.queue(work, false).await
+    }
+
+    /// Runs `work` as [`RunState::write`] does, as the writer's last write:
+    /// once its commit ends, the writer stops, though other handles still
+    /// hold it, and every write queued after it, through any handle,
+    /// answers `Closed`, as does every later one. A Run's end writes its
+    /// record so, which no handle left outside its tasks can keep waiting
+    /// or write after (#1763).
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s: once queued, the writer stops after it
+    /// whether or not its answer is awaited.
+    pub async fn write_last<T, F>(&self, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.queue(work, true).await
+    }
+
+    /// Queues `work`, the writer's last write when `last`, and answers what
+    /// it returned once its commit is acknowledged.
+    async fn queue<T, F>(&self, work: F, last: bool) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (write, answered) = queued(work);
         self.mailbox
-            .send(job)
+            .send(Queued { write, last })
             .await
             .map_err(|_| RunStateError::Closed)?;
         answered.await.map_err(|_| RunStateError::Closed)?
+    }
+
+    /// A place in the writer's queue, for a write the caller queues once it
+    /// knows it: without awaiting, so in order with a change it makes under
+    /// a lock, such as a Run's charging and its journal.
+    ///
+    /// # Errors
+    ///
+    /// `Closed` when the writer has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future takes no place.
+    pub async fn reserve(&self) -> Result<ReservedWrite, RunStateError> {
+        self.mailbox
+            .clone()
+            .reserve_owned()
+            .await
+            .map(ReservedWrite)
+            .map_err(|_| RunStateError::Closed)
     }
 
     /// Runs `work` on the writer's connection, in order with its writes, so
@@ -344,10 +557,38 @@ pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
     u64::try_from(epoch).ok()
 }
 
-fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
+pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
         path: path.to_owned(),
         message: error.to_string(),
+    }
+}
+
+/// Whether `error` is a full disk or an I/O error, after which SQLite may
+/// have rolled the whole transaction back (ADR 0122). A read that met an
+/// I/O error (EIO) counts: SQLite's Unix VFS reports it as
+/// `SQLITE_IOERR_CORRUPTFS`, which reaches its caller as `SQLITE_CORRUPT`.
+fn is_storage(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(
+            rusqlite::ErrorCode::DiskFull
+                | rusqlite::ErrorCode::SystemIoFailure
+                | rusqlite::ErrorCode::DatabaseCorrupt
+        )
+    )
+}
+
+/// The failure of a commit of the run file at `path` on `error`: a full
+/// disk or an I/O error as such.
+fn commit_error(path: &Path, error: &rusqlite::Error) -> RunStateError {
+    if is_storage(error) {
+        RunStateError::Storage {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        sqlite_error(path, error)
     }
 }
 
@@ -382,11 +623,13 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", options.durability.synchronous())
+        .map_err(failed)?;
+    // A negative size counts KiB rather than pages.
+    connection
+        .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
         .map_err(failed)?;
     if cfg!(target_os = "macos") {
         connection
@@ -442,40 +685,78 @@ pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateE
     }
 }
 
-/// Runs `work` in a savepoint of its own, which an error rolls back.
+/// Why a write's savepoint failed.
+struct Failed {
+    /// SQLite's own error, or the write's.
+    error: rusqlite::Error,
+    /// Whether the group's transaction can go on: not after a full disk or
+    /// an I/O error, nor once SQLite ended the transaction, nor when the
+    /// savepoint's own statements failed, which leave its state unknown.
+    ended: bool,
+}
+
+/// Runs `work` in a savepoint of its own, which an error rolls back. A full
+/// disk or an I/O error can end the whole transaction in SQLite, closing
+/// its savepoints (ADR 0122); the savepoint is then never rolled back to,
+/// since a statement run after it would commit on its own.
 fn run_in_savepoint<T>(
     connection: &Connection,
     work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
-) -> rusqlite::Result<T> {
-    connection.execute_batch("SAVEPOINT write")?;
+) -> Result<T, Failed> {
+    let ended = |error| Failed { error, ended: true };
+    connection.execute_batch("SAVEPOINT write").map_err(ended)?;
     match work(connection) {
         Ok(answer) => {
-            connection.execute_batch("RELEASE write")?;
+            connection.execute_batch("RELEASE write").map_err(ended)?;
             Ok(answer)
         }
-        Err(error) => {
-            connection.execute_batch("ROLLBACK TO write; RELEASE write")?;
-            Err(error)
-        }
+        Err(error) if is_storage(&error) || connection.is_autocommit() => Err(ended(error)),
+        Err(error) => match connection.execute_batch("ROLLBACK TO write; RELEASE write") {
+            Ok(()) => Err(Failed {
+                error,
+                ended: false,
+            }),
+            Err(_) => Err(ended(error)),
+        },
     }
+}
+
+/// Where the writer signals each acknowledged commit and the first storage
+/// failure.
+struct Signals<'a> {
+    commits: &'a watch::Sender<u64>,
+    failures: &'a watch::Sender<Option<String>>,
 }
 
 /// Commits `group` in one transaction under `epoch`, counts the commit in
 /// `commits`, then answers each write: all of them with the failure when
-/// the transaction fails or the file holds another epoch.
+/// the transaction fails or the file holds another epoch, and a full disk or
+/// an I/O error also goes to `failures`.
 fn commit_group(
     connection: &mut Connection,
     path: &Path,
     epoch: u64,
     group: Vec<QueuedWrite>,
-    commits: &watch::Sender<u64>,
+    signals: &Signals<'_>,
 ) {
     let (completions, committed) = match commit_writes(connection, path, epoch, group) {
         Ok(completions) => {
-            commits.send_modify(|count| *count += 1);
+            signals.commits.send_modify(|count| *count += 1);
             (completions, Ok(()))
         }
-        Err((completions, error)) => (completions, Err(error)),
+        Err((completions, error)) => {
+            if let RunStateError::Storage { message, .. } = &error {
+                tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
+                signals.failures.send_if_modified(|failure| {
+                    let first = failure.is_none();
+                    if first {
+                        *failure = Some(message.clone());
+                    }
+                    first
+                });
+            }
+            (completions, Err(error))
+        }
     };
     for completion in completions {
         completion(committed.clone());
@@ -489,12 +770,12 @@ fn commit_writes(
     group: Vec<QueuedWrite>,
 ) -> Result<Vec<Completion>, (Vec<Completion>, RunStateError)> {
     let refuse = |group: Vec<QueuedWrite>, error: RunStateError| {
-        let completions = group.into_iter().map(|job| job(None)).collect();
+        let completions = group.into_iter().map(|job| job(None).0).collect();
         (completions, error)
     };
     let transaction = match connection.transaction_with_behavior(TransactionBehavior::Immediate) {
         Ok(transaction) => transaction,
-        Err(error) => return Err(refuse(group, sqlite_error(path, &error))),
+        Err(error) => return Err(refuse(group, commit_error(path, &error))),
     };
     let found = transaction
         .query_row("SELECT epoch FROM run", [], |row| row.get::<_, i64>(0))
@@ -504,25 +785,47 @@ fn commit_writes(
             error => Err(error),
         });
     match found {
-        Err(error) => return Err(refuse(group, sqlite_error(path, &error))),
+        Err(error) => return Err(refuse(group, commit_error(path, &error))),
         Ok(Some(found)) if i64::try_from(epoch).ok() != Some(found) => {
             let found = u64::try_from(found).unwrap_or_default();
             return Err(refuse(group, RunStateError::Fenced { held: epoch, found }));
         }
         Ok(_) => {}
     }
-    let completions: Vec<Completion> = group
-        .into_iter()
-        .map(|job| job(Some((&transaction, path))))
-        .collect();
-    if let Err(error) =
-        transaction.execute("UPDATE run SET journal_position = journal_position + 1", [])
-    {
-        return Err((completions, sqlite_error(path, &error)));
+    let mut completions = Vec::with_capacity(group.len());
+    let mut jobs = group.into_iter();
+    let mut ended = None;
+    for job in jobs.by_ref() {
+        let (completion, ends_group) = job(Some((&transaction, path)));
+        completions.push(completion);
+        if ends_group.is_some() {
+            ended = ends_group;
+            break;
+        }
     }
+    let failed = match ended {
+        // The rest of the group never runs: in a transaction SQLite ended,
+        // each of its statements would commit on its own.
+        Some(error) => {
+            completions.extend(jobs.map(|job| job(None).0));
+            Some(error)
+        }
+        None => transaction
+            .execute("UPDATE run SET journal_position = journal_position + 1", [])
+            .err()
+            .map(|error| commit_error(path, &error)),
+    };
+    if let Some(error) = failed {
+        // SQLite may have rolled the transaction back already after a full
+        // disk or an I/O error; `ROLLBACK` makes the state the same either
+        // way (ADR 0122).
+        let _ = transaction.rollback();
+        return Err((completions, error));
+    }
+    // A commit that fails is rolled back as its transaction drops.
     match transaction.commit() {
         Ok(()) => Ok(completions),
-        Err(error) => Err((completions, sqlite_error(path, &error))),
+        Err(error) => Err((completions, commit_error(path, &error))),
     }
 }
 

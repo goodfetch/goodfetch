@@ -212,6 +212,15 @@ const REFERENCE_LIMIT: u64 = 524_288;
     7
 )]
 #[case::threshold_in_the_runner_config("threshold-in-runner-config.ts", "playwright.config.ts", 6)]
+// In a visual test, `threshold` counts wherever it is written, so a variable
+// passed as the options does not hide it.
+#[case::threshold_in_a_variable_of_a_visual_test(
+    "threshold-in-a-variable.spec.ts",
+    "website/tests/docs.visual.spec.ts",
+    4
+)]
+// A helper module in a fixtures folder, which a visual spec may import.
+#[case::in_a_fixtures_folder("max-diff-pixels.spec.ts", "console/tests/fixtures/loose.ts", 4)]
 // Test support is not the shared config: only its one file is.
 #[case::in_test_support_beside_the_shared_config(
     "max-diff-pixels.spec.ts",
@@ -250,12 +259,19 @@ fn workspace_whose_tolerances_are_all_in_the_shared_config_passes() {
 }
 
 #[rstest]
-// A fixture breaks rules on purpose, as this check's own do.
-#[case::in_a_fixtures_folder("console/tests/fixtures/loose.spec.ts")]
+// This check's own cases break the rule on purpose.
+#[case::in_the_checks_own_cases("xtask/tests/it/fixtures/screenshots-cases/loose.spec.ts")]
+// Outside a visual test, `threshold` in a variable is a common word's.
+#[case::threshold_in_a_variable_outside_a_visual_test("console/src/observer.ts")]
 #[case::in_frozen_research("rnd/lab/loose.spec.ts")]
 fn tolerance_where_no_suite_runs_passes(#[case] path: &str) {
     let workspace = Workspace::from_fixture("screenshots");
-    workspace.add_fixture_file("screenshots-cases/max-diff-pixels.spec.ts", path);
+    let fixture = if path.ends_with("observer.ts") {
+        "screenshots-cases/threshold-in-a-variable.spec.ts"
+    } else {
+        "screenshots-cases/max-diff-pixels.spec.ts"
+    };
+    workspace.add_fixture_file(fixture, path);
 
     let outcome = workspace.xtask(&["screenshots", "check"]);
 

@@ -8,11 +8,35 @@
 # and a `reason`.
 
 [[story]]
+id = 13
+title = "As a Client author, I want every cloud-facing contract written as a conformance case with its expected messages, so that I implement a gateway from the cases, not from guesswork."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a Collie developer, I want my program's runs in Goodfetch Cloud to land on Collie's engine, so that it meets the refusals and the `config explain` it meets on my own Collie (ADR 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 15
 title = "As a Foxhound developer, I want my program's runs to land on Foxhound's engine, since my program may call Foxhound's operations at any point (ADR 0096)."
 milestone = "M1 Core"
 journey = false
-not_journey = "reach"
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a Collie developer, I want a raw `crawl.start` or a crawl setting from my Collie program refused with `not_in_product` behind the gateway, its `fix` naming the run's Product rather than an install that would not help there, so that a run that works in Goodfetch Cloud never fails on my own Collie, nor the reverse (ADRs 0087, 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"
 
 [[story]]
@@ -20,7 +44,7 @@ id = 17
 title = "As a Console user, I want a run I start from the Console to land on Foxhound's engine when its target names anything only Foxhound carries (an operation, a setting key, a Plugin kind or a Hook stage), and on Collie's otherwise, so that I never pick a Product by hand (ADR 0096)."
 milestone = "M1 Core"
 journey = false
-not_journey = "reach"
+not_journey = "part"
 status = "active"
 
 [[story]]
@@ -28,13 +52,37 @@ id = 18
 title = "As a Recipe author, I want my Recipe's manifest, not its settings or steps, to decide its Product wherever it is started, a Recipe that names Foxhound landing on Foxhound's engine whoever starts it, so that a Recipe runs on the Product it was written for (ADR 0096)."
 milestone = "M1 Core"
 journey = false
-not_journey = "reach"
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a program that reads a run it did not start, I want to reach that run whatever my own Product, and a call its engine's Product lacks refused with `not_in_product`, so that a Collie monitor can follow a Foxhound run's Collie-shaped state (ADR 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"
 
 [[story]]
 id = 21
 title = "As Goodfetch Cloud's maintainers, I want the routing rule as one function in `goodfetch-protocol` that my gateway calls, so that my gateway and the Stub gateway cannot route differently."
 milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 73
+title = "As Goodfetch Cloud's maintainers, I want to run the Cloud-readiness conformance suite from my private repository against my gateway, writing area 2's result document, so that my gateway proves the same cases as the Stub gateway (ADRs 0068, 0096)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 75
+title = "As a contributor, I want a new cloud-facing contract to land with its case in the same pull request, so that the readiness bar of #69 never slips."
+milestone = "M4 Everything else"
 journey = false
 not_journey = "actor"
 status = "active"

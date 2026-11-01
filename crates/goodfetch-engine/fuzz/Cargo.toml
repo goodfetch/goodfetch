@@ -4,7 +4,9 @@
 # `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
 # `cargo fuzz run json_rpc_framing fuzz/json_rpc_framing/seeds
 # -- -dict=fuzz/json_rpc_framing/dictionary.dict`, and likewise
-# `settings_file`, `checkpoint` and `secret_reference`.
+# `settings_file`, `checkpoint`, `secret_reference`, `address_classification`,
+# `certificate_file`, `console_sign_in`, `console_post_fallback`,
+# `robots_txt` and `audit_jsonl`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -51,6 +53,48 @@ bench = false
 [[bin]]
 name = "secret_reference"
 path = "fuzz_targets/secret_reference.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "address_classification"
+path = "fuzz_targets/address_classification.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "certificate_file"
+path = "fuzz_targets/certificate_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "console_sign_in"
+path = "fuzz_targets/console_sign_in.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "console_post_fallback"
+path = "fuzz_targets/console_post_fallback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "robots_txt"
+path = "fuzz_targets/robots_txt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "audit_jsonl"
+path = "fuzz_targets/audit_jsonl.rs"
 test = false
 doc = false
 bench = false

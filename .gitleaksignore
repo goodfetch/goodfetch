@@ -5,3 +5,8 @@
 c974475cf8c2c57dfdf557176900b15a8f9db1e9:crates/goodfetch-engine/src/engine/tests.rs:generic-api-key:664
 c974475cf8c2c57dfdf557176900b15a8f9db1e9:crates/goodfetch-engine/src/engine/tests.rs:generic-api-key:667
 b1c55edc4895fd533fa6b1937b448e3231a24e22:crates/goodfetch-protocol/src/secrets/tests.rs:goodfetch-secret-canary-typed-password:96
+# 2e41309b (ULID redaction fix): a made-up 64-hex-digit Daemon token in a shared snapshot-filter test vector.
+2e41309bfda028463f4f71a7857da687dfd1560f:test-support/fixtures/snapshot-filter-cases.json:generic-api-key:20
+2e41309bfda028463f4f71a7857da687dfd1560f:test-support/fixtures/snapshot-filter-cases.json:generic-api-key:21
+# 042c3e70 (#826): the fixed wrapping key of the compat accounts-store example, which writes a test corpus and guards nothing.
+042c3e701609434459292bdce11cfa7a2ec77ce4:crates/goodfetch-engine/examples/compat-accounts-store.rs:generic-api-key:43

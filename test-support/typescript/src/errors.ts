@@ -23,6 +23,10 @@ export type TestSupportErrorCode =
   | "daemon_not_requested"
   /** A served test took `daemon` with no `consoleServer`, while the executables serve no Console (ADR 0068). */
   | "console_not_served"
+  /** Every named port a test's Daemon can keep is taken (#2035). */
+  | "named_ports_exhausted"
+  /** A served test asked for a size-capped filesystem where test support makes none: off Linux (ADR 0122). */
+  | "size_capped_unsupported"
   /** `signIn` did not reach a signed-in state: the Console refused the link, or the OIDC provider the person (ADR 0068). */
   | "sign_in_failed"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
@@ -65,6 +69,8 @@ export type TestSupportErrorCode =
   | "bypass_csp_refused"
   /** A served test's page logged an error, threw, broke its CSP or had a same-origin request fail (ADR 0068). */
   | "page_errors"
+  /** A known issue of a test tool was tolerated while another one was (ADR 0068). */
+  | "known_issue_nested"
   /** `features/inventory.json` cannot be read, or fails its committed schema (ADR 0072). */
   | "inventory_invalid"
   /** A suite's case list cannot be read, is no TOML, or lacks its suite's name and version, a capability's name, or a case's ID or `covers` (ADRs 0033 and 0069). */
@@ -83,16 +89,32 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
+  /** A screen's keyboard walk reaches no stop (ADR 0073). */
+  | "keyboard_walk_empty"
   /** `browserStateReset` lifted a test's overrides and the page still read them past its deadline (ADR 0068). */
   | "browser_state_not_reset"
-  /** An entry of the axe exception file names a selector that matches nothing on a page where its rule ran (ADR 0073). */
+  /** A stop's area changes while it stays unfocused, so `focusChecks` cannot tell a focus ring from it (ADR 0073). */
+  | "focus_not_visible_unstable"
+  /** A screen's keyboard walk is not the one `console/screens.toml` records for it (ADR 0073). */
+  | "keyboard_walk_changed"
+  /** `console/screens.toml` sets up a screen the Feature inventory does not list (ADR 0073). */
+  | "screen_setup_orphaned"
+  /** The Console has routes, and the Feature inventory names no `screen:` Feature (ADR 0073). */
+  | "screens_missing"
+  /** An entry of the axe exception file excepts no violation on a page it names where its rule ran: its selector matches nothing there, or none of its elements violates the rule any more (ADR 0073). */
   | "axe_exception_unmatched"
+  /** An entry of the axe exception file names a selector that takes in the whole page (`html`, `body` or every element in it), which would turn its rule off (ADR 0073). */
+  | "axe_exception_too_broad"
   /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
   | "axe_exceptions_invalid"
   /** At 320 × 256 CSS pixels, the page or a region of it scrolls horizontally outside a data table or code block (ADR 0073). */
   | "horizontal_scroll"
   /** Text is clipped by its box with no way to read it in full, such as by scrolling (ADR 0073). */
   | "text_clipped"
+  /** Under the `en-XA` pseudo-locale, visible text is neither from the catalog nor inside `translate="no"` (ADR 0073). */
+  | "text_untranslated"
+  /** Under the `ar-XB` pseudo-locale, the document's root does not run right to left (ADR 0073). */
+  | "direction_not_rtl"
   /** `noRunningAnimations` ran on a page whose `prefers-reduced-motion` is not `reduce` (ADR 0073). */
   | "reduced_motion_off"
   /** An animation or transition was still running under `prefers-reduced-motion: reduce` (ADR 0073). */

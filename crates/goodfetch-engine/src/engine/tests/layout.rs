@@ -24,6 +24,7 @@ use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use crate::engine::Engine;
+use crate::ops::Ops;
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::transport::{self, InMemoryDialer, Network};
@@ -92,24 +93,43 @@ impl Succession for ThePick {
 }
 
 /// A Client's Connection: each call's reply.
-struct Talk(Client);
+pub(super) struct Talk(Client);
 
 impl Talk {
-    async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
+    pub(super) async fn ok(&mut self, id: i64, method: &str, params: Value) -> Value {
         let reply = call(&mut self.0, id, method, params).await;
         assert!(reply.get("result").is_some(), "{method}: {reply}");
         reply["result"].clone()
+    }
+
+    /// The reply to `method`, a result or an error.
+    pub(super) async fn reply(&mut self, id: i64, method: &str, params: Value) -> Value {
+        call(&mut self.0, id, method, params).await
+    }
+
+    /// The Connection's Client, for a call it reads message by message.
+    pub(super) fn client(&mut self) -> &mut Client {
+        &mut self.0
     }
 }
 
 /// Runs the engine as an Attached engine in `env`, in the per-run layout,
 /// while `talk` talks to it.
-fn per_run<F, Fut, T>(env: &TestEnv, talk: F) -> T
+pub(super) fn per_run<F, Fut, T>(env: &TestEnv, talk: F) -> T
 where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    attached_on(&engine(), env, |mut client| async move {
+    per_run_on(&engine(), env, talk)
+}
+
+/// [`per_run`], with `engine`.
+pub(super) fn per_run_on<F, Fut, T>(engine: &Engine, env: &TestEnv, talk: F) -> T
+where
+    F: FnOnce(Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
+    attached_on(engine, env, |mut client| async move {
         client.send(&[hello("collie", "0.1")]).await;
         client.next().await;
         talk(Talk(client)).await
@@ -118,12 +138,21 @@ where
 
 /// Runs the engine as a Daemon in `env`, in the per-install layout, while
 /// `talk` talks to it; the Daemon then stops idle.
-fn per_install<F, Fut, T>(env: &TestEnv, talk: F) -> T
+pub(super) fn per_install<F, Fut, T>(env: &TestEnv, talk: F) -> T
 where
     F: FnOnce(Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    daemon_in(env, |dialer| async move {
+    per_install_on(&engine(), env, talk)
+}
+
+/// [`per_install`], with `engine` as the Daemon.
+pub(super) fn per_install_on<F, Fut, T>(engine: &Engine, env: &TestEnv, talk: F) -> T
+where
+    F: FnOnce(Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
+    daemon_on(engine, env, |dialer| async move {
         let mut client = connect(&dialer).await;
         let mut hello = hello("collie", "0.1");
         hello["params"]["token"] = json!(TOKEN);
@@ -148,7 +177,15 @@ where
     F: FnOnce(InMemoryDialer) -> Fut,
     Fut: Future<Output = T>,
 {
-    let engine = engine();
+    daemon_on(&engine(), env, body)
+}
+
+/// [`daemon_in`], with `engine` as the Daemon.
+fn daemon_on<F, Fut, T>(engine: &Engine, env: &TestEnv, body: F) -> T
+where
+    F: FnOnce(InMemoryDialer) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies(env);
         // The test `tracing` subscriber writes the dispatch records into the
@@ -179,6 +216,7 @@ where
             console: DaemonConsole::Absent,
             drain: None,
             install: Some(install),
+            ops: Ops::default(),
             websocket: None,
         };
         let (network, dialer) = transport::in_memory();
@@ -194,7 +232,7 @@ where
     })
 }
 
-fn install_file(env: &TestEnv) -> PathBuf {
+pub(super) fn install_file(env: &TestEnv) -> PathBuf {
     env.home().join("1").join(INSTALL_FILE)
 }
 

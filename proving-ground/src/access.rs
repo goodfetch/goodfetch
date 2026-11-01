@@ -3,10 +3,17 @@
 //! fetches, over HTTP and in the browser, whose fingerprints the server
 //! compares; a self-hosted bot probe in the manner of `BotD` and `CreepJS`; a
 //! probe of the debugging protocol's side effects; the version check; the
-//! block-detection corpus; and two pages no task names, which the engine's
-//! own tests read: the identity a page reads of its browser, every client
-//! hint asked for, and a 100 ms timer that reports whether a page behind
-//! another tab kept it (spec #577, ticket #696). Its answers name the build's age beside the
+//! block-detection corpus; and pages no task names, which the engine's own
+//! tests read: the identity a page reads of its browser, every client hint
+//! asked for, and a 100 ms timer that reports whether a page behind another
+//! tab kept it (spec #577, ticket #696); a page's events (#703), with its
+//! forms page, whose sign-in posts to a redirect, and its page holding an
+//! iframe on another site; a page
+//! a service worker controls (#707); and a page that opens each JavaScript
+//! dialog and one that opens a popup (#719); and a page whose own script
+//! defines a global and records an init script's mark (#704); and one page
+//! per kind of request a page makes, which makes one of that kind to the
+//! host it names (#632). Its answers name the build's age beside the
 //! Access dimensions a result was run under, so every result is reported per
 //! Fingerprint method, engine, Access mode and build age, against stock
 //! headless and headful Chrome as controls.
@@ -22,6 +29,7 @@ use crate::exchange::{Reply, Request};
 use crate::generator;
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Answer, Finding};
+use crate::push::Push;
 use crate::task::{self, Entry, Expected, Kind, Record, Task};
 use versions::BuildAge;
 
@@ -51,6 +59,69 @@ const CDP_PROBE: &str = "/cdp-probe";
 const VERSION: &str = "/version";
 const IDENTITY: &str = "/identity";
 const TIMER: &str = "/timer";
+const PAGE_EVENTS: &str = "/page-events";
+/// The JSON body the page events page requests, also at the path a
+/// program may abort.
+const PAGE_EVENTS_DATA: [&str; 2] = ["/page-events/data.json", "/page-events/aborted"];
+/// The WebSocket the page events page opens.
+const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
+/// The page events forms page: a sign-in form posting to
+/// [`PAGE_EVENTS_SESSION`], which redirects to [`PAGE_EVENTS_HOME`], and a
+/// search form getting [`PAGE_EVENTS_SEARCH`].
+const PAGE_EVENTS_FORMS: &str = "/page-events/forms";
+const PAGE_EVENTS_SESSION: &str = "/page-events/session";
+const PAGE_EVENTS_HOME: &str = "/page-events/home";
+const PAGE_EVENTS_SEARCH: &str = "/page-events/search";
+/// The body of the redirect [`PAGE_EVENTS_SESSION`] answers, which no read
+/// of the page's events returns.
+const PAGE_EVENTS_REDIRECT_BODY: &str = "page-events redirect";
+/// The page events page holding an iframe on `access.localhost`, another
+/// site, which the browser runs out of process, and that frame's document.
+const PAGE_EVENTS_FRAMED: &str = "/page-events/framed";
+const PAGE_EVENTS_FRAME: &str = "/page-events/frame";
+/// A JSON body of 64 KiB, past a small `network.max_body_size`.
+const PAGE_EVENTS_LARGE: &str = "/page-events/large.json";
+/// The dialogs page, the popup page and the page its popup loads.
+const DIALOGS: &str = "/dialogs";
+const POPUP: &str = "/popup";
+const POPUP_OPENED: &str = "/popup/opened";
+/// The page functions page.
+const PAGE_FUNCTIONS: &str = "/page-functions";
+/// The service worker page and its worker's script.
+const SERVICE_WORKER: &str = "/service-worker/";
+const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
+/// The JSON calls the service worker page and its worker make.
+const SERVICE_WORKER_CALLS: [&str; 3] = [
+    "/service-worker/own.json",
+    "/service-worker/cached.json",
+    "/service-worker/network.json",
+];
+/// The path the service worker requests that EasyPrivacy blocks.
+const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
+/// The request the service worker makes, when its page asks, that the
+/// Proving ground holds in flight [`SERVICE_WORKER_HOLD`], far past
+/// `networkidle`'s 500 ms of quiet, so a wait that counted a worker's own
+/// requests would not end while it is held (#707).
+const SERVICE_WORKER_HELD: &str = "/service-worker-held.json";
+/// How long [`SERVICE_WORKER_HELD`] is held.
+const SERVICE_WORKER_HOLD: std::time::Duration = std::time::Duration::from_secs(60);
+/// The request kinds pages, one per kind under this prefix, and their
+/// worker's script, service worker's script and cross-site frame.
+const REQUEST_KINDS: &str = "/request-kinds/";
+const REQUEST_KINDS_WORKER: &str = "/request-kinds/worker.js";
+const REQUEST_KINDS_SERVICE_WORKER: &str = "/request-kinds/sw.js";
+const REQUEST_KINDS_FRAME: &str = "/request-kinds/frame-document";
+/// The kinds of request the request kinds pages make (ADR 0014).
+const REQUEST_KIND_NAMES: [&str; 8] = [
+    "fetch",
+    "navigation",
+    "frame",
+    "dedicated_worker",
+    "shared_worker",
+    "service_worker",
+    "websocket",
+    "webrtc",
+];
 
 /// The client hints the identity page asks for, beyond those a browser
 /// sends unasked, so the requests its script makes carry every one.
@@ -63,6 +134,19 @@ const BOT_PROBE_SCRIPT: &str = include_str!("../pages/access/bot-probe.js");
 const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
 const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
 const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
+const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
+const PAGE_EVENTS_FORMS_SCRIPT: &str = include_str!("../pages/access/page-events-forms.js");
+const PAGE_EVENTS_FRAME_SCRIPT: &str = include_str!("../pages/access/page-events-frame.js");
+const DIALOGS_SCRIPT: &str = include_str!("../pages/access/dialogs.js");
+const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
+const PAGE_FUNCTIONS_SCRIPT: &str = include_str!("../pages/access/page-functions.js");
+const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
+const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
+const REQUEST_KINDS_SCRIPT: &str = include_str!("../pages/access/request-kinds.js");
+const REQUEST_KINDS_WORKER_SCRIPT: &str = include_str!("../pages/access/request-kinds-worker.js");
+const REQUEST_KINDS_SERVICE_WORKER_SCRIPT: &str =
+    include_str!("../pages/access/request-kinds-sw.js");
+const REQUEST_KINDS_FRAME_SCRIPT: &str = include_str!("../pages/access/request-kinds-frame.js");
 
 /// The generator places of the family's values: the family's own first, then
 /// 0 and the value's.
@@ -146,6 +230,48 @@ pub(crate) fn respond(
             Reply::html(page(seed, "timer", &reporting(TIMER_SCRIPT))),
             None,
         ),
+        Method::GET if path == PAGE_EVENTS => {
+            (scripted(seed, "page-events", PAGE_EVENTS_SCRIPT), None)
+        }
+        Method::GET if PAGE_EVENTS_DATA.contains(&path) => (
+            Reply::json(
+                StatusCode::OK,
+                &serde_json::json!({ "page_events": code(seed, "page-events") }),
+            ),
+            None,
+        ),
+        _ if let Some(reply) = page_events_more(seed, request.method, path) => (reply, None),
+        Method::GET if path == DIALOGS => (
+            Reply::html(page(seed, "dialogs", &reporting(DIALOGS_SCRIPT))),
+            None,
+        ),
+        Method::GET if path == POPUP => (scripted(seed, "popup", POPUP_SCRIPT), None),
+        Method::GET if path == PAGE_FUNCTIONS => (
+            scripted(seed, "page-functions", PAGE_FUNCTIONS_SCRIPT),
+            None,
+        ),
+        Method::GET if path == POPUP_OPENED => (Reply::html(page(seed, "popup-opened", "")), None),
+        Method::GET if path == SERVICE_WORKER => (
+            Reply::html(page(
+                seed,
+                "service-worker",
+                &reporting(SERVICE_WORKER_PAGE_SCRIPT),
+            )),
+            None,
+        ),
+        Method::GET if path == SERVICE_WORKER_SCRIPT => {
+            (script_reply(SERVICE_WORKER_WORKER_SCRIPT), None)
+        }
+        Method::GET if SERVICE_WORKER_CALLS.contains(&path) => (
+            Reply::json(StatusCode::OK, &serde_json::json!({ "path": path })),
+            None,
+        ),
+        Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
+        Method::GET if path == SERVICE_WORKER_HELD => (
+            Reply::json(StatusCode::OK, &serde_json::json!({ "held": true })),
+            None,
+        ),
+        Method::GET if let Some(reply) = request_kinds(seed, path) => (reply, None),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
             Some(report) => (Reply::no_content(), Some(Recorded::Report(report))),
@@ -158,12 +284,103 @@ pub(crate) fn respond(
     })
 }
 
+/// The page events page's forms page and the pages its forms reach, its
+/// page holding an out-of-process frame and that frame, or its large body,
+/// for `method` and `path`.
+fn page_events_more(seed: u64, method: &Method, path: &str) -> Option<Reply> {
+    if *method == Method::POST {
+        return (path == PAGE_EVENTS_SESSION).then(|| Reply {
+            body: PAGE_EVENTS_REDIRECT_BODY.into(),
+            ..Reply::found(PAGE_EVENTS_HOME)
+        });
+    }
+    if *method != Method::GET {
+        return None;
+    }
+    Some(match path {
+        PAGE_EVENTS_FORMS => Reply::html(page(
+            seed,
+            "page-events-forms",
+            &format!(
+                "<form id=\"sign-in\" method=\"post\" action=\"{PAGE_EVENTS_SESSION}\">\n<input name=\"user\" value=\"jb\">\n<input name=\"password\" type=\"password\">\n<button type=\"submit\" id=\"sign-in-submit\">Sign in</button>\n</form>\n<form id=\"search\" method=\"get\" action=\"{PAGE_EVENTS_SEARCH}\">\n<input name=\"q\">\n<button type=\"submit\" id=\"search-submit\">Search</button>\n</form>\n<button type=\"button\" id=\"away\">Sign in elsewhere</button>\n<script>\n{PAGE_EVENTS_FORMS_SCRIPT}</script>\n"
+            ),
+        )),
+        PAGE_EVENTS_HOME => Reply::html(page(seed, "page-events-home", "")),
+        PAGE_EVENTS_SEARCH => Reply::html(page(seed, "page-events-search", "")),
+        PAGE_EVENTS_FRAMED => Reply::html(page(
+            seed,
+            "page-events-framed",
+            &format!(
+                "<iframe title=\"Another site\"></iframe>\n<script>\ndocument.querySelector(\"iframe\").src = `http://{LOCAL_HOST}:${{location.port}}{PAGE_EVENTS_FRAME}`;\n</script>\n"
+            ),
+        )),
+        PAGE_EVENTS_FRAME => scripted(seed, "page-events-frame", PAGE_EVENTS_FRAME_SCRIPT),
+        PAGE_EVENTS_LARGE => Reply::json(
+            StatusCode::OK,
+            &serde_json::json!({ "large": "x".repeat(64 * 1024) }),
+        ),
+        _ => return None,
+    })
+}
+
+/// A request kinds page, its worker's or service worker's script or its
+/// frame, for `path`.
+fn request_kinds(seed: u64, path: &str) -> Option<Reply> {
+    if path == REQUEST_KINDS_WORKER {
+        return Some(script_reply(REQUEST_KINDS_WORKER_SCRIPT));
+    }
+    if path == REQUEST_KINDS_SERVICE_WORKER {
+        return Some(script_reply(REQUEST_KINDS_SERVICE_WORKER_SCRIPT));
+    }
+    if path == REQUEST_KINDS_FRAME {
+        return Some(scripted(
+            seed,
+            "request-kinds-frame",
+            REQUEST_KINDS_FRAME_SCRIPT,
+        ));
+    }
+    path.strip_prefix(REQUEST_KINDS)
+        .is_some_and(|kind| REQUEST_KIND_NAMES.contains(&kind))
+        .then(|| scripted(seed, "request-kinds", REQUEST_KINDS_SCRIPT))
+}
+
+/// The connection a request to `name` and `path` asks the server to hold
+/// open: the page events page's WebSocket.
+pub(crate) fn push(name: &str, method: &Method, path: &str) -> Option<Push> {
+    (*method == Method::GET
+        && path == PAGE_EVENTS_SOCKET
+        && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
+    .then_some(Push::Socket)
+}
+
+/// How long the server holds a request for `path` on `name` before it
+/// answers, if it holds it: the service worker's held request.
+pub(crate) fn hold(name: &str, path: &str) -> Option<std::time::Duration> {
+    (path == SERVICE_WORKER_HELD && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
+        .then_some(SERVICE_WORKER_HOLD)
+}
+
+/// `script`, served as JavaScript.
+fn script_reply(script: &'static str) -> Reply {
+    Reply {
+        status: StatusCode::OK,
+        content_type: "text/javascript; charset=utf-8",
+        headers: Vec::new(),
+        body: script.into(),
+    }
+}
+
 /// A page of the family: its Record, and `more` after it.
 fn page(seed: u64, id: &str, more: &str) -> String {
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{id}</title></head>\n<body>\n<main>\n<article class=\"record\" data-id=\"{id}\">\n<p>Code: <span class=\"code\">{}</span></p>\n</article>\n{more}</main>\n</body>\n</html>\n",
         code(seed, id)
     )
+}
+
+/// A page of the family whose script is `script`, inline.
+fn scripted(seed: u64, id: &str, script: &str) -> Reply {
+    Reply::html(page(seed, id, &format!("<script>\n{script}</script>\n")))
 }
 
 /// A probe's script, which reports to its host under `check`.

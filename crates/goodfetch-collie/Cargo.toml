@@ -14,7 +14,7 @@ autobenches = false
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "dep:ureq", "tokio/io-util", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-cli", "dep:jiff", "dep:mimalloc", "dep:serde", "dep:tempfile", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 clap = { workspace = true, optional = true }
@@ -25,6 +25,8 @@ goodfetch-cli = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
+# The built-in external Secret providers (spec #564).
+goodfetch-secret-providers.workspace = true
 jiff = { workspace = true, optional = true }
 mimalloc = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
@@ -37,30 +39,49 @@ tokio = { workspace = true, features = ["rt"] }
 tokio-util = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "json"] }
-# The opt-in OTLP export of the engine's spans (RT-18, ADR 0132), sent with
-# ureq from the batch processor's own thread.
+# The opt-in OTLP export of the engine's spans (RT-18, ADR 0132), and the
+# foreground Daemon's metrics (ADR 0050): the SDK whose meter the engine
+# records on, the Prometheus exporter its ops listener serves, and the
+# OTLP/HTTP exports in protobuf, sent through the engine's own HTTP client,
+# the collector an Operator-configured endpoint, from the batch processor's
+# and the periodic reader's own threads.
 async-trait = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
-opentelemetry = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true, features = ["logs", "metrics"] }
 opentelemetry-http = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true, features = ["logs", "metrics"] }
+opentelemetry-prometheus = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true, features = ["logs", "metrics"] }
+prometheus = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
 libc = { workspace = true, optional = true }
 
+[build-dependencies]
+# Reads the Console build's routes, `routes.json` (ADR 0072).
+serde_json.workspace = true
+
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062).
 goodfetch-collie = { path = ".", features = ["executable"] }
+# The embedded Clean-up rules' digest and manifest, which a Run holds to by
+# default (tests/it/clean_up_rules.rs).
+goodfetch-clean-up-rules.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
-# A stored body's ID, the SHA-256 of its bytes, for `page body --follow`.
+# The Clean-up rules sources' HTTPS stand-in, its authority and its
+# listener (tests/it/clean_up_rules/stand_in.rs).
+rcgen = { workspace = true, features = ["pem", "ring"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# A stored body's ID, the SHA-256 of its bytes, for `page body --follow`,
+# and the stand-in registry's blob digests.
 sha2.workspace = true
+# The relay authority's key hash, in base64, as its Provenance entry gives it.
+data-encoding.workspace = true
 insta.workspace = true
 # The clean-up's time in the page tests, and the pins' lever
 # (examples/pin-chrome-for-testing.rs), which downloads and unpacks the
@@ -78,14 +99,23 @@ toml.workspace = true
 # The Console's headers test, an HTTP Client of the Daemon's Console
 # (tests/it/console.rs), and the pins' lever's download.
 ureq.workspace = true
-# The OTLP collector stand-in of the trace export's tests (tests/it/log.rs).
-opentelemetry-proto.workspace = true
+# The SSRF table runners' URLs as the WHATWG parser writes them
+# (tests/it/navigation_egress.rs, tests/it/borrowed_browser.rs).
+url.workspace = true
+# The OTLP collector stand-in of the trace and metrics exports' tests
+# (tests/it/log.rs, tests/it/ops.rs).
+opentelemetry-proto = { workspace = true, features = ["logs", "metrics"] }
 prost.workspace = true
 # The corpus writer's in-memory Client (examples/compat-protocol.rs).
 tokio = { workspace = true, features = ["io-util", "macros"] }
 # A WebSocket Client of `daemon run` (tests/it/websocket.rs).
 tungstenite.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+# The Secret tests plant a value through each provider's real interface
+# (tests/it/secrets.rs): an age file for the encrypted local file, and the
+# engine's own keychain, whose values are `SecretString`s.
+age = { workspace = true, features = ["armor"] }
+secrecy.workspace = true
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

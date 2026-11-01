@@ -6,12 +6,12 @@
 //! fails on a message no step expects and on a step left unused. The
 //! `goodfetch-scripted-engine` executable plays it over its own stdio.
 
-use std::fmt;
 use std::io::{self, BufRead, Write};
 
 use serde_json::{Value, json};
 
 use crate::script::{Call, Reply, Script, Sent, Step};
+use crate::strict_stdout::is_json_rpc;
 
 /// Where an Attached engine started as an SDK starts one,
 /// `goodfetch-scripted-engine attached-engine`, finds its script: under
@@ -183,6 +183,11 @@ impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
             });
         };
         self.note(&json!({ "from": "client", "message": message }))?;
+        // The real engine refuses what is not one JSON-RPC 2.0 message: a
+        // missing or other `jsonrpc`, a reply with both `result` and `error`.
+        if !is_json_rpc(&message) {
+            return Err(unexpected(index, "a JSON-RPC 2.0 message", &message));
+        }
         Ok(message)
     }
 
@@ -261,10 +266,11 @@ fn unexpected(step: usize, expected: &str, message: &Value) -> PlayError {
 
 /// Why a play failed. Its `Display` opens with its code, such as
 /// `unexpected_message`, which a test matches on.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PlayError {
     /// The Client sent a message no step expects.
+    #[error("unexpected_message: {} expects {expected}, and the Client sent {received}", expecting(*step))]
     UnexpectedMessage {
         /// The step that expected another, or none after the last.
         step: Option<usize>,
@@ -275,20 +281,25 @@ pub enum PlayError {
     },
     /// The Client closed its end, or the script ended, with this step
     /// unused.
+    #[error("unused_step: step {step} was left unused")]
     UnusedStep {
         /// The first step left unused.
         step: usize,
     },
     /// A `reply` or `await_reply` step has no request before it to answer.
+    #[error("nothing_to_answer: step {step} answers a request, and none came before it")]
     NothingToAnswer {
         /// The step.
         step: usize,
     },
     /// Writing to the Client failed: it closed its end.
+    #[error("client_gone: {0}")]
     ClientGone(io::Error),
     /// Reading from the Client failed.
+    #[error("read_failed: {0}")]
     Read(io::Error),
     /// Writing the record failed.
+    #[error("record_failed: {0}")]
     Record(io::Error),
 }
 
@@ -306,38 +317,8 @@ impl PlayError {
     }
 }
 
-impl fmt::Display for PlayError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let code = self.code();
-        match self {
-            Self::UnexpectedMessage {
-                step: Some(step),
-                expected,
-                received,
-            } => write!(
-                formatter,
-                "{code}: step {step} expects {expected}, and the Client sent {received}"
-            ),
-            Self::UnexpectedMessage {
-                step: None,
-                expected,
-                received,
-            } => write!(
-                formatter,
-                "{code}: the script expects {expected}, and the Client sent {received}"
-            ),
-            Self::UnusedStep { step } => {
-                write!(formatter, "{code}: step {step} was left unused")
-            }
-            Self::NothingToAnswer { step } => write!(
-                formatter,
-                "{code}: step {step} answers a request, and none came before it"
-            ),
-            Self::ClientGone(error) | Self::Read(error) | Self::Record(error) => {
-                write!(formatter, "{code}: {error}")
-            }
-        }
-    }
+/// Which step of the script expected a message: `step <n>`, or the script
+/// itself after its last step.
+fn expecting(step: Option<usize>) -> String {
+    step.map_or_else(|| "the script".to_owned(), |step| format!("step {step}"))
 }
-
-impl std::error::Error for PlayError {}

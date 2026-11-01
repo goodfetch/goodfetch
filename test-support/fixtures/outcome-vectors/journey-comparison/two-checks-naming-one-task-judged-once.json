@@ -1,0 +1,49 @@
+{
+  "description": "Two checks naming one task judged by one answer leave the second check without its own: the document is refused",
+  "journey": {
+    "steps": [
+      {
+        "text": "Start two crawls of the catalog's first listing page"
+      }
+    ],
+    "expect": [
+      {
+        "text": "The oracle verifies the first crawl's Records",
+        "task": "catalog/1"
+      },
+      {
+        "text": "The oracle verifies the second crawl's Records",
+        "task": "catalog/1"
+      }
+    ],
+    "tasks": ["catalog/1"]
+  },
+  "document": {
+    "steps": [
+      {
+        "text": "Start two crawls of the catalog's first listing page",
+        "outcome": "passed"
+      }
+    ],
+    "checks": [
+      {
+        "text": "The oracle verifies the first crawl's Records",
+        "task": "catalog/1",
+        "outcome": "passed"
+      },
+      {
+        "text": "The oracle verifies the second crawl's Records",
+        "task": "catalog/1",
+        "outcome": "passed"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "catalog/1",
+        "answer": "verified"
+      }
+    ],
+    "outcome": "proved"
+  },
+  "read": "missing_task"
+}

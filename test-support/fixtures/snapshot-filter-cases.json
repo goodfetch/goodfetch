@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "description": "A Run ID as the engine writes it, a ULID in lowercase (ADR 0059): the one of 2026-01-05T09:00:00Z",
+      "output": "run 01ke6p4ym0kwx1ravx9sfp18dj finished",
+      "redacted": "run [ULID] finished"
+    },
+    {
+      "description": "A lowercase Run ID alone",
+      "output": "01ke6p4ym0kwx1ravx9sfp18dj",
+      "redacted": "[ULID]"
+    },
+    {
+      "description": "A lowercase Run ID in a URL and in a path",
+      "output": "http://127.0.0.1:8080/runs/01ke6p4ym0kwx1ravx9sfp18dj/events wrote runs/01ke6p4ym0kwx1ravx9sfp18dj.json",
+      "redacted": "http://127.0.0.1:[PORT]/runs/[ULID]/events wrote runs/[ULID].json"
+    },
+    {
+      "description": "A ULID matches only as a whole word: a Daemon token, 64 hex digits whose last 26 read as a lowercase ULID, stays whole",
+      "output": "http://127.0.0.1:8080/#token=9f3ab7c2e1d4f6a8b0c9d2e5f7a1b3c4d6e8f04b6d8f0a2c4e6f8a1b3c5d7e9f",
+      "redacted": "http://127.0.0.1:[PORT]/#token=9f3ab7c2e1d4f6a8b0c9d2e5f7a1b3c4d6e8f04b6d8f0a2c4e6f8a1b3c5d7e9f"
+    },
+    {
+      "description": "A ULID matches only as a whole word: a base64url token whose tail is a 26-character base32 run stays whole",
+      "output": "cookie Tq9_w01ke6p4ym0kwx1ravx9sfp18dj",
+      "redacted": "cookie Tq9_w01ke6p4ym0kwx1ravx9sfp18dj"
+    },
+    {
+      "description": "A ULID in uppercase, as a Schedule ID may be written",
+      "output": "Schedule 01KE6P4YM0KWX1RAVX9SFP18DJ is due",
+      "redacted": "Schedule [ULID] is due"
+    },
+    {
+      "description": "A port on an extra loopback address, 127.0.0.2 upward (ci/os-services.sh)",
+      "output": "proxy at http://127.0.0.2:51234/ and dns at 127.0.0.9:5353",
+      "redacted": "proxy at http://127.0.0.[N]:[PORT]/ and dns at 127.0.0.[N]:[PORT]"
+    },
+    {
+      "description": "A port on 127.0.0.1 keeps its address",
+      "output": "serving on 127.0.0.1:8080",
+      "redacted": "serving on 127.0.0.1:[PORT]"
+    },
+    {
+      "description": "ISO 8601 durations with a date part only, or both parts",
+      "output": "retained P1D, P2W and P1DT2H, every PT30S",
+      "redacted": "retained [DURATION], [DURATION] and [DURATION], every [DURATION]"
+    },
+    {
+      "description": "A day count is no duration the product writes (ms, s, m and h only), so a token like 4d stays",
+      "output": "token 4d after 2m and 1.5s",
+      "redacted": "token 4d after [DURATION] and [DURATION]"
+    },
+    {
+      "description": "A word boundary is ASCII's in all three languages: a non-ASCII letter ends a word",
+      "output": "é5s",
+      "redacted": "é[DURATION]"
+    }
+  ]
+}

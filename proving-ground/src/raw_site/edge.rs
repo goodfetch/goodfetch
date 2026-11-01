@@ -19,6 +19,18 @@
 //!   (or, over HTTP/1.1, the connection's close).
 //! - `ipv6.fetch-edge.test` serves the pages on IPv4; the Proving ground's
 //!   IPv6 loopback address on its port drops every connection attempt.
+//! - `/misdirected` answers `421` once on any connection, for a client that
+//!   never coalesces hosts on one connection, as the HTTP tier does not.
+//! - `/text/shift-jis` and `/json/bom` are the bodies `page.request`'s
+//!   decoding cases read (ADR 0119): text in `Shift_JIS`, labelled so, and
+//!   JSON after a UTF-8 BOM.
+//! - `/sniffed/<case>` serves a body with no `Content-Type`, typed by MIME
+//!   sniffing, and `/redirect/301/untyped` a 301 with neither a type nor a
+//!   body (ADR 0119).
+//! - `/endless/pdf` serves an `application/pdf` head and a chunked body
+//!   that never ends, over HTTP/1.1, so a crawl that skips the type before
+//!   its body is read ends at once, and one that reads it never does (ADR
+//!   0119; pitfall H16).
 
 use std::fmt::Write as _;
 
@@ -82,14 +94,41 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
     if let Some(rest) = path.strip_prefix("/cut/") {
         return cut(rest, path);
     }
+    if let Some(case) = path.strip_prefix("/sniffed/") {
+        return SNIFFED
+            .iter()
+            .find(|(name, _)| *name == case)
+            .map_or_else(not_found, |(_, body)| {
+                Answer::Page(Page::untyped(200, *body))
+            });
+    }
     match path {
         "/robots.txt" => Answer::Page(Page::text(200, ROBOTS)),
+        // An answer with no document, which a browser's navigation abandons.
+        "/no-content" => Answer::Page(Page::text(204, "")),
         "/close-delimited" => Answer::Page(page(path).framed(Framing::Close)),
+        // A file no crawl may read before it judged its type (ADR 0119).
+        "/endless/pdf" => Answer::Filler {
+            page: Page::new(200, "application/pdf", Vec::new()).framed(Framing::Chunked),
+            length: None,
+        },
+        // 日本語 in Shift_JIS, for `page.request`'s decoding cases (ADR 0119).
+        "/text/shift-jis" => Answer::Page(Page::new(
+            200,
+            "text/plain; charset=Shift_JIS",
+            [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA],
+        )),
+        "/json/bom" => Answer::Page(Page::new(
+            200,
+            "application/json",
+            &b"\xEF\xBB\xBF{\"bom\":true}"[..],
+        )),
         "/refused" if first => Answer::Refuse(Refusal::Reset(ErrorCode::RefusedStream)),
         "/refused/always" => Answer::Refuse(Refusal::Reset(ErrorCode::RefusedStream)),
         "/http1-required" if request.protocol == Protocol::Http2 => {
             Answer::Refuse(Refusal::Reset(ErrorCode::Http11Required))
         }
+        "/misdirected" if first => Answer::Page(Page::text(421, "misdirected request")),
         "/calm" if first => Answer::Refuse(Refusal::Reset(ErrorCode::EnhanceYourCalm)),
         "/reuse/close" if request.earlier_on_connection > 0 => Answer::Refuse(Refusal::Close),
         "/reuse/408" if request.earlier_on_connection > 0 => {
@@ -102,6 +141,23 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
 fn not_found() -> Answer {
     Answer::Page(Page::text(404, "not found"))
 }
+
+/// The bodies `/sniffed/<case>` serves with no `Content-Type`, each typed
+/// as Chromium's MIME sniffer types it (ADR 0119): HTML after leading
+/// spaces, XML, plain text, binary bytes and a PDF.
+const SNIFFED: [(&str, &[u8]); 5] = [
+    (
+        "html",
+        b"\n  <!DOCTYPE html><html><head><title>Sniffed</title></head><body><h1>Sniffed as HTML</h1></body></html>\n",
+    ),
+    (
+        "xml",
+        b"<?xml version=\"1.0\"?><note><to>Sniffed as XML</to></note>\n",
+    ),
+    ("text", b"Sniffed as plain text.\n"),
+    ("binary", b"Sniffed\x00as\x01binary\x02bytes"),
+    ("pdf", b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"),
+];
 
 /// A plain page naming its path, long enough to be cut.
 fn page(path: &str) -> Page {
@@ -120,6 +176,11 @@ fn redirect(rest: &str, request: &Request) -> Answer {
     let to = |status: u16, location: &str| {
         Answer::Page(Page::text(status, "").with("location", location.to_owned()))
     };
+    // The request's own port, for a redirect to another host on it.
+    let port = request
+        .authority
+        .rsplit_once(':')
+        .map_or(String::new(), |(_, port)| format!(":{port}"));
     match rest {
         "loop" => to(302, "/redirect/loop"),
         "cookie"
@@ -134,6 +195,9 @@ fn redirect(rest: &str, request: &Request) -> Answer {
                 .with("location", "/redirect/cookie")
                 .with("set-cookie", "hop=1; Path=/; Secure; SameSite=Lax"),
         ),
+        // A listed redirect with no `Content-Type` and no body: nothing to
+        // type (ADR 0119).
+        "301/untyped" => Answer::Page(Page::untyped(301, "").with("location", "/target")),
         "301" | "302" | "303" | "307" | "308" => to(
             rest.parse().expect("invariant: the status is numeric"),
             "/target",
@@ -141,13 +205,17 @@ fn redirect(rest: &str, request: &Request) -> Answer {
         "300" => to(300, "/target"),
         "no-location" => Answer::Page(Page::text(302, "")),
         "ftp" => to(302, "ftp://fetch-edge.test/target"),
-        "cross-origin" => {
-            let port = request
-                .authority
-                .rsplit_once(':')
-                .map_or(String::new(), |(_, port)| format!(":{port}"));
-            to(302, &format!("https://{HTTP1_HOST}{port}/target"))
-        }
+        "file" => to(302, "file:///etc/passwd"),
+        "gopher" => to(302, "gopher://fetch-edge.test/1"),
+        "data" => to(302, "data:text/html,hi"),
+        "cross-origin" => to(302, &format!("https://{HTTP1_HOST}{port}/target")),
+        // The Proving ground's own loopback address, dotted and in hex.
+        "address" => to(302, &format!("http://127.0.0.1{port}/address/target")),
+        "address/hex" => to(302, &format!("http://0x7f.0.0.1{port}/address/target")),
+        // A name every resolver answers with a loopback address.
+        "address/name" => to(302, &format!("http://localhost{port}/address/target")),
+        // `bücher.test` in punycode.
+        "punycode" => to(302, &format!("http://xn--bcher-kva.test{port}/target")),
         "robots" => to(302, "/private/target"),
         hops => match hops
             .strip_prefix("hops/")
@@ -196,7 +264,10 @@ fn refresh(rest: &str) -> Option<Page> {
 /// `/retry-after/<status>/<form>`: on its first request, the status with a
 /// `Retry-After` of 2 s, in seconds or as an HTTP-date in one of RFC 9110's
 /// three formats (§5.6.7) against a `Date` an hour behind; a page after.
-/// `/retry-after/503/long` always asks for an hour.
+/// `/long` after the form asks for an hour instead, so a client that did
+/// not wait is never mistaken for a slow one.
+/// `/retry-after/503/long` and `/retry-after/429/long` always answer their
+/// status and ask for an hour.
 fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
     let Some((status, form)) = rest.split_once('/') else {
         return not_found();
@@ -209,10 +280,13 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
             Page::text(status, "unavailable").with("retry-after", LONG_RETRY_SECONDS.to_string()),
         );
     }
+    let (form, wait) = form
+        .strip_suffix("/long")
+        .map_or((form, RETRY_SECONDS), |form| (form, LONG_RETRY_SECONDS));
     let now = clock::unix_seconds();
     let skewed = now.saturating_sub(SKEW_SECONDS);
     let (date, value) = match form {
-        "seconds" => (http_date(now, Form::ImfFixdate), RETRY_SECONDS.to_string()),
+        "seconds" => (http_date(now, Form::ImfFixdate), wait.to_string()),
         "imf-fixdate" | "rfc850" | "asctime" => {
             let form = match form {
                 "imf-fixdate" => Form::ImfFixdate,
@@ -221,7 +295,7 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
             };
             (
                 http_date(skewed, Form::ImfFixdate),
-                http_date(skewed + RETRY_SECONDS, form),
+                http_date(skewed + wait, form),
             )
         }
         _ => return not_found(),
@@ -238,8 +312,24 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
     Answer::Page(answer)
 }
 
-/// `/cut/<rest>`: a body broken off halfway.
+/// `/cut/<rest>`: a body broken off halfway; under `/cut/late/`, by a
+/// connection closed a while after that half, once a client reading the
+/// body as it arrives read it (#1732).
 fn cut(rest: &str, path: &str) -> Answer {
+    if let Some(late) = rest.strip_prefix("late/") {
+        return match cut(late, path) {
+            Answer::Cut {
+                page,
+                sent,
+                cut: Cut::Connection,
+            } => Answer::Cut {
+                page,
+                sent,
+                cut: Cut::Late,
+            },
+            _ => not_found(),
+        };
+    }
     let whole = page(path);
     let half = whole.body.len() / 2;
     match rest {

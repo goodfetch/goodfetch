@@ -1,0 +1,9 @@
+{
+  "name": "export",
+  "schema": {
+    "items": true,
+    "type": "array"
+  },
+  "storage": "json",
+  "version": "0.1"
+}

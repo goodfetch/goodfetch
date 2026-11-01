@@ -2,18 +2,68 @@ version = "0.1"
 lowest_minor = 0
 
 [settings.log]
+level = "example"
+output = "stdout"
 format = "text"
+
+[settings.log.file]
+max_size = 4
+max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
+metrics_endpoint = "example"
 
 [settings.console]
 address = "example"
+content_address = "example"
+content_public_url = "example"
+offline_cache = true
+public_url = "example"
+
+[settings.console.sign_in]
+idle_expiry = 30000
+rate = 4
 
 [settings.daemon]
 idle_timeout = 30000
 address = "example"
 drain_grace = 30000
+
+[settings.ops]
+address = "example"
+
+[settings.governor]
+memory_allowance = 4
+pressure = 4
+critical = 4
+sample_interval = 30000
+last_resort_after = 30000
+run_share = 4
+
+[settings.governor.http]
+floor = 4
+ceiling = 4
+
+[settings.governor.browser_page]
+floor = 4
+ceiling = 4
+
+[settings.governor.model_call]
+floor = 4
+ceiling = 4
+
+[settings.governor.browser]
+contexts_per_process = 4
+recycle_pages = 4
+recycle_idle = 30000
+memory_cap = 4
+page_memory_cap = 4
+
+[settings.storage]
+low_free = 4
+critical_free = 4
 
 [settings.browser_cache]
 max_unused_age = 30000
@@ -22,8 +72,51 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
+[settings.egress]
+allowed_domains = ["example"]
+blocked_domains = ["example"]
+offline = true
+no_private_endpoints = true
+private_ranges = ["127.0.0.0/8", "intranet.example"]
+recipe_private_ranges = true
+local_addresses = ["192.0.2.10", "2001:db8::10"]
+
+[settings.egress.rotation_block]
+ipv4 = 24
+ipv6 = 64
+
+[settings.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
+[settings.tls]
+trusted_cas = { "example.test" = ["example"] }
+client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
+accept_invalid_certs = { "example.test" = "example" }
+
 [settings.browser]
 headless = true
+block_resources = ["image"]
+service_workers = "allow"
+
+[settings.live_view]
+hiding = "auto"
+
+[settings.content]
+extractor = "dom_smoothie"
+
+[settings.proxy]
+server = "http://proxy.example:3128"
+bypass = "example"
+username = "example"
+password = "env:EXAMPLE"
+provider = "example"
+kind = "datacenter"
+country = "US"
+sticky_lifetime = 30000
+providers = { "example.test" = { endpoint = "http://proxy.example:8000", password = "env:PROXY_PASSWORD", price = "5 USD", servers = [{ country = "US", kind = "datacenter", server = "http://203.0.113.7:3128" }], username = "account", zones = { residential = "residential_proxy1" } } }
 
 [settings.run_state]
 location = "example"
@@ -34,29 +127,61 @@ key_reference = "env:EXAMPLE"
 [settings.checkpoint]
 interval = 30000
 
+[settings.audit]
+retention = 30000
+otlp = true
+
 [settings.timeout]
 secret = 30000
 run = 30000
+close = 30000
 action = 30000
 navigation = 30000
+wait = 30000
 first_byte = 30000
 handler = 30000
+dataset_query = 30000
+
+[settings.secrets]
+resolve_each_use = ["env:EXAMPLE"]
+by_reference = true
+
+[settings.secret_providers.op]
+command = "example"
+
+[settings.secret_providers.bw]
+command = "example"
+
+[settings.secret_providers.vault]
+address = "example"
+
+[settings.secret_providers.aws_sm]
+region = "example"
+endpoint = "example"
+
+[settings.secret_providers.gcp_sm]
+endpoint = "example"
+
+[settings.secret_providers.azure_kv]
+endpoint = "example"
+authority = "example"
+
+[settings.security]
+field_encryption = true
+secure_delete = true
+resolved_ip_check = true
+raw_cdp_egress_proxy = true
+browser_sandbox = true
+audit_chain = true
+redaction = true
 
 [settings.sample]
 echo_repeats = 4
 
-[settings.egress]
-offline = true
-
-[settings.network]
-resolve = { "example.test" = ["127.0.0.1"] }
-
-[settings.tls]
-trusted_cas = { "example.test" = ["example"] }
-accept_invalid_certs = { "example.test" = "example" }
-
 [settings.consent]
+handling = true
 domains = ["example"]
+on_wall = "report"
 
 [settings.wall]
 domains = ["example"]
@@ -64,19 +189,29 @@ refetch_domains = ["example"]
 denied_domains = ["example"]
 
 [settings.filter_lists]
+ads = true
+trackers = true
+annoyances = true
+first_party_scripts = true
+page_scriptlets = true
 extra = ["example"]
 
+[settings.clean_up]
+update = "release"
+version = "example"
+channel = "example"
+lists = { "example.test" = "example" }
+fetch_timeout = 30000
+
 [settings.session]
-source = "example"
+source = { kind = "saved_identity", name = "example" }
+page_check = { expected_page = { kind = "glob", pattern = "**/reports*" }, login_page = { kind = "css", selector = "form#login" } }
 
 [settings.session.pool]
 max_size = 4
 max_uses = 4
 max_age = 30000
 max_error_score = 4
-
-[settings.secrets]
-by_reference = true
 
 [settings.webhook]
 signing = true
@@ -90,14 +225,46 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 
+[settings.politeness.proxy]
+concurrency = 4
+rate = 4
+
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
+adaptive_delay = true
+rate = 4
+burst = 4
+
+[settings.politeness.backoff]
+enabled = true
+initial = 30000
+max = 30000
+
+[settings.politeness.retry_after]
+max = 30000
+
+[settings.site_preferences]
+purpose = "search"
+respect_use_signals = true
+robots_txt_user_agent = "example"
+respect_robots_txt = true
+max_crawl_delay = 30000
 
 [settings.crawl]
 sample_pages = 4
+handle_statuses = [4]
+content_types = ["example"]
+max_staged_enqueues = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
+max_depth = 4
+max_requests = 4
+max_url_length = 4
+max_path_segments = 4
+max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
+keep_url_fragment = true
 
 [settings.crawl.retry]
 max = 4
@@ -111,6 +278,57 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[settings.crawl.payload]
+max_size = 4
+
+[settings.fetch]
+tier = "auto"
+tier_race = true
+light_browser = true
+encoding = "example"
+coalesce = true
+
+[settings.fetch.sample]
+count = 4
+refresh_after = { after = 86400000, requests = 500 }
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
+
+[settings.fetch.redirect]
+max = 4
+
+[settings.fetch.refresh]
+max_delay = 30000
+
+[settings.fetch.kept_responses]
+urls = ["example"]
+
+[settings.export.csv]
+bom = true
+delimiter = "example"
+nested = "json"
+
+[settings.export.xlsx]
+sheet = "example"
+
+[settings.export.json]
+indent = 4
+
+[settings.export.xml]
+root = "example"
+record = "example"
+
+[settings.export.parquet]
+compression = "zstd"
+
+[settings.export.feed]
+title = "example"
+link = "example"
+published = "example"
+summary = "example"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -120,3 +338,7 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.dataset.query]
+memory_limit = 4
+max_rows = 4

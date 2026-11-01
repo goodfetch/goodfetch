@@ -1,5 +1,7 @@
 //! The nftables ruleset a job's VM loads to deny outbound traffic (ADR 0043).
-//! It accepts loopback, replies, the VM's own link upkeep and the job's
+//! It accepts loopback, replies, the VM's own link upkeep (DHCP, IPv6
+//! neighbor discovery, and the multicast listener reports the kernel sends
+//! when an interface comes up, which never leave the link) and the job's
 //! allowed endpoints at the addresses resolved before the deny. Anything else
 //! is refused; when the job's user (the rootless container's, so the
 //! product's) sent it, it is counted in `denied` and logged, and the Egress
@@ -115,7 +117,7 @@ pub(crate) fn rules(root: &Path, job: &JobKey, resolved: &Path, uid: Uid) -> Res
          \t\toifname \"lo\" accept\n\
          \t\tct state established,related accept\n\
          \t\tudp sport 68 udp dport 67 accept\n\
-         \t\ticmpv6 type {{ nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert }} accept\n\
+         \t\ticmpv6 type {{ nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert, mld-listener-report, mld-listener-done, mld2-listener-report }} accept\n\
          \t\tip daddr . tcp dport @allowed_ipv4 accept\n\
          \t\tip6 daddr . tcp dport @allowed_ipv6 accept\n\
          \t\tmeta skuid != {uid} counter name \"background\" reject\n\

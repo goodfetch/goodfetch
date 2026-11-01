@@ -9,6 +9,7 @@
 //! store's readers (`allure`, `ceiling`, `scan`), so their dispatch is here.
 
 mod acceptance;
+mod advisories;
 mod affected;
 mod all_green;
 mod allure;
@@ -19,6 +20,7 @@ mod check;
 mod clients;
 mod codegen;
 mod commit_messages;
+mod compare_spider;
 mod compat;
 mod console;
 mod containment;
@@ -30,6 +32,7 @@ mod evict_caches;
 mod features;
 mod fixture_size;
 mod foxhound_side;
+mod gate;
 mod github;
 mod image_pins;
 mod issues;
@@ -43,6 +46,7 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
+mod order_seed;
 mod os_services;
 mod output;
 mod output_scans;
@@ -51,6 +55,7 @@ mod perf;
 mod pinned;
 mod quarantine;
 mod rate;
+mod received_requests;
 mod release_suite;
 mod repeat;
 mod results;
@@ -60,6 +65,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod targets;
 mod telemetry;
 mod test_tools;
 mod tlc;
@@ -85,6 +91,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// The pinned advisory snapshot the gate's `just audit` reads offline
+    /// (ADR 0064).
+    Advisories {
+        #[command(subcommand)]
+        command: advisories::Command,
+    },
     /// Prints which jobs of the pull-request tier a change needs and what
     /// each test runner selects, as `key=value` lines (ADRs 0032 and 0061).
     Affected(affected::Arguments),
@@ -127,6 +139,13 @@ enum Command {
         #[arg(long)]
         since: String,
     },
+    /// Spider's comparison (ADR 0134): Foxhound's and Spider's crawls of the
+    /// Proving ground's 1,000-page site, on the owner's machine, reported
+    /// only once both did the same work.
+    CompareSpider {
+        #[command(subcommand)]
+        command: compare_spider::Command,
+    },
     /// The Compatibility corpus under `compat/` (ADR 0066).
     Compat {
         #[command(subcommand)]
@@ -161,6 +180,13 @@ enum Command {
     /// used ones that are not the pull-request tier's Linux caches until they
     /// fit (ADR 0061).
     EvictCaches(evict_caches::Arguments),
+    /// The incremental local gate (ADR 0135): which steps of `just
+    /// pre-merge all` a run on a descendant of a gated head reruns, and
+    /// each step's recorded result.
+    Gate {
+        #[command(subcommand)]
+        command: gate::Command,
+    },
     /// The Feature inventory's declarations and its Feature check (ADRs 0072
     /// and 0075).
     Features {
@@ -202,6 +228,10 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
+    /// Prints the order seed of a tree, which every suite orders its tests
+    /// by: the first 8 bytes of its hash, read as an unsigned integer (ADR
+    /// 0064).
+    OrderSeed(order_seed::Arguments),
     /// Fails on an upload of a job's outputs that does not follow a passing
     /// `gitleaks` scan of what it uploads (ADR 0067).
     OutputScans,
@@ -226,6 +256,10 @@ enum Command {
         #[command(subcommand)]
         command: quarantine::Command,
     },
+    /// Fails on a test that reads the Proving ground's requests other than
+    /// through `ReceivedRequests`, which says whether a count keeps the
+    /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
+    ReceivedRequests,
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -263,12 +297,18 @@ enum Command {
         #[command(subcommand)]
         mode: size::Command,
     },
-    /// The stress run before merge and the order seed (ADR 0064): each new
+    /// The stress run before merge (ADR 0064): each new
     /// or changed test runs 20 times, and a test taken off the quarantine
     /// list 200 times.
     Stress {
         #[command(subcommand)]
         command: stress::Command,
+    },
+    /// The Performance targets report (ADR 0134): each target's figure on
+    /// this machine, met or missed, never published and gating nothing.
+    Targets {
+        #[command(subcommand)]
+        command: targets::Command,
     },
     /// Fails on a setting that could turn telemetry on and on an analytics
     /// client in `Cargo.lock`, `uv.lock` or `pnpm-lock.yaml` (ADR 0043).
@@ -417,6 +457,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
     let root = environment.root.as_path();
     let cargo = environment.cargo.as_os_str();
     match command {
+        Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
         Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
@@ -436,6 +477,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::Features { command } => features::run(command, environment),
+        Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),
         Command::Journeys { command } => {
@@ -452,14 +494,18 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
+        Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
+        Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),
         Command::Results { command } => run_results(command, environment),
+        Command::CompareSpider { command } => compare_spider::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::Targets { command } => targets::run(command, environment),
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),
@@ -548,13 +594,8 @@ fn print_failed(
     reason = "main is the one place that reads the environment (ADR 0059)"
 )]
 fn read_environment() -> Environment {
-    Environment {
-        root: PathBuf::from("."),
-        cargo: std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")),
-        github_token: std::env::var("GITHUB_TOKEN")
-            .ok()
-            .filter(|token| !token.is_empty()),
-    }
+    let variables: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    Environment::of(&variables)
 }
 
 fn main() -> ExitCode {

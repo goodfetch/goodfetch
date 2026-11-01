@@ -1,20 +1,20 @@
 //! The streaming calls (ADRs 0024 and 0031): `events.subscribe`, which
 //! sends a subscription's events in `$/events` batches, and `page.body`,
 //! which sends a body's file in `$/chunk` notifications. Each sends no more
-//! than the credits its Client granted it, and waits for more.
+//! than the credits its Client granted it, and waits for more. A streaming
+//! call of another module that sends its own events, such as `page.on`,
+//! sends them with [`send_events`].
 
 use goodfetch_protocol::events::{
-    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, SubscriptionEnded,
+    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope, EventsSubscribeParams, SubscriptionEnded,
 };
 use goodfetch_protocol::page::{
-    BODY_NOT_FOUND, BodyNotFoundDetails, CHUNK, CHUNK_BYTES, Chunk, PAGE_BODY, PageBodyParams,
-    PageBodyRead,
+    BODY_NOT_FOUND, BodyNotFoundDetails, PAGE_BODY, PageBodyParams, PageBodyRead,
 };
-use tokio::io::AsyncReadExt as _;
 
-use super::{notification_line, record_event};
+use super::record_event;
 use crate::body;
-use crate::composition::{CallContext, CallError, Handler};
+use crate::composition::{CallContext, CallError, CallStream, Handler};
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;
@@ -32,7 +32,11 @@ async fn subscribe(
     context: CallContext,
 ) -> Result<SubscriptionEnded, CallError> {
     let stream = context.stream();
-    let Some(mut subscription) = context.events().subscribe(params.after).await else {
+    let Some(mut subscription) = context
+        .events()
+        .subscribe(params.after, params.system_info)
+        .await
+    else {
         return Ok(SubscriptionEnded {});
     };
     loop {
@@ -41,22 +45,28 @@ async fn subscribe(
             return Ok(SubscriptionEnded {});
         };
         stream.credits.refund(credits.saturating_sub(events.len()));
-        for event in &events {
-            record_event(&event.event);
-        }
-        let batch = EventBatch {
-            id: stream.id.clone(),
-            events,
-        };
-        if stream
-            .outgoing
-            .send(notification_line(EVENTS, &batch))
-            .await
-            .is_err()
-        {
+        if !send_events(stream, events).await {
             return Ok(SubscriptionEnded {});
         }
     }
+}
+
+/// Sends `events`, the streaming call `stream`'s own, in one `$/events`
+/// batch naming the call, each recorded as sent (ADR 0072); `false` once
+/// the Connection's writer is gone. The caller spent a credit for each.
+///
+/// # Cancel safety
+///
+/// As [`CallStream::notify`]'s.
+pub async fn send_events(stream: &CallStream, events: Vec<EventEnvelope>) -> bool {
+    for event in &events {
+        record_event(&event.event);
+    }
+    let batch = EventBatch {
+        id: stream.id().clone(),
+        events,
+    };
+    stream.notify(EVENTS, &batch).await
 }
 
 async fn read_body(
@@ -85,45 +95,15 @@ async fn read_body(
     let mut file = tokio::fs::File::open(&file)
         .await
         .map_err(|_| not_found())?;
-    let stream = context.stream();
-    let mut offset: u64 = 0;
-    let mut chunk = vec![0; CHUNK_BYTES];
-    loop {
-        let read = read_chunk(&mut file, &mut chunk).await.map_err(|error| {
+    let size = context
+        .stream()
+        .send_file(&mut file)
+        .await
+        .map_err(|error| {
             CallError::protocol(
                 goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
                 format!("the body could not be read: {error}"),
             )
         })?;
-        if read == 0 {
-            return Ok(PageBodyRead { size: offset });
-        }
-        let _ = stream.credits.spend(1).await;
-        let line = notification_line(
-            CHUNK,
-            &Chunk {
-                id: stream.id.clone(),
-                offset,
-                data: data_encoding::BASE64.encode(&chunk[..read]),
-            },
-        );
-        if stream.outgoing.send(line).await.is_err() {
-            return Ok(PageBodyRead { size: offset });
-        }
-        offset += u64::try_from(read).unwrap_or(u64::MAX);
-    }
-}
-
-/// Fills `chunk` from `file` as far as it goes, and answers how many bytes
-/// it read: fewer than its length only at the file's end.
-async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
-    let mut filled = 0;
-    while filled < chunk.len() {
-        let read = file.read(&mut chunk[filled..]).await?;
-        if read == 0 {
-            break;
-        }
-        filled += read;
-    }
-    Ok(filled)
+    Ok(PageBodyRead { size })
 }

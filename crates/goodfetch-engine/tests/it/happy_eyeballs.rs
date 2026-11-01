@@ -65,6 +65,10 @@ fn bound_to_ipv4() -> Egress {
 /// Covers: story:3-148, setting:resolver.attempt_delay
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn a_host_whose_ipv6_path_drops_packets_is_reached_over_ipv4_after_the_attempt_delay() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -95,6 +99,10 @@ fn a_host_whose_ipv6_path_drops_packets_is_reached_over_ipv4_after_the_attempt_d
 ///
 /// Covers: story:3-147
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn a_name_whose_every_address_failed_is_resolved_again_on_the_next_attempt() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -134,6 +142,10 @@ fn a_name_whose_every_address_failed_is_resolved_again_on_the_next_attempt() {
 ///
 /// Covers: story:3-147
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn a_name_whose_address_connected_keeps_its_answer() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -176,6 +188,10 @@ async fn both_families() -> (TcpListener, TcpListener) {
 ///
 /// Covers: story:3-148
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn a_session_with_a_local_address_of_one_family_never_tries_the_other() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -200,6 +216,10 @@ fn a_session_with_a_local_address_of_one_family_never_tries_the_other() {
 
 /// Covers: story:3-148, error:address_family_unavailable
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn a_session_bound_to_ipv6_cannot_reach_a_host_of_ipv4_addresses_alone() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -235,6 +255,10 @@ fn a_session_bound_to_ipv6_cannot_reach_a_host_of_ipv4_addresses_alone() {
 ///
 /// Covers: story:3-148
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the race runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn behind_a_proxy_the_race_is_to_the_address_of_the_proxy() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();

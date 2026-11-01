@@ -1,19 +1,23 @@
 // The in-memory adapter of the protocol (ADR 0068; spec #326): the engine a
 // Console component or screen test passes to the Console's Client as its
 // transport and body fetcher. It answers each operation with the value the
-// test set, in whatever order the screen calls, and refuses, failing the
-// test, anything the engine could never send or take: every message the
+// test set, in whatever order the screen calls, answers `hello`,
+// `events.subscribe` and, unless the test set an answer, `engine.info`
+// itself, as the engine does, and refuses, failing the test, anything the
+// engine could never send or take: every message the
 // Client sends and every answer the test sets is checked against the
 // committed JSON Schema bundle and catalog. It is not the Scripted engine
 // (ADR 0069), which plays one ordered script.
 //
-// The `transport` and `bodyFetcher` shapes stand in for area 12's Console
-// Client interface until its spec is ticketed: a transport opens Connections
-// that carry JSON-RPC text, as the Console's same-origin WebSocket does, and
-// a body fetcher reads a body's bytes by its handle.
+// The `transport` and `bodyFetcher` are the shapes the Console's Client
+// takes (spec #592): a transport opens Connections that carry JSON-RPC
+// text, as the Console's same-origin WebSocket does, and a body fetcher
+// reads a body's bytes by its handle.
 import type {
   CollieEventPayloads,
   CollieOperationTypes,
+  NeedsYouChange,
+  NeedsYouItem,
   OperationTypes,
   Product,
 } from "@goodfetch/collie-client/generated";
@@ -113,6 +117,12 @@ export type PushedEvent<Events> = {
 /** The Product version the adapter answers `hello` with. */
 const PRODUCT_VERSION = "0.1.0";
 
+/** The command that installs Foxhound, which `not_in_product`'s fix names: npm's, the channel of the TypeScript SDK (ADR 0090). */
+const FOXHOUND_INSTALL = "npm install @goodfetch/foxhound";
+
+/** The major of the Product version the adapter answers `hello` with, which `engine.info` names. */
+const PRODUCT_MAJOR = 0;
+
 /** One event of a `$/events` batch. */
 interface EventEnvelope {
   readonly position: number;
@@ -161,6 +171,16 @@ function runIdOf(data: unknown): string | undefined {
     : undefined;
 }
 
+/** The `lifecycle` an event's payload names, if it names one. */
+function lifecycleOf(data: unknown): string | undefined {
+  return typeof data === "object" &&
+    data !== null &&
+    "lifecycle" in data &&
+    typeof data.lifecycle === "string"
+    ? data.lifecycle
+    : undefined;
+}
+
 /**
  * The in-memory adapter of the protocol. Create it inside a test (or a
  * fixture), through {@link createProtocolAdapter}.
@@ -175,6 +195,8 @@ export class ProtocolAdapter<
   readonly requests: readonly ClientMessage[];
   readonly #requests: ClientMessage[] = [];
   readonly #contract: ProductContract;
+  /** Foxhound's contract, read once a call names what Collie's lacks. */
+  #foxhound: ProductContract | undefined;
   readonly #answers = new Map<string, Answer<OperationTypes>>();
   readonly #violations: TestSupportError[] = [];
   readonly #connections = new Set<OpenConnection>();
@@ -187,17 +209,36 @@ export class ProtocolAdapter<
   #last = 0;
   /** The last position no longer kept: a subscription resumes after any position from it to `#last`. */
   #floor = 0;
-  /** Each Run's axes as `run.axes_changed` last reported them, which a resync gives. */
+  /** Each live Run's axes as `run.axes_changed` last reported them, which a resync gives. */
   readonly #runs = new Map<string, unknown>();
+  /** Each "Needs you" item `needs_you.changed` left listed, by ID, which a resync gives. */
+  readonly #needsYou = new Map<string, NeedsYouItem>();
   /** How many engine instances the adapter has stood for: `restart()` starts another. */
   #instances = 1;
+  /** Whether the test that made it ended: nothing reaches a Client after that. */
+  #ended = false;
 
   constructor(options: ProtocolAdapterOptions) {
     this.#contract = productContract(options.product ?? "collie");
     this.requests = this.#requests;
     this.transport = { open: (listener) => this.#open(listener) };
     this.bodyFetcher = (handle) => this.#fetch(handle);
-    onTestFinished(() => this.#verify());
+    onTestFinished(() => this.#end());
+  }
+
+  /**
+   * Ends the adapter with its test: closes every Connection without telling
+   * its Client, so an answer or an event that comes later reaches no Client
+   * of a later test, then fails the test with its violations. A function
+   * answer still pending is dropped unchecked: its Client never saw it.
+   */
+  #end(): void {
+    this.#ended = true;
+    for (const connection of this.#connections) {
+      connection.open = false;
+    }
+    this.#connections.clear();
+    this.#verify();
   }
 
   /**
@@ -233,7 +274,15 @@ export class ProtocolAdapter<
     this.#last = position;
     const runId = runIdOf(data);
     if (name === "run.axes_changed" && runId !== undefined) {
-      this.#runs.set(runId, data);
+      // As the engine's: a Run leaves the resync once it ends (#1768).
+      if (lifecycleOf(data) === "running") {
+        this.#runs.set(runId, data);
+      } else {
+        this.#runs.delete(runId);
+      }
+    }
+    if (name === "needs_you.changed") {
+      this.#foldNeedsYou(data);
     }
     for (const connection of this.#connections) {
       for (const subscription of connection.subscriptions.values()) {
@@ -241,6 +290,26 @@ export class ProtocolAdapter<
         this.#flush(connection, subscription);
       }
     }
+  }
+
+  /** Folds a `needs_you.changed` payload, which its schema has checked, into the items a resync gives. */
+  #foldNeedsYou(data: unknown): void {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- push() checked the payload against the catalog's schema of `needs_you.changed` first.
+    const change = data as NeedsYouChange;
+    if (change.change === "listed") {
+      this.#needsYou.set(change.item.id, change.item);
+    } else {
+      this.#needsYou.delete(change.id);
+    }
+  }
+
+  /** Every item of "Needs you", as a resync gives them: the longest waiting first, then by ID. */
+  #needsYouItems(): NeedsYouItem[] {
+    return [...this.#needsYou.values()].toSorted((left, right) =>
+      left.since === right.since
+        ? left.id.localeCompare(right.id)
+        : left.since.localeCompare(right.since),
+    );
   }
 
   #eventProblems(name: string, data: unknown, position: number): Problems {
@@ -268,7 +337,7 @@ export class ProtocolAdapter<
   /**
    * Stands for a new engine instance, as a restarted Daemon: closes every
    * open Connection, names a new engine instance in `hello` and forgets
-   * every position and Run pushed, so positions count from 1 again and a
+   * every position, Run and "Needs you" item pushed, so positions count from 1 again and a
    * subscription that resumes after one of the previous instance starts
    * with `events.resync`, then the stream.
    */
@@ -279,12 +348,13 @@ export class ProtocolAdapter<
     this.#last = 0;
     this.#floor = 0;
     this.#runs.clear();
+    this.#needsYou.clear();
   }
 
   /**
    * Forgets every position pushed so far, as an engine whose kept events
    * moved on: a subscription that resumes after one of them starts with
-   * `events.resync`, the axes of every Run pushed, then the stream.
+   * `events.resync`, the axes of every live Run pushed, then the stream.
    */
   forgetPositions(): void {
     this.#retained = [];
@@ -364,7 +434,11 @@ export class ProtocolAdapter<
     }
     connection.open = false;
     this.#connections.delete(connection);
-    queueMicrotask(() => connection.listener.close());
+    queueMicrotask(() => {
+      if (!this.#ended) {
+        connection.listener.close();
+      }
+    });
   }
 
   /** Sends `message` to the Client after the current task, unless its Connection closed meanwhile. */
@@ -477,7 +551,7 @@ export class ProtocolAdapter<
         queue.push({
           position: this.#last,
           event: RESYNC,
-          data: { runs: [...this.#runs.values()] },
+          data: { runs: [...this.#runs.values()], needs_you: this.#needsYouItems() },
         });
       }
     }
@@ -504,6 +578,17 @@ export class ProtocolAdapter<
       if (this.#paramsInvalid("hello", this.#contract.helloParams.problems(params))) {
         return;
       }
+      const refusal = this.#helloRefusal(params);
+      if (refusal !== undefined) {
+        this.#deliver(connection, {
+          id,
+          error: this.#wireError(
+            new Failure(refusal, {}),
+            `The engine refuses this hello: ${refusal}.`,
+          ),
+        });
+        return;
+      }
       this.#deliver(connection, {
         id,
         result: {
@@ -516,6 +601,22 @@ export class ProtocolAdapter<
       return;
     }
     const operation = this.#contract.operations.get(message.method);
+    if (operation === undefined && this.#onlyFoxhoundCarries(message.method)) {
+      this.#deliver(connection, {
+        id,
+        error: this.#wireError(
+          new Failure("not_in_product", {
+            product: this.#contract.product,
+            product_version: PRODUCT_VERSION,
+            needs: "foxhound",
+            requested: message.method,
+            fix: `Run it with Foxhound, which contains everything Collie does (\`${FOXHOUND_INSTALL}\`), or connect to a Foxhound engine.`,
+          }),
+          `\`${message.method}\` is part of Foxhound, and this engine is Collie ${PRODUCT_VERSION}.`,
+        ),
+      });
+      return;
+    }
     if (operation === undefined) {
       this.#violation(
         "request_invalid",
@@ -534,7 +635,7 @@ export class ProtocolAdapter<
       this.#subscribe(connection, id, after);
       return;
     }
-    const answer = this.#answers.get(message.method);
+    const answer = this.#answers.get(message.method) ?? this.#ownAnswer(message.method);
     if (answer === undefined) {
       this.#violation(
         "call_unanswered",
@@ -543,6 +644,37 @@ export class ProtocolAdapter<
       return;
     }
     void this.#settle(connection, id, message.method, answer, params);
+  }
+
+  /**
+   * What the adapter answers `method` with when the test set no answer:
+   * for `engine.info`, the engine `hello` names, as the engine answers it.
+   * The Console Client's stall watchdog asks it of a Connection silent for
+   * a stall timeout (`console/collie/src/client/client.ts`), so any test
+   * that runs that long calls it (#1794).
+   */
+  #ownAnswer(method: string): CollieOperationTypes["engine.info"]["result"] | undefined {
+    return method === "engine.info"
+      ? {
+          product: this.#contract.product,
+          product_major: PRODUCT_MAJOR,
+          product_version: PRODUCT_VERSION,
+          protocol_version: this.#contract.protocolVersion,
+        }
+      : undefined;
+  }
+
+  /**
+   * Whether `method` is an operation only Foxhound carries while the
+   * adapter stands for Collie's engine, which refuses it with
+   * `not_in_product` before reading its params, as the engine does.
+   */
+  #onlyFoxhoundCarries(method: string): boolean {
+    if (this.#contract.product === "foxhound") {
+      return false;
+    }
+    this.#foxhound ??= productContract("foxhound");
+    return this.#foxhound.operations.has(method);
   }
 
   #paramsInvalid(method: string, problems: Problems): boolean {
@@ -567,10 +699,15 @@ export class ProtocolAdapter<
     try {
       outcome = typeof answer === "function" ? await answer(params) : answer;
     } catch (error) {
-      this.#violation(
-        "answer_invalid",
-        `the test's answer of ${operation} threw: ${String(error)}`,
-      );
+      if (!this.#ended) {
+        this.#violation(
+          "answer_invalid",
+          `the test's answer of ${operation} threw: ${String(error)}`,
+        );
+      }
+      return;
+    }
+    if (this.#ended) {
       return;
     }
     const problems = this.#outcomeProblems(operation, outcome);
@@ -587,6 +724,22 @@ export class ProtocolAdapter<
           }
         : { id, result: outcome },
     );
+  }
+
+  /**
+   * The Error code the engine refuses a schema-valid `hello` with, as the
+   * generated refusal vectors give it: `not_in_product` for a Product this
+   * engine does not carry, before `protocol_version_unsupported` for a
+   * protocol version other than its own.
+   */
+  #helloRefusal(params: unknown): string | undefined {
+    const fields = typeof params === "object" && params !== null ? params : {};
+    const needs = "needs" in fields ? fields.needs : undefined;
+    if (needs === "foxhound" && this.#contract.product !== "foxhound") {
+      return "not_in_product";
+    }
+    const version = "protocol_version" in fields ? fields.protocol_version : undefined;
+    return version === this.#contract.protocolVersion ? undefined : "protocol_version_unsupported";
   }
 
   /** The wire's error object of `failed`, whose code the catalog defines, told to people as `message`. */

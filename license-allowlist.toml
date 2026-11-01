@@ -61,9 +61,10 @@ id = "CC0-1.0"
 [[license]]
 id = "Unlicense"
 
-# Agent decision, pending owner review (#337): MIT without its attribution
-# clause, as permissive as 0BSD and Unlicense above. borrow-or-share carries
-# it, which jsonschema takes for `xtask journeys check`.
+# Agent decision, accepted by the owner on 2026-10-21 (#337; ADR 0018's
+# note): MIT without its attribution clause, OSI-approved and as permissive
+# as 0BSD and Unlicense above. borrow-or-share carries it, which jsonschema
+# takes for `xtask journeys check`.
 [[license]]
 id = "MIT-0"
 
@@ -89,9 +90,12 @@ only = "unmodified-files"
 id = "CC-BY-SA-4.0"
 only = "compiled-filter-lists"
 
-# Agent decision, pending owner review (#811): Inter and JetBrains Mono, the
-# Console's fonts, ship as font files under the SIL Open Font License, which
-# spec #592 decided (ADR 0073); OFL-1.1 for these two packages alone.
+# Agent decision, accepted by the owner on 2026-10-22 (#811): Inter and
+# JetBrains Mono, the Console's fonts, ship as font files under the SIL Open
+# Font License, which spec #592 decided (ADR 0073); OFL-1.1 for these two
+# packages alone. Neither declares a Reserved Font Name, so their subsets keep
+# their names. Bundled in the executable, each must ship with its copyright
+# line and the OFL's text (OFL-FAQ 1.20).
 [[license]]
 id = "OFL-1.1"
 only = { ecosystem = "npm", package = "@fontsource-variable/inter" }
@@ -100,10 +104,11 @@ only = { ecosystem = "npm", package = "@fontsource-variable/inter" }
 id = "OFL-1.1"
 only = { ecosystem = "npm", package = "@fontsource-variable/jetbrains-mono" }
 
-# Agent decision, pending owner review (#811): caniuse-lite's browser data,
-# which Babel reads to pick its targets, comes with `@lingui/core`'s macro
-# package (ADR 0073); it runs at build time and none of it reaches the
-# Console's build.
+# Agent decision, accepted by the owner on 2026-10-22 (#811): caniuse-lite's
+# browser data, which Babel reads to pick its targets, comes with
+# `@lingui/core`'s macro package (ADR 0073); it runs at build time and none of
+# it reaches the Console's build, so CC BY's attribution duty, which applies
+# to sharing the data, does not arise.
 [[license]]
 id = "CC-BY-4.0"
 only = { ecosystem = "npm", package = "caniuse-lite" }

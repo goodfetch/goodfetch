@@ -1,0 +1,10 @@
+---
+source: crates/goodfetch-collie/tests/it/daemon_commands.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "rotated_at": "[INSTANT]"
+}
+----- stderr -----

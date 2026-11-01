@@ -16,11 +16,18 @@
 )]
 
 mod admission;
+mod finishing;
 mod keep_alive;
 mod limits;
+mod masking;
+mod metrics;
 mod model;
+mod needs_you;
+mod progress;
+mod report;
 mod resume;
 mod safe_point;
+mod staging;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -69,6 +76,13 @@ pub(crate) enum Reply {
     Blocked(&'static str),
     /// Never answers.
     Silent,
+    /// Answers as the inner reply says once this much of the paused clock
+    /// passed, as a handler that took that long.
+    After(Duration, Box<Reply>),
+    /// Sends these calls to the engine from inside the attempt, each
+    /// method with its params, waiting for each reply, which
+    /// [`Client::replies`] keeps, then answers as the inner reply says.
+    Calls(Vec<(&'static str, Value)>, Box<Reply>),
 }
 
 /// The Client's end of the engine's Connection.
@@ -86,6 +100,12 @@ pub(crate) struct Client {
     /// The Records a request left unanswered is answered with once the
     /// engine cancels it: a late commit.
     pub(crate) late: Option<Vec<Value>>,
+    /// The replies to the calls a handler sent from inside its attempts,
+    /// in order.
+    pub(crate) replies: Vec<Value>,
+    /// What came while a handler's call from inside its attempt waited for
+    /// its reply, read next.
+    early: std::collections::VecDeque<Value>,
 }
 
 impl Client {
@@ -96,18 +116,62 @@ impl Client {
     }
 
     async fn next(&mut self) -> Option<Value> {
+        if let Some(early) = self.early.pop_front() {
+            return Some(early);
+        }
+        self.read().await
+    }
+
+    /// The next message off the Connection, past what came early.
+    async fn read(&mut self) -> Option<Value> {
         let line = self.lines.next_line().await.unwrap()?;
         Some(serde_json::from_str(&line).unwrap())
     }
 
+    /// The reply a handler request gets once `reply`'s calls were sent,
+    /// each waiting for its own reply, and its waits waited.
+    async fn answering(&mut self, mut reply: Reply) -> Reply {
+        loop {
+            reply = match reply {
+                Reply::Calls(calls, then) => {
+                    for (method, params) in calls {
+                        let inside = format!("inside-{}", self.replies.len());
+                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
+                            .await;
+                        loop {
+                            let message = self
+                                .read()
+                                .await
+                                .expect("the engine closed before replying");
+                            if message["id"] == json!(inside) {
+                                self.replies.push(message);
+                                break;
+                            }
+                            self.early.push_back(message);
+                        }
+                    }
+                    *then
+                }
+                Reply::After(took, then) => {
+                    tokio::time::sleep(took).await;
+                    *then
+                }
+                reply => return reply,
+            };
+        }
+    }
+
     /// Sends the call `method` and answers the engine's handler requests
-    /// with `handler` until the call's reply arrives, which it answers.
+    /// with `handler` until the call's reply arrives, which it answers. A
+    /// `crawl.start` that declares no Dataset declares `pages`, which the
+    /// harness pushes every Record into.
     pub(crate) async fn call(
         &mut self,
         method: &str,
         params: Value,
         handler: &mut impl FnMut(&Value) -> Reply,
     ) -> Value {
+        let params = declaring_pages(method, params);
         let id = self.next_id;
         self.next_id += 1;
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
@@ -135,7 +199,8 @@ impl Client {
             } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
             {
                 self.handled.push(message["params"].clone());
-                match handler(&message["params"]) {
+                let reply = self.answering(handler(&message["params"])).await;
+                match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records
                             .into_iter()
@@ -179,6 +244,9 @@ impl Client {
                         .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
+                    Reply::Calls(..) | Reply::After(..) => {
+                        unreachable!("invariant: the calls were sent and the waits waited above")
+                    }
                 }
             } else if message["id"] == json!(id) {
                 return message;
@@ -222,6 +290,7 @@ pub(crate) fn dependencies(env: &TestEnv, run_state: RunStateOptions) -> Depende
 pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),
@@ -232,8 +301,18 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
+/// `params` of a call of `method`, a `crawl.start` that declares no
+/// Dataset declaring `pages`, which the harness pushes every Record into.
+fn declaring_pages(method: &str, mut params: Value) -> Value {
+    if method == "crawl.start" && params.get("datasets").is_none() {
+        params["datasets"] = json!([{ "name": "pages" }]);
+    }
+    params
+}
+
 /// A Foxhound engine composed of the engine's operations, the Frontier's
-/// per-domain queues, the Session pool's tables and the crawl's.
+/// per-domain queues, the Session pool's and the Datasets' tables and the
+/// crawl's.
 pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
@@ -244,7 +323,8 @@ pub(crate) fn engine() -> Engine {
         .with(goodfetch_engine::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
-        .with(super::contribution());
+        .with(goodfetch_dataset::contribution())
+        .with(super::contribution(goodfetch_fetch_tier::FetchTiers::new()));
     Engine::new(identity, &composition).unwrap()
 }
 
@@ -265,7 +345,15 @@ pub(crate) fn crawl_fenced<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
-    let engine = engine();
+    crawl_on(&engine(), dependencies, talk)
+}
+
+/// [`crawl_fenced`], on `engine`.
+pub(crate) fn crawl_on<T>(
+    engine: &Engine,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
@@ -284,6 +372,8 @@ pub(crate) fn crawl_fenced<T>(
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,
+                replies: Vec::new(),
+                early: std::collections::VecDeque::new(),
             };
             let hello = client
                 .call(
@@ -498,7 +588,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
                 .await;
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Fails("retry_requested", true),
-                _ => Reply::Records(vec![json!("second attempt")]),
+                _ => Reply::Records(vec![json!({ "attempt": "second" })]),
             };
             client
                 .call("run.finish", json!({ "run_id": "retry" }), &mut handler)
@@ -514,7 +604,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
                 "pages".to_owned(),
                 1,
                 "1".to_owned(),
-                json!("second attempt")
+                json!({ "attempt": "second" })
             )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
@@ -581,13 +671,13 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
                 .await;
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Silent,
-                _ => Reply::Records(vec![json!("on time")]),
+                _ => Reply::Records(vec![json!({ "answer": "on time" })]),
             };
             let started = client.call("run.finish", json!({ "run_id": "hung" }), &mut handler);
             let report = started.await;
             let late = client.silent[0].clone();
             client
-            .send(&json!({ "jsonrpc": "2.0", "id": late, "result": { "records": [{ "dataset": "pages", "data": "late" }] } }))
+            .send(&json!({ "jsonrpc": "2.0", "id": late, "result": { "records": [{ "dataset": "pages", "data": { "answer": "late" } }] } }))
             .await;
             report
         },
@@ -597,7 +687,12 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
     assert_eq!(
         (records(&file), work_items(&file)),
         (
-            vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
+            vec![(
+                "pages".to_owned(),
+                1,
+                "1".to_owned(),
+                json!({ "answer": "on time" })
+            )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
     );
@@ -624,10 +719,10 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() 
                     &mut |_| Reply::Silent,
                 )
                 .await;
-            client.late = Some(vec![json!("late")]);
+            client.late = Some(vec![json!({ "answer": "late" })]);
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Silent,
-                _ => Reply::Records(vec![json!("on time")]),
+                _ => Reply::Records(vec![json!({ "answer": "on time" })]),
             };
             client
                 .call("run.finish", json!({ "run_id": "late" }), &mut handler)
@@ -684,7 +779,12 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() 
     assert_eq!(
         (records(&file), work_items(&file)),
         (
-            vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
+            vec![(
+                "pages".to_owned(),
+                1,
+                "1".to_owned(),
+                json!({ "answer": "on time" })
+            )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
     );
@@ -938,7 +1038,7 @@ fn a_crawls_settings_shape_its_attempts() {
 /// its next admission point: the retry the crawl's settings allowed is not
 /// made (ADR 0028).
 ///
-/// Covers: story:3-88, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
+/// Covers: story:3-88, story:12-98, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
 #[test]
 fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
     let env = TestEnv::new();
@@ -973,5 +1073,388 @@ fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
             1,
             Some("retry_requested".to_owned())
         )]
+    );
+}
+
+/// An Operator policy's cap loosened while a crawl goes on does not reach
+/// it: the crawl keeps the value the cap it began under held it to, and its
+/// Run report names the version of the policy it began under, while a crawl
+/// started after the change takes the loosened cap (ADR 0031).
+///
+/// Covers: story:12-98, setting:crawl.retry.max
+#[test]
+fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
+    let env = TestEnv::new();
+    let policy = env.home().join("1").join("operator-policy.toml");
+    let tight = "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 1\n";
+    std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
+    std::fs::write(&policy, tight).unwrap();
+    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+
+    let (going, after) = crawl(
+        || default_dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call("crawl.start", started("going"), &mut |_| Reply::Silent)
+                .await;
+            let mut loosen = |_: &Value| {
+                std::fs::write(&policy, "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 5\n")
+                    .unwrap();
+                Reply::Fails("retry_requested", true)
+            };
+            let going = client
+                .call("run.finish", json!({ "run_id": "going" }), &mut loosen)
+                .await;
+            client
+                .call("crawl.start", started("after"), &mut |_| Reply::Silent)
+                .await;
+            let mut fails = |_: &Value| Reply::Fails("retry_requested", true);
+            let after = client
+                .call("run.finish", json!({ "run_id": "after" }), &mut fails)
+                .await;
+            (going, after)
+        },
+    );
+
+    let attempts = |run_id: &str| work_items(&run_file(&env, run_id))[0].2;
+    assert_eq!(
+        (
+            attempts("going"),
+            going["result"]["policy_version"].clone(),
+            attempts("after"),
+            after["result"]["policy_version"] == going["result"]["policy_version"],
+        ),
+        (
+            2,
+            json!(goodfetch_engine::settings::policy_version(tight)),
+            3,
+            false,
+        )
+    );
+}
+
+/// A crawl whose `fetch.tier` forces a tier this engine does not build,
+/// for the Run or for one of its Labels, is refused before its Run begins,
+/// naming the setting and the tier (spec #579), and a Label setting a key
+/// a Label does not take is refused with `setting_not_applicable`; the
+/// conformance fetch suite starts one under `http`.
+///
+/// Covers: story:5-128, story:5-118, setting:fetch.tier
+#[rstest::rstest]
+/// Covers: error:capability_unavailable
+#[case::by_the_run(
+    json!({ "fetch": { "tier": "discovered_api" } }),
+    json!({}),
+    json!(["capability_unavailable", "fetch.tier", "discovered_api"])
+)]
+/// The light-browser tier is built, but only a Run that switches
+/// `fetch.light_browser` on takes it (ADR 0020).
+///
+/// Covers: error:capability_unavailable, setting:fetch.light_browser, story:5-120
+#[case::light_browser_the_run_does_not_allow(
+    json!({ "fetch": { "tier": "light_browser" } }),
+    json!({}),
+    json!(["capability_unavailable", "fetch.light_browser", "light_browser"])
+)]
+/// Covers: error:capability_unavailable
+#[case::by_a_label(
+    json!({}),
+    json!({ "list": { "settings": { "fetch": { "tier": "discovered_api" } } } }),
+    json!(["capability_unavailable", "fetch.tier", "discovered_api"])
+)]
+/// Covers: error:setting_not_applicable
+#[case::a_key_a_label_does_not_take(
+    json!({}),
+    json!({ "list": { "settings": { "crawl": { "max_depth": 2 } } } }),
+    json!(["setting_not_applicable", "crawl.max_depth", null])
+)]
+fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
+    let env = TestEnv::new();
+
+    let forced = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "forced",
+                        "seeds": seeds(1),
+                        "labels": labels,
+                        "settings": settings,
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    let refusal = &forced["error"]["data"];
+    assert_eq!(
+        (
+            json!([refusal["code"], refusal["key"], refusal["kind"]]),
+            &refusal["layer"]
+        ),
+        (expected, &json!("run")),
+        "{forced}"
+    );
+}
+
+/// `fetch.tier_race` switched on while a domain admits one request at a
+/// time, where its navigation could never start beside its browser-fetch,
+/// is refused before its Run begins with `setting_not_applicable` naming
+/// the key and the Run's layer (ADR 0086), as is `fetch.tier_race` on a
+/// Label, which the Run alone sets; a `fetch.encoding` that is no WHATWG
+/// Encoding label, and a `crawl.content_types` of the Run or a Label that
+/// is no list of media ranges (ADR 0119), are refused with
+/// `setting_invalid`.
+#[rstest::rstest]
+/// Covers: story:6-263, setting:fetch.tier_race, error:setting_not_applicable
+#[case::a_race_one_request_at_a_time(
+    json!({ "fetch": { "tier_race": true }, "politeness": { "domain": { "concurrency": 1 } } }),
+    json!({}),
+    json!(["setting_not_applicable", "fetch.tier_race", null])
+)]
+/// Covers: error:setting_not_applicable
+#[case::a_race_for_a_label(
+    json!({}),
+    json!({ "list": { "settings": { "fetch": { "tier_race": true } } } }),
+    json!(["setting_not_applicable", "fetch.tier_race", null])
+)]
+/// Covers: setting:fetch.encoding, error:setting_invalid
+#[case::an_unknown_encoding_for_the_run(
+    json!({ "fetch": { "encoding": "klingon" } }),
+    json!({}),
+    json!(["setting_invalid", "fetch.encoding", null])
+)]
+/// Covers: story:6-264, setting:crawl.content_types, error:setting_invalid
+#[case::content_types_that_are_no_media_ranges_for_the_run(
+    json!({ "crawl": { "content_types": ["*/html"] } }),
+    json!({}),
+    json!(["setting_invalid", "crawl.content_types", null])
+)]
+/// Covers: story:6-264, setting:crawl.content_types, error:setting_invalid
+#[case::content_types_that_are_no_media_ranges_for_a_label(
+    json!({}),
+    json!({ "pdf": { "settings": { "crawl": { "content_types": ["pdf"] } } } }),
+    json!(["setting_invalid", "crawl.content_types", null])
+)]
+fn a_crawl_setting_a_fetch_key_it_cannot_apply_is_refused_before_it_begins(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
+    a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+        settings, labels, expected,
+    );
+}
+
+/// A setting that can never serve is refused, not ignored (ADRs 0110 and
+/// 0120): a Label keeping responses (`fetch.kept_responses.urls`) on a
+/// forced `http` or `browser_fetch` tier, its own or the Run's, and one
+/// keeping its URLs' fragments (`crawl.keep_url_fragment`, its own or the
+/// Run's) on a forced document tier, fail the start with
+/// `setting_not_applicable` naming the key before the Run begins, ahead of
+/// the tier's own `capability_unavailable`; responses kept on a tier that
+/// could serve them are refused with `capability_unavailable` until the
+/// engine keeps them.
+///
+/// Covers: story:6-262
+#[rstest::rstest]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_on_a_labels_forced_http(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "http", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_on_a_labels_forced_browser_fetch(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "browser_fetch", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_by_a_label_on_the_runs_forced_http(
+    json!({ "fetch": { "tier": "http" } }),
+    json!({ "api": { "settings": { "fetch": { "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_on_a_labels_forced_http(
+    json!({}),
+    json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_on_a_labels_forced_discovered_api(
+    json!({}),
+    json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "discovered_api" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_by_the_run_on_a_labels_forced_browser_fetch(
+    json!({ "crawl": { "keep_url_fragment": true } }),
+    json!({ "app": { "settings": { "fetch": { "tier": "browser_fetch" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_by_the_run_on_its_forced_http(
+    json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } }),
+    json!({}),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:capability_unavailable
+#[case::responses_kept_on_the_browser(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "browser", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["capability_unavailable", "fetch.kept_responses.urls", "kept_responses"])
+)]
+fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
+    a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+        settings, labels, expected,
+    );
+}
+
+/// A Label keeping its URLs' fragments on a tier that runs the page's
+/// scripts, forced or chosen by the engine, starts, as does a Label
+/// dropping them on a forced `http` tier (ADR 0120).
+///
+/// Covers: story:6-221, setting:crawl.keep_url_fragment
+#[rstest::rstest]
+#[case::on_a_forced_browser(json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } }))]
+#[case::under_auto(json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "auto" } }))]
+#[case::dropped_on_a_forced_http(json!({ "crawl": { "keep_url_fragment": false }, "fetch": { "tier": "http" } }))]
+fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Value) {
+    let env = TestEnv::new();
+
+    let started = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "fragments",
+                        "seeds": seeds(1),
+                        "labels": { "app": { "settings": label } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    assert_eq!(started["result"]["run_id"], "fragments", "{started}");
+}
+
+/// A crawl request's identity follows `crawl.keep_url_fragment`, which is
+/// fixed for a Run's life (ADRs 0102 and 0120): a start under the Run's ID
+/// that changes it, for the Run or for a Label, is refused with
+/// `setting_not_applicable` naming the key, while one that keeps it goes
+/// on with the Run.
+///
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[test]
+fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
+    let env = TestEnv::new();
+    let start = |settings: Value, labels: Value| {
+        json!({
+            "run_id": "fixed",
+            "seeds": seeds(1),
+            "labels": labels,
+            "settings": settings,
+        })
+    };
+    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } } });
+    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } } });
+
+    let answers = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let mut answers = Vec::new();
+            for params in [
+                start(json!({}), keeping.clone()),
+                start(json!({}), dropping.clone()),
+                start(
+                    json!({ "crawl": { "keep_url_fragment": true } }),
+                    keeping.clone(),
+                ),
+                start(json!({}), keeping.clone()),
+            ] {
+                answers.push(
+                    client
+                        .call("crawl.start", params, &mut |_| Reply::Silent)
+                        .await,
+                );
+            }
+            answers
+        },
+    );
+
+    let read: Vec<Value> = answers
+        .iter()
+        .map(|answer| {
+            answer.get("error").map_or_else(
+                || answer["result"]["run_id"].clone(),
+                |error| json!([error["data"]["code"], error["data"]["key"]]),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            json!("fixed"),
+            json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
+            json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
+            json!("fixed"),
+        ]
+    );
+}
+
+/// A crawl whose `fetch.redirect.max` is outside 1 to 19, as many
+/// redirects as the browser follows, is refused before its Run begins
+/// (ADR 0118): following none is `crawl.handle_statuses`'s to say.
+///
+/// Covers: story:5-124, setting:fetch.redirect.max, error:setting_invalid
+#[rstest::rstest]
+#[case::none(0)]
+#[case::one_past_the_browsers(20)]
+fn a_crawl_whose_redirect_count_the_browser_cannot_keep_is_refused(#[case] max: u64) {
+    let env = TestEnv::new();
+
+    let refused = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "redirects",
+                        "seeds": seeds(1),
+                        "settings": { "fetch": { "redirect": { "max": max } } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    let refusal = &refused["error"]["data"];
+    assert_eq!(
+        (&refusal["code"], &refusal["key"], &refusal["layer"]),
+        (
+            &json!("setting_invalid"),
+            &json!("fetch.redirect.max"),
+            &json!("run")
+        ),
+        "{refused}"
     );
 }

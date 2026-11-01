@@ -11,6 +11,10 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
+/* Collie's screens, wherever a build imports this sheet: Foxhound's build,
+ * whose own folder Tailwind scans, composes them with its own (ADR 0087). */
+@source ".";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

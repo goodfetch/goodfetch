@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot};
 
@@ -107,4 +109,52 @@ fn an_actor_handles_its_mailbox_in_groups_and_ends_with_its_senders(
     });
 
     assert_eq!(groups, [vec![1, 2, 3]]);
+}
+
+/// Stopping an owner ends its actor once its tasks have ended, whoever
+/// still holds a sender (#1763): the actor handles what was queued before,
+/// a task's own send during its clean-up included, and a later send is
+/// refused.
+#[rstest]
+#[case::on_a_dedicated_thread(BlockingPolicy::Threads)]
+#[case::as_a_task(BlockingPolicy::Inline)]
+fn stopping_an_owner_ends_its_actor_after_its_tasks_though_a_sender_remains(
+    #[case] policy: BlockingPolicy,
+) {
+    let (stopped, handled, refused) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(policy);
+        let (sender, mailbox) = mpsc::channel(8);
+        let (seen, mut groups) = mpsc::unbounded_channel();
+        owner
+            .actor("test-actor", mailbox, move |group: Vec<i32>| {
+                let _ = seen.send(group);
+            })
+            .unwrap();
+        let (token, cleaning_up) = (owner.token().clone(), sender.clone());
+        owner.spawn(async move {
+            token.cancelled().await;
+            cleaning_up.send(2).await.unwrap();
+        });
+        sender.send(1).await.unwrap();
+
+        let stopped = match policy {
+            // Inline, every step runs on the paused runtime, whose clock
+            // moves on only once nothing is left to run.
+            BlockingPolicy::Inline => tokio::time::timeout(Duration::from_mins(1), owner.stop())
+                .await
+                .is_ok(),
+            BlockingPolicy::Threads => {
+                owner.stop().await;
+                true
+            }
+        };
+        let refused = sender.send(3).await.is_err();
+        let mut handled = Vec::new();
+        while let Ok(group) = groups.try_recv() {
+            handled.extend(group);
+        }
+        (stopped, handled, refused)
+    });
+
+    assert_eq!((stopped, handled, refused), (true, vec![1, 2], true));
 }

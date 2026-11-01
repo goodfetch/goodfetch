@@ -29,6 +29,8 @@ export interface Tools {
   readonly scripted_engine?: string | undefined;
   /** `goodfetch-conformance`, whose `read` loads a result document through `goodfetch-protocol`'s reader. */
   readonly conformance?: string | undefined;
+  /** `goodfetch-stub-gateway`, the Stub gateway the Console conformance suite runs against (ADR 0096). */
+  readonly stub_gateway?: string | undefined;
 }
 
 /** One test's setup, as `goodfetch-test-env` describes it. */
@@ -71,20 +73,31 @@ export interface TestEnvStart {
   readonly provingGroundSeed?: number | undefined;
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
+  /** The named port its Console keeps across its restarts, when given; else one the OS chooses at each start. */
+  readonly consolePort?: number | undefined;
+  /**
+   * How long, in milliseconds, `goodfetch-test-env` has to tear down once
+   * its stdin closes; ten seconds when absent. A test of a teardown past the
+   * deadline sets a short one, so it waits no real ten seconds.
+   */
+  readonly teardownDeadlineMs?: number | undefined;
 }
 
 /** A started setup. */
 export interface StartedTestEnv {
   readonly description: TestEnvDescription;
+  /** The process ID of the program that described it. */
+  readonly pid: number;
   /**
    * Closes `goodfetch-test-env`'s stdin and waits for it to tear the setup
-   * down. Fails with `teardown_failed` when it exits with a failure; one
-   * still running after the deadline is left to the process record.
+   * down, keeping the test's folder when `failed` is set. Fails with
+   * `teardown_failed` when it exits with a failure; one still running after
+   * the deadline is left to the process record.
    */
-  close(): Promise<void>;
+  close(outcome?: { readonly failed: boolean }): Promise<void>;
 }
 
-/** How long `goodfetch-test-env` has to tear down once its stdin closes. */
+/** How long `goodfetch-test-env` has to tear down once its stdin closes, unless the start says otherwise. */
 const TEARDOWN_DEADLINE_MS = 10_000;
 
 const TOOLS_VARIABLE = "GOODFETCH_TEST_TOOLS";
@@ -114,9 +127,11 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       ? []
       : ["--proving-ground", String(start.provingGroundSeed)];
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
+  const consolePort =
+    start.consolePort === undefined ? [] : ["--console-port", String(start.consolePort)];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon],
+    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon, ...consolePort],
     {
       env,
     },
@@ -129,10 +144,12 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
     const exit = await started.exit;
     throw new TestSupportError(
       "start_failed",
-      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${stderr().trim()}`,
+      `goodfetch-test-env exited (code ${exit.code}, signal ${exit.signal}) before describing the test's setup: ${exit.error?.message ?? stderr().trim()}`,
+      exit.error === undefined ? undefined : { cause: exit.error },
     );
   }
-  const close = (): Promise<void> => teardown(started);
+  const close = (outcome?: { readonly failed: boolean }): Promise<void> =>
+    teardown(started, start.teardownDeadlineMs ?? TEARDOWN_DEADLINE_MS, outcome?.failed ?? false);
   const description = parseDescription(line);
   if (description === undefined) {
     await close();
@@ -141,7 +158,7 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       `goodfetch-test-env printed a description that fails test-env-description.schema.json: ${ajv.errorsText(isDescription.errors)}`,
     );
   }
-  return { description, close };
+  return { description, pid: started.child.pid ?? 0, close };
 }
 
 /** The path of one executable of the manifest; `tool_missing` when it lists none. */
@@ -171,7 +188,8 @@ export function manifestWithEngine(
   return path;
 }
 
-function readTools(manifest: string | undefined): Tools {
+/** The test tool manifest at `manifest`; `tools_unset` or `tools_invalid` when it cannot be read. */
+export function readTools(manifest: string | undefined): Tools {
   if (manifest === undefined) {
     throw new TestSupportError("tools_unset", `${TOOLS_VARIABLE} is not set: ${RUN_WITH_JUST}`);
   }
@@ -206,12 +224,17 @@ function parseDescription(line: string): TestEnvDescription | undefined {
   return isDescription(description) ? description : undefined;
 }
 
-async function teardown(started: RecordedProcess): Promise<void> {
-  started.child.stdin.end();
+async function teardown(
+  started: RecordedProcess,
+  deadlineMs: number,
+  failed: boolean,
+): Promise<void> {
+  // A failed test's folder stays for its evidence, as a Rust test's does.
+  started.child.stdin.end(failed ? "failed\n" : undefined);
   const deadline = new AbortController();
   const exit = await Promise.race([
     started.exit,
-    delay(TEARDOWN_DEADLINE_MS, undefined, { signal: deadline.signal }).catch(() => undefined),
+    delay(deadlineMs, undefined, { signal: deadline.signal }).catch(() => undefined),
   ]);
   deadline.abort();
   if (exit !== undefined && exit.code !== 0) {

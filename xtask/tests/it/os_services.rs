@@ -12,7 +12,7 @@ use rstest::rstest;
 use crate::workspace::{Workspace, finding};
 
 #[test]
-fn test_jobs_that_set_up_the_services_before_the_deny_pass() {
+fn jobs_that_set_up_the_services_before_the_deny_pass() {
     let workspace = Workspace::from_fixture("os-services");
 
     let outcome = workspace.xtask(&["os-services", "workflows"]);
@@ -25,7 +25,7 @@ fn test_jobs_that_set_up_the_services_before_the_deny_pass() {
 #[case::without_the_setup("without-setup.yml", "missing-os-services-setup")]
 #[case::setup_after_a_test_step("setup-after-test.yml", "os-services-setup-after-test")]
 #[case::setup_after_the_deny("setup-after-deny.yml", "os-services-setup-after-deny")]
-fn test_job_without_the_services_before_its_tests_fails(
+fn a_test_job_without_the_services_before_its_tests_fails(
     #[case] workflow: &str,
     #[case] kind: &str,
 ) {
@@ -223,4 +223,57 @@ fn an_address_not_on_the_host_fails_the_check() {
         vec![finding("loopback-address-missing", "192.0.2.1")]
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// `ci/os-services.sh skipped`, which `just test` runs through
+/// `ci/nextest-skips.sh`, on a host missing the Secret Service: a stand-in
+/// `cargo` answers for `xtask os-services check` as it would there. In CI,
+/// and where the caller requires every service (`GOODFETCH_OS_SERVICES=required`,
+/// the local gate on Linux), the missing service fails; elsewhere its tests
+/// are skipped.
+#[cfg(unix)]
+#[rstest]
+#[case::local(&[], Some(0), "keychain::\n")]
+#[case::in_ci(&[("CI", "true")], Some(1), "")]
+#[case::required(&[("GOODFETCH_OS_SERVICES", "required")], Some(1), "")]
+fn a_missing_service_fails_only_where_every_service_is_required(
+    #[case] variables: &[(&str, &str)],
+    #[case] code: Option<i32>,
+    #[case] stdout: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = workspace.path().join("stand-in");
+    std::fs::create_dir_all(&stand_in).unwrap();
+    let cargo = stand_in.join("cargo");
+    std::fs::write(
+        &cargo,
+        r#"#!/bin/sh
+case " $* " in
+  *" --skipped "*) echo "keychain::" ;;
+  *) echo "secret-service-missing: Secret Service" >&2; exit 1 ;;
+esac
+"#,
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/os-services.sh");
+
+    let output = workspace
+        .command(script)
+        .args(["skipped", "skipped.txt"])
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .envs(variables.iter().copied())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        code,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout);
 }

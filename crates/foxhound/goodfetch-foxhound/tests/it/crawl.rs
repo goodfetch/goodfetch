@@ -11,47 +11,107 @@
 )]
 
 use std::io::Write as _;
-use std::process::{ChildStdin, Stdio};
+use std::path::PathBuf;
+use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{Process, StrictStdout, TestEnv};
+use goodfetch_test_support::{AnsweredCalls, Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-/// A running Attached engine of Foxhound's executable.
+/// The Datasets a crawl these tests start declares when its `crawl.start`
+/// names none (ADR 0103): those their handlers push Records into, with no
+/// schema or key.
+const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
+
+/// A running Attached engine of Foxhound's executable. When it ends
+/// without exiting by itself, killed or left to the test's teardown, it
+/// records the calls it read answered in the test's answer record: the
+/// killed engine's log loses the dispatch records its writer's thread had
+/// not written yet (ADR 0122), which the exercise audit reads (#1779).
 pub(crate) struct Attached {
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
+    /// The engine instance its `hello` named.
+    engine_instance: Value,
+    /// The test's folder, which holds its answer record.
+    folder: PathBuf,
+    answered: AnsweredCalls,
+    /// Whether the engine exited by itself, its log written whole.
+    exited: bool,
 }
 
 impl Attached {
     pub(crate) fn start(env: &TestEnv) -> Self {
+        Self::start_with(env, None, |_| {})
+    }
+
+    /// [`Attached::start`], `prepare` setting the engine's command first,
+    /// such as the browsers' folder its pages launch from, and each wait
+    /// for its output bounded by `deadline` when given.
+    pub(crate) fn start_with(
+        env: &TestEnv,
+        deadline: Option<Duration>,
+        prepare: impl FnOnce(&mut Command),
+    ) -> Self {
+        env.log_level("trace");
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
-        command
-            .arg("attached-engine")
-            .env("GOODFETCH_LOG", "trace")
-            .stderr(Stdio::piped());
-        let process = env.spawn(&mut command).unwrap();
+        command.arg("attached-engine");
+        prepare(&mut command);
+        Self::spawned(env, deadline, &mut command)
+    }
+
+    /// An Attached engine `command` starts, such as Foxhound's executable
+    /// run in a mount namespace of its own, each wait for its output
+    /// bounded by `deadline` when given.
+    pub(crate) fn spawned(
+        env: &TestEnv,
+        deadline: Option<Duration>,
+        command: &mut Command,
+    ) -> Self {
+        env.log_level("trace");
+        command.stderr(Stdio::piped());
+        let process = env.spawn(command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();
+        let stdout = match deadline {
+            Some(deadline) => stdout.within(deadline),
+            None => stdout,
+        };
         let mut engine = Self {
             process,
             stdin,
             stdout,
+            engine_instance: Value::Null,
+            folder: env.folder().to_owned(),
+            answered: AnsweredCalls::default(),
+            exited: false,
         };
         engine.send(&json!({
             "jsonrpc": "2.0", "id": "hello", "method": "hello",
             "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": "0.0.0" },
         }));
-        assert_eq!(engine.next().unwrap()["result"]["product"], "foxhound");
+        let opened = engine.next().unwrap();
+        assert_eq!(opened["result"]["product"], "foxhound");
+        engine.engine_instance = opened["result"]["engine_instance"].clone();
         engine
     }
 
+    /// Sends `message`; a `crawl.start` that declares no Dataset declares
+    /// [`PUSHED_INTO`], those the tests' handlers push their Records into.
     pub(crate) fn send(&mut self, message: &Value) {
+        let mut message = message.clone();
+        if message["method"] == "crawl.start" && message["params"].get("datasets").is_none() {
+            message["params"]["datasets"] = PUSHED_INTO
+                .iter()
+                .map(|name| json!({ "name": name }))
+                .collect();
+        }
+        self.answered.sent(&message);
         let stdin = self.stdin.as_mut().unwrap();
-        let mut line = serde_json::to_vec(message).unwrap();
+        let mut line = serde_json::to_vec(&message).unwrap();
         line.push(b'\n');
         stdin.write_all(&line).unwrap();
         stdin.flush().unwrap();
@@ -60,6 +120,7 @@ impl Attached {
     pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
+        self.answered.read(&message);
         Some(message)
     }
 
@@ -94,8 +155,24 @@ impl Attached {
         self.stdout.is_quiet_for(quiet)
     }
 
+    /// Subscribes to the event stream as the call `id`, from the start of
+    /// the engine instance its `hello` named: it reads every event, even
+    /// those of calls that answered before it was armed.
+    pub(crate) fn subscribe_from_start(&mut self, id: &str) {
+        let after = json!({ "engine_instance": self.engine_instance, "position": 0 });
+        self.send(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "events.subscribe", "params": { "after": after },
+        }));
+    }
+
+    /// The engine's process ID.
+    pub(crate) fn pid(&self) -> u32 {
+        self.process.child().id()
+    }
+
     /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
-    /// waits for it to exit.
+    /// waits for it to exit; the calls it answered go to the test's answer
+    /// record.
     pub(crate) fn kill(self) {
         self.process.stop().unwrap();
     }
@@ -104,7 +181,23 @@ impl Attached {
     pub(crate) fn finish(mut self) -> bool {
         drop(self.stdin.take());
         while self.next().is_some() {}
-        self.process.child().wait().unwrap().success()
+        self.exited = self.process.child().wait().unwrap().success();
+        self.exited
+    }
+}
+
+impl Drop for Attached {
+    fn drop(&mut self) {
+        // A folder already gone means the test's teardown ran, copying the
+        // record that nothing can add to any more.
+        if self.exited || !self.folder.is_dir() {
+            return;
+        }
+        if let Err(error) = self.answered.record_in(&self.folder)
+            && !std::thread::panicking()
+        {
+            panic!("the test's answer record cannot be written: {error}");
+        }
     }
 }
 
@@ -233,7 +326,11 @@ const HANDLER_CONCURRENCY: usize = 16;
 /// concurrency's requests wait for it, and once it answers, every work
 /// item's Records are committed once. A subscriber that grants no credits
 /// holds back nothing only Foxhound produces, since Records are read from
-/// run state (ADR 0103), and its queue still gets every axis change.
+/// run state (ADR 0103), and its queue still gets every axis change. It
+/// subscribes once `crawl.start` answered, from the start of the engine
+/// instance its `hello` named: the engine runs a Connection's calls
+/// concurrently, so a subscription sent before `crawl.start` may still be
+/// armed after the Run's first axis change.
 ///
 /// Covers: story:3-8, event:run.axes_changed
 #[test]
@@ -242,9 +339,6 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
     let seed_count = i64::try_from(SEEDS).unwrap();
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
-    engine.send(
-        &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
-    );
     let seeds: Vec<Value> = (0..SEEDS)
         .map(|index| json!({ "url": format!("https://shop.test/{index}"), "label": "page" }))
         .collect();
@@ -260,6 +354,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
             waiting.push(message);
         } else if message["id"] == "start" {
             started = true;
+            engine.subscribe_from_start("events");
         }
     }
     let held = engine.is_quiet_for(Duration::from_millis(500));
@@ -286,11 +381,20 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
         &mut |_| None,
     );
     engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 10 } }));
+    // The axis changes, lossless; the Run's progress values beside them are
+    // telemetry, coalesced.
     let mut events = Vec::new();
     while events.len() < 2 {
         let message = engine.next().unwrap();
         if message["method"] == "$/events" {
-            events.extend(message["params"]["events"].as_array().unwrap().clone());
+            events.extend(
+                message["params"]["events"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|event| event["event"] == "run.axes_changed")
+                    .cloned(),
+            );
         }
     }
     let exited = engine.finish();

@@ -30,6 +30,9 @@ serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
 sha2.workspace = true
 sqlite-plugin.workspace = true
+# `refused_matches` reads a transition table's source to show it matches
+# with no wildcard (ADR 0128).
+syn = { workspace = true, features = ["visit"] }
 tempfile.workspace = true
 thiserror.workspace = true
 toml.workspace = true
@@ -44,16 +47,20 @@ tungstenite.workspace = true
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
 
-# `NoExec`'s seccomp filter and its child's start (ADR 0067).
-[target.'cfg(target_os = "linux")'.dependencies]
+# `NoExec`'s seccomp filter and its child's start (ADR 0067), and the
+# process's peak resident memory (`peak_resident_bytes`).
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it (Xcode,
 # /usr/lib/llvm-*, C:\Program Files\LLVM) instead of linking it at a path the
 # script cannot then find when it runs.
 [build-dependencies]
-bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+bindgen.workspace = true
 
 # Its integration tests start the Proving ground and both Products'
 # executables through the test tool manifest, so a change to any runs them

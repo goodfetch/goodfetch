@@ -57,7 +57,10 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
 
-use goodfetch_protocol::journey::{Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::journey::{
+    Journey, JourneyCatalog, JourneyId, Milestone, Status, Surface, TaskId,
+};
 
 use crate::check::Finding;
 use crate::environment::Environment;
@@ -68,7 +71,17 @@ mod report;
 mod select;
 mod variants;
 
-pub(crate) use report::ManualException;
+pub(crate) use report::{ManualException, VariantOutcome, VariantTests};
+
+/// Each variant's outcome on `main`'s latest Release run in the store at
+/// `store`, judged as the Journey report judges it, by the variant's ID.
+pub(crate) fn variant_outcomes(
+    root: &Path,
+    store: &Path,
+    variant_tests: Option<&VariantTests>,
+) -> Result<BTreeMap<String, VariantOutcome>> {
+    report::variant_outcomes(&working_journeys(root)?, store, variant_tests)
+}
 
 /// The catalog's folder, from the root.
 const FOLDER: &str = "journeys";
@@ -107,9 +120,10 @@ pub(crate) enum Command {
     /// latest Release run in the results store, by milestone, area and
     /// Product: `proved` or `failed` as its result documents give,
     /// `rejected` when the reader refuses one, `unproved` when none was
-    /// kept. With `--out`, also writes `journeys.json` and `journeys.md`
-    /// there. With `--owner-test`, prints instead that milestone's owner
-    /// test's "Journeys to try".
+    /// kept. With `--listings`, a variant whose test ran in a cell that kept
+    /// no document of it is `failed`. With `--out`, also writes
+    /// `journeys.json` and `journeys.md` there. With `--owner-test`, prints
+    /// instead that milestone's owner test's "Journeys to try".
     Report(Report),
     /// Prints, one `<runner>\t<argument>` line each, the runners' filters
     /// that select the variants of active Journeys the flags choose: values
@@ -145,6 +159,10 @@ pub(crate) struct Report {
     /// The results store's checkout; without it, no variant is proved.
     #[arg(long)]
     store: Option<PathBuf>,
+    /// The folder of the runners' listings that `listings` writes, which
+    /// name the tests that carry each variant.
+    #[arg(long)]
+    listings: Option<PathBuf>,
     /// The folder to write `journeys.json` and `journeys.md` to.
     #[arg(long)]
     out: Option<PathBuf>,
@@ -172,6 +190,11 @@ pub(crate) struct Select {
     /// A Git tag whose catalog to read instead of the working tree's.
     #[arg(long)]
     tag: Option<String>,
+    /// The folder of the runners' listings that `listings` writes: each
+    /// chosen variant no test carries is noted, and a choice none of whose
+    /// variants has a test fails.
+    #[arg(long)]
+    listings: Option<PathBuf>,
 }
 
 fn parse_id(text: &str) -> Result<JourneyId, String> {
@@ -245,7 +268,12 @@ pub(crate) fn run(
                 .store
                 .as_ref()
                 .map(|store| environment.path(store));
-            let built = report::build(&journeys, store.as_deref())?;
+            let variant_tests = arguments
+                .listings
+                .as_ref()
+                .map(|folder| variant_tests(&environment.root, &environment.path(folder)))
+                .transpose()?;
+            let built = report::build(&journeys, store.as_deref(), variant_tests.as_ref())?;
             let markdown = report::markdown(&built);
             if let Some(out) = &arguments.out {
                 write_report(&environment.path(out), &built, &markdown)?;
@@ -253,38 +281,7 @@ pub(crate) fn run(
             output::line(markdown.trim_end_matches('\n'));
             Ok(ExitCode::SUCCESS)
         }
-        Command::Select(arguments) => {
-            let journeys = match &arguments.tag {
-                Some(tag) => tagged_journeys(&environment.root, tag)?,
-                None => working_journeys(&environment.root)?,
-            };
-            let choice = select::Choice {
-                ids: arguments.ids.clone(),
-                surfaces: arguments.surfaces.clone(),
-                milestones: arguments.milestones.clone(),
-                areas: arguments.areas.clone(),
-            };
-            let active = journeys
-                .iter()
-                .filter(|journey| journey.status == Status::Active)
-                .flat_map(variants::of)
-                .collect();
-            let chosen = select::chosen(active, &choice);
-            if chosen.is_empty() {
-                output::error("error: no variant of an active Journey matches the flags");
-                return Ok(ExitCode::from(1));
-            }
-            let (filters, unrun) = select::filters(&chosen);
-            for variant in unrun {
-                output::error(&format!(
-                    "skipped: {variant}, since no runner runs its surface's variants yet"
-                ));
-            }
-            for (runner, argument) in filters {
-                output::line(&format!("{}\t{argument}", runner.name()));
-            }
-            Ok(ExitCode::SUCCESS)
-        }
+        Command::Select(arguments) => select_command(arguments, environment),
         Command::Tasks(tasks) => {
             let proving_ground = environment.path(&tasks.proving_ground);
             let lists = proving_ground_lists(&environment.root, &proving_ground)?;
@@ -317,10 +314,12 @@ fn proving_ground_lists(root: &Path, proving_ground: &Path) -> Result<BTreeMap<S
     for path in journey_files(root)? {
         let text =
             std::fs::read_to_string(root.join(&path)).with_context(|| format!("reading {path}"))?;
-        // A file that does not parse is `check`'s finding; it uses no seed.
-        if let Ok((journey, _)) = parse(&text) {
-            journeys.push(journey);
-        }
+        // A file that does not parse names no seed, so its seed's list
+        // would be removed as unused: refuse until it parses (`check`).
+        let (journey, _) = parse(&text).map_err(|error| {
+            anyhow::anyhow!("{path} does not parse ({error}); fix it before writing the task lists")
+        })?;
+        journeys.push(journey);
     }
     let mut lists = BTreeMap::new();
     for seed in seeds(journeys.iter()) {
@@ -554,6 +553,7 @@ fn file_findings(
             ));
         }
     }
+    findings.extend(check_findings(journey, &file.path));
     let has_reason = journey
         .reason
         .as_deref()
@@ -564,6 +564,48 @@ fn file_findings(
             subject(),
             "a retired Journey keeps its file and gives its `reason`",
         ));
+    }
+    findings
+}
+
+/// The rules on a Journey's checks: each surface a check is scoped to is
+/// one of the Journey's variants, and each task a check names is pinned.
+fn check_findings(journey: &Journey, subject: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let pinned: Vec<&TaskId> = journey
+        .proving_ground
+        .iter()
+        .flat_map(|table| table.tasks.iter().map(|task| &task.id))
+        .collect();
+    for check in &journey.expect {
+        // A check scoped to a surface the Journey has no variant on belongs
+        // to no variant; `foxhound-cli` is a Collie Journey's `cli` variant.
+        for surface in &check.surfaces {
+            let variant = journey.surfaces.contains_key(surface)
+                || (surface == variants::FOXHOUND_CLI
+                    && journey.product == Product::Collie
+                    && journey.surfaces.contains_key("cli"));
+            if !variant {
+                findings.push(Finding::new(
+                    "check-surface",
+                    subject.to_owned(),
+                    format!(
+                        "check `{}` is scoped to `{surface}`, on which the Journey has no variant",
+                        check.text
+                    ),
+                ));
+            }
+        }
+        if let Some(task) = check.task.as_ref().filter(|task| !pinned.contains(task)) {
+            findings.push(Finding::new(
+                "check-task-unpinned",
+                subject.to_owned(),
+                format!(
+                    "check `{}` names task `{task}`, which the Journey's `[proving_ground]` does not pin",
+                    check.text
+                ),
+            ));
+        }
     }
     findings
 }
@@ -724,6 +766,57 @@ pub(crate) fn active_variants(root: &Path) -> Result<Vec<CatalogVariant>> {
                 .collect(),
         })
         .collect())
+}
+
+/// `xtask journeys select`: each runner's filter for the chosen variants.
+fn select_command(arguments: &Select, environment: &Environment) -> Result<ExitCode> {
+    let journeys = match &arguments.tag {
+        Some(tag) => tagged_journeys(&environment.root, tag)?,
+        None => working_journeys(&environment.root)?,
+    };
+    let choice = select::Choice {
+        ids: arguments.ids.clone(),
+        surfaces: arguments.surfaces.clone(),
+        milestones: arguments.milestones.clone(),
+        areas: arguments.areas.clone(),
+    };
+    let active = journeys
+        .iter()
+        .filter(|journey| journey.status == Status::Active)
+        .flat_map(variants::of)
+        .collect();
+    let chosen = select::chosen(active, &choice);
+    if chosen.is_empty() {
+        output::error("error: no variant of an active Journey matches the flags");
+        return Ok(ExitCode::from(1));
+    }
+    if let Some(folder) = &arguments.listings {
+        let carried = variant_tests(&environment.root, &environment.path(folder))?;
+        let untested: Vec<String> = chosen
+            .iter()
+            .map(variants::Variant::id)
+            .filter(|variant| !carried.contains_key(variant))
+            .collect();
+        for variant in &untested {
+            output::error(&format!(
+                "note[no-test] {variant}: no test carries it, so it runs nowhere"
+            ));
+        }
+        if untested.len() == chosen.len() {
+            output::error("error: no chosen variant has a test, so nothing would run");
+            return Ok(ExitCode::from(1));
+        }
+    }
+    let (filters, unrun) = select::filters(&chosen);
+    for variant in unrun {
+        output::error(&format!(
+            "skipped: {variant}, since no runner runs its surface's variants yet"
+        ));
+    }
+    for (runner, argument) in filters {
+        output::line(&format!("{}\t{argument}", runner.name()));
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// The tests that carry each variant, by its ID, from the runners' listings

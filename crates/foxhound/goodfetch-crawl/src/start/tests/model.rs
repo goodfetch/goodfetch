@@ -11,12 +11,16 @@
 //! Run's Lifecycle: the driver's finish once no work is left, an abort, the
 //! loss of the engine in a crash, and a finish or an abort of the Run
 //! afterwards, which another engine's abort takes over after a crash. After every step the run file holds every Record
-//! acknowledged, none twice and none of an attempt that did not commit;
+//! acknowledged, none twice and none of an attempt that did not commit,
+//! and each of its two Datasets numbers its Records from 1, in commit
+//! order, with no gaps (ADRs 0008 and 0103);
 //! after a crash, the file the next process opens passes `PRAGMA
 //! integrity_check` (in `after_crash`) and still does. The handler takes
 //! one work item at a time, so a handler request means the previous
 //! attempt's outcome was committed. 16 cases in the Quick suite and 256 in
 //! the Pre-merge suite (`proptest_config`).
+//! Each case's folder lies in memory (`TestEnv::in_memory`): on a busy
+//! disk its files' syncs passed the Quick kill (fix-queue 123).
 
 use std::collections::BTreeMap;
 
@@ -127,6 +131,23 @@ impl Model {
 
 fn record(item: usize, attempt: u32, number: u8) -> Value {
     json!({ "item": item + 1, "attempt": attempt, "number": number })
+}
+
+/// The Dataset a handler pushes `record` into: `pages` for its even
+/// numbers, `links` for its odd ones, so an attempt may push into both.
+fn dataset_of(record: &Value) -> &'static str {
+    if record["number"].as_u64().unwrap().is_multiple_of(2) {
+        "pages"
+    } else {
+        "links"
+    }
+}
+
+/// The handler's answer of `records`, each into its Dataset.
+fn pushed(records: impl Iterator<Item = Value>) -> Vec<Value> {
+    records
+        .map(|data| json!({ "dataset": dataset_of(&data), "data": data }))
+        .collect()
 }
 
 impl ReferenceStateMachine for Model {
@@ -297,7 +318,7 @@ impl Subject {
     }
 
     /// The Records the run file holds now, read beside the writer.
-    fn records(&self) -> Vec<Value> {
+    fn records(&self) -> Vec<Stored> {
         let connection = Connection::open_with_flags_and_vfs(
             self.path(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -320,20 +341,54 @@ impl Subject {
     }
 }
 
-fn stored_records(connection: &Connection) -> Vec<Value> {
+/// One committed Record: its Dataset, its number and its data.
+type Stored = (String, i64, Value);
+
+fn stored_records(connection: &Connection) -> Vec<Stored> {
     let mut statement = connection
-        .prepare("SELECT data FROM records ORDER BY dataset, number")
+        .prepare("SELECT dataset, number, data FROM records ORDER BY dataset, number")
         .unwrap();
     statement
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .unwrap()
-        .map(|data| serde_json::from_str(&data.unwrap()).unwrap())
+        .map(|row| {
+            let (dataset, number, data) = row.unwrap();
+            (dataset, number, serde_json::from_str(&data).unwrap())
+        })
         .collect()
 }
 
 /// The Records hold each committed one once, and nothing but those and the
-/// last answer's.
-fn check(records: &[Value], model: &Model) {
+/// last answer's; each Dataset numbers its Records from 1 with no gaps, in
+/// the order the model committed them.
+fn check(stored: &[Stored], model: &Model) {
+    let records: Vec<Value> = stored.iter().map(|(_, _, data)| data.clone()).collect();
+    let in_commit_order: Vec<&Value> = model.committed.iter().chain(&model.last_answer).collect();
+    for dataset in ["pages", "links"] {
+        let numbered: Vec<(i64, &Value)> = stored
+            .iter()
+            .filter(|(of, _, _)| of == dataset)
+            .map(|(_, number, data)| (*number, data))
+            .collect();
+        let expected: Vec<(i64, &Value)> = in_commit_order
+            .iter()
+            .filter(|record| dataset_of(record) == dataset)
+            .take(numbered.len())
+            .enumerate()
+            .map(|(index, record)| (i64::try_from(index).unwrap() + 1, *record))
+            .collect();
+        assert_eq!(
+            numbered, expected,
+            "`{dataset}` does not number its Records from 1 in commit order"
+        );
+    }
+    let records = &records;
     let mut seen = BTreeMap::new();
     for record in records {
         *seen.entry(record.to_string()).or_insert(0) += 1;
@@ -361,7 +416,7 @@ impl StateMachineTest for Subject {
     type Reference = Model;
 
     fn init_test(model: &Model) -> Self {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let folder = env
             .folder()
             .file_name()
@@ -400,7 +455,7 @@ impl StateMachineTest for Subject {
             .collect();
         subject.send(&json!({
             "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-            "params": { "run_id": "model", "seeds": seeds },
+            "params": { "run_id": "model", "seeds": seeds, "datasets": [{ "name": "pages" }, { "name": "links" }] },
         }));
         assert_eq!(subject.next()["result"]["started_as"], "new");
         subject
@@ -474,9 +529,7 @@ impl StateMachineTest for Subject {
                 let id = request["id"].clone();
                 match behaviour {
                     Behaviour::Records(count) => {
-                        let records: Vec<Value> = (0..count)
-                            .map(|number| json!({ "dataset": "pages", "data": record(index, attempt, number) }))
-                            .collect();
+                        let records = pushed((0..count).map(|number| record(index, attempt, number)));
                         subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
                     }
                     Behaviour::FailsRetryably => subject.send(&json!({
@@ -489,9 +542,7 @@ impl StateMachineTest for Subject {
                     })),
                     Behaviour::Silent => subject.silent.push((id, Vec::new())),
                     Behaviour::Late(count) => {
-                        let records: Vec<Value> = (0..count)
-                            .map(|number| json!({ "dataset": "pages", "data": record(index, attempt, number) }))
-                            .collect();
+                        let records = pushed((0..count).map(|number| record(index, attempt, number)));
                         subject.silent.push((id, records));
                     }
                 }
@@ -526,7 +577,11 @@ impl StateMachineTest for Subject {
             );
             let mut expected = model.committed.clone();
             expected.extend(model.last_answer.iter().cloned());
-            let mut records = subject.records();
+            let mut records: Vec<Value> = subject
+                .records()
+                .into_iter()
+                .map(|(_, _, data)| data)
+                .collect();
             records.sort_by_key(Value::to_string);
             expected.sort_by_key(Value::to_string);
             assert_eq!(records, expected);
@@ -588,7 +643,7 @@ fn next_from_engine(subject: &mut Subject) -> Value {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-41, story:3-26, story:3-151
+    /// Covers: story:3-41, story:3-26, story:3-151, story:6-268
     #[test]
     fn delivery_commits_each_answered_attempt_once_through_failures_lost_leases_and_crashes(
         sequential 1..20 => Subject

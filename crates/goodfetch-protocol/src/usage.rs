@@ -17,7 +17,7 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, SharedType, SharedTypeValue, Stability, schema_of,
 };
-use crate::run::{LimitScope, Period, PointInTime};
+use crate::run::{LimitScope, LimitSetter, Period, PointInTime};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -45,28 +45,22 @@ pub const PROXY_BYTES: &str = "proxy_bytes";
 /// service's configured price (ADR 0035; area 8 reserves it).
 pub const PAID_SOLVES: &str = "paid_solves";
 
-/// Who set a Limit, which decides whether it allows paying (ADR 0045).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LimitSetter {
-    /// A person, in the Console or an interactive CLI prompt.
-    Person,
-    /// A managed Operator policy.
-    ManagedPolicy,
-    /// A Client, which only adds a Limit of its own.
-    Client,
-}
+/// The Usage kind of the model calls a run made, retries and Repairs
+/// included (ADR 0101; area 9 charges it).
+pub const MODEL_CALLS: &str = "model_calls";
 
-impl LimitSetter {
-    /// Its name on the wire and in the Usage ledger.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Person => "person",
-            Self::ManagedPolicy => "managed_policy",
-            Self::Client => "client",
-        }
-    }
-}
+/// The Usage kind of the model tokens a run used, input and output (ADR
+/// 0101; area 9 charges it).
+pub const MODEL_TOKENS: &str = "model_tokens";
+
+/// The Usage kind of the time a run held a browser, in milliseconds (ADR
+/// 0101; area 5 charges it).
+pub const BROWSER_TIME: &str = "browser_time";
+
+/// The Usage kind of a run's crashes: one per renderer that crashed and
+/// one per browser process that crashed, however many pages it held (ADR
+/// 0040; area 5 charges it).
+pub const PAGE_CRASHES: &str = "page_crashes";
 
 /// One Limit of the Usage ledger: a generic row, which a newer engine may
 /// write with a scope kind, a Usage kind, a currency or a period this one
@@ -384,6 +378,30 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: PAID_SOLVES,
             description: "Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: MODEL_CALLS,
+            description: "Model calls a run made, retries and Repairs included (ADR 0101).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: MODEL_TOKENS,
+            description: "Model tokens a run used, input and output (ADR 0101).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: BROWSER_TIME,
+            description: "The time a run held a browser, in milliseconds (ADR 0101).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PAGE_CRASHES,
+            description: "Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

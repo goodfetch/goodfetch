@@ -72,8 +72,8 @@ class JourneyOutcome(StrEnum):
 
     proved = "proved"
     """
-    Every automated step and check passed and every named task is
-    `verified`.
+    Every automated step and check passed, every named task is
+    `verified` and no error failed the test outside them.
     """
     failed = "failed"
     """Anything else."""
@@ -357,7 +357,18 @@ class JourneyDocument(BaseModel):
     Console's build, an adapter).
     """
     tasks: list[TaskResult]
-    """Each Proving ground task the Journey names."""
+    """
+    Each Proving ground task the Journey names, in its order: once per
+    check naming it, each with the answer to that check's submission in
+    the checks' order, or once when no check names it.
+    """
+    test_errors: list[str] | None = None
+    """
+    Each error that failed the variant's test outside its steps, checks
+    and tasks, with its Error code: a page error or an accessibility
+    violation the test found once its body had ended (ADR 0068). A
+    variant with one is `failed`, whatever its steps and checks say.
+    """
 
 
 class ResultDocument2(BaseModel):
@@ -393,7 +404,18 @@ class ResultDocument2(BaseModel):
     Console's build, an adapter).
     """
     tasks: list[TaskResult]
-    """Each Proving ground task the Journey names."""
+    """
+    Each Proving ground task the Journey names, in its order: once per
+    check naming it, each with the answer to that check's submission in
+    the checks' order, or once when no check names it.
+    """
+    test_errors: list[str] | None = None
+    """
+    Each error that failed the variant's test outside its steps, checks
+    and tasks, with its Error code: a page error or an accessibility
+    violation the test found once its body had ended (ADR 0068). A
+    variant with one is `failed`, whatever its steps and checks say.
+    """
     kind: Literal["journey"]
 
 

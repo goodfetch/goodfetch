@@ -2,7 +2,9 @@
 //! the engine's own Audit log, at ADR 0059's test `Clock` start, records an
 //! Operator policy that switched a security control off, a Secret
 //! reference a CLI run used, and a person's acceptance of a changed
-//! certificate; then writes the store, as SQL text, and its head file into
+//! certificate, then a Run whose `security.audit_chain` was off: its
+//! switch, chained, and its key reference's use, unchained; then writes the
+//! store, as SQL text, and its head file into
 //! the folder given as the only argument, as `audit-log.sql` and
 //! `audit-log-head.json`. `xtask compat write` runs it.
 #![expect(
@@ -37,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log.record(
         &Origin {
             actor: Actor::Engine,
+            surface: None,
             layer: Some(SettingsLayer::OperatorPolicy),
             run_id: Some(RunId::parse("weakened")?),
         },
@@ -49,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             actor: Actor::ClientSurface {
                 surface: Surface::Cli,
             },
+            surface: None,
             layer: Some(SettingsLayer::Run),
             run_id: Some(RunId::parse("logged-in")?),
         },
@@ -65,6 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             actor: Actor::Person {
                 name: "os_user".to_owned(),
             },
+            surface: Some(Surface::Console),
             layer: None,
             run_id: None,
         },
@@ -74,6 +79,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "previous": "sha256/ad0c5cd9a82e8a1ecbd6e9a7a8f7a3b4bd8f4a3c1c8c20c3b0d0bbc6bc6a4f17",
             "accepted": "sha256/3f2a6c8a3e1b7f9d5c4e2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d",
         }),
+        start,
+    )?;
+    let unchained = RunId::parse("unchained")?;
+    let switched = Origin {
+        actor: Actor::Engine,
+        surface: None,
+        layer: Some(SettingsLayer::Run),
+        run_id: Some(unchained.clone()),
+    };
+    log.unchain(unchained);
+    log.record_chained(
+        &switched,
+        &SECURITY_SWITCH_TURNED_OFF,
+        json!({ "setting": "security.audit_chain", "value": false }),
+        start,
+    )?;
+    log.record(
+        &switched,
+        &SECRET_REFERENCE_USED,
+        json!({ "placeholder": "run_state.key_reference", "reference": "env:RUN_KEY", "domain": null }),
         start,
     )?;
     let connection = rusqlite::Connection::open(log.path())?;

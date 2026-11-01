@@ -2,9 +2,10 @@
 node_modules/
 # Cargo's builds, and every runner's JUnit XML and test output under target/
 target/
-# Collie's Console build, which `xtask console build` writes and Collie's
+# Each Product's Console build, which `xtask console build` writes and its
 # executable embeds (ADR 0057)
 crates/goodfetch-collie/console-build/
+crates/foxhound/goodfetch-foxhound/console-build/
 __pycache__/
 .venv/
 .pytest_cache/

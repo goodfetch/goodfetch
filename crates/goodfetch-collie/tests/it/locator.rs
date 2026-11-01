@@ -20,7 +20,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache, cli};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
+};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -82,6 +84,27 @@ impl<'env> OnTask<'env> {
         surface: &str,
         action_timeout: u64,
     ) -> Self {
+        Self::open_with(
+            env,
+            cache,
+            proving_ground,
+            task,
+            surface,
+            action_timeout,
+            &Map::new(),
+        )
+    }
+
+    /// [`Self::open`], the Run's settings holding `settings` too.
+    fn open_with(
+        env: &'env TestEnv,
+        cache: &Path,
+        proving_ground: &ProvingGround,
+        task: &str,
+        surface: &str,
+        action_timeout: u64,
+        settings: &Map<String, Value>,
+    ) -> Self {
         let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
@@ -103,17 +126,15 @@ impl<'env> OnTask<'env> {
             .iter()
             .map(|(host, address)| (host.clone(), json!([address])))
             .collect();
+        let mut run_settings = settings.clone();
+        crate::page::allow_private(&mut run_settings, resolve.keys());
+        run_settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+        run_settings.insert("timeout".to_owned(), json!({ "action": action_timeout }));
         let started = call(
             &mut engine,
             1,
             "run.start",
-            &json!({
-                "run_id": "locators",
-                "settings": {
-                    "network": { "resolve": resolve },
-                    "timeout": { "action": action_timeout },
-                },
-            }),
+            &json!({ "run_id": "locators", "settings": run_settings }),
         );
         assert!(started.get("result").is_some(), "{started}");
         let opened = call(
@@ -386,20 +407,35 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// A click on a target with no animation or transition running checks and
 /// arms in one round trip into the guard's world, sends its three pointer
 /// events and disarms: no stability wait, no second check (ADR 0019's
-/// speed target).
+/// speed target). Live hiding and the Consent prompt runner's answering
+/// are off, and the Page check matches by URL alone, so that the Run trace
+/// holds the guard's commands beside block detection's one read of the
+/// document the `goto` reached (a world and a call, since a rule reads a
+/// 200 page's captcha widget), the wall test's start in it, which runs
+/// with the answering off, and the `goto`'s question to the runner whether
+/// its first pass there found a prompt to wait on (a world and a call
+/// each, ADR 0048): the reads of each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(
+    let mut settings = Map::new();
+    settings.insert("live_view".to_owned(), json!({ "hiding": "off" }));
+    settings.insert("consent".to_owned(), json!({ "handling": false }));
+    settings.insert(
+        "session".to_owned(),
+        json!({ "page_check": { "login_page": { "kind": "glob", "pattern": "**/login" } } }),
+    );
+    let mut page = OnTask::open_with(
         &env,
         &cache,
         &proving_ground,
         "actionability/1",
         "sdk_python",
         10_000,
+        &settings,
     );
 
     let clicked = page.act(Step::Click("#target"));
@@ -414,7 +450,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
             counts.get("Input.dispatchMouseEvent"),
             counts.get("Runtime.enable"),
         ),
-        (&json!({}), Some(&1), Some(&2), Some(&3), None),
+        (&json!({}), Some(&4), Some(&5), Some(&3), None),
         "{counts:?}"
     );
 }
@@ -422,30 +458,36 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
 /// `locator click`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.click
-#[test]
-fn locator_click_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "click"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_click_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "click"], mode);
 }
 
 /// `locator fill`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.fill
-#[test]
-fn locator_fill_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "fill", "--value", "Goodfetch"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_fill_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "fill", "--value", "Goodfetch"], mode);
 }
 
 /// `locator press`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.press
-#[test]
-fn locator_press_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "press", "--key", "Enter"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_press_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "press", "--key", "Enter"], mode);
 }
 
-/// Runs the locator command `command` on a page no engine holds, and
-/// asserts that it fails with `closed`, naming its operation.
-fn fails_with_closed(command: &[&str]) {
+/// Runs the locator command `command` in `mode` on a page no engine
+/// holds, and asserts that it fails with `closed`, naming its operation.
+fn fails_with_closed(command: &[&str], mode: Mode) {
     let env = TestEnv::new();
     let mut arguments = command.to_vec();
     arguments.extend([
@@ -456,6 +498,7 @@ fn fails_with_closed(command: &[&str]) {
 
     let checked = cli(&env, COLLIE)
         .args(arguments)
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 

@@ -4,7 +4,10 @@
 //! the code and group coming from the Scripted engine run as a Daemon, which
 //! answers `config explain --daemon` with them; a Run that ended `stopped`
 //! exits `20` and resumes by its Run ID; and `SIGTERM` exits `143` once the
-//! call it interrupted is cancelled.
+//! call it interrupted is cancelled. A failure before any call, as a
+//! Daemon nothing answers for or a deployment variable the executable
+//! cannot take, prints as every failure does, `{ "error" }` under
+//! `--json`, and exits by its code's row.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test writes the script its Scripted engine plays itself"
@@ -14,16 +17,220 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::{BufRead as _, BufReader, Read as _};
 use std::process::Stdio;
 
 use goodfetch_test_support::{
-    Process, TestEnv, cli, engine_script, record_command, reported_address, tools,
+    Process, ProvingGround, TestEnv, cli, engine_script, reported_address, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use crate::daemon::scripted_daemon;
+
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// A token for a Daemon that never reads it: no real token's shape.
+const UNREAD_TOKEN: &str = "not-a-real-token";
+
+/// The Error code and the exit of a failure printed as `{ "error" }` on
+/// stdout, as `--json` prints it, or what stdout held instead.
+fn failed_with(output: &goodfetch_test_support::CliOutput) -> (Option<i32>, Value) {
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+    (output.exit, printed["error"]["code"].clone())
+}
+
+/// A loopback address no Daemon answers at: the Proving ground's `down`
+/// address, where nothing listens and which no other program can take
+/// while the Proving ground runs. A port bound and let go could be taken,
+/// and answered or held silent, by any program before the command connects
+/// (#1796).
+fn unanswered_address(proving_ground: &ProvingGround) -> std::net::SocketAddr {
+    proving_ground.description().fixtures.proxies["down"]
+        .parse()
+        .expect("the down address is a socket address")
+}
+
+/// No other program can listen where the unreachable Daemon's command
+/// connects, so it always meets a refused connection (#1796).
+#[cfg(unix)]
+#[test]
+fn no_other_program_can_take_the_unreachable_daemons_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let address = unanswered_address(&proving_ground);
+
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the test plays the other program that would listen there, outside the engine (ADR 0060)"
+    )]
+    let other = std::net::TcpListener::bind(address);
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
+}
+
+/// A command whose Daemon nothing answers for, the remote one
+/// `GOODFETCH_URL` names at a loopback port nobody listens on, fails with
+/// `daemon_unreachable`, an `UnavailableError` whose `fix` says what to
+/// do: `{ "error" }` under `--json`, exit `8`, never exit `1` with a log
+/// line alone.
+///
+/// Covers: story:11-199, story:11-205, command:engine.info, error:daemon_unreachable, exit:unavailable
+#[test]
+fn a_command_that_reaches_no_daemon_prints_daemon_unreachable_and_exits_8() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, env.seed()).unwrap();
+    let closed = unanswered_address(&proving_ground);
+
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info", "--json"])
+        .env("GOODFETCH_URL", format!("ws://{closed}"))
+        .env("GOODFETCH_TOKEN", UNREAD_TOKEN)
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            failed_with(&output),
+            printed["error"]["retryable"].clone(),
+            printed["error"]["fix"].is_string(),
+        ),
+        ((Some(8), json!("daemon_unreachable")), json!(true), true),
+        "{output}"
+    );
+}
+
+/// A `GOODFETCH_URL` that is not loopback is refused with `setting_invalid`
+/// before any Connection, exit `3`, as the Daemon refuses such an address
+/// until it terminates TLS: its token would travel in clear (608-O2).
+///
+/// Covers: story:11-199, command:engine.info, error:setting_invalid, exit:program
+#[test]
+fn a_goodfetch_url_that_is_not_loopback_is_refused_with_setting_invalid() {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info", "--json"])
+        .env("GOODFETCH_URL", "ws://192.0.2.1:7900")
+        .env("GOODFETCH_TOKEN", UNREAD_TOKEN)
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (failed_with(&output), printed["error"]["key"].clone()),
+        ((Some(3), json!("setting_invalid")), json!("GOODFETCH_URL")),
+        "{output}"
+    );
+}
+
+/// A deployment variable the executable cannot take fails the command
+/// before any engine starts as every failure prints, `{ "error" }` under
+/// `--json`, with no colour under `--color never`, and exits by its code's
+/// row: whether clap read the command line, or refused what only Foxhound
+/// carries.
+///
+/// Covers: story:11-205, error:setting_invalid, exit:program
+#[rstest]
+/// Covers: command:engine.info
+#[case::a_command_it_reads(&["engine", "info", "--json", "--color", "never"])]
+#[case::what_only_foxhound_carries(&["crawl", "start", "https://example.com/", "--json", "--color=never"])]
+fn a_bad_deployment_variable_fails_as_every_failure_prints(#[case] arguments: &[&str]) {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(arguments)
+        .env("GOODFETCH_CHANNEL", "nowhere")
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        failed_with(&output),
+        (Some(3), json!("setting_invalid")),
+        "{output}"
+    );
+}
+
+/// Under `--daemon`, a Daemon that refuses `hello` by protocol version and
+/// cannot hand over fails `audit export` and `audit verify` as every
+/// command's refusal prints, its `fix` naming this executable's `daemon
+/// restart`, exit `11`.
+///
+/// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
+#[rstest]
+/// Covers: command:audit.export
+#[case::export("export")]
+/// Covers: command:audit.verify
+#[case::verify("verify")]
+fn a_refused_audit_command_shows_the_refusals_fix(#[case] command: &str) {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["audit", command, "--daemon"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.as_str(),
+            output
+                .stderr
+                .lines()
+                .any(|line| line.starts_with("fix:") && line.contains("daemon restart")),
+        ),
+        (Some(11), "", true),
+        "{output}"
+    );
+}
+
+/// The person-only commands, at a terminal, print the same refusal: `usage
+/// raise` once the person answered yes, `certs accept` and `certs forget`
+/// on the call that reads the pin, each with its `fix` line and exit `11`.
+///
+/// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
+#[rstest]
+/// Covers: command:usage.raise
+#[case::usage_raise(&["usage", "raise", "--scope", "install", "--usage-kind", "requests", "--amount", "1000", "--daemon"], Some("y"))]
+/// Covers: command:certs.accept
+#[case::certs_accept(&["certs", "accept", "example.com", "--daemon"], None)]
+/// Covers: command:certs.forget
+#[case::certs_forget(&["certs", "forget", "example.com", "--daemon"], None)]
+fn a_refused_person_command_shows_the_refusals_fix(
+    #[case] arguments: &[&str],
+    #[case] answer: Option<&str>,
+) {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let mut asked = goodfetch_test_support::pty(&env, COLLIE)
+        .args(arguments)
+        .spawn()
+        .unwrap();
+    if let Some(answer) = answer {
+        asked.expect("[y/N]").unwrap();
+        asked.send_line(answer).unwrap();
+    }
+    let output = asked.finish().unwrap();
+    scripted.child().wait().unwrap();
+
+    let shown = output.stripped();
+    assert_eq!(
+        (
+            output.exit,
+            shown
+                .lines()
+                .any(|line| line.starts_with("fix:") && line.contains("daemon restart")),
+        ),
+        (Some(11), true),
+        "{shown}"
+    );
+}
 
 /// The corpus's script whose Daemon answers `config.explain` with an Error
 /// code, which each case replaces.
@@ -159,13 +366,13 @@ fn a_command_line_with_an_unknown_flag_exits_2_before_any_engine_call() {
 fn a_run_that_ended_stopped_exits_20() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let finished = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--json"])
+        .args(["run", "finish", "first", "--json", "--attached"])
         .json("RunReport")
         .unwrap();
 
@@ -185,13 +392,13 @@ fn a_run_that_ended_stopped_exits_20() {
 fn a_run_that_ended_stopped_resumes_by_its_run_id() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let resumed = cli(&env, COLLIE)
-        .args(["run", "resume", "first", "--json"])
+        .args(["run", "resume", "first", "--json", "--attached"])
         .json("RunStarted")
         .unwrap();
 
@@ -212,19 +419,20 @@ fn a_run_that_ended_stopped_resumes_by_its_run_id() {
 fn a_stopped_run_exits_20_under_require_verified() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let finished = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--require-verified"])
+        .args(["run", "finish", "first", "--require-verified", "--attached"])
         .run()
         .unwrap();
 
     assert_eq!(finished.exit, Some(20), "{}", finished.stderr);
 }
 
+#[cfg(unix)]
 const SUBSCRIBE: [&str; 6] = [
     "events",
     "subscribe",
@@ -241,11 +449,15 @@ const SUBSCRIBE: [&str; 6] = [
 #[cfg(unix)]
 #[test]
 fn sigterm_cancels_the_call_and_exits_143() {
+    use std::io::{BufRead as _, BufReader, Read as _};
+
+    use goodfetch_test_support::record_command;
+
     let env = TestEnv::new();
+    env.log_level("trace");
     let mut command = env.process_command(COLLIE);
     command
         .args(SUBSCRIBE)
-        .env("GOODFETCH_LOG", "trace")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let process = env.spawn(&mut command).unwrap();

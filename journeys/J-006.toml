@@ -17,6 +17,8 @@ covers = [
   "story:3-71",
   "story:3-76",
   "story:3-79",
+  "story:12-23",
+  "story:12-99",
 ]
 
 [proving_ground]

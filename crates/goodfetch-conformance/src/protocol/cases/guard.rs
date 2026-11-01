@@ -5,12 +5,14 @@
 //! out a covering element and a re-render's transient duplicate, a locator
 //! survives a re-render that replaces its element, typed text and a key
 //! reach the page as trusted input, and a target still ambiguous or never
-//! actionable when `timeout.action` passes fails typed, having done nothing.
+//! actionable when `timeout.action` passes fails typed, having done nothing,
+//! also on a page whose main thread is too busy to answer.
 
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::journey::TaskId;
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{
     Acted, LOCATOR_CLICK, LOCATOR_FILL, LOCATOR_PRESS, PAGE_GOTO, TARGET_NOT_UNIQUE,
     TargetNotUniqueDetails,
@@ -208,6 +210,56 @@ pub(crate) fn never_actionable(
         checks.check(
             "the oracle sees no click",
             outcome(site, task, "failure") == Some(OracleOutcome::Verified),
+        );
+    }
+    finish_run(connection, run_id)
+}
+
+/// How long the busy page's script keeps its main thread busy: far past
+/// the action's [`SHORT_WAIT`].
+const BUSY: u64 = 8_000;
+
+/// How long the case lets the busy script start before it acts.
+const BUSY_START: Duration = Duration::from_millis(300);
+
+/// A click on a page whose main thread a script keeps busy past
+/// `timeout.action` raises `deadline_exceeded` naming `timeout.action` once
+/// the deadline passes, not once the page answers again (ADR 0080).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the synchronous harness times the call on its own thread, outside any async worker"
+)]
+pub(crate) fn busy_page(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let (task, run_id) = ("actionability/7", "conformance-busy-page");
+    if let Some(page) = on_task(connection, site, task, run_id, SHORT_WAIT, checks)? {
+        connection.request(
+            PAGE_EVALUATE.name,
+            &json!({
+                "page_id": page,
+                "function": format!("() => {{ const end = Date.now() + {BUSY}; while (Date.now() < end) {{}} }}"),
+                "world": "main",
+            }),
+        )?;
+        std::thread::sleep(BUSY_START);
+        let started = Instant::now();
+        let answer = act(connection, &page, Step::Click("#target"))?;
+        let waited = started.elapsed();
+        let data = &answer["error"]["data"];
+        checks.check(
+            format!("the click raises `{}`", DEADLINE_EXCEEDED.name),
+            data["code"] == DEADLINE_EXCEEDED.name,
+        );
+        checks.check(
+            "it names `timeout.action`",
+            data["limit"]["key"] == TIMEOUT_ACTION.name,
+        );
+        checks.check(
+            "it raises once its deadline passed, while the page is still busy",
+            waited < Duration::from_millis(BUSY / 2),
         );
     }
     finish_run(connection, run_id)

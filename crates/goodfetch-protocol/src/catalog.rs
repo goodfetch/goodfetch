@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod setting;
 
-pub use setting::{Authority, ValueKind};
+pub use setting::{Authority, HostList, PriceValue, ValueKind, ValueShape};
 
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.
@@ -211,8 +211,9 @@ pub enum Reach {
     AllSurfaces,
     /// The SDKs only, to the program's own code: a Session's cookies and a
     /// page's storage (ADR 0092), `page.lend` (ADR 0089), `effect.open` and
-    /// `effect.close` (ADR 0106). No CLI command, MCP tool, skill, Code mode
-    /// global or Framework adapter offers it.
+    /// `effect.close` (ADR 0106), and the routes and their answers, whose
+    /// handler is the program's own code (ADR 0085). No CLI command, MCP
+    /// tool, skill, Code mode global or Framework adapter offers it.
     SdkOnly,
     /// A person's answer, given in the Console or an interactive CLI prompt
     /// only (ADR 0011's list, such as a certificate's acceptance or a Limit
@@ -549,10 +550,22 @@ pub struct Metric {
     pub instrument: Instrument,
     /// Its UCUM unit, such as `s` or `{request}`.
     pub unit: &'static str,
+    /// Its labels (OpenTelemetry's attributes), each with the bounded set
+    /// of values it takes (ADR 0050).
+    pub labels: &'static [MetricLabel],
     /// Its semver status.
     pub stability: Stability,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
+}
+
+/// A label of a metric and every value it takes: a bounded set, never a
+/// URL, a domain or a Run ID (ADR 0050).
+pub struct MetricLabel {
+    /// Its `snake_case` name.
+    pub name: &'static str,
+    /// Every value it takes.
+    pub values: &'static [&'static str],
 }
 
 /// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a
@@ -604,6 +617,12 @@ pub enum SharedType {
     BlockCause,
     /// What an Audit log entry records (ADR 0016).
     AuditKind,
+    /// What a Run report's warning says (ADR 0102).
+    RunWarningCode,
+    /// Why a Run is not `complete` (ADRs 0029 and 0102).
+    CompletenessReasonCode,
+    /// What waits for a person in "Needs you" (ADR 0031).
+    NeedsYouKind,
 }
 
 impl SharedType {
@@ -615,6 +634,9 @@ impl SharedType {
             Self::NotificationEvent => "notification_event",
             Self::BlockCause => "block_cause",
             Self::AuditKind => "audit_kind",
+            Self::RunWarningCode => "run_warning_code",
+            Self::CompletenessReasonCode => "completeness_reason_code",
+            Self::NeedsYouKind => "needs_you_kind",
         }
     }
 }

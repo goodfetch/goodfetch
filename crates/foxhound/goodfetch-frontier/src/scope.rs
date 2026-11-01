@@ -26,6 +26,8 @@ use goodfetch_protocol::foxhound::frontier::{
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Host, Url};
 
+use crate::staged::Staged;
+
 /// The scope's strategy and patterns, one row, and the measures of the
 /// seeds that widened it.
 pub const TABLES: RunStateTables = RunStateTables {
@@ -274,12 +276,33 @@ impl Scope {
         url: &Url,
         narrowing: Narrowing<'_>,
     ) -> rusqlite::Result<bool> {
+        self.admits_in(connection, url, narrowing, None)
+    }
+
+    /// Whether `url` is in the scope as [`Scope::admits`] measures it, the
+    /// seeds of `staged`, an attempt's earlier staged admissions, widening
+    /// it too.
+    pub(crate) fn admits_in(
+        &self,
+        connection: &Connection,
+        url: &Url,
+        narrowing: Narrowing<'_>,
+        staged: Option<&Staged>,
+    ) -> rusqlite::Result<bool> {
         let patterns = Narrowing {
             include: &self.include,
             exclude: &self.exclude,
         };
         if !patterns.admits(url) || !narrowing.admits(url) {
             return Ok(false);
+        }
+        if staged.is_some_and(|staged| {
+            staged
+                .seeds()
+                .iter()
+                .any(|seed| self.strategy.reaches(seed, url))
+        }) {
+            return Ok(true);
         }
         let Some(measures) = Measures::of(url) else {
             return Ok(self.strategy == Strategy::All);
@@ -317,16 +340,19 @@ impl Scope {
         let Some(measures) = Measures::of(seed) else {
             return Ok(());
         };
-        connection.execute(
-            "INSERT INTO scope_seeds (host, port, scheme, domain) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT DO NOTHING",
-            (
+        // Called for every seed: the connection keeps the statement
+        // prepared rather than compiling it again each time.
+        connection
+            .prepare_cached(
+                "INSERT INTO scope_seeds (host, port, scheme, domain) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT DO NOTHING",
+            )?
+            .execute((
                 &measures.host,
                 i64::from(measures.port),
                 measures.scheme,
                 &measures.domain,
-            ),
-        )?;
+            ))?;
         Ok(())
     }
 

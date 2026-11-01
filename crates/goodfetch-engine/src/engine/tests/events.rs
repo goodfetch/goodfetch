@@ -96,7 +96,7 @@ fn test_streams() -> Contribution {
                         ended_by: EndedBy::Finish,
                         initialize: None,
                         policy_version: None,
-                        weakened_by: Vec::new(),
+                        weakened: Vec::new(),
                         binding: None,
                         clean_up_digest: None,
                         checkpoint_interval: None,
@@ -109,7 +109,7 @@ fn test_streams() -> Contribution {
                     panic!("the Run began before");
                 };
                 let size = usize::try_from(params["size"].as_u64().unwrap()).unwrap();
-                let handle = run.store_body(body_bytes(size)).await.unwrap();
+                let handle = run.store_body(body_bytes(size).into()).await.unwrap();
                 Ok::<Value, CallError>(serde_json::to_value(handle).unwrap())
             },
         ))
@@ -425,6 +425,40 @@ fn a_position_the_engine_no_longer_holds_starts_with_a_resync_then_the_stream() 
     );
 }
 
+/// A resync gives the axes of the live Runs alone: one that ended, whose
+/// axes the Run index keeps, is left out, so an engine that runs Run after
+/// Run keeps no axes of each for its life (#1768).
+/// Covers: story:3-9, event:events.resync
+#[test]
+fn a_resync_gives_the_axes_of_the_live_runs_and_leaves_out_those_that_ended() {
+    let env = TestEnv::new();
+    let engine = engine(options(64, 1));
+
+    let gone = attached_on(&engine, &env, |mut client| async move {
+        let (instance, _) = start_runs(&mut client, 1, &["ended", "live"]).await;
+        client
+            .send(&[call(30, "run.finish", json!({ "run_id": "ended" }))])
+            .await;
+        let (_, _) = read_events(&mut client, 1, 1).await;
+        client
+            .send(&[
+                call(2, "events.subscribe", after(&instance, 0)),
+                credit(2, 100),
+            ])
+            .await;
+        let (gone, _) = read_events(&mut client, 2, 1).await;
+        gone
+    });
+
+    assert_eq!(
+        (gone[0]["event"].clone(), gone[0]["data"]["runs"].clone()),
+        (
+            json!("events.resync"),
+            json!([{ "run_id": "live", "lifecycle": "running" }]),
+        )
+    );
+}
+
 /// Covers: story:3-9, event:events.resync
 #[test]
 fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_resync() {
@@ -442,6 +476,7 @@ fn after_a_restart_a_position_the_previous_engine_instance_gave_starts_with_a_re
         &engine,
         || Dependencies {
             environment: std::collections::BTreeMap::new(),
+            keychain: crate::secrets::Keychain::absent(),
             entropy: Entropy::seeded(env.seed().wrapping_add(1)),
             ..dependencies(&env)
         },

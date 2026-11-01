@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::proving_ground::ReceivedRequests;
 
 /// What the identity page reports, beside that it ran.
 const IDENTITY_CHECKS: [&str; 11] = [
@@ -48,7 +49,7 @@ const UNTHROTTLED_RATE: f64 = 2.0;
     clippy::disallowed_methods,
     reason = "the harness polls the Proving ground on its own thread, never an async worker"
 )]
-fn reports_once(
+pub(super) fn reports_once(
     site: &Site,
     path: &str,
     done: impl Fn(&[(String, String)]) -> bool,
@@ -64,7 +65,7 @@ fn reports_once(
     Some(seen)
 }
 
-fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
+pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
     observations["reports"]
         .as_array()
         .into_iter()
@@ -81,10 +82,8 @@ fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
 
 /// The values of the header `name` on every request to `host`.
 fn header_values(observations: &Value, host: &str, name: &str) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

@@ -23,11 +23,11 @@ mod listed;
 mod page;
 mod report;
 mod row;
+mod rstest_names;
 mod scan;
 mod screen;
 mod story;
 
-use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -56,7 +56,7 @@ pub(crate) enum Command {
     /// it.
     Scan {
         /// Only the declarations of these packages: crates, npm or Python
-        /// packages.
+        /// packages, by name or folder.
         #[arg(long = "package")]
         packages: Vec<String>,
         #[command(flatten)]
@@ -71,6 +71,11 @@ pub(crate) enum Command {
     Check {
         #[command(flatten)]
         listings: Listings,
+        /// Only the findings of these packages, by name or folder: those of
+        /// the Features their tests declare and of the generated Features
+        /// their sources define. Findings on the `features/` files stay.
+        #[arg(long = "package")]
+        packages: Vec<String>,
     },
     /// The exercise audit: fails a Rust test that declares an `operation:`,
     /// `error:`, `event:`, `command:` or `exit:` Feature its exercise record
@@ -126,13 +131,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     match command {
         Command::Scan { packages, listings } => {
             let (declarations, _) = declarations(cargo, root, &listings)?;
-            let packages: BTreeSet<String> = packages.into_iter().collect();
             for declaration in declarations.iter().filter(|declaration| {
                 packages.is_empty()
-                    || declaration
-                        .package
-                        .as_ref()
-                        .is_some_and(|package| packages.contains(package))
+                    || check::selected(&packages, declaration.package.as_deref(), &declaration.path)
             }) {
                 output::line(&format!(
                     "{}\t{}\t{}\t{}",
@@ -141,9 +142,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Check { listings } => {
+        Command::Check { listings, packages } => {
             let (declarations, read) = declarations(cargo, root, &listings)?;
-            let verdict = check::check(root, &declarations, read)?;
+            let mut verdict = check::check(root, &declarations, read)?;
+            if !packages.is_empty() {
+                verdict = check::of_packages(verdict, &declarations, &packages);
+            }
             for note in &verdict.notes {
                 output::line(&format!(
                     "note[{}] {}: {}; `just features-tests` also reads the Vitest, Playwright and pytest declarations",

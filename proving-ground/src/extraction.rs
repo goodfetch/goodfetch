@@ -6,10 +6,18 @@
 //! request, far past ADR 0062's 256 KiB; and one product's regional
 //! variants, each in its locale's language, currency and number format;
 //! and pages whose main content's Markdown the lab wrote by hand (ADR 0007),
-//! judged by their Markdown's structure. Every other expected Record comes
-//! from the same seed data as the pages.
+//! judged by their Markdown's structure; and pages read in every form
+//! `page.formats` gives, each written by hand too; and pages whose links,
+//! images, media and tables are read, one behind a redirect, also by hand;
+//! and pages whose metadata and contacts are read, by hand too; and one
+//! page whose values a code-free crawl's fields read, also by hand.
+//! Every other expected Record comes from the same seed data as the pages.
 
+mod content_pages;
 mod markdown_pages;
+mod reference_pages;
+mod structured_pages;
+mod value_pages;
 
 use std::fmt::Write as _;
 
@@ -178,9 +186,19 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
         "/variants" => index("Variants", "/variants", VARIANTS),
         "/huge" => huge(seed),
         _ if path.starts_with(markdown_pages::INDEX) => markdown_pages::page(path)?,
+        _ if path.starts_with(content_pages::INDEX) => content_pages::page(path)?,
+        _ if path.starts_with(reference_pages::INDEX) => reference_pages::page(path)?,
+        _ if path.starts_with(structured_pages::INDEX) => structured_pages::page(path)?,
+        value_pages::PATH => value_pages::page(path)?,
         _ => return routed(seed, path),
     };
     Some(html(page))
+}
+
+/// Where the page at `path` moves, a path on the same host the family
+/// answers `302 Found` with; `None` for a page that does not move.
+pub(crate) fn moved(path: &str) -> Option<String> {
+    reference_pages::moved(path)
 }
 
 fn routed(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
@@ -709,5 +727,110 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                 Vec::new(),
             )
         },
+        content_modes_task(port),
+        references_task(port),
+        structured_task(port),
     ]
+}
+
+/// Task 10: the structured pages, each read for its metadata and contacts
+/// (spec #580, ticket #787).
+fn structured_task(port: Option<u16>) -> Task {
+    const ORDINAL: u32 = 10;
+    let origin = origin(&task_host(ORDINAL), port);
+    Task {
+        host: task_host(ORDINAL),
+        entry: Entry {
+            id: format!("{FAMILY}/{ORDINAL}"),
+            family: FAMILY,
+            kind: Kind::Crawl,
+            start_url: format!("{origin}{}", structured_pages::INDEX),
+            description: "Crawl every page the index links and return one Record per page with \
+                the fields `id` (the path the index links) and, as JSON objects: `metadata`, \
+                `{ \"title\", \"description\", \"canonical\", \"lang\", \"open_graph\", \
+                \"twitter\", \"json_ld\", \"microdata\", \"meta\" }`, the first `<title>`'s \
+                text, the `description` meta tag, the canonical link resolved, the root's \
+                `lang` (each `null` when absent), the Open Graph and Twitter meta tags as \
+                `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, \
+                each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the \
+                HTML Standard's JSON conversion, and every named meta tag neither Open Graph's nor Twitter's, by its name in lower case; and \
+                `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the \
+                text it was read from (its link's text, else the value as written): e-mail \
+                addresses from `mailto:` links and text, telephone numbers from `tel:` links \
+                and text with `e164` only when the number carries its country code or the \
+                page's language tag has a region (a national number in text with neither is \
+                no number), and social profiles with their `network`. Each field is judged as \
+                a JSON value.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected::records(structured_pages::records(&origin)),
+    }
+}
+
+/// Task 9: the reference pages, each read for its links, images, media
+/// and tables (spec #580; pitfall U08).
+fn references_task(port: Option<u16>) -> Task {
+    const ORDINAL: u32 = 9;
+    let origin = origin(&task_host(ORDINAL), port);
+    Task {
+        host: task_host(ORDINAL),
+        entry: Entry {
+            id: format!("{FAMILY}/{ORDINAL}"),
+            family: FAMILY,
+            kind: Kind::Crawl,
+            start_url: format!("{origin}{}", reference_pages::INDEX),
+            description: "Crawl every page the index links and return one Record per page with \
+                the fields `id` (the path the index links, before any redirect) and, as JSON \
+                arrays in document order: `links`, each `<a href>` and `<area href>` as \
+                `{ \"url\", \"href\", \"text\", \"rel\" }`; `images`, each `<img src>` as \
+                `{ \"url\", \"src\", \"alt\" }`; `media`, each `<video>` and `<audio>` source \
+                as `{ \"url\", \"src\", \"kind\" (\"video\" or \"audio\"), \"type\" }`; and \
+                `tables`, each table as `{ \"caption\", \"header_rows\", \"body_rows\" }`, a \
+                row a list of its cells' text, a row's header its first cell. `href` and `src` \
+                are as the page writes them, character references decoded; `url` is that \
+                value resolved against the document's base URL (its `<base href>`, else its \
+                URL after redirects) by the WHATWG URL Standard, `null` when it does not \
+                parse; `alt`, `type` and `caption` are `null` when absent; text has its white \
+                space collapsed. Each field is judged as a JSON value.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected::records(reference_pages::records(&origin)),
+    }
+}
+
+/// Task 8: the content-mode pages, each read in every form `page.formats`
+/// gives (spec #580).
+fn content_modes_task(port: Option<u16>) -> Task {
+    const ORDINAL: u32 = 8;
+    Task {
+        host: task_host(ORDINAL),
+        entry: Entry {
+            id: format!("{FAMILY}/{ORDINAL}"),
+            family: FAMILY,
+            kind: Kind::Crawl,
+            start_url: format!(
+                "{}{}",
+                origin(&task_host(ORDINAL), port),
+                content_pages::INDEX
+            ),
+            description: "Crawl every page the index links and return one Record per page with \
+                the fields `id` (the page's path); `markdown`, the page's main content as \
+                Markdown; `markdown_full`, the whole body as Markdown; `markdown_fit`, the main \
+                content as Markdown without its link-dense blocks (more than half their text in \
+                links), its image-only blocks and the navigation lists the page repeats; \
+                `html_raw`, the page's HTML as it stands; `html_cleaned`, its HTML with what ad \
+                and annoyance filter lists hide taken out; `html_main`, the main content's HTML; \
+                and `text`, the main content's text. Markdown is judged by its structure, HTML \
+                by the text of its blocks and text white space aside, whatever syntax writes \
+                each.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected {
+            markdown_site: Some(HOST),
+            ..Expected::records(content_pages::records())
+        },
+    }
 }

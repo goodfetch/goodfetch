@@ -53,7 +53,7 @@ fn abort_then_finish() -> Contribution {
                     ended_by: EndedBy::Driver,
                     initialize: None,
                     policy_version: None,
-                    weakened_by: Vec::new(),
+                    weakened: Vec::new(),
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,
@@ -69,7 +69,7 @@ fn abort_then_finish() -> Contribution {
             // follows it into the registry before the abort's end is written,
             // and the driver lets its Run go, as a driver does once it ends.
             let run_id = run.id().clone();
-            let driver = async move { run.end(Ending::Finished).await };
+            let driver = async move { run.end(Ending::Finished(Vec::new())).await };
             let (aborted, ()) = tokio::join!(
                 runs.abort(run_id.clone(), StoppedBy::Client, Forwarded::No),
                 driver

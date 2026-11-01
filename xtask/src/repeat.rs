@@ -6,13 +6,23 @@
 //! arguments that select the tests and repeat them; the `justfile`'s
 //! `repeat` recipe appends them to the runner's command:
 //! - nextest: `--stress-count`, with filtersets of the tests, of which a
-//!   test matches any;
+//!   test matches any, and `--ignore-default-filter` when they hold LazyFS
+//!   power cuts (`lazyfs::`), which the profiles' default filter leaves out
+//!   (ADR 0060): they run only where `GOODFETCH_LAZYFS` names a LazyFS
+//!   build, and elsewhere the selection fails rather than drop them;
 //! - Vitest: `--repeats`, one less than the count, since it counts the runs
 //!   after the first, and a name pattern. Its JUnit file reports the test
 //!   once, with one `<failure>` per failed run;
 //! - Playwright: `--repeat-each`, with a pattern of the tests;
 //! - pytest: pytest-repeat's `--count`, with the tests' node IDs (a
 //!   parameterized case's, one per run).
+//!
+//! The stress run stops at the end of its first red iteration (ADR 0064's
+//! amendment of 2026-10-28): with `--until-red`, nextest's commands run one
+//! iteration each (`--stress-count=1`), and the recipe runs them `count`
+//! times, stopping after a red one. nextest itself has no such stop: its
+//! `--max-fail` ends a stress run in the middle of the iteration that
+//! reaches it.
 //!
 //! A runner's command runs in batches when its arguments would pass the
 //! operating system's limits ([`Limits`]): each batch has the same counts
@@ -53,9 +63,10 @@ pub(crate) struct Limits {
 impl Limits {
     /// Half of Linux's limit on one argument, 128 KiB (`MAX_ARG_STRLEN`;
     /// macOS has none), and half of what `getconf ARG_MAX` leaves after this
-    /// process's environment. The other halves cover the command's own words
-    /// and the variables that Cargo, pnpm and uv add before the runner starts.
-    fn of_host() -> Result<Self> {
+    /// process's environment, whose variables take `environment` bytes. The
+    /// other halves cover the command's own words and the variables that
+    /// Cargo, pnpm and uv add before the runner starts.
+    fn of_host(environment: usize) -> Result<Self> {
         let output = Command::new("getconf")
             .arg("ARG_MAX")
             .output()
@@ -69,9 +80,6 @@ impl Limits {
             .trim()
             .parse()
             .context("reading `getconf ARG_MAX`")?;
-        let environment: usize = std::env::vars_os()
-            .map(|(name, value)| name.len() + value.len() + 2 + size_of::<usize>())
-            .sum();
         Ok(Self {
             argument: 64 * 1024,
             command: maximum.saturating_sub(environment) / 2,
@@ -181,13 +189,26 @@ fn batches(
     Ok(commands)
 }
 
+/// How nextest's commands run a count's iterations.
+#[derive(Clone, Copy)]
+pub(crate) enum Iterations {
+    /// All in one command, `--stress-count=<count>`.
+    InOneCommand,
+    /// One a command, `--stress-count=1`, for the recipe to run `count`
+    /// times and stop at the end of the first red one (the stress run's).
+    OneACommand,
+}
+
 /// Each runner's commands' arguments, as `(runner, batch, argument)` in
-/// order, the batches numbered from 1 within each runner.
+/// order, the batches numbered from 1 within each runner; `lazyfs` says
+/// whether the host has a LazyFS build.
 pub(crate) fn arguments(
     root: &Path,
     selection: Selection,
     count: NonZeroU32,
+    iterations: Iterations,
     limits: Limits,
+    lazyfs: bool,
 ) -> Result<Vec<(&'static str, usize, String)>> {
     let tests = match selection {
         Selection::Tests(tests) => tests,
@@ -214,10 +235,7 @@ pub(crate) fn arguments(
     let runners: [(&'static str, Vec<String>, Vec<String>, Selecting<'_>); 4] = [
         (
             "nextest",
-            vec![
-                "--no-fail-fast".to_owned(),
-                format!("--stress-count={count}"),
-            ],
+            nextest_fixed(&of(Runner::Nextest), count, iterations, lazyfs)?,
             of(Runner::Nextest)
                 .iter()
                 .map(|test| {
@@ -292,6 +310,38 @@ pub(crate) fn arguments(
     Ok(arguments)
 }
 
+/// nextest's arguments besides its filtersets for `tests`, which run
+/// `count` times in one command or once a command (`iterations`): with
+/// `--ignore-default-filter` when they hold a LazyFS power cut (`lazyfs::`),
+/// which the profiles' default filter leaves out (ADR 0060), and a failure
+/// instead when the host has no LazyFS build (`lazyfs`).
+fn nextest_fixed(
+    tests: &[&TestId],
+    count: NonZeroU32,
+    iterations: Iterations,
+    lazyfs: bool,
+) -> Result<Vec<String>> {
+    let mut fixed = vec!["--no-fail-fast".to_owned()];
+    if let Some(power_cut) = tests
+        .iter()
+        .find(|test| test.nextest_name().starts_with("lazyfs::"))
+    {
+        if !lazyfs {
+            bail!(
+                "`{}` is a LazyFS power cut, which runs only where GOODFETCH_LAZYFS names a LazyFS build (`just lazyfs-test` on Linux); repeat it there rather than drop it",
+                power_cut.as_str()
+            );
+        }
+        fixed.push("--ignore-default-filter".to_owned());
+    }
+    let count = match iterations {
+        Iterations::InOneCommand => count,
+        Iterations::OneACommand => NonZeroU32::MIN,
+    };
+    fixed.push(format!("--stress-count={count}"));
+    Ok(fixed)
+}
+
 /// The node IDs that select each of `count` runs of a pytest test. pytest-repeat
 /// parameterizes each test by its run, last: a test's node ID selects all
 /// of its runs (`test_x[1-20]` …), but a parameterized case's, `test_x[a]`,
@@ -307,7 +357,7 @@ fn pytest_node_ids(id: &str, count: NonZeroU32) -> Vec<String> {
 }
 
 /// `xtask repeat`'s arguments: `--test`, repeatable, `--tests-file` or
-/// `--quarantined`.
+/// `--quarantined`, and `--until-red` for the stress run.
 #[derive(clap::Args)]
 #[command(group(
     clap::ArgGroup::new("tests")
@@ -317,6 +367,10 @@ fn pytest_node_ids(id: &str, count: NonZeroU32) -> Vec<String> {
 pub(crate) struct Arguments {
     #[arg(long)]
     count: NonZeroU32,
+    /// nextest's commands run one iteration each, for the recipe to run
+    /// `count` times and stop at the end of the first red one.
+    #[arg(long)]
+    until_red: bool,
     /// A test, as `<runner>=<test ID>` (the quarantine list's IDs).
     #[arg(long, value_parser = parse_test)]
     test: Vec<(Runner, TestId)>,
@@ -357,10 +411,19 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         (None, Some(path)) => Selection::Tests(read_tests(&environment.root.join(path))?),
         (None, None) => Selection::Tests(arguments.test),
     };
-    let limits = Limits::of_host()?;
-    for (runner, batch, argument) in
-        self::arguments(&environment.root, selection, arguments.count, limits)?
-    {
+    let limits = Limits::of_host(environment.variables_bytes)?;
+    for (runner, batch, argument) in self::arguments(
+        &environment.root,
+        selection,
+        arguments.count,
+        if arguments.until_red {
+            Iterations::OneACommand
+        } else {
+            Iterations::InOneCommand
+        },
+        limits,
+        environment.lazyfs,
+    )? {
         output::line(&format!("{runner}\t{batch}\t{argument}"));
     }
     Ok(ExitCode::SUCCESS)

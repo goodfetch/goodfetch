@@ -17,6 +17,9 @@ members = [
   "proving-ground",
   "xtask",
 ]
+# Goodfetch's forks of `wreq` and `wreq-util`, which `[patch.crates-io]`
+# below carries: crates of their own, not members.
+exclude = ["vendor/wreq", "vendor/wreq-util"]
 
 [workspace.package]
 version = "0.0.0"
@@ -30,15 +33,48 @@ publish = false
 # Every shared dependency sits here with `default-features = false`; each
 # crate turns on what it uses (STYLE.md, Dependencies).
 [workspace.dependencies]
+# Brave's adblock-rust, unmodified (MPL-2.0, ADRs 0018 and 0047): the Filter
+# lists' network and cosmetic rules. Without its `single-thread` feature, so
+# one `Engine` is `Send + Sync` and every Session shares it (ADR 0047).
+# With its `css-validation` feature, as Brave builds it: a cosmetic rule
+# whose selector does not parse, or whose style holds `url(`, `image-set(`,
+# `\` or `/*`, is refused, so a list cannot make a page fetch a URL.
+adblock = { version = "0.13.3", default-features = false, features = ["css-validation", "embedded-domain-resolver", "full-regex-handling"] }
+aho-corasick = { version = "1.1.5", default-features = false, features = ["std", "perf-literal"] }
+# The encrypted local file, `secretfile:` (spec #564): an age file encrypted
+# to an X25519 identity, read binary or armored. The 0.11 line, which age
+# still fixes (0.11.5 has 0.12.1's armor fixes): 0.12 adds the `tag`
+# recipients, which take p256 0.13 and hpke 0.12 and through them
+# crypto-bigint 0.5, with RUSTSEC-2026-0387 (timing variability), fixed only
+# in crypto-bigint 0.7.6, which p256 0.14 takes and no age release does
+# (#1785). Move to age's newest line once a release takes p256 0.14.
+age = { version = "0.11.5", default-features = false, features = ["armor"] }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+# The OS keychain, `keychain:` (ADR 0015): keyring-core's API and its
+# stores for the login keychain on macOS and the Credential Manager on
+# Windows; on Linux the Secret Service over zbus, pure Rust, which static
+# musl builds link (keyring-core's Secret Service stores still use zbus 5,
+# whose split crates are unmaintained).
+apple-native-keyring-store = { version = "1.0.2", default-features = false }
+keyring-core = { version = "1.0.1", default-features = false }
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
+zbus = { version = "6.0.0", default-features = false }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
 # `xtask console build` compresses each file of a Console build, which the
 # executables embed and serve as they are (ADR 0057).
 brotli = { version = "9.0.0", default-features = false, features = ["std"] }
+# The build scripts of goodfetch-test-support and goodfetch-engine generate
+# SQLite's VFS bindings, loading libclang at run time where the OS keeps it.
+bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
 # A test's own seeded draws, such as a kill's moment (TESTING.md, Randomness:
 # chacha20, portable across versions).
 chacha20 = { version = "0.10.2", default-features = false, features = ["rng"] }
+# Run state's field encryption (ADR 0015, spec #564): XChaCha20-Poly1305
+# under each Run's data key, which HKDF-SHA256 of the key-encryption key
+# wraps; the versions age already links.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+hkdf = { version = "0.12.4", default-features = false }
 # The CLI helper's pseudo-terminal runs on every OS, ConPTY on Windows
 # (goodfetch-test-support, ADR 0069).
 expectrl = { version = "0.9.0", default-features = false }
@@ -49,32 +85,90 @@ expectrl = { version = "0.9.0", default-features = false }
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
 dom_query = { version = "0.28.0", default-features = false }
+# Its CSS tokenizer, on which the fetch tiers find the selector extensions
+# dom_query reads and a browser refuses; the version dom_query links.
+cssparser = { version = "0.37.0", default-features = false }
 htmd = { version = "0.5.6", default-features = false }
+# Chrome's `<meta>` prescan of a crawl page's document tokenizes it as
+# Blink's HTMLMetaCharsetParser does, with the HTML standard's tokenizer
+# (ADR 0119); the version dom_query already links.
+html5ever = { version = "0.39.0", default-features = false }
 markup5ever_rcdom = { version = "0.38.0", default-features = false }
+# The page formats' streaming pass over a document for its links, images and
+# media (spec #580; ADR 0007): no tree, one pass.
+lol_html = { version = "3.0.2", default-features = false }
+# The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
+scraper = { version = "0.27.0", default-features = false }
+# scraper's tree, whose node IDs the microdata reader keys on (#787).
+ego-tree = { version = "0.11.1", default-features = false }
+# The other built-in main-content step, `content.extractor = "trafilatura"`
+# (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
+# (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning
+# lines come with it.
+rs-trafilatura = { version = "=0.2.2", default-features = false }
+# The page formats' telephone numbers in E.164 (spec #580; #787):
+# libphonenumber's metadata and parser, so a national number written with
+# its region's trunk prefix converts as the region dials it.
+phonenumber = { version = "0.3.10", default-features = false }
 # The Proving ground's oracle reads a submitted Markdown value as its
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).
 pulldown-cmark = { version = "0.13.4", default-features = false }
+# The CSV reader the CSV Exports are read back with in tests (spec #582,
+# pitfall D07).
+csv = { version = "1.4.0", default-features = false }
+# The Arrow IPC and Parquet Exports' columns, batches and writers (spec #582,
+# ADR 0026). Parquet without its default features: they turn on flate2's
+# zlib-rs backend, which changes the Proving ground's compressed bodies in a
+# shared build; its codecs here are zstd and Snappy only.
+arrow-array = { version = "60.0.0", default-features = false }
+arrow-ipc = { version = "60.0.0", default-features = false }
+arrow-schema = { version = "60.0.0", default-features = false }
+parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap", "zstd"] }
+# The Avro reader the Avro Exports are read back with in tests (spec #582).
+apache-avro = { version = "0.22.0", default-features = false }
+# The embedded Clean-up rules, serialized and compressed at build time and
+# decompressed once when loaded (ADR 0057).
+zstd = { version = "0.14.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle = { version = "2.6.1", default-features = false }
+# The Feature scanner expands an rstest `#[files]` glob as rstest does
+# (xtask).
+glob = { version = "0.3.4", default-features = false }
 # The pinned Chromium's CDP bindings and the client's connection (spec #577).
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # Both executables' command line, which Foxhound's reaches without Collie's
 # executable crate (ADR 0090).
 goodfetch-cli = { path = "crates/goodfetch-cli" }
+# The Clean-up rules and their matching (spec #577, ADR 0047).
+goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# The conformance harness; the Stub gateway's tests run its gateway cases.
+goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
+goodfetch-dataset = { path = "crates/foxhound/goodfetch-dataset" }
 goodfetch-engine = { path = "crates/goodfetch-engine" }
 # The page formats read from a document (spec #580, ADR 0007).
 goodfetch-extractor = { path = "crates/goodfetch-extractor" }
+# Foxhound's fetch tiers; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 # Foxhound's Frontier, its per-domain queues; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+# The page's recording navigation gate, lease check and response observer, a
+# test adapter: only ever a dev-dependency (ADR 0125).
+goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
+# The built-in external Secret providers, which each Product's composition registers (spec #564).
+goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
+# Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
+goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
@@ -85,10 +179,48 @@ clap = { version = "4.6.7", default-features = false, features = ["std", "derive
 # The data folder of the OS's usual folders, which each Product's `main`
 # resolves when `GOODFETCH_HOME` is unset (ADR 0059).
 dirs = { version = "7.0.0", default-features = false }
+# DuckDB, for Foxhound's SQL tab and search across runs (ADRs 0031, 0057);
+# Collie's cargo-deny list bans it (ADR 0088).
+duckdb = { version = "1.20000.0", default-features = false }
 data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
 # The Proving ground's login forms (application/x-www-form-urlencoded).
 form_urlencoded = { version = "1.2.2", default-features = false, features = ["alloc"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+# The HTTP fetch tier's transport in `standard` and `identified` Sessions
+# (spec #579): HTTP/1.1 and HTTP/2 over the engine's own rustls
+# configuration (no provider of its own, no system proxy), with none of its
+# content decoding, which the fetch driver does as Chrome does (ADR 0119).
+reqwest = { version = "0.13.5", default-features = false }
+# The HTTP fetch tier's transport in HTTP-only `stealth` Sessions (spec #579,
+# ADR 0020): BoringSSL through `btls` and the `http2` fork, which send a
+# browser's TLS ClientHello and HTTP/2 settings, with its emulation profiles
+# from `wreq-util` until area 8's captured ones (M3). Pinned exactly: its
+# transport's translation point reads its failures (ADR 0127), and a test
+# beside it fails when the pin moves. None of its content decoding, which
+# the fetch driver does as Chrome does (ADR 0119).
+wreq = { version = "=0.16.1", default-features = false, features = ["tokio-rt"] }
+wreq-util = { version = "=0.2.0", default-features = false, features = ["emulation"] }
+# The forks under `wreq` whose failures its translation point reads, pinned
+# at the versions `wreq` takes: BoringSSL's `btls`, `http2` (h2's) and
+# `wreq-proto` (hyper's).
+btls = { version = "=0.5.6", default-features = false }
+# Collie's TLS relay's async streams over `btls` (ADR 0124), at the same
+# version, for its terminating mode.
+tokio-btls = { version = "=0.5.6", default-features = false }
+# BoringSSL's own functions that `btls` has no method for, at the same
+# version: the relay's request of the browser's trust anchor IDs, its ALPS
+# payload and its resumed sessions.
+btls-sys = { version = "=0.5.6", default-features = false }
+# The trait whose `as_ptr` gives BoringSSL's own pointer of a `btls` value,
+# at the version `btls` takes.
+foreign-types = { version = "=0.5.0", default-features = false }
+http2 = { version = "=0.5.20", default-features = false }
+wreq-proto = { version = "=0.2.6", default-features = false }
+# Mozilla's root certificates whole, which BoringSSL's certificate store
+# takes in the `wreq` transport (rustls takes `webpki-roots`' anchors).
+webpki-root-certs = { version = "1.0.11", default-features = false }
+# Brotli's decoder alone, for the fetch driver's `br` (ADR 0119).
+brotli-decompressor = { version = "6.0.1", default-features = false, features = ["std"] }
 # HMAC-SHA-1, from which the Proving ground and its tests compute TOTP codes
 # (RFC 6238).
 hmac = { version = "0.12.1", default-features = false }
@@ -106,6 +238,9 @@ h2 = { version = "0.4.19", default-features = false }
 # The Proving ground's forward proxy (spec #152) reads each request head with
 # httparse, which hyper already brings.
 httparse = { version = "1.10.1", default-features = false, features = ["std"] }
+# A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
+# hyper already brings.
+httpdate = { version = "1.0.3", default-features = false }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }
@@ -136,6 +271,8 @@ mimalloc = { version = "0.1.48", default-features = false }
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
 # starts its child with raw system calls on Linux (ADR 0067).
 libc = { version = "0.2.191", default-features = false }
+# A local address's interface, read on every OS (ADR 0044).
+netdev = { version = "0.46.3", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the
@@ -187,6 +324,10 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 tokio = { version = "1.53.3", default-features = false }
 tokio-util = { version = "0.7.20", default-features = false }
+# The HTTP fetch tier's mark on each connection reqwest opens, which tells
+# a reused connection from a new one (ADR 0118): tower's two traits alone.
+tower-layer = { version = "0.3.3", default-features = false }
+tower-service = { version = "0.3.3", default-features = false }
 # The protocol over WebSocket, an Exposed Daemon's carriage for edge and
 # serverless Clients (ADR 0049): tungstenite's handshake and framing, on
 # Tokio in the engine, and blocking in the endpoint table's runner.
@@ -203,12 +344,18 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the
 # SDK's batch processor exports over OTLP/HTTP in protobuf on its own thread,
-# through ureq, the blocking client ureq's users already link.
+# through the engine's own HTTP client, the collector an Operator-configured
+# endpoint (ADR 0017). The engine's
+# metrics, instrumented once with OpenTelemetry's API (ADR 0050): the
+# executables' SDK exports them through the Prometheus exporter their ops
+# listener serves, and over OTLP/HTTP from the periodic reader's own thread.
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "trace"] }
 opentelemetry-http = { version = "0.33.1", default-features = false }
+opentelemetry-prometheus = { version = "0.33.1", default-features = false }
 opentelemetry-proto = { version = "0.33.1", default-features = false, features = ["gen-tonic-messages", "trace"] }
+prometheus = { version = "0.14.0", default-features = false }
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 async-trait = { version = "0.1.92", default-features = false }
 bytes = { version = "1.12.1", default-features = false, features = ["std"] }
@@ -216,11 +363,26 @@ http = { version = "1.5.0", default-features = false, features = ["std"] }
 prost = { version = "0.14.1", default-features = false, features = ["std"] }
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).
 ulid = { version = "3.0.0", default-features = false }
+# The Feature scanner keeps the characters rstest keeps in a case name
+# (xtask).
+unicode-ident = { version = "1.0.27", default-features = false }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 # The WHATWG URL Standard's parser, IDNA included: every URL a crawl's
 # Frontier meets (ADR 0120), and a URL glob resolved as Playwright resolves
 # one (ADR 0081).
 url = { version = "2.5.8", default-features = false, features = ["std"] }
+# Whether a name from outside input is in Unicode's composed form, as APFS
+# compares names (ADR 0067), with the data `url`'s IDNA already takes.
+icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
+# CLDR's printed forms of numbers, dates and times, which a code-free
+# field's Value transform learns by printing known values under its locale
+# and reads text back against (ADR 0123): ICU4X formats but does not parse.
+fixed_decimal = { version = "0.7.3", default-features = false }
+icu_calendar = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_datetime = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_decimal = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "2.4.0", default-features = false }
+writeable = { version = "0.6.4", default-features = false }
 # Mozilla's root certificates, which the Browser cache's pinned downloads
 # trust (ADR 0043), as ureq's rustls already does.
 webpki-roots = { version = "1.0.9", default-features = false }
@@ -261,12 +423,65 @@ exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
 
+# Goodfetch's fork of `wreq` 0.16.1 (spec #565, ADR 0042), carried in
+# `vendor/wreq` as version `0.16.1+goodfetch.1`: upstream's commit
+# 63429b4229f88adf6f1a71d7c3ffa62b5947f38c (its `.cargo_vcs_info.json`) plus
+# one change, `ClientBuilder::tls_custom_verify`, a per-client certificate
+# verification run during the handshake (`SSL_CTX_set_custom_verify`), with
+# which the stealth HTTP tier checks a pin before any request is sent. The
+# change is offered upstream. Drop this patch, the folder and the `exclude`
+# above when a `wreq` release contains it, and move the `wreq` pin to that
+# release. `goodfetch-fetch-tier`'s fuzz crate carries the same patch.
+#
+# Both forks declare `rust-version = "1.97"`, the workspace's MSRV (ADR 0030),
+# where upstream declares 1.98: they compile on 1.97, as `just msrv` proves.
+#
+# And of `wreq-util` 0.2.0, carried in `vendor/wreq-util` as version
+# `0.2.0+goodfetch.1`: upstream's commit
+# de0dc6349bc2d4d1bd0bbbaa059b45ab1df3b0fd (its `.cargo_vcs_info.json`) with
+# its `zstd` requirement at 0.14.3, as upstream's 4d21e3b65d (wreq-util#130)
+# has it, for zstd 0.13's RUSTSEC-2026-0391 and zstd-safe 7's
+# RUSTSEC-2026-0395 to RUSTSEC-2026-0406 (#1785); its examples and tests are
+# left out. Drop this patch, the folder and its `exclude` above when a
+# `wreq-util` release takes zstd 0.14.3 or newer, and move the `wreq-util`
+# pin to that release. The fuzz crate carries this patch too.
+[patch.crates-io]
+wreq = { path = "vendor/wreq" }
+wreq-util = { path = "vendor/wreq-util" }
+
 # Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's,
 # but for SHA-256: every launch checks its browser build's digest, some
 # 400 MB, which unoptimized takes tens of seconds and optimized well under
 # one (#695).
 [profile.dev.package.sha2]
 opt-level = 3
+
+# And for literal search: the reset gate searches every file of a Goodfetch
+# home for each Secret canary in a dozen encodings, the Browser cache's
+# 400 MB build included, which unoptimized takes some 26 s a search and
+# optimized 0.5 s (fix-queue 124).
+[profile.dev.package.memchr]
+opt-level = 3
+
+[profile.dev.package.aho-corasick]
+opt-level = 3
+
+[profile.dev.package.regex-automata]
+opt-level = 3
+
+# DuckDB's C++ sources, which the `duckdb` crate builds through
+# `libduckdb-sys`'s build script: unoptimized, a query of the SQL tab's
+# tests takes minutes, so its tests and a debug Foxhound run them optimized;
+# without debug information, which made each build of it 4 to 8 GB of target/.
+[profile.dev.package.libduckdb-sys]
+debug = false
+opt-level = 3
+
+# rs-trafilatura writes its debug notes to stderr whenever debug assertions
+# are on: off for it, so a debug engine's stderr stays the `tracing`
+# subscriber's alone (STYLE.md; #788). The other profiles have them off.
+[profile.dev.package.rs-trafilatura]
+debug-assertions = false
 
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information
@@ -290,6 +505,14 @@ lto = "thin"
 [profile.ci-test]
 inherits = "test"
 debug = "line-tables-only"
+
+# Their dependencies optimized once, as on 2026-10-23's hosted Release run the
+# Proving ground's tests spent most of the Rust step in unoptimized
+# dependencies (49 of 74 test-minutes): its slowest tests ran 4.5 times as
+# fast, for twice the dependencies' build time. Debug assertions and overflow
+# checks stay on; the workspace's own crates stay unoptimized.
+[profile.ci-test.package."*"]
+opt-level = 1
 
 # Benchmarks (gungraun needs the line tables in the binary): the release
 # settings with thin LTO and nothing split out or stripped.

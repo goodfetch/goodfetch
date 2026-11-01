@@ -12,20 +12,34 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, reported_address_within};
+use crate::received_requests::ReceivedRequests;
 use crate::tools::{Tool, ToolsError, tools};
 
-/// How long `serve` has to print its first line: it makes a leaf
-/// certificate for every host name before it does.
+/// How long `serve` has to print its first line, which it writes once its
+/// listeners are bound. Its start takes about 0.3 s in a debug build, 1 s
+/// with fourteen started at once on a loaded host, most of it the 250 ms
+/// that fill the IPv6 blackhole's queue (it builds no bomb body and signs no
+/// leaf certificate before it). The bound only catches a `serve` that hangs:
+/// the line is awaited as it is written, never polled, so a wait ends as soon
+/// as `serve` is ready, and a hang fails with this error well inside
+/// nextest's slow timeout rather than as an unnamed test timeout (ADR 0064).
 pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
+
+/// How long a Proving ground has to exit once asked to stop: it closes its
+/// connections and undoes its network shaping first.
+const STOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The file name of the certificate authority, in its instance's folder.
 const CERTIFICATE_AUTHORITY_FILE: &str = "certificate-authority.pem";
+
+/// The file name of the client certificate, beside the authority's.
+const CLIENT_CERTIFICATE_FILE: &str = "client-certificate.pem";
 
 /// A started Proving ground, as a test and `goodfetch-test-env`'s
 /// description see it.
@@ -67,6 +81,9 @@ pub struct ProvingGroundFixtures {
     pub dns: String,
     /// The watched target's address, which answers `200 reached`.
     pub target: String,
+    /// The UDP fixture's address, whose every datagram the connection
+    /// record lists.
+    pub udp: String,
     /// The URL of the connection record, which lists every connection
     /// accepted and every relay a proxy made.
     pub connections: String,
@@ -96,10 +113,15 @@ struct ServeLine {
     proxy_credentials: ProxyCredentials,
     dns: String,
     target: String,
+    /// Absent from an older tag's line, which has no UDP fixture.
+    #[serde(default)]
+    udp: String,
 }
 
 /// The commit's Proving ground, serving one seed for one test. Its process
-/// joins the test's record, and it is stopped when dropped.
+/// joins the test's record, and it is stopped when dropped: with `SIGINT`,
+/// as [`ProvingGround::stop`] does, and killed only when it outlasts the
+/// deadline.
 pub struct ProvingGround {
     process: Process,
     address: SocketAddr,
@@ -188,6 +210,7 @@ impl ProvingGround {
                 proxy_credentials: line.proxy_credentials,
                 dns: line.dns,
                 target: line.target,
+                udp: line.udp,
                 connections: format!("http://{}/observations", line.address),
             },
         };
@@ -219,6 +242,71 @@ impl ProvingGround {
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
     }
 
+    /// The source address of each query for `name` its DNS fixture received,
+    /// in `observations`, read once from [`observations`](Self::observations),
+    /// in arrival order.
+    ///
+    /// # Panics
+    ///
+    /// When `observations` hold no `dns_queries` list, or a query no source
+    /// address.
+    pub fn dns_query_sources(observations: &serde_json::Value, name: &str) -> Vec<IpAddr> {
+        observations["dns_queries"]
+            .as_array()
+            .expect("the observations list the DNS queries")
+            .iter()
+            .filter(|query| query["name"] == name)
+            .map(|query| {
+                query["source"]
+                    .as_str()
+                    .and_then(|source| source.parse::<SocketAddr>().ok())
+                    .expect("each DNS query names its source address")
+                    .ip()
+            })
+            .collect()
+    }
+
+    /// The requests of its [`observations`](Self::observations), which a
+    /// test counts through (see [`ReceivedRequests`]).
+    pub fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
+        self.observations()
+            .map(|observations| ReceivedRequests::of(&observations))
+    }
+
+    /// `PUT /time-step` on its own address: the time step its pages answer
+    /// at from now on, such as the `pacing` family's latency.
+    ///
+    /// # Errors
+    ///
+    /// `Oracle` when it gave no answer.
+    pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
+        ureq::put(format!("http://{}/time-step", self.address))
+            .send_json(serde_json::json!({ "step": step }))
+            .map(drop)
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    }
+
+    /// The client certificate its hosts that require mutual TLS accept,
+    /// from `GET /client-certificate` and `GET /client-key`: the
+    /// certificate written beside the certificate authority's file, the key
+    /// as PEM.
+    pub fn client_certificate(&self) -> Result<ClientCertificate, ProvingGroundError> {
+        let read = |path: &str| {
+            ureq::get(format!("http://{}{path}", self.address))
+                .call()
+                .and_then(|mut response| response.body_mut().read_to_string())
+                .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))
+        };
+        let (certificate, key) = (read("/client-certificate")?, read("/client-key")?);
+        let file = self.description.ca.with_file_name(CLIENT_CERTIFICATE_FILE);
+        std::fs::write(&file, certificate)
+            .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))?;
+        Ok(ClientCertificate {
+            certificate: file,
+            key,
+        })
+    }
+
     /// The start URL of the task `id` of its task list, such as
     /// `actionability/2`.
     pub fn start_url(&self, id: &str) -> Result<String, ProvingGroundError> {
@@ -246,6 +334,41 @@ impl ProvingGround {
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
     }
+
+    /// The oracle's verdict on the task `id`, which the tool under test
+    /// reports as `status` with the Records `records`, such as the
+    /// Markdown of each page of `extraction/7`: its `outcome` and what it
+    /// found.
+    ///
+    /// # Errors
+    ///
+    /// `Oracle` when it gave no answer.
+    pub fn judge_records(
+        &self,
+        id: &str,
+        status: &str,
+        records: &[serde_json::Value],
+    ) -> Result<serde_json::Value, ProvingGroundError> {
+        ureq::post(format!("http://{}/oracle", self.address))
+            .send_json(serde_json::json!({ "task": id, "status": status, "records": records }))
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    }
+}
+
+impl ProvingGround {
+    /// Stops it as Ctrl-C does, with `SIGINT`, so that it ends its
+    /// connections and undoes its network shaping, and answers how it
+    /// exited once reaped. One that outlasts the deadline is killed. On
+    /// Windows, it is killed.
+    ///
+    /// # Errors
+    ///
+    /// When the signal, the kill or the wait fails, or when it outlasted
+    /// the deadline.
+    pub fn stop(self) -> io::Result<std::process::ExitStatus> {
+        self.process.interrupt_and_wait(STOP_DEADLINE)
+    }
 }
 
 impl Drop for ProvingGround {
@@ -254,12 +377,11 @@ impl Drop for ProvingGround {
     }
 }
 
-/// Kills a process that may already have exited, and reaps it.
+/// Stops a process that may already have exited, and reaps it.
 fn stop(process: &Process) {
-    let mut child = process.child();
-    // Best effort: a process that already exited needs only its wait.
-    let _ = child.kill();
-    let _ = child.wait();
+    // Best effort: a Proving ground that fails to stop is killed and reaped
+    // all the same, and the test's teardown checks that none is left.
+    let _ = process.interrupt_and_wait(STOP_DEADLINE);
 }
 
 /// Why a Proving ground did not start.
@@ -292,4 +414,18 @@ pub enum ProvingGroundError {
     /// Its task list or its oracle gave no answer.
     #[error("the Proving ground's oracle: {0}")]
     Oracle(String),
+    /// Its client certificate could not be read or written.
+    #[error("the Proving ground's client certificate: {0}")]
+    ClientCertificate(String),
+}
+
+/// The client certificate the Proving ground's hosts that require mutual
+/// TLS accept: its file, and its private key as PEM, which a test hands
+/// the engine through a Secret reference.
+#[derive(Clone, Debug)]
+pub struct ClientCertificate {
+    /// The certificate's PEM file, in the test's folder.
+    pub certificate: PathBuf,
+    /// Its PKCS #8 private key, as PEM.
+    pub key: String,
 }

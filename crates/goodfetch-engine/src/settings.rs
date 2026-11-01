@@ -16,6 +16,7 @@
 mod environment;
 mod error;
 mod files;
+mod hosts;
 mod keys;
 mod resolve;
 #[cfg(test)]
@@ -36,7 +37,8 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
-pub use resolve::{Effective, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
+pub use hosts::{HostEntry, without_root};
+pub use resolve::{Effective, HostDefaults, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;
@@ -60,7 +62,18 @@ struct Inner {
     files: SettingsFiles,
     product: Product,
     owner: TaskOwner,
+    host: Host,
 }
+
+/// How the engine finds its host's defaults, and what it found: found once,
+/// on first use, since finding them may open the OS keychain.
+struct Host {
+    find: Box<dyn Fn() -> Finding + Send + Sync>,
+    found: tokio::sync::OnceCell<HostDefaults>,
+}
+
+/// A search for the host's defaults.
+pub type Finding = std::pin::Pin<Box<dyn std::future::Future<Output = HostDefaults> + Send>>;
 
 /// What a scope that opens gives the resolver beside the machine's layers.
 #[derive(Clone, Debug, Default)]
@@ -75,16 +88,38 @@ pub struct Opening {
     pub settings: Map<String, Value>,
     /// Where the run layer's values came from.
     pub origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave the run layer's values and
+    /// the project configuration, so that a key no model sets is refused
+    /// (ADR 0092).
+    pub acting_for_model: bool,
 }
 
 impl Settings {
     /// The settings of an engine of `product` whose layers are `files`,
-    /// reading them on `owner`'s blocking policy.
+    /// reading them on `owner`'s blocking policy, with the catalog's
+    /// defaults.
     pub fn new(files: SettingsFiles, product: Product, owner: TaskOwner) -> Self {
+        Self::with_host(files, product, owner, || {
+            Box::pin(std::future::ready(HostDefaults::default()))
+        })
+    }
+
+    /// The same, with the defaults `find` gives for this host, which it
+    /// calls once, on first use.
+    pub fn with_host(
+        files: SettingsFiles,
+        product: Product,
+        owner: TaskOwner,
+        find: impl Fn() -> Finding + Send + Sync + 'static,
+    ) -> Self {
         Self(Arc::new(Inner {
             files,
             product,
             owner,
+            host: Host {
+                find: Box::new(find),
+                found: tokio::sync::OnceCell::new(),
+            },
         }))
     }
 
@@ -113,6 +148,17 @@ impl Settings {
         self.0.owner.blocking(move || files.load(product)).await
     }
 
+    /// The defaults this host gives in place of the catalog's, found on the
+    /// first call.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the search to the next call.
+    pub async fn host_defaults(&self) -> HostDefaults {
+        let host = &self.0.host;
+        host.found.get_or_init(|| (host.find)()).await.clone()
+    }
+
     /// Resolves the settings of a scope that opens with `opening`, against
     /// the machine's layers as they are now; refused before the scope opens
     /// (ADR 0083).
@@ -130,7 +176,7 @@ impl Settings {
     ) -> Result<(RunSettings, MachineLayers), SettingsError> {
         let machine = self.machine().await?;
         let engine = self.0.product;
-        let project = match &opening.project {
+        let mut project = match &opening.project {
             Some(project) => Values::read(
                 SettingsLayer::ProjectConfiguration,
                 &project.settings,
@@ -147,7 +193,14 @@ impl Settings {
         if let Some(origin) = opening.origin {
             run = run.from_origin(origin);
         }
+        if opening.acting_for_model {
+            // The Client sends the project configuration it found, so a
+            // model gives it as much as the run layer (ADR 0092).
+            project = project.from_model();
+            run = run.from_model();
+        }
         let layers = Layers {
+            host: self.host_defaults().await,
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,
@@ -160,6 +213,7 @@ impl Settings {
             RunSettings {
                 settings: self.clone(),
                 resolved,
+                project: opening.project,
             },
             machine,
         ))
@@ -173,12 +227,20 @@ impl Settings {
 pub struct RunSettings {
     settings: Settings,
     resolved: Resolved,
+    project: Option<ProjectSettings>,
 }
 
 impl RunSettings {
     /// What the Run opened with.
     pub fn resolved(&self) -> &Resolved {
         &self.resolved
+    }
+
+    /// The path of the project configuration the Run opened with, when it
+    /// sets `key`, nested as its file nests it.
+    pub fn project_setting(&self, key: &str) -> Option<&str> {
+        let project = self.project.as_ref()?;
+        nested(&project.settings, key).map(|_| project.path.as_str())
     }
 
     /// What the Run takes at an admission point: its values under the
@@ -197,4 +259,23 @@ impl RunSettings {
             }
         }
     }
+}
+
+/// The protocol version that added the setting `key`, when one has it.
+pub fn arrived_in(key: &str) -> Option<goodfetch_protocol::catalog::ProtocolVersion> {
+    keys::find(key).map(|found| found.setting.arrived_in)
+}
+
+/// The value of `key` in `settings`, nested as a file nests it, or written
+/// whole as one dotted key.
+pub fn nested<'a>(settings: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    if let Some(value) = settings.get(key) {
+        return Some(value);
+    }
+    let mut segments = key.split('.');
+    let mut value = settings.get(segments.next()?)?;
+    for segment in segments {
+        value = value.get(segment)?;
+    }
+    Some(value)
 }

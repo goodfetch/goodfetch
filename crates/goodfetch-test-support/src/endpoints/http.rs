@@ -20,6 +20,8 @@ pub(super) struct Request<'a> {
     pub(super) bearer: Option<&'a str>,
     /// The `Origin` header, if any.
     pub(super) origin: Option<&'a str>,
+    /// The `Cookie` header, if any.
+    pub(super) cookie: Option<&'a str>,
 }
 
 /// Sends `request` to `address` and reads its answer.
@@ -40,8 +42,12 @@ pub(super) fn attempt(address: SocketAddr, request: &Request<'_>) -> Observed {
         .origin
         .map(|origin| format!("Origin: {origin}\r\n"))
         .unwrap_or_default();
+    let cookie = request
+        .cookie
+        .map(|cookie| format!("Cookie: {cookie}\r\n"))
+        .unwrap_or_default();
     let head = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\n{authorization}{origin}Connection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: {}\r\n{authorization}{origin}{cookie}Connection: close\r\n\r\n",
         request.target, request.host
     );
     if let Err(error) = connection.write_all(head.as_bytes()) {
@@ -80,7 +86,7 @@ pub(super) fn attempt(address: SocketAddr, request: &Request<'_>) -> Observed {
 /// What `answer` shows once it is complete, or `None` while more is to
 /// come. At the connection's end, a partial answer is malformed and none
 /// at all is a closed connection.
-fn parse(answer: &[u8], at_end: bool) -> Option<Observed> {
+pub(super) fn parse(answer: &[u8], at_end: bool) -> Option<Observed> {
     let incomplete = || at_end.then_some(Observed::Malformed);
     if answer.is_empty() && at_end {
         return Some(Observed::Closed);

@@ -125,7 +125,9 @@ impl Contract {
     /// `$/events` or `$/chunk`, or an event by its catalog name.
     fn event(&self, name: &str) -> Option<Value> {
         match name {
-            "$/events" | "$/chunk" => {
+            // The connection's notifications the engine sends: a sequence's
+            // items and an enqueue's answers.
+            "$/events" | "$/chunk" | "$/record" | "$/enqueued" => {
                 Some(self.connection[name.trim_start_matches("$/")]["params"].clone())
             }
             _ => self

@@ -5,16 +5,15 @@
 # run. `just miri` runs each module's unit tests under Miri, in the
 # pull-request tier's supply-chain job.
 #
-# None opts in yet, so the job runs nothing. The pull request that adds the
-# first module adds an entry here, the pinned nightly toolchain with its
-# `miri` and `rust-src` components to ci/image/Containerfile, and a proof on a
-# fixture with undefined behaviour to ci/proofs/run.sh.
-#
-# [[module]]
-# crate = "goodfetch-…"
-# filter = "pipe::"     # the libtest filter that selects the module's tests
+# The first module to opt in added its entry here, the `miri` and `rust-src`
+# components of the pinned nightly to ci/image/Containerfile, and a proof
+# that Miri refuses a fixture with undefined behaviour to ci/proofs/run.sh
+# (ci/proofs/miri).
 
 # The nightly toolchain Miri comes with, pinned.
 toolchain = "nightly-2026-10-05"
 
-module = []
+# The live heap's counting global allocator (#1734).
+[[module]]
+crate = "goodfetch-engine"
+filter = "heap::"     # the libtest filter that selects the module's tests

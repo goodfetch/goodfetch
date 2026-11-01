@@ -26,6 +26,17 @@ impl Finding {
     }
 }
 
+/// Writes each finding as a `note[<kind>] <subject>: <message>` line, which
+/// fails nothing.
+pub(crate) fn note(findings: &[Finding]) {
+    for finding in findings {
+        output::line(&format!(
+            "note[{}] {}: {}",
+            finding.kind, finding.subject, finding.message
+        ));
+    }
+}
+
 /// Writes every finding and returns 1 when there is any, 0 otherwise.
 pub(crate) fn report(findings: &[Finding]) -> ExitCode {
     for finding in findings {

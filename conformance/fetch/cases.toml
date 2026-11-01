@@ -1,0 +1,75 @@
+# The fetch suite's case list (spec #579, #759): what a target that serves
+# a crawl must answer about the tier that fetches a crawl request's
+# document (ADRs 0020 and 0093). A crawl is Foxhound's, so the suite
+# announces Foxhound and runs on Foxhound's executable (ADR 0094), against
+# the Proving ground. `goodfetch-conformance` runs it as it runs the
+# delivery suite (`conformance/delivery/cases.toml`): every case in order
+# over one Connection it opens with `hello`. Bump the version whenever a
+# case changes.
+
+product = "foxhound"
+
+[suite]
+name = "fetch"
+version = "6"
+
+[[capability]]
+name = "fetch.tier.http"
+
+[[capability.case]]
+id = "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page"
+covers = ["story:5-128"]
+
+# The fetch edge cases of the `http` tier (ADR 0118), over plain HTTP/1.1
+# on `fetch-edge.test`: the HTTP/2 forms, which the Run's trust does not
+# reach yet, are proved through the fetch-tier crate's own tests.
+[[capability]]
+name = "fetch.edge.http"
+
+[[capability.case]]
+id = "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler"
+covers = ["story:5-126"]
+
+[[capability.case]]
+id = "a-body-its-connections-close-delimits-reaches-the-handler-whole"
+covers = ["story:5-126"]
+
+[[capability.case]]
+id = "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere"
+covers = ["story:5-127"]
+
+[[capability.case]]
+id = "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests"
+covers = ["story:5-124", "setting:fetch.redirect.max", "error:too_many_redirects"]
+
+[[capability.case]]
+id = "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies"
+covers = ["story:5-124"]
+
+[[capability.case]]
+id = "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it"
+covers = ["story:5-124", "story:4-100", "error:response_not_ok", "setting:crawl.handle_statuses"]
+
+[[capability.case]]
+id = "each-redirect-hop-goes-through-the-navigation-gate"
+covers = ["story:5-124"]
+
+[[capability.case]]
+id = "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped"
+covers = ["story:5-124", "story:6-220"]
+
+[[capability.case]]
+id = "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable"
+covers = ["story:5-124", "setting:politeness.retry_after.max", "error:response_unavailable"]
+
+[[capability.case]]
+id = "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them"
+covers = ["story:6-307", "setting:politeness.retry_after.max", "error:response_unavailable", "operation:run.retry_failed", "operation:run.failed_requests"]
+
+[[capability.case]]
+id = "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target"
+covers = ["story:5-125", "setting:fetch.refresh.max_delay"]
+
+[[capability.case]]
+id = "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live"
+covers = ["story:4-94", "story:4-97", "story:4-103", "story:6-238", "setting:egress.blocked_domains", "setting:crawl.scope.exclude", "operation:run.outcomes", "operation:run.add_seed"]

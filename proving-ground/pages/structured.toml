@@ -1,0 +1,197 @@
+# The `extraction` family's structured pages (spec #580, ticket #787):
+# pages whose metadata and contacts a program reads with `page.formats`,
+# each with what each format holds, written by hand. `metadata` and
+# `contacts` are JSON, judged as JSON values; `{origin}` stands for the
+# task's origin (`http://10.extraction.test:<port>`). Served at
+# `/structured/<path>` on `extraction.test`, and listed by `/structured`,
+# task `extraction/10`'s start page. Append a page, never reorder or remove
+# one (ADR 0063).
+
+# A product page: its head's metadata, two JSON-LD blocks, a microdata
+# product holding an offer, and contacts in a document whose language tag
+# carries a region (`en-GB`), so a national number gets its E.164.
+[[pages]]
+path = "product"
+html = '''
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Delta kite | Northwind</title>
+<meta name="description" content="A delta kite for light winds.">
+<meta name="author" content="Northwind">
+<link rel="canonical" href="/structured/product">
+<meta property="og:type" content="product">
+<meta property="og:title" content="Delta kite">
+<meta property="og:image" content="https://cdn.northwind.example/kites/delta-1.jpg">
+<meta property="og:image" content="https://cdn.northwind.example/kites/delta-2.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@northwind">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Product", "name": "Delta kite", "offers": {"@type": "Offer", "price": "49.90", "priceCurrency": "GBP"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "Northwind", "sameAs": ["https://github.com/northwind"]}</script>
+</head>
+<body>
+<main>
+<article itemscope itemtype="https://schema.org/Product">
+<h1 itemprop="name">Delta kite</h1>
+<img itemprop="image" src="/images/delta.jpg" alt="The delta kite">
+<p itemprop="description">A delta kite for light winds.</p>
+<div itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+<p>Price: <span itemprop="price">49.90</span> <meta itemprop="priceCurrency" content="GBP">pounds.</p>
+<link itemprop="availability" href="https://schema.org/InStock">
+</div>
+</article>
+<footer>
+<p>Questions? <a href="mailto:kites@northwind.example">Write to us</a> or call <a href="tel:020%207031%203000">our shop</a>; orders: orders@northwind.example.</p>
+<p>Abroad: +33 1 42 68 53 00.</p>
+<p><a href="https://x.com/northwind">Northwind on X</a>, <a href="https://github.com/northwind">GitHub</a>, <a href="https://www.facebook.com/sharer/sharer.php?u=https://northwind.example/">Share</a></p>
+</footer>
+</main>
+</body>
+</html>
+'''
+metadata = '''
+{
+  "title": "Delta kite | Northwind",
+  "description": "A delta kite for light winds.",
+  "canonical": "{origin}/structured/product",
+  "lang": "en-GB",
+  "open_graph": [
+    { "property": "og:type", "content": "product" },
+    { "property": "og:title", "content": "Delta kite" },
+    { "property": "og:image", "content": "https://cdn.northwind.example/kites/delta-1.jpg" },
+    { "property": "og:image", "content": "https://cdn.northwind.example/kites/delta-2.jpg" }
+  ],
+  "twitter": [
+    { "property": "twitter:card", "content": "summary_large_image" },
+    { "property": "twitter:site", "content": "@northwind" }
+  ],
+  "json_ld": [
+    { "@context": "https://schema.org", "@type": "Product", "name": "Delta kite", "offers": { "@type": "Offer", "price": "49.90", "priceCurrency": "GBP" } },
+    { "@context": "https://schema.org", "@type": "Organization", "name": "Northwind", "sameAs": ["https://github.com/northwind"] }
+  ],
+  "microdata": [
+    {
+      "type": ["https://schema.org/Product"],
+      "id": null,
+      "properties": {
+        "name": ["Delta kite"],
+        "image": ["{origin}/images/delta.jpg"],
+        "description": ["A delta kite for light winds."],
+        "offers": [
+          {
+            "type": ["https://schema.org/Offer"],
+            "id": null,
+            "properties": {
+              "price": ["49.90"],
+              "priceCurrency": ["GBP"],
+              "availability": ["https://schema.org/InStock"]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "meta": { "author": "Northwind", "description": "A delta kite for light winds." }
+}
+'''
+contacts = '''
+{
+  "emails": [
+    { "value": "kites@northwind.example", "text": "Write to us" },
+    { "value": "orders@northwind.example", "text": "orders@northwind.example" }
+  ],
+  "phones": [
+    { "value": "020 7031 3000", "text": "our shop", "e164": "+442070313000" },
+    { "value": "+33 1 42 68 53 00", "text": "+33 1 42 68 53 00", "e164": "+33142685300" }
+  ],
+  "social": [
+    { "value": "https://x.com/northwind", "text": "Northwind on X", "network": "x" },
+    { "value": "https://github.com/northwind", "text": "GitHub", "network": "github" }
+  ]
+}
+'''
+
+# A contact page whose language tag carries no region (`en`): its `tel:`
+# link and its national number in text, without a country code, get no
+# E.164, and its international one gets its E.164 (G1).
+[[pages]]
+path = "no-region"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Contact | Northwind</title></head>
+<body>
+<main>
+<h1>Contact us</h1>
+<p>Call <a href="tel:02070313000">the London shop</a> or 020 7031 3001, or our US office on +1 650-253-0000.</p>
+<p>Follow us on <a rel="me" href="https://mastodon.social/@northwind">Mastodon</a> and <a href="https://www.linkedin.com/company/northwind/">LinkedIn</a>.</p>
+</main>
+</body>
+</html>
+'''
+metadata = '''
+{
+  "title": "Contact | Northwind",
+  "description": null,
+  "canonical": null,
+  "lang": "en",
+  "open_graph": [],
+  "twitter": [],
+  "json_ld": [],
+  "microdata": [],
+  "meta": {}
+}
+'''
+contacts = '''
+{
+  "emails": [],
+  "phones": [
+    { "value": "02070313000", "text": "the London shop", "e164": null },
+    { "value": "020 7031 3001", "text": "020 7031 3001", "e164": null },
+    { "value": "+1 650-253-0000", "text": "+1 650-253-0000", "e164": "+16502530000" }
+  ],
+  "social": [
+    { "value": "https://mastodon.social/@northwind", "text": "Mastodon", "network": "mastodon" },
+    { "value": "https://www.linkedin.com/company/northwind/", "text": "LinkedIn", "network": "linkedin" }
+  ]
+}
+'''
+
+# A contact page whose language tag carries a region (`fr-FR`): its
+# national number in text gets its E.164, and a date is no number.
+[[pages]]
+path = "region"
+html = '''
+<!doctype html>
+<html lang="fr-FR">
+<head><meta charset="utf-8"><title>Contact | Northwind Paris</title><meta property="og:locale" content="fr_FR"></head>
+<body>
+<main>
+<h1>Nous joindre</h1>
+<p>Boutique de Paris : 01 42 68 53 00, ou écrivez à paris@northwind.example.</p>
+<p>Commande du 2026-10-26.</p>
+</main>
+</body>
+</html>
+'''
+metadata = '''
+{
+  "title": "Contact | Northwind Paris",
+  "description": null,
+  "canonical": null,
+  "lang": "fr-FR",
+  "open_graph": [{ "property": "og:locale", "content": "fr_FR" }],
+  "twitter": [],
+  "json_ld": [],
+  "microdata": [],
+  "meta": {}
+}
+'''
+contacts = '''
+{
+  "emails": [{ "value": "paris@northwind.example", "text": "paris@northwind.example" }],
+  "phones": [{ "value": "01 42 68 53 00", "text": "01 42 68 53 00", "e164": "+33142685300" }],
+  "social": []
+}
+'''

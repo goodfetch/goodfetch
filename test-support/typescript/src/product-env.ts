@@ -1,7 +1,10 @@
 // The environment map an SDK takes in a test (ADRs 0069, 0090 and 0094):
 // the test's cleared environment, `GOODFETCH_HOME` among it, with the
 // engine-path variable of the SDK's Product pointing at that Product's
-// executable from the test tool manifest.
+// executable from the test tool manifest, or at the Scripted engine playing
+// a script of the shared corpus.
+import { copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { toolPath, type TestEnvDescription } from "./test-env.ts";
 
 /** A Product; a test runs Collie's executable unless it needs Foxhound (ADR 0094). */
@@ -20,5 +23,32 @@ export function productEnv(
   return {
     ...description.env,
     [ENGINE_PATH_VARIABLES[product]]: toolPath(description.tools, product),
+  };
+}
+
+/** The shared corpus of engine scripts (ADR 0069). */
+const corpus = new URL("../../fixtures/engine-scripts/", import.meta.url);
+
+/**
+ * The environment map under which an SDK of `product` starts
+ * `goodfetch-scripted-engine` as its Attached engine, playing the corpus's
+ * script `script`: the script is installed as `scripted-engine/script.json`
+ * under `home`, which the map's `GOODFETCH_HOME` names, and the engine's
+ * record is written beside it. Each Connection a test opens at once takes a
+ * home of its own. `tool_missing` when the manifest lists no Scripted engine.
+ */
+export function scriptedEngineEnv(
+  description: TestEnvDescription,
+  product: Product,
+  script: string,
+  home: string = description.home,
+): Readonly<Record<string, string>> {
+  const engine = toolPath(description.tools, "scripted_engine");
+  mkdirSync(join(home, "scripted-engine"), { recursive: true });
+  copyFileSync(new URL(script, corpus), join(home, "scripted-engine", "script.json"));
+  return {
+    ...description.env,
+    GOODFETCH_HOME: home,
+    [ENGINE_PATH_VARIABLES[product]]: engine,
   };
 }

@@ -31,17 +31,19 @@ struct Reading {
 }
 
 impl Reading {
-    /// Sends the request `method` with `params` and reads until its reply.
-    async fn call(&mut self, id: i64, method: &str, params: Value) {
+    /// Sends the request `method` with `params` and reads until its reply,
+    /// which it answers (`Null` when the Connection closed first).
+    async fn call(&mut self, id: i64, method: &str, params: Value) -> Value {
         self.client
             .send(&[json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })])
             .await;
         while let Some(message) = self.client.next().await {
             if message["id"] == json!(id) {
-                return;
+                return message;
             }
             self.read.push(message);
         }
+        Value::Null
     }
 }
 
@@ -57,9 +59,9 @@ async fn opened(dialer: &InMemoryDialer, log_level: &str) -> Reading {
     reading
 }
 
-/// Ends the Client's input and answers the method of every dispatch record
-/// it received as `$/log` until the Daemon closed its Connection, sorted.
-async fn dispatched(reading: Reading) -> Vec<String> {
+/// Ends the Client's input and answers every `$/log` it received until the
+/// Daemon closed its Connection.
+async fn logged(reading: Reading) -> Vec<Value> {
     let Reading {
         mut client,
         mut read,
@@ -68,12 +70,17 @@ async fn dispatched(reading: Reading) -> Vec<String> {
     while let Some(message) = client.next().await {
         read.push(message);
     }
-    let mut methods: Vec<String> = read
+    read.retain(|message| message["method"] == json!("$/log"));
+    read
+}
+
+/// Ends the Client's input and answers the method of every dispatch record
+/// it received as `$/log` until the Daemon closed its Connection, sorted.
+async fn dispatched(reading: Reading) -> Vec<String> {
+    let mut methods: Vec<String> = logged(reading)
+        .await
         .into_iter()
-        .filter(|message| {
-            message["method"] == json!("$/log")
-                && message["params"]["target"] == json!(DISPATCH_TARGET)
-        })
+        .filter(|message| message["params"]["target"] == json!(DISPATCH_TARGET))
         .map(|message| {
             message["params"]["fields"]["method"]
                 .as_str()
@@ -112,6 +119,29 @@ fn two_clients_of_one_daemon_each_receive_the_log_events_at_their_own_level() {
             vec![]
         )
     );
+}
+
+#[test]
+fn a_client_of_an_engine_given_no_log_events_sets_its_level_and_receives_no_log_event() {
+    let engine = engine(Product::Collie);
+    let subscriber = tracing_subscriber::registry();
+
+    let (_, (set, received)) = tracing::subscriber::with_default(subscriber, || {
+        daemon(&engine, &TestEnv::new(), the_pick(), |dialer| async move {
+            let mut client = opened(&dialer, "trace").await;
+            client.call(1, "engine.info", json!({})).await;
+            let set = client
+                .call(
+                    2,
+                    "connection.set_log_level",
+                    json!({ "log_level": "debug" }),
+                )
+                .await;
+            (set["result"].clone(), logged(client).await)
+        })
+    });
+
+    assert_eq!((set, received), (json!({}), vec![]));
 }
 
 /// A span a test's subscriber saw open: its name, whether it is a root,

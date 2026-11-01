@@ -10,16 +10,37 @@
 //!
 //! An enqueue outside the crawl's scope, measured against every seed, is
 //! `out_of_scope`; a seed is never, since seeds define the scope, and each
-//! seed added widens it. The bounds and the learned rules join behind this
-//! one interface.
+//! seed added widens it. A seed or an enqueue whose host the Run's domain
+//! policy refuses (`egress.allowed_domains`, `egress.blocked_domains`,
+//! through the engine's `egress::judge`) is then `domain_policy`, so an
+//! off-site link the policy refuses too stays `out_of_scope` (ADRs 0017,
+//! 0093 and 0120); both read the host as the WHATWG parser leaves it, the
+//! scope alone ignoring one leading `www.`. One the crawl would otherwise
+//! admit is then measured against its bounds, `crawl.max_depth` (seeds at depth 0) and
+//! `crawl.max_requests`, and `crawl.path_budgets`, then the caps on a URL's
+//! shape, each refusal counted by its setting or its path budget. The learned rules join behind this one
+//! interface: a candidate that differs from an admitted request only by
+//! parameters learned to have no effect is a `duplicate` merged by them,
+//! one under a closed trap is not added with `trap_path`, and an offset
+//! URL of a listing that prefers its cursor is a `duplicate`; each such
+//! URL is recorded with its rule. What an admitted candidate shows, its
+//! integer parameters and the page that linked it, teaches the rules in
+//! turn.
 
-use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+use std::sync::LazyLock;
+
+use encoding_rs::Encoding;
+use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use rusqlite::Connection;
 use url::Url;
 
-use crate::identity::{Declared, identity, visit, visitor};
+use crate::bounds::{Bounds, count_admitted, count_refused};
+use crate::identity::{Declared, Key, Seen, identities, keyed, seen, visit_all};
+use crate::rules;
 use crate::scope::{Narrowing, Scope};
-use crate::url::parse;
+use crate::staged::Admitting;
+use crate::url::{parse, parse_link};
 
 /// What the Frontier is asked to admit.
 #[derive(Clone, Copy, Debug)]
@@ -37,16 +58,55 @@ pub enum Candidate<'a> {
         url: &'a str,
         /// The base URL of the document the handler read.
         base: &'a Url,
+        /// The URL of the crawl request whose attempt enqueued it, whose
+        /// page gave the link.
+        from: &'a Url,
         /// How it is sent and identified.
         declared: Declared<'a>,
         /// The call's own patterns, which narrow the crawl's scope, as an
         /// `enqueueLinks` call's `include` and `exclude`.
         narrowing: Narrowing<'a>,
+        /// Its depth: one deeper than the request whose attempt added it.
+        depth: u32,
+    },
+    /// The `href` of a link an `enqueueLinks` call matched: a `GET` with no
+    /// body, relative to `base` or absolute, its query percent-encoded in
+    /// its document's encoding (ADR 0120).
+    Href {
+        /// The `href`, as written.
+        href: &'a str,
+        /// The base URL of the document that holds the link.
+        base: &'a Url,
+        /// The document's encoding.
+        encoding: &'static Encoding,
+        /// Whether its key keeps the fragment, as its Label's
+        /// `crawl.keep_url_fragment` says (ADR 0120).
+        keeps_fragment: bool,
+        /// The URL of the crawl request whose attempt enqueued it.
+        from: &'a Url,
+        /// The call's own `include` and `exclude`, which narrow the crawl's
+        /// scope.
+        narrowing: Narrowing<'a>,
+        /// Its depth: one deeper than the request whose attempt added it.
+        depth: u32,
+    },
+    /// An entry of a sitemap a sitemap seed read: a `GET` with no body, at
+    /// depth 0, relative to its sitemap's URL or absolute, measured against
+    /// the scope and never widening it (ADR 0120).
+    SitemapEntry {
+        /// Its URL, as the sitemap wrote it.
+        url: &'a str,
+        /// The URL of the sitemap that lists it.
+        sitemap: &'a Url,
     },
 }
 
+/// A link's method: `GET`, with no body and no declared key.
+static LINK: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
+
 /// Admits `candidate` into the run file `connection` holds, within
-/// `scope`, which an added seed widens, through `add`, which adds it as a
+/// `scope`, which an added seed widens, and under the Run's domain policy
+/// `policy`, through `add`, which adds it as a
 /// crawl request at its URL as parsed, the URL it is fetched at, and
 /// answers its ID.
 ///
@@ -56,44 +116,207 @@ pub enum Candidate<'a> {
 pub fn admit(
     connection: &Connection,
     scope: &Scope,
+    policy: &Policy,
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let (given, base, declared, narrowing) = match candidate {
-        Candidate::Seed { url, declared } => (url, None, declared, None),
-        Candidate::Enqueue {
-            url,
-            base,
-            declared,
-            narrowing,
-        } => (url, Some(base), declared, Some(narrowing)),
-    };
-    let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
-        reason,
-        url: given.to_owned(),
-    };
-    let url = match parse(given, base) {
+    admit_in(
+        connection,
+        scope,
+        policy,
+        candidate,
+        &mut Admitting::RunFile,
+        add,
+    )
+}
+
+/// Admits `candidate` as [`admit`] does, against what `admitting` adds to
+/// the run file (ADR 0093): while an attempt stages, the visited
+/// identities, the counts and the seeds of its earlier admissions, and
+/// what this one does is noted there; at its commit, each URL this one
+/// does not add is noted there, with why.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written, or what `add` fails with.
+pub fn admit_in(
+    connection: &Connection,
+    scope: &Scope,
+    policy: &Policy,
+    candidate: Candidate<'_>,
+    admitting: &mut Admitting,
+    add: impl FnOnce(&Url) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
+    let Read {
+        given,
+        parsed,
+        from,
+        declared,
+        narrowing,
+        depth,
+    } = Read::of(candidate);
+    let url = match parsed {
         Ok(url) => url,
-        Err(reason) => return Ok(not_added(reason)),
+        Err(reason) => {
+            return Ok(Enqueued::NotAdded {
+                reason,
+                url: given.to_owned(),
+            });
+        }
     };
+    let not_added =
+        |admitting: &mut Admitting, reason: NotAddedReason, duplicate_of: Option<&str>| {
+            admitting.refused(&url, reason, duplicate_of);
+            Enqueued::NotAdded {
+                reason,
+                url: given.to_owned(),
+            }
+        };
     if let Some(narrowing) = narrowing
-        && !scope.admits(connection, &url, narrowing)?
+        && !scope.admits_in(connection, &url, narrowing, admitting.earlier())?
     {
-        return Ok(not_added(NotAddedReason::OutOfScope));
+        return Ok(not_added(admitting, NotAddedReason::OutOfScope, None));
     }
-    let identity = identity(&url, declared);
-    if visitor(connection, &identity)?.is_some() {
-        return Ok(not_added(NotAddedReason::Duplicate));
+    let request = Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(_) = judge(&request, policy) {
+        return Ok(not_added(admitting, NotAddedReason::DomainPolicy, None));
+    }
+    let key = Key::of(&url, declared.keeps_fragment);
+    let identities = identities(connection, &key, declared)?;
+    match seen(connection, &identities, admitting.earlier())? {
+        Seen::New => {}
+        Seen::Visited(visitor) => {
+            return Ok(not_added(
+                admitting,
+                NotAddedReason::Duplicate,
+                Some(&visitor),
+            ));
+        }
+        Seen::Merged {
+            rules,
+            crawl_request,
+        } => {
+            for rule in rules {
+                rules::merged(connection, rule, url.as_str())?;
+            }
+            return Ok(not_added(
+                admitting,
+                NotAddedReason::Duplicate,
+                Some(&crawl_request),
+            ));
+        }
+    }
+    if let Some((reason, rule)) = rules::refuses(connection, key.url())? {
+        rules::merged(connection, rule, url.as_str())?;
+        return Ok(not_added(admitting, reason, None));
+    }
+    let bounds = Bounds::read(connection)?;
+    let budget = bounds.budget_of(&url);
+    if let Some(reason) =
+        bounds.refuses(connection, &url, depth.into(), budget, admitting.earlier())?
+    {
+        count_refused(connection, reason, budget)?;
+        return Ok(not_added(admitting, reason, None));
     }
     let id = add(&url)?;
-    visit(connection, &identity, &id)?;
+    count_admitted(connection, budget)?;
+    visit_all(connection, &identities, &id)?;
+    admitting.admitted(
+        &id,
+        identities.plain(),
+        identities.learned(),
+        budget.map(|budget| budget.pattern.as_str()),
+    );
+    rules::admitted(connection, key.url(), from.map(keyed).as_ref())?;
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;
+        admitting.widened(&url);
     }
     Ok(Enqueued::Added {
         id,
         url: url.into(),
     })
+}
+
+/// What a candidate gives the admission: its URL as given and as parsed,
+/// the URL of the page that gave it, how it is sent and identified, the
+/// patterns narrowing the scope for it (none for a seed, which the scope
+/// does not measure) and its depth.
+struct Read<'a> {
+    given: &'a str,
+    parsed: Result<Url, NotAddedReason>,
+    from: Option<&'a Url>,
+    declared: Declared<'a>,
+    narrowing: Option<Narrowing<'a>>,
+    depth: u32,
+}
+
+impl<'a> Read<'a> {
+    fn of(candidate: Candidate<'a>) -> Self {
+        let (given, parsed, from, declared, narrowing, depth) = match candidate {
+            Candidate::Seed { url, declared } => (url, parse(url, None), None, declared, None, 0),
+            Candidate::Href {
+                href,
+                base,
+                encoding,
+                keeps_fragment,
+                from,
+                narrowing,
+                depth,
+            } => (
+                href,
+                parse_link(href, base, encoding),
+                Some(from),
+                Declared {
+                    method: &LINK,
+                    body: None,
+                    key: None,
+                    keeps_fragment,
+                },
+                Some(narrowing),
+                depth,
+            ),
+            Candidate::Enqueue {
+                url,
+                base,
+                from,
+                declared,
+                narrowing,
+                depth,
+            } => (
+                url,
+                parse(url, Some(base)),
+                Some(from),
+                declared,
+                Some(narrowing),
+                depth,
+            ),
+            Candidate::SitemapEntry { url, sitemap } => (
+                url,
+                parse(url, Some(sitemap)),
+                None,
+                Declared {
+                    method: &LINK,
+                    body: None,
+                    key: None,
+                    keeps_fragment: false,
+                },
+                Some(Narrowing::none()),
+                0,
+            ),
+        };
+        Self {
+            given,
+            parsed,
+            from,
+            declared,
+            narrowing,
+            depth,
+        }
+    }
 }
 
 #[cfg(test)]

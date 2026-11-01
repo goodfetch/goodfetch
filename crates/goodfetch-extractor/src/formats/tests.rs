@@ -1,14 +1,21 @@
 //! `formats` through the crate's interface, over committed fixtures and
 //! generated documents; no owned code is mocked (ADR 0062).
 
+mod contacts;
+mod content_modes;
 mod envelope;
+mod extractors;
+mod live_document;
 mod markdown;
+mod metadata;
 mod properties;
+mod references;
+mod tables;
 mod unicode;
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};
 
-use crate::{Context, Document, formats};
+use crate::{Context, Document, Serialization, formats};
 
 /// The URL every fixture document is read at.
 const URL: &str = "https://kites.test/journal/bridle";
@@ -21,6 +28,7 @@ fn read(html: &str, request: serde_json::Value) -> PageFormats {
             html,
             url: URL,
             base_url: URL,
+            serialization: Serialization::Served,
         },
         &request,
         &Context::default(),

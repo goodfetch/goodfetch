@@ -70,3 +70,23 @@ fn a_kinds_schema_describes_its_values() {
         })
     );
 }
+
+#[rstest]
+#[case::cents("0.05 USD", Some((50_000, "USD")))]
+#[case::whole_units("3 EUR", Some((3_000_000, "EUR")))]
+#[case::six_decimals("0.000001 USD", Some((1, "USD")))]
+#[case::past_a_millionth_rounded_up("0.0000001 USD", Some((1, "USD")))]
+#[case::trailing_zeros_past_a_millionth("1.50000000 USD", Some((1_500_000, "USD")))]
+#[case::no_currency("0.05", None)]
+fn a_price_reads_as_millionths_of_its_currency(
+    #[case] text: &str,
+    #[case] expected: Option<(u64, &str)>,
+) {
+    let read = super::PriceValue::parse(text);
+
+    assert_eq!(
+        read.as_ref()
+            .map(|price| (price.millionths, price.currency.as_str())),
+        expected
+    );
+}

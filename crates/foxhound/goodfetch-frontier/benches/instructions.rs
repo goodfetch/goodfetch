@@ -34,4 +34,25 @@ fn admit_seeds(links: Vec<String>) -> usize {
 
 library_benchmark_group!(name = identity, benchmarks = [url_key, admit_seeds]);
 
-main!(library_benchmark_groups = [admission, identity]);
+#[library_benchmark]
+#[bench::no_urls(0)]
+#[bench::hundred_thousand_urls(100_000)]
+fn enqueue(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls)))
+}
+
+library_benchmark_group!(name = frontier, benchmarks = enqueue);
+
+// An attempt's staged enqueues (ADR 0093): each runs one admission, so a
+// thousand cost about ten times a hundred, never the hundred times that
+// running the attempt's earlier ones again would.
+#[library_benchmark]
+#[bench::a_hundred_enqueues(100)]
+#[bench::a_thousand_enqueues(1_000)]
+fn stage(enqueues: usize) -> usize {
+    black_box(scenarios::stage(black_box(enqueues)))
+}
+
+library_benchmark_group!(name = staging, benchmarks = stage);
+
+main!(library_benchmark_groups = [admission, identity, frontier, staging]);

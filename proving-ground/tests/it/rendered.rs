@@ -84,6 +84,30 @@ fn the_feed_shows_no_item_before_its_script_runs() {
     assert!(!page.body.contains("/items/"), "{}", page.body);
 }
 
+/// The app shell's own HTML holds an empty `#app`: its heading is in its
+/// inline script only, which a browser runs before the page loads.
+///
+/// Covers: story:5-137
+#[test]
+fn the_app_shell_holds_its_heading_only_in_its_script() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let page = proving_ground.get(&proving_ground.url(HOST, "/shell"));
+
+    let (html, script) = page.body.split_once("<script>").unwrap();
+    assert_eq!(
+        (
+            page.status,
+            html.contains(r#"<main id="app"></main>"#),
+            html.contains("Rendered shell"),
+            script.contains("Rendered shell"),
+        ),
+        (200, true, false, true),
+        "{}",
+        page.body
+    );
+}
+
 /// Covers: story:2-33
 #[test]
 fn an_item_page_shows_neither_its_name_nor_its_price_before_its_script_runs() {

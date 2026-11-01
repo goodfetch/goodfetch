@@ -62,10 +62,14 @@ class TestEnv:
     __test__ = False
 
     def __init__(
-        self, process: subprocess.Popen[bytes], description: Mapping[str, object]
+        self,
+        process: subprocess.Popen[bytes],
+        description: Mapping[str, object],
+        teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
     ) -> None:
         """Takes the running `goodfetch-test-env` and its checked description."""
         self._process = process
+        self._teardown_deadline = teardown_deadline
         self._started: list[tuple[list[str], subprocess.Popen[bytes]]] = []
         self.folder = Path(cast("str", description["folder"]))
         """The test's own folder, removed when the test ends."""
@@ -96,6 +100,7 @@ class TestEnv:
         *,
         proving_ground_seed: int | None = None,
         daemon: Product | None = None,
+        teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
     ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
 
@@ -105,6 +110,9 @@ class TestEnv:
             proving_ground_seed: The seed of a Proving ground to start beside
                 the setup, if any.
             daemon: The Product whose Daemon to start in the test's home, if any.
+            teardown_deadline: How many seconds teardown waits for
+                `goodfetch-test-env` to end once its stdin closes; 10 unless a
+                test sets a shorter one.
 
         Raises:
             ToolsError: The manifest or its `test_env` entry is missing.
@@ -137,7 +145,7 @@ class TestEnv:
         except BaseException:
             _stop(process)
             raise
-        return cls(process, cast("dict[str, object]", description))
+        return cls(process, cast("dict[str, object]", description), teardown_deadline)
 
     def start(
         self,
@@ -164,8 +172,12 @@ class TestEnv:
         self._started.append((command, process))
         return process
 
-    def close(self) -> None:
+    def close(self, *, failed: bool = False) -> None:
         """Tears the setup down, failing if a process the test started is alive.
+
+        Args:
+            failed: Whether the test failed, whose folder then stays for its
+                evidence, as a Rust test's does.
 
         Raises:
             ProcessesAlive: A recorded process or `goodfetch-test-env` was alive.
@@ -177,9 +189,11 @@ class TestEnv:
         for _, process in self._started:
             _stop(process)
         if self._process.stdin is not None:
+            if failed:
+                self._process.stdin.write(b"failed\n")
             self._process.stdin.close()
         try:
-            status = self._process.wait(TEARDOWN_DEADLINE_SECONDS)
+            status = self._process.wait(self._teardown_deadline)
         except subprocess.TimeoutExpired:
             alive.append(
                 [os.fspath(arg) for arg in cast("list[str]", self._process.args)]

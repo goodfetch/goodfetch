@@ -171,6 +171,28 @@ fn a_run_file_copied_out_of_the_install_database_is_a_file_of_its_own() {
     assert_eq!(items(&opened).unwrap(), vec![4, 5]);
 }
 
+/// The install database opens on a new file another connection writes once
+/// that write ends: its switch of the file to WAL waits, as SQLite answers
+/// that switch busy at once (#1773's class).
+///
+/// Covers: story:3-29, setting:run_state.layout
+#[test]
+fn the_install_database_opens_beside_another_write_of_its_new_file() {
+    let env = TestEnv::new();
+    let path = env.folder().join(INSTALL_FILE);
+
+    let opened = crate::sqlite_wal::tests::opened_beside_a_write(&path, || {
+        InstallDatabase::open(
+            &path,
+            &env.folder().join("runs"),
+            &RunStateOptions::default(),
+        )
+        .map(drop)
+    });
+
+    assert_eq!(opened, Ok(()));
+}
+
 /// A second install database on the same run folders in one process is
 /// refused, so one writer keeps them.
 #[test]
@@ -201,4 +223,49 @@ fn a_path_outside_the_run_folders_does_not_open_through_its_vfs() {
     );
 
     assert!(outside.is_err());
+}
+
+/// Erasing a Run's files deletes those of its run folder only, a Run ID
+/// that begins with another's included, and finds them by a range on the
+/// primary key, so the erase holds the database for what the erased Run
+/// keeps, not for every Run's files (deep review 213-3).
+#[test]
+fn erasing_a_runs_files_searches_their_names_and_leaves_every_other_run() {
+    let env = TestEnv::new();
+    let install = install(&env);
+    for run_id in ["a", "a_b", "b"] {
+        install.write(run_id, &[1]);
+    }
+
+    let erased = install.database.erase("a").unwrap();
+
+    let connection = Connection::open_with_flags(
+        &install.path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap();
+    let plans: Vec<String> = ["chunks", "files"]
+        .into_iter()
+        .map(|table| {
+            connection
+                .query_row(
+                    &format!(
+                        "EXPLAIN QUERY PLAN DELETE FROM {table} WHERE {}",
+                        super::ERASED
+                    ),
+                    ["a/", "a0"],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        (
+            erased,
+            install.database.runs().unwrap(),
+            plans.iter().all(|plan| plan.starts_with("SEARCH")),
+        ),
+        (true, vec!["a_b".to_owned(), "b".to_owned()], true),
+        "{plans:?}"
+    );
 }

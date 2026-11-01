@@ -13,8 +13,10 @@ dependencies = [
  "duckdb",
  "goodfetch-engine",
  "goodfetch-frontier",
+ "goodfetch-page",
  "goodfetch-simulation",
  "goodfetch-test-support",
+ "wreq",
 ]
 
 [[package]]
@@ -35,6 +37,13 @@ dependencies = [
 [[package]]
 name = "goodfetch-frontier"
 version = "0.0.0"
+
+[[package]]
+name = "goodfetch-page"
+version = "0.0.0"
+dependencies = [
+ "tokio-btls",
+]
 
 [[package]]
 name = "goodfetch-scripted-model"

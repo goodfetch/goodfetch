@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.session]
+source = { domains = ["example.com"], format = "storage_state", key = "env:EXAMPLE", kind = "state_file", path = "state.json" }

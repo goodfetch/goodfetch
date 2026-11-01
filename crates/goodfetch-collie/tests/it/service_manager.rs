@@ -64,9 +64,11 @@ pub(crate) fn in_session<'env>(env: &'env TestEnv, executable: &str) -> Cli<'env
     command
 }
 
+/// A `--json` run of `executable` in the user's session, its document;
+/// a failure shows the run's stdout too, where `--json` prints its reason.
 pub(crate) fn json_in_session(env: &TestEnv, executable: &str, arguments: &[&str]) -> Value {
     let output = in_session(env, executable).args(arguments).run().unwrap();
-    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    assert_eq!(output.exit, Some(0), "{output}");
     serde_json::from_str(&output.stdout).unwrap()
 }
 
@@ -126,7 +128,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
-    validate(&installed, "DaemonInstallOutput");
+    validate(&installed, "DaemonStatus");
     validate(&uninstalled, "DaemonUninstallOutput");
     let files: Vec<bool> = service["files"]
         .as_array()
@@ -136,7 +138,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
         .collect();
     assert_eq!(
         (
-            before["daemon"].clone(),
+            before["pid"].clone(),
             before["service"] == service,
             status["result"]["product"].clone(),
             status["result"]["kept_alive"].clone(),
@@ -147,7 +149,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
             uninstalled["removed"] == service,
             files,
             after["service"].clone(),
-            after["daemon"].clone(),
+            after["pid"].clone(),
             env.home().join("0.0").join("daemon.token").exists(),
         ),
         (
@@ -164,6 +166,165 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
             Value::Null,
             false,
         )
+    );
+}
+
+/// A named Console port for the test's process, outside the OS's ephemeral
+/// range (ADR 0031), which only a program naming it takes. The service group
+/// runs one such test at a time.
+#[cfg(unix)]
+fn named_console_address() -> String {
+    format!("127.0.0.1:{}", 20_000 + std::process::id() % 10_000)
+}
+
+/// With the service installed, the service manager also listens on the
+/// Console's address: under systemd a port `daemon install` chose for the
+/// test home's port 0, under launchd, which listens on no such port, a named
+/// one. The first request to the Console there starts the Daemon, which
+/// answers it with the Console's page, so a bookmark always works.
+///
+/// Covers: story:12-7, command:daemon.install, command:daemon.status
+#[cfg(unix)]
+#[test]
+fn the_first_request_to_the_consoles_address_starts_the_daemon() {
+    let env = TestEnv::new();
+    if cfg!(target_os = "macos") {
+        env.user_configuration(&format!(
+            "console.address = \"{}\"\n",
+            named_console_address()
+        ));
+    }
+    let _removes = RemovesTheService(&env);
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"]
+        .as_str()
+        .expect("the service listens on the Console's address")
+        .to_owned();
+    let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+
+    let page = crate::sign_in::agent()
+        .get(format!("http://{console}/"))
+        .call()
+        .unwrap();
+
+    let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+    assert_eq!(
+        (
+            before["pid"].clone(),
+            page.status().as_u16(),
+            after["pid"].is_u64(),
+            after["console_url"].clone(),
+        ),
+        (Value::Null, 200, true, json!(format!("http://{console}/")),)
+    );
+}
+
+/// systemd re-reads each listening socket's path at every reload of the
+/// user's manager, which any program may ask for; the service's two
+/// sockets still listen after one, though the test home's path holds a
+/// character systemd escapes (#1781): the first connection to the
+/// service's socket and the first request to the Console both reach the
+/// Daemon. That socket's folder, of its own then, goes at `daemon
+/// uninstall`.
+///
+/// Covers: story:3-21, story:12-7, command:daemon.uninstall
+#[cfg(target_os = "linux")]
+#[test]
+fn a_reload_of_the_users_systemd_keeps_both_of_the_services_sockets() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"]
+        .as_str()
+        .expect("the service listens on the Console's address")
+        .to_owned();
+
+    let reloaded = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status()
+        .unwrap();
+    let mut client = RawClient::opened(&service_reach(&env, &installed["service"]), "collie");
+    let status = client.call(1, "daemon.status", &json!({}));
+    let page = crate::sign_in::agent()
+        .get(format!("http://{console}/"))
+        .call()
+        .unwrap();
+    drop(client);
+    json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
+    let socket = PathBuf::from(installed["service"]["socket"].as_str().unwrap());
+
+    assert_eq!(
+        (
+            reloaded.success(),
+            status["result"]["product"].clone(),
+            page.status().as_u16(),
+            socket.parent().unwrap().exists(),
+        ),
+        (true, json!("collie"), 200, false)
+    );
+}
+
+/// Whether a socket of this user, asking for port reuse when `sharing`,
+/// binds `address`: `Err` names why not.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test is the second listener the Console's port must refuse"
+)]
+fn second_listener(address: &str, sharing: bool) -> Result<(), std::io::ErrorKind> {
+    let binding = || {
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        socket.set_reuseport(sharing)?;
+        socket.bind(address.parse().unwrap())
+    };
+    binding().map_err(|error: std::io::Error| error.kind())
+}
+
+/// A named Console port takes no port reuse: while the service's socket
+/// listens there, a second listener is refused even when it asks to share,
+/// so a second home's install fails rather than sharing connections.
+///
+/// Covers: story:12-7, command:daemon.install
+#[cfg(target_os = "linux")]
+#[test]
+fn no_second_listener_shares_a_named_consoles_port() {
+    let env = TestEnv::new();
+    let named = named_console_address();
+    env.user_configuration(&format!("console.address = \"{named}\"\n"));
+    let _removes = RemovesTheService(&env);
+
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"].as_str().map(str::to_owned);
+    let plain = second_listener(&named, false);
+    let sharing = second_listener(&named, true);
+
+    assert_eq!(
+        (console.as_deref(), plain, sharing),
+        (
+            Some(named.as_str()),
+            Err(std::io::ErrorKind::AddrInUse),
+            Err(std::io::ErrorKind::AddrInUse),
+        )
+    );
+}
+
+/// The port `daemon install` chose for port 0 stays refused to any other
+/// program once the hold is gone, since systemd listens on it then.
+///
+/// Covers: story:12-7, command:daemon.install
+#[cfg(target_os = "linux")]
+#[test]
+fn no_other_program_can_take_the_consoles_port_once_installed() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"].as_str().unwrap();
+
+    assert_eq!(
+        second_listener(console, false),
+        Err(std::io::ErrorKind::AddrInUse)
     );
 }
 
@@ -188,15 +349,14 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
     let mut client = RawClient::opened(&new, "collie");
     let status = client.call(1, "daemon.status", &json!({}));
 
-    validate(&rotated, "DaemonRotateTokenOutput");
+    validate(&rotated, "TokenRotated");
     assert_eq!(
         (
-            rotated["stopped"].clone(),
             refused,
             new.token == old.token,
             status["result"]["product"].clone(),
         ),
-        (json!({ "live_runs": 0 }), true, false, json!("collie"))
+        (true, false, json!("collie"))
     );
 }
 
@@ -216,14 +376,14 @@ fn the_installed_logon_task_keeps_the_daemon_running() {
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
-    validate(&installed, "DaemonInstallOutput");
+    validate(&installed, "DaemonStatus");
     assert_eq!(
         (
             installed["service"]["manager"].clone(),
-            started["daemon"]["kept_alive"].clone(),
+            started["pid"].is_u64(),
             uninstalled["removed"] == installed["service"],
-            after["daemon"].clone(),
+            after["pid"].clone(),
         ),
-        (json!("task_scheduler"), json!(true), true, Value::Null)
+        (json!("task_scheduler"), true, true, Value::Null)
     );
 }

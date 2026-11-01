@@ -1,0 +1,5 @@
+# Which of goodfetch-sql-tab's top-level modules may import which (ADR 0126).
+[modules]
+errors = []
+sandbox = ["errors", "tables"]
+tables = []

@@ -1,5 +1,16 @@
-import { describe, expect, test } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, onTestFinished, test } from "vitest";
 import { redact, type SnapshotValues } from "./snapshot.ts";
+
+/** The shared cases every language's `redact` passes. */
+const CASES: { cases: { description: string; output: string; redacted: string }[] } = JSON.parse(
+  readFileSync(
+    join(import.meta.dirname, "..", "..", "fixtures", "snapshot-filter-cases.json"),
+    "utf8",
+  ),
+);
 
 /** One run's values, as an output would print them. */
 interface Run {
@@ -66,6 +77,35 @@ describe("redact", () => {
       proving ground at http://127.0.0.1:[PORT]/pages"
     `);
   });
+
+  test.each(CASES.cases)(
+    "redacts the shared case: $description",
+    ({ output: printed, redacted }) => {
+      expect(redact(printed, {})).toBe(redacted);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "redacts the test's folder in each form an output prints it",
+    () => {
+      const parent = mkdtempSync(join(tmpdir(), "snapshot é "));
+      onTestFinished(() => rmSync(parent, { recursive: true, force: true }));
+      const real = join(parent, 'real "q" \\b');
+      mkdirSync(real);
+      const folder = join(parent, "link");
+      symlinkSync(real, folder);
+      const canonical = realpathSync(folder);
+      const printed = [
+        `${folder}/a ${canonical}/b`,
+        JSON.stringify({ path: `${folder}/c` }),
+        JSON.stringify({ path: `${canonical}/d` }),
+      ].join(" ");
+
+      expect(redact(printed, { folder })).toBe(
+        '[FOLDER]/a [FOLDER]/b {"path":"[FOLDER]/c"} {"path":"[FOLDER]/d"}',
+      );
+    },
+  );
 
   test("leaves a value outside the shared rules in the snapshot", () => {
     const redacted = redact(

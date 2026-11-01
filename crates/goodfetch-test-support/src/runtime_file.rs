@@ -21,6 +21,13 @@ use serde::{Deserialize, Serialize};
 /// The runtime file's name in the per-major folder.
 pub const RUNTIME_FILE: &str = "daemon.json";
 
+/// The start of the name of the folder under `/tmp` the Scripted engine
+/// listens in when its socket's path in the home is longer than the OS takes
+/// (104 bytes on macOS), with a space and a non-ASCII letter like a test's
+/// home (ADR 0073). A `TestEnv` removes one a runtime file of its home names
+/// at teardown, since a killed Daemon cannot.
+pub const SOCKET_FOLDER_PREFIX: &str = "goodfetch é ";
+
 /// The Unix socket's name in the per-major folder, where its path fits
 /// the OS's limit.
 pub const DAEMON_SOCKET: &str = "daemon.sock";

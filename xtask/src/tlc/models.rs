@@ -71,11 +71,18 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Model>> {
                 manifest.spec
             );
         }
-        let traces = manifest
+        let traces: Vec<String> = manifest
             .traces
             .into_iter()
             .map(|trace| trace.trim_end_matches('/').to_owned())
             .collect();
+        // A renamed or removed module would silently stop selecting the
+        // model, and the gate would pass without it.
+        if let Some(missing) = traces.iter().find(|trace| !root.join(trace).exists()) {
+            bail!(
+                "{folder}/{MANIFEST}: the traced path `{missing}` does not exist; trace the module where it now lives"
+            );
+        }
         models.push(Model {
             name,
             folder,

@@ -86,7 +86,7 @@ fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken()
     assert_eq!(
         (
             &finished["result"]["policy_version"],
-            &finished["result"]["weakened_by"]
+            &finished["result"]["weakened"]
         ),
         (
             &json!("sha256:e0e1ddb8a44ecebb"),
@@ -94,6 +94,7 @@ fn a_run_report_names_the_operator_policy_version_and_the_settings_that_weaken()
                 "key": "tls.accept_invalid_certs",
                 "value": { "intranet.example": null },
                 "layer": "run",
+                "origin": "settings",
             }])
         )
     );
@@ -241,6 +242,7 @@ fn config_explain_shows_each_value_with_the_layer_that_set_it_and_the_layer_that
                 "value": 5000,
                 "layer": "user_configuration",
                 "weakens": false,
+                "user_settable": true,
             },
             {
                 "key": "timeout.navigation",
@@ -288,4 +290,43 @@ fn an_operator_policy_locking_egress_offline_refuses_a_run_turning_it_off() {
             &Value::Null,
         )
     );
+}
+
+/// Story 4-33: `tls.trusted_cas` is the operator's, written in configuration
+/// or the Operator policy: a run's own value is refused with
+/// `setting_locked` before the Run begins, and the same value in user
+/// configuration starts the Run.
+/// Covers: story:4-33, error:setting_locked, setting:tls.trusted_cas
+#[test]
+fn a_runs_trusted_cas_is_locked_and_the_same_value_from_configuration_starts_the_run() {
+    let from_the_run = TestEnv::new();
+    let from_configuration = TestEnv::new();
+    write(
+        &from_configuration,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.tls.trusted_cas]\n\"intranet.example\" = [\"ca.pem\"]\n",
+    );
+
+    let (refused, _) = start_and_finish(
+        &from_the_run,
+        Product::Collie,
+        json!({
+            "run_id": "set",
+            "settings": { "tls": { "trusted_cas": { "intranet.example": ["ca.pem"] } } },
+        }),
+    );
+    let (started, _) = start_and_finish(
+        &from_configuration,
+        Product::Collie,
+        json!({ "run_id": "set" }),
+    );
+
+    assert_eq!(
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["limit"]["key"],
+        ),
+        (&json!("setting_locked"), &json!("tls.trusted_cas"))
+    );
+    assert_eq!(started["error"], Value::Null, "{started}");
 }

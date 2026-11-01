@@ -4,7 +4,7 @@
 allow-unwrap-in-tests = true
 # Clippy's own list (`..`) plus the registry names and the words in prose the
 # docs spell as written.
-doc-valid-idents = ["PyPI", "JUnit", "LazyFS", ".."]
+doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", "AppArmor", "DuckDB", ".."]
 
 disallowed-methods = [
   # Tasks start only through their owner's tracker, in the `tasks` module.
@@ -31,16 +31,28 @@ disallowed-methods = [
   { path = "std::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)" },
   { path = "tokio::io::stdin", reason = "stdin is opened only in the transport module (ADR 0060)", allow-invalid = true },
   { path = "tokio::io::stdout", reason = "stdout is opened only in the transport module (ADR 0060)", allow-invalid = true },
+  # A reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060).
+  { path = "reqwest::ClientBuilder::build", reason = "a reqwest client opens its own sockets: only the HTTP fetch tier's transport builds one (ADR 0060)", allow-invalid = true },
+  # So does a wreq client: only the stealth HTTP fetch tier's transport builds one (ADR 0060).
+  { path = "wreq::ClientBuilder::build", reason = "a wreq client opens its own sockets: only the HTTP fetch tier's `wreq` transport builds one (ADR 0060)", allow-invalid = true },
   # Time, randomness and the environment come from their handles (ADR 0059).
   { path = "std::time::SystemTime::now", reason = "read time through the Clock handle (ADR 0059)" },
   { path = "std::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)" },
   { path = "tokio::time::Instant::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
+  # Library constructors that read the system clock themselves (STYLE.md).
+  { path = "jiff::Timestamp::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
+  { path = "jiff::Zoned::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
+  { path = "rustls::pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
+  { path = "rustls_pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
   { path = "ulid::Ulid::new", reason = "make IDs through the Clock and Entropy handles (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::clock::Clock::paused", reason = "the Clock's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::entropy::Entropy::seeded", reason = "the Entropy's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },
   { path = "std::env::var", reason = "only main reads the environment (ADR 0059)" },
   { path = "std::env::var_os", reason = "only main reads the environment (ADR 0059)" },
   { path = "std::env::vars", reason = "only main reads the environment (ADR 0059)" },
+  { path = "std::env::vars_os", reason = "only main reads the environment (ADR 0059)" },
+  # A SQLite file switches journal mode only through goodfetch-engine's `sqlite_wal` module (#1773).
+  { path = "rusqlite::Connection::pragma_update_and_check", reason = "switch a file to WAL through goodfetch-engine's sqlite_wal::enter: SQLite answers a switch beside another connection busy at once, never waiting its busy timeout (STYLE.md)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },
@@ -68,9 +80,9 @@ disallowed-types = [
   { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::UdpSocket", reason = "sockets are opened only in the transport module (ADR 0060)" },
-  { path = "std::os::unix::net::UnixListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
-  { path = "std::os::unix::net::UnixStream", reason = "sockets are opened only in the transport module (ADR 0060)" },
-  { path = "std::os::unix::net::UnixDatagram", reason = "sockets are opened only in the transport module (ADR 0060)" },
+  { path = "std::os::unix::net::UnixListener", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixStream", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixDatagram", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
   { path = "tokio::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
   { path = "tokio::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },
   { path = "tokio::net::TcpSocket", reason = "sockets are opened only in the transport module (ADR 0060)", allow-invalid = true },

@@ -21,6 +21,26 @@ pub(crate) fn call(engine: &mut Attached, id: i64, method: &str, params: &Value)
     engine.next().unwrap()
 }
 
+/// Sends each of `calls`, its ID, its method's name and its params, before
+/// reading any answer, so the engine runs them at the same time; answers
+/// each one's reply, in the order of `calls`.
+pub(crate) fn at_once(engine: &mut Attached, calls: &[(i64, &str, Value)]) -> Vec<Value> {
+    for (id, method, params) in calls {
+        engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+    }
+    let mut replies = std::collections::BTreeMap::new();
+    while replies.len() < calls.len() {
+        let message = engine.next().expect("the engine answers every call");
+        if let Some(id) = message["id"].as_i64() {
+            replies.insert(id, message);
+        }
+    }
+    calls
+        .iter()
+        .map(|(id, ..)| replies.remove(id).expect("one reply per call"))
+        .collect()
+}
+
 /// Starts and finishes the Run `run_id`, and answers its report.
 fn start_and_finish(engine: &mut Attached, run_id: &str) -> Value {
     engine.send(&hello("collie", "0.1"));
@@ -142,14 +162,22 @@ fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        if let Some(event) = events
-            .into_iter()
-            .find(|event| event["data"]["lifecycle"] == "stopped")
-        {
+        if let Some(event) = events.into_iter().find(|event| {
+            event["event"] == "run.axes_changed" && event["data"]["lifecycle"] == "stopped"
+        }) {
             break event;
         }
     };
-    let report = call(&mut engine, 1, "run.finish", &json!({ "run_id": "timed" }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "run.finish", "params": { "run_id": "timed" },
+    }));
+    // The Run's last progress value may come between.
+    let report = loop {
+        let message = engine.next().unwrap();
+        if message["id"] == 1 {
+            break message;
+        }
+    };
     let (_, exited) = engine.finish();
 
     assert_eq!(
@@ -168,6 +196,16 @@ fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
             true,
         )
     );
+}
+
+/// A progress value but its position and the moment it was read, which
+/// only order values.
+fn settled(mut progress: Value) -> Value {
+    if let Some(fields) = progress.as_object_mut() {
+        fields.remove("position");
+        fields.remove("at");
+    }
+    progress
 }
 
 /// The program's own status line on Collie's executable (RT-15): carried
@@ -227,12 +265,19 @@ fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
             .unwrap()
             .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
             .unwrap();
-    let expected =
-        json!({ "run_id": "noted", "lifecycle": "running", "message": "Reading page 3 of 10" });
+    let expected = json!({
+        "run_id": "noted",
+        "lifecycle": "running",
+        "writer": "live",
+        "epoch": 1,
+        "pauses": [],
+        "message": "Reading page 3 of 10",
+        "last": false,
+    });
     assert_eq!(
         (
-            answer.unwrap()["result"].clone(),
-            progress.unwrap(),
+            settled(answer.unwrap()["result"].clone()),
+            settled(progress.unwrap()),
             in_state,
             in_index,
             exited,
@@ -291,12 +336,12 @@ fn a_collie_run_leaves_the_politeness_files_domain_limits_untouched() {
 
     assert_eq!(
         (
-            &report["result"]["weakened_by"],
+            &report["result"]["weakened"],
             exited,
             std::fs::read(&file).unwrap() == before,
         ),
         (
-            &json!([{ "key": "politeness.sharing", "value": "per_daemon", "layer": "run" }]),
+            &json!([{ "key": "politeness.sharing", "value": "per_daemon", "layer": "run", "origin": "settings" }]),
             true,
             true,
         )

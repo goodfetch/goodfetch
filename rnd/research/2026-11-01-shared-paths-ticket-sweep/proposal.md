@@ -84,6 +84,25 @@ On 2026-11-01 the 58 open `needs-triage` issues were triaged by hand from the `t
 
 Spec #595 has no missing tickets: its stories are covered by #596's 56 sub-issues, and story 80 by #212.
 
+## Specs drafted after the triage
+
+On 2026-11-01, under the owner's « fait ce que tu paux faire, to spec, to tickets etc », eight specs were published with 90 new tickets, and 58 existing tickets were moved under them and rewritten. Each spec's decision log is a comment on the spec and a file here. The owner answered #1709 and #1689 with « Oui, garde-les ».
+
+| Spec | Subject | Decision log |
+|---|---|---|
+| #1937 | person-facing features | `decisions/person.md` |
+| #1943 | relay and remote Clients | `decisions/relay.md` |
+| #1957 | Attended Sessions | `decisions/attended.md` |
+| #1969 | crawl drafted from a prompt | `decisions/1717.md` |
+| #1978 | building Evaluations | `decisions/1712.md` |
+| #1995 | Working copies | `decisions/1689.md` |
+| #2006 | Building conversation | `decisions/1697.md` |
+| #2023 | Host gate | `decisions/gate.md` |
+
+Each spec's drafts also carried its own items for the owner, and each spec assumes its recommendation until the owner says otherwise. Six specs gained a first ticket that writes their ADRs and glossary terms; the Working copies and Building conversation specs drafted their own. Every open `ready-for-agent` ticket with no milestone moved to `M4 Everything else`, as `docs/agents/issue-tracker.md` asks.
+
+Blast-radius facts in these specs were checked by reading only, since nothing could run during the gate, and each spec names the first test that proves its fact.
+
 ## Owner decisions (ready-for-human)
 
 35 tickets, grouped into 14 decisions. Each ticket gains the `ready-for-human` label and a comment stating its decision, and keeps it until the owner answers; the answer then makes it criteria or rewrite.

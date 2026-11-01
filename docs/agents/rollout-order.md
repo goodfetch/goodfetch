@@ -6,6 +6,6 @@ The order adopted on 2026-11-01 for the work after [#1583](https://github.com/go
 2. **Cleanup** of what the M1 run left behind.
 3. **[The gate's spec](https://github.com/goodfetch/goodfetch/issues/1837)** (ADR 0140): counters, benchmarks, the register check and the floor guard.
 4. **Today values:** that spec's last ticket writes each row's first figure and promotes the rows to Enforced.
-5. **[#1577](https://github.com/goodfetch/goodfetch/issues/1577),** ADR 0138's optimization pass, which removes the page path's Exceptions. It no longer waits for the open remainders of tickets #1583 part-merged, and measures with `just compare-spider` and `just targets` as #1583 merged them.
+5. **[#1577](https://github.com/goodfetch/goodfetch/issues/1577),** ADR 0138's optimization pass, which removes the page path's Exceptions. It waits for the open remainders of tickets #1583 part-merged only where its own tickets name them, and measures with `just compare-spider` and `just targets` as #1583 merged them.
 6. **[The Shared paths spec](https://github.com/goodfetch/goodfetch/issues/1838):** the other paths' Exceptions.
 7. **Features,** each spec with the path check of `system-qualities`. A ticket that extends a Shared path waits for its path's gate ticket.

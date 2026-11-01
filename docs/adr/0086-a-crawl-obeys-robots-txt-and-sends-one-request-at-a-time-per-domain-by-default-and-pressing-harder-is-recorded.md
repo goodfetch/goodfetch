@@ -84,6 +84,9 @@ Sources, read at those tags: Scrapy's [`default_settings.py`](https://github.com
   - the Audit log records each such value once per run, with the layer that set it;
   - the run's result lists it (ADR 0023);
   - the Provenance of a Record fetched against its host's robots.txt marks it;
+
+    > Amended on 2026-11-01 (ADR 0138; D8 of [the sweep of ADR 0140](https://github.com/goodfetch/goodfetch/blob/claude/festive-curie-bc4545/rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md), decided by the orchestrator under the owner's « fait tout ce que tu peux faire seul », open to their review; #684, #1649): this mark needs robots.txt read while `site_preferences.respect_robots_txt` is off, against ADR 0138's "switched off costs nothing". So it is its own setting, `site_preferences.mark_robots_txt_ignored`, off by default. The other four records above stay on.
+
   - the run logs it once as a warning through the host's logging (G4);
   - `explainSettings` shows the layer (ADR 0083).
 - **Who can stop it.** An Operator policy or a Recipe can cap or lock any of these values (ADR 0028), so a shared Daemon can forbid a run from turning robots.txt off.
@@ -117,6 +120,7 @@ The keys follow ADR 0083's naming rule: two families, so `goodfetch config expla
 | `politeness.sharing` (was `politeness_sharing`) | `shared` | a crawl |
 | `politeness.degraded_max` (was `politeness_degraded_max`) | 10 minutes | the engine |
 | `site_preferences.respect_robots_txt` | on | a crawl |
+| `site_preferences.mark_robots_txt_ignored` | off | a crawl |
 | `site_preferences.max_crawl_delay` | 30 s | a crawl |
 | `site_preferences.robots_txt_user_agent` | none | a crawl |
 | `site_preferences.respect_use_signals` (was `respect_site_preferences`) | off | every run |

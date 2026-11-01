@@ -74,6 +74,8 @@ export interface JourneyOptions {
   readonly file?: string | undefined;
   /** The executable the variant runs, in place of the test tool manifest's of the Journey's Product, for a skew run. */
   readonly engine?: string | undefined;
+  /** Whether its Console keeps one port across its Daemon's restarts, as the `namedConsolePort` fixture option says. */
+  readonly namedConsolePort?: boolean | undefined;
 }
 
 /** The variant a test runs: its Journey and surface. */
@@ -152,6 +154,7 @@ export function journey(
       // `undefined`, for none, which would take the project's seed.
       provingGroundSeed: read.proving_ground?.seed ?? null,
       ...(options.engine === undefined ? {} : { engine: options.engine }),
+      ...(options.namedConsolePort === true ? { namedConsolePort: true } : {}),
     });
     variantTest(
       read.title,

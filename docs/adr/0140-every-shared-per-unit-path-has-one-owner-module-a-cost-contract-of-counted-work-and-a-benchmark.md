@@ -144,6 +144,7 @@ These are recorded here, and each blocks only the tickets that would extend its 
   3. **[The Shared paths spec](https://github.com/goodfetch/goodfetch/issues/1838),** which removes the Exceptions of C1 to C5, E1 to E5, F3 and F4. It starts with its audit tickets: the owner's entry point is read with the LSP's call hierarchy, so that cases strand E's grep could not see are found.
 - **The open tickets were swept once on 2026-11-01** ([its proposal](../../rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md)): 874 untouched, 189 given their rows as acceptance criteria, 9 rewritten and 35 sent to the owner. The Politeness, Hook and Sink paths and the corrections above come from those 35. The gate's per-path tickets block each ticket that extends their path.
 - **Every later step applies the path check** of `system-qualities` (`/to-spec`, `/to-tickets`, `/implement-spec`, `code-review`), through the pointers in `docs/agents/domain.md` and `AGENTS.md`.
+- **Amends ADR 0133:** the repository may add standards the skills consult at their own steps, which is how the path check applies; it still adds no step, review or approval.
 - **Amends ADR 0071:** the fixed-baseline drift gate.
 - **Amends ADR 0134:** path counts gate once their commands exist, whatever `GATING` says; the register is the source of the ceilings' numbers; `GATING`'s informational state is a dated waiver; the instruction ratio against Spider blocks once tuned.
 - **Notes on:**

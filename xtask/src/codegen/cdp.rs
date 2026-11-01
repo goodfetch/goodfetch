@@ -19,6 +19,9 @@ use std::process::{Command, Stdio};
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
+/// The CDP crate, whose bindings these are.
+const CRATE: &str = "crates/goodfetch-cdp";
+
 /// The protocol file of the pinned Chromium, as its `/json/protocol` serves
 /// it.
 pub(super) const PROTOCOL: &str = "crates/goodfetch-cdp/protocol.json";
@@ -88,11 +91,19 @@ struct Items {
     reference: Option<String>,
 }
 
-/// Every generated file by its path, empty when the workspace has no
-/// protocol file.
+/// Every generated file by its path; none for a workspace without the CDP
+/// crate.
+///
+/// # Errors
+///
+/// When the CDP crate's protocol file is missing, which would otherwise
+/// plan no bindings and so delete every generated one, or does not read.
 pub(super) fn generate(root: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
     let path = root.join(PROTOCOL);
     if !path.exists() {
+        if root.join(CRATE).exists() {
+            bail!("{PROTOCOL} is missing, so no CDP binding can be generated: restore the file");
+        }
         return Ok(BTreeMap::new());
     }
     let text =
@@ -527,7 +538,28 @@ fn upper_camel(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{snake_case, upper_camel};
+    use goodfetch_test_support::TestEnv;
+
+    use super::{CRATE, PROTOCOL, generate, snake_case, upper_camel};
+
+    /// A workspace whose CDP crate lacks its protocol file fails the
+    /// generation, naming the file, rather than planning no bindings, which
+    /// would delete every generated one.
+    #[test]
+    fn a_missing_protocol_file_fails_the_generation() {
+        let env = TestEnv::new();
+        std::fs::create_dir_all(env.folder().join(CRATE)).unwrap();
+
+        let generated = generate(env.folder());
+
+        assert!(
+            generated
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains(PROTOCOL)),
+            "{:?}",
+            generated.map(|files| files.len())
+        );
+    }
 
     #[test]
     fn names_become_rust_names() {

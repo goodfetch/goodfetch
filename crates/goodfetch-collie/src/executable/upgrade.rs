@@ -5,20 +5,26 @@
 
 use std::process::ExitCode;
 
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::output;
+use goodfetch_cli::output::{self, Human};
+use goodfetch_engine::CallError;
 use goodfetch_engine::Identity;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::upgrade::{UpgradeError, UpgradePaths, upgrade_files};
-use goodfetch_protocol::versions::{UPGRADE_SOURCE_UNSUPPORTED, UpgradeFilesOutput};
+use goodfetch_protocol::checkpoint::{FILE_WRITE_FAILED, FileWriteFailedDetails, WriteSide};
+use goodfetch_protocol::cli;
+use goodfetch_protocol::versions::{FilesUpgraded, UPGRADE_SOURCE_UNSUPPORTED};
 
 /// Upgrades from `from`, or from the newest older major Goodfetch home
-/// holds.
+/// holds. A `--from` that names no major is a usage error, `2`, as clap's
+/// own refusal of a flag's value is; a major it does not upgrade from is
+/// `upgrade_source_unsupported`, and a file it cannot copy
+/// `file_write_failed`, each printed as every command's failure is.
 pub(super) fn upgrade(
     identity: &Identity,
     home: &Home,
     from: Option<&str>,
     json: bool,
+    human: &Human,
 ) -> ExitCode {
     let upgraded = match upgrade_files(
         home,
@@ -27,16 +33,33 @@ pub(super) fn upgrade(
         &UpgradePaths::committed(),
     ) {
         Ok(upgraded) => upgraded,
-        Err(error @ (UpgradeError::Io { .. } | UpgradeError::NotAMajor { .. })) => {
-            tracing::error!("{error}");
-            return ExitCode::FAILURE;
+        Err(error @ UpgradeError::NotAMajor { .. }) => {
+            human.failure(&format!("invalid value for '--from <FROM>': {error}"), &[]);
+            return ExitCode::from(cli::USAGE.code);
+        }
+        Err(UpgradeError::Io { path, message }) => {
+            let failure = CallError::new(
+                &FILE_WRITE_FAILED,
+                format!(
+                    "`{}` could not be copied: {message}. What was copied before it stays, and the older major's files are unchanged.",
+                    path.display()
+                ),
+                &FileWriteFailedDetails {
+                    reason: "other".to_owned(),
+                    os_code: None,
+                    path: Some(path.display().to_string()),
+                    side: WriteSide::Engine,
+                },
+            );
+            return output::fail(failure.to_error_object(), None, json, human);
         }
         Err(error) => {
-            tracing::error!(code = UPGRADE_SOURCE_UNSUPPORTED.name, "{error}");
-            return ExitCode::from(exit_codes::of_error(
-                UPGRADE_SOURCE_UNSUPPORTED.name,
-                UPGRADE_SOURCE_UNSUPPORTED.group,
-            ));
+            let failure = CallError::new(
+                &UPGRADE_SOURCE_UNSUPPORTED,
+                error.to_string(),
+                &serde_json::Map::new(),
+            );
+            return output::fail(failure.to_error_object(), None, json, human);
         }
     };
     let shown = |paths: &[std::path::PathBuf]| -> Vec<String> {
@@ -46,12 +69,10 @@ pub(super) fn upgrade(
             .collect()
     };
     if json {
-        output::json(&UpgradeFilesOutput {
-            from: upgraded.from.clone(),
-            to: upgraded.to.clone(),
-            copied: shown(&upgraded.copied),
+        output::json(&FilesUpgraded {
+            upgraded: shown(&upgraded.copied),
             unchanged: shown(&upgraded.unchanged),
-            kept: shown(&upgraded.kept),
+            refused: shown(&upgraded.kept),
         });
         return ExitCode::SUCCESS;
     }

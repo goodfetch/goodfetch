@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
@@ -26,9 +27,12 @@ use rusqlite::Connection;
 use tokio::runtime::Runtime;
 use url::Url;
 
+use crate::bounds;
 use crate::identity::{self, Declared, Hop};
 use crate::scope::{self, Scope};
 use crate::{Candidate, admit};
+
+use super::every_host;
 
 /// The crawl's own table of the test: each request added, by its ID.
 const REQUESTS: RunStateTables = RunStateTables {
@@ -261,7 +265,13 @@ impl Subject {
         let state = self.runtime.block_on(RunState::open(
             path,
             &options,
-            vec![identity::TABLES, scope::TABLES, REQUESTS],
+            vec![
+                identity::TABLES,
+                scope::TABLES,
+                bounds::TABLES,
+                crate::rules::TABLES,
+                REQUESTS,
+            ],
             1,
             &self.owner,
         ));
@@ -300,16 +310,23 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             method: &method,
             body: body.as_deref(),
             key: key.as_deref(),
+            keeps_fragment: false,
         },
     };
-    admit(connection, &Scope::read(connection)?, candidate, |url| {
-        connection.query_row(
-            "INSERT INTO requests (id, url)
+    admit(
+        connection,
+        &Scope::read(connection)?,
+        &every_host(),
+        candidate,
+        |url| {
+            connection.query_row(
+                "INSERT INTO requests (id, url)
              SELECT coalesce(max(id), 0) + 1, ?1 FROM requests RETURNING id",
-            [url.as_str()],
-            |row| Ok(row.get::<_, i64>(0)?.to_string()),
-        )
-    })
+                [url.as_str()],
+                |row| Ok(row.get::<_, i64>(0)?.to_string()),
+            )
+        },
+    )
 }
 
 /// The requests the file holds, and its visited set's count of identities
@@ -415,19 +432,21 @@ impl StateMachineTest for Subject {
                         let hop = identity::redirect_hop(
                             connection,
                             &Scope::read(connection)?,
+                            &Policy::new(&["*"], &[] as &[&str])
+                                .expect("invariant: every host is an entry"),
                             &crawl_request,
                             &url,
                             &method,
                             body.as_deref(),
                         )?;
                         if hop == Hop::Follow {
-                            identity::redirect_reached(
+                            return identity::redirect_reached(
                                 connection,
                                 &crawl_request,
                                 &url,
                                 &method,
                                 body.as_deref(),
-                            )?;
+                            );
                         }
                         Ok(hop)
                     }))

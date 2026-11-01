@@ -435,9 +435,18 @@ export interface JourneyDocument {
    */
   surface_package?: SurfacePackage | null;
   /**
-   * Each Proving ground task the Journey names.
+   * Each Proving ground task the Journey names, in its order: once per
+   * check naming it, each with the answer to that check's submission in
+   * the checks' order, or once when no check names it.
    */
   tasks: TaskResult[];
+  /**
+   * Each error that failed the variant's test outside its steps, checks
+   * and tasks, with its Error code: a page error or an accessibility
+   * violation the test found once its body had ended (ADR 0068). A
+   * variant with one is `failed`, whatever its steps and checks say.
+   */
+  test_errors?: string[];
 }
 /**
  * The executable the variant drove.

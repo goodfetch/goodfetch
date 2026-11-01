@@ -1,5 +1,5 @@
-# The page suite's case list (spec #577, tickets #695, #696, #698, #699 and #700;
-# spec #580, ticket #783): a Collie program's pages, their locator actions
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
+# spec #580, tickets #783, #784, #785, #786, #787, #788 and #789): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "6"
+version = "39"
 
 [[capability]]
 name = "sessions.default"
@@ -19,6 +19,117 @@ name = "sessions.default"
 [[capability.case]]
 id = "pages-open-in-the-runs-default-session"
 covers = ["story:5-61", "operation:run.new_page"]
+
+[[capability]]
+name = "sessions"
+
+[[capability.case]]
+id = "two-sessions-of-a-run-keep-their-own-cookies-and-storage"
+covers = ["story:5-60", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-closed-session-raises-closed-and-closing-it-again-changes-nothing"
+covers = ["story:5-60", "operation:session.close", "operation:session.new_page", "operation:run.new_page", "error:closed"]
+
+[[capability.case]]
+id = "session-source-in-a-sessions-own-settings-is-not-applicable-and-the-runs-is-the-default-beneath"
+covers = ["story:5-62", "operation:run.new_session", "error:setting_not_applicable", "error:capability_unavailable"]
+
+[[capability.case]]
+id = "new-work-on-a-finished-run-raises-run-ended"
+covers = ["operation:run.new_session", "operation:run.new_page", "error:run_ended"]
+
+[[capability.case]]
+id = "closing-a-session-whose-run-ended-changes-nothing"
+covers = ["story:5-60", "operation:run.new_session", "operation:session.close"]
+
+[[capability]]
+name = "sessions.page_check"
+
+[[capability.case]]
+id = "a-login-page-answering-200-is-a-lost-login-and-a-page-that-is-neither-fails-the-page-check"
+covers = ["story:5-79", "setting:session.page_check", "error:logged_out", "error:page_check_failed", "operation:page.goto", "operation:locator.click", "operation:page.wait_for_url"]
+
+[[capability.case]]
+id = "each-form-of-a-page-match-judges-the-expected-page-the-login-page-and-neither"
+covers = ["story:5-79", "setting:session.page_check", "operation:run.new_session", "error:logged_out", "error:page_check_failed"]
+
+[[capability.case]]
+id = "without-a-page-check-the-built-in-detector-judges-and-each-page-is-weakly-checked"
+covers = ["story:5-79", "error:logged_out", "operation:page.goto", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "on-a-fresh-session-a-login-form-at-a-pages-own-url-is-no-lost-login"
+covers = ["story:5-79", "operation:page.goto"]
+
+[[capability]]
+name = "sessions.blocked"
+
+[[capability.case]]
+id = "a-pages-429-raises-blocked-with-its-retry-after-and-the-session-keeps-its-cookies-for-the-next-navigation"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-403-behind-a-block-cause-raises-blocked-from-the-goto-or-else-from-the-pages-next-call"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:locator.click", "operation:page.wait_for_url", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "each-page-of-the-block-detection-corpus-a-session-meets-raises-blocked-with-its-cause-or-answers-its-response"
+covers = ["story:8-58", "story:8-59", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-block-never-replaces-the-programs-or-the-agents-session"
+covers = ["story:5-91", "story:8-63", "error:blocked", "operation:page.request", "operation:session.pages"]
+
+[[capability.case]]
+id = "the-access-policy-pages-open-no-second-session-and-write-no-domain-limit"
+covers = ["story:5-91", "operation:page.goto"]
+
+[[capability]]
+name = "sessions.proxy"
+
+[[capability.case]]
+id = "a-failing-proxy-raises-its-own-error-never-navigation-failed"
+covers = ["story:5-88", "error:proxy_unavailable", "error:proxy_auth_failed", "setting:proxy.server"]
+
+[[capability.case]]
+id = "two-sessions-of-a-run-reach-the-site-each-through-its-own-proxy"
+covers = ["story:5-88", "operation:run.new_session", "setting:proxy.server"]
+
+[[capability.case]]
+id = "a-proxy-per-page-or-per-request-is-refused"
+covers = ["story:5-89", "operation:session.new_page", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "socks4-and-credentials-in-the-proxy-url-are-setting-invalid"
+covers = ["story:5-88", "setting:proxy.server", "error:setting_invalid"]
+
+[[capability.case]]
+id = "the-socks5-proxy-credentials-reach-it-through-the-sessions-relay"
+covers = ["story:5-88", "setting:proxy.server", "setting:proxy.username", "setting:proxy.password", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-client-acting-for-a-model-sets-no-proxy"
+covers = ["story:5-88", "setting:proxy.server", "setting:proxy.password", "error:setting_locked", "operation:run.new_session"]
+
+[[capability]]
+name = "sessions.proxy_limits"
+
+[[capability.case]]
+id = "two-runs-through-a-limited-proxy-take-turns-under-the-ceiling-the-first-learned"
+covers = ["story:5-90", "error:proxy_unavailable", "setting:proxy.server", "setting:proxy.username"]
+
+[[capability.case]]
+id = "the-proxy-concurrency-and-rate-hold-a-programs-own-navigation"
+covers = ["story:5-90", "setting:politeness.proxy.concurrency", "setting:politeness.proxy.rate"]
+
+[[capability.case]]
+id = "a-run-that-shares-no-politeness-keeps-the-ceiling-it-learned-to-itself"
+covers = ["story:5-90", "setting:politeness.sharing", "error:proxy_unavailable"]
+
+[[capability.case]]
+id = "a-sites-429-through-a-proxy-lowers-no-ceiling-and-writes-no-domain-limit"
+covers = ["story:5-90", "error:proxy_unavailable"]
 
 [[capability]]
 name = "navigation"
@@ -42,6 +153,10 @@ name = "navigation.back_forward_cache"
 id = "going-back-loads-the-document-again"
 covers = ["story:5-24", "operation:page.go_back"]
 
+[[capability.case]]
+id = "a-wait-armed-before-going-back-passes"
+covers = ["story:5-24", "operation:page.go_back", "operation:page.wait_for_url", "operation:page.wait_for_response"]
+
 [[capability]]
 name = "navigation.failures"
 
@@ -52,6 +167,10 @@ covers = ["story:5-26", "operation:page.goto", "error:navigation_failed"]
 [[capability.case]]
 id = "a-navigation-superseded-before-it-committed-is-interrupted"
 covers = ["operation:page.goto", "error:navigation_interrupted"]
+
+[[capability.case]]
+id = "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded"
+covers = ["story:3-52", "operation:page.goto", "setting:timeout.navigation", "error:deadline_exceeded"]
 
 [[capability]]
 name = "navigation.redirects"
@@ -104,6 +223,73 @@ covers = ["story:6-8", "operation:page.formats"]
 id = "a-page-with-no-main-content-answers-empty-markdown-and-none"
 covers = ["story:6-12", "operation:page.formats"]
 
+[[capability.case]]
+id = "text-a-script-renders-after-load-and-an-open-shadow-roots-text-are-in-the-markdown"
+covers = ["story:6-9", "operation:page.formats", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "a-closed-shadow-roots-text-is-in-the-markdown-on-chromium"
+covers = ["story:6-9", "story:6-10", "operation:page.formats"]
+
+[[capability.case]]
+id = "an-ad-a-cosmetic-rule-hides-stays-in-the-document-and-a-locator-finds-it-but-not-in-the-markdown"
+covers = ["story:6-10", "operation:page.formats", "operation:page.evaluate", "operation:locator.wait_for"]
+
+[[capability.case]]
+id = "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed"
+covers = ["story:6-14", "operation:page.formats", "setting:filter_lists.ads"]
+
+[[capability.case]]
+id = "each-markdown-content-html-kind-and-the-text-match-the-oracle-and-fit-is-shorter-than-main"
+covers = ["story:6-2", "story:6-3", "operation:page.formats"]
+
+[[capability.case]]
+id = "raw-html-is-what-content-returns-and-a-hidden-ad-is-in-it-but-not-in-cleaned-html-or-markdown"
+covers = ["story:6-3", "story:6-10", "operation:page.formats", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params"
+covers = ["story:6-2", "story:6-3", "operation:page.formats"]
+
+[[capability.case]]
+id = "links-images-media-and-tables-match-the-oracle-resolved-against-the-base-href-and-the-url-after-a-redirect"
+covers = ["story:6-4", "story:6-5", "operation:page.formats"]
+
+[[capability.case]]
+id = "an-ads-link-a-cosmetic-rule-hides-is-in-links"
+covers = ["story:6-4", "story:6-10", "operation:page.formats"]
+
+[[capability.case]]
+id = "links-and-markdown-of-one-call-agree-on-a-page-that-changes-between-two-reads"
+covers = ["story:6-4", "operation:page.formats", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "json-ld-open-graph-twitter-microdata-and-contacts-match-the-oracle"
+covers = ["story:6-6", "story:6-7", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-number-with-no-country-code-and-no-region-gets-no-e164-and-one-with-a-region-gets-it"
+covers = ["story:6-7", "operation:page.formats"]
+
+[[capability]]
+name = "formats.extractor"
+
+[[capability.case]]
+id = "content-extractor-chooses-the-main-content-at-the-run-session-and-page-scopes"
+covers = ["story:6-11", "setting:content.extractor", "operation:page.formats", "operation:run.new_page", "operation:run.new_session", "operation:session.new_page"]
+
+[[capability.case]]
+id = "with-trafilatura-markdown-matches-the-oracle-on-the-markdown-pages"
+covers = ["story:6-11", "story:6-1", "setting:content.extractor", "operation:page.formats"]
+
+[[capability.case]]
+id = "with-trafilatura-each-markdown-content-html-kind-and-the-text-match-the-oracle"
+covers = ["story:6-11", "story:6-2", "story:6-3", "setting:content.extractor", "operation:page.formats"]
+
+[[capability.case]]
+id = "a-pages-own-settings-refuse-an-unknown-extractor-and-any-other-key"
+covers = ["story:6-11", "setting:content.extractor", "operation:run.new_page", "error:setting_invalid", "error:setting_not_applicable"]
+
 [[capability]]
 name = "launch"
 
@@ -138,6 +324,10 @@ covers = ["story:5-3", "operation:locator.click", "error:target_not_unique", "se
 id = "a-target-never-actionable-raises-deadline-exceeded-naming-the-step"
 covers = ["story:5-2", "operation:locator.click", "error:deadline_exceeded", "setting:timeout.action"]
 
+[[capability.case]]
+id = "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline"
+covers = ["operation:locator.click", "operation:page.evaluate", "error:deadline_exceeded", "setting:timeout.action"]
+
 [[capability]]
 name = "locators.input"
 
@@ -148,3 +338,403 @@ covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
 [[capability.case]]
 id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
 covers = ["story:5-10", "operation:locator.press"]
+
+[[capability]]
+name = "routes"
+
+[[capability.case]]
+id = "an-unanswered-route-lets-the-request-through-and-the-page-loads"
+covers = ["story:5-40", "operation:page.route", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-routes-header-value-with-a-line-break-or-a-nul-is-refused-before-the-browser"
+covers = ["operation:route.continue", "operation:route.fallback", "operation:route.fulfill", "error:header_value_invalid"]
+
+[[capability.case]]
+id = "a-route-whose-handler-fails-aborts-its-request-is-removed-and-the-waiting-call-raises-page-handler-failed"
+covers = ["story:5-41", "operation:page.route", "error:page_handler_failed"]
+
+[[capability.case]]
+id = "a-second-answer-raises-route-already-handled"
+covers = ["story:5-41", "operation:route.fulfill", "error:route_already_handled"]
+
+[[capability.case]]
+id = "page-routes-come-before-session-routes-later-first-and-the-first-answer-wins"
+covers = ["story:5-40", "operation:page.route", "operation:session.route", "operation:route.fallback", "operation:route.continue", "operation:route.fulfill"]
+
+[[capability.case]]
+id = "continue-fulfill-and-abort-reach-the-server-as-its-record-shows"
+covers = ["story:5-40", "operation:route.continue", "operation:route.fulfill", "operation:route.abort"]
+
+[[capability.case]]
+id = "fetch-hands-the-request-on-and-fulfill-answers-its-changed-response"
+covers = ["story:5-40", "operation:route.fetch", "operation:route.fulfill"]
+
+[[capability.case]]
+id = "a-session-route-keeps-serving-its-other-pages-once-one-closes"
+covers = ["story:5-40", "operation:session.route", "operation:route.fulfill"]
+
+[[capability.case]]
+id = "a-route-reads-the-body-the-page-posts"
+covers = ["story:5-40", "operation:page.route"]
+
+[[capability.case]]
+id = "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes"
+covers = ["story:5-40", "operation:route.fetch", "error:closed"]
+
+[[capability.case]]
+id = "a-fetch-whose-body-passes-network-max-body-size-raises-response-limit-exceeded"
+covers = ["operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
+
+[[capability]]
+name = "routes.interception_order"
+
+[[capability.case]]
+id = "what-a-route-sends-on-passes-the-domain-policy-and-cookies-come-after-every-route"
+covers = ["story:5-42", "operation:page.route", "operation:route.continue", "operation:route.fulfill", "error:egress_refused"]
+
+[[capability.case]]
+id = "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response"
+covers = ["story:5-42", "operation:page.route"]
+
+[[capability]]
+name = "clean_up.filter_lists"
+
+[[capability.case]]
+id = "ads-and-trackers-fail-as-blocked-by-client-and-the-sites-own-content-loads"
+covers = ["story:5-94", "setting:filter_lists.ads", "setting:filter_lists.trackers", "setting:filter_lists.annoyances", "setting:filter_lists.first_party_scripts", "error:navigation_failed"]
+
+[[capability.case]]
+id = "a-redirect-stand-in-keeps-a-page-that-calls-a-blocked-tracker-working"
+covers = ["story:5-94"]
+
+[[capability.case]]
+id = "a-request-a-route-sends-on-passes-the-filter-lists"
+covers = ["story:5-42", "story:5-94", "operation:page.route", "operation:route.continue"]
+
+[[capability.case]]
+id = "requests-of-another-sites-frame-pass-the-filter-lists-and-block-resources"
+covers = ["story:5-94", "setting:browser.block_resources"]
+
+[[capability]]
+name = "clean_up.never_block"
+
+[[capability.case]]
+id = "challenge-anti-bot-and-payment-scripts-load-over-the-filter-lists-and-block-resources"
+covers = ["story:5-95", "setting:browser.block_resources"]
+
+[[capability]]
+name = "clean_up.blocking_off"
+
+[[capability.case]]
+id = "a-page-whose-content-a-listed-script-renders-passes-its-retry-with-blocking-off-which-is-learned-off"
+covers = ["story:5-99", "setting:session.page_check", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-retry-with-blocking-off-whose-load-fails-is-recorded-in-provenance"
+covers = ["story:5-99", "setting:session.page_check", "operation:page.route", "error:navigation_failed"]
+
+[[capability.case]]
+id = "a-page-failing-its-page-check-for-another-reason-is-retried-once-and-raises-page-check-failed"
+covers = ["story:5-99", "setting:session.page_check", "error:page_check_failed"]
+
+[[capability.case]]
+id = "a-challenge-the-filter-lists-blocked-a-request-of-is-retried-once-with-blocking-off"
+covers = ["story:5-99", "operation:page.evaluate"]
+
+[[capability]]
+name = "clean_up.block_resources"
+
+[[capability.case]]
+id = "block-resources-blocks-its-kinds-before-every-navigation-and-warns-once"
+covers = ["story:5-96", "setting:browser.block_resources", "error:setting_invalid"]
+
+[[capability]]
+name = "events"
+
+[[capability.case]]
+id = "a-pages-network-and-load-events-carry-their-data-and-a-cancelled-listener-no-longer-fires"
+covers = ["story:5-48", "operation:page.on", "event:page.request", "event:page.request_finished", "event:page.request_failed", "event:page.response", "event:page.web_socket", "event:web_socket.frame_sent", "event:web_socket.frame_received", "event:web_socket.close", "event:page.load", "event:page.dom_content_loaded"]
+
+[[capability.case]]
+id = "console-messages-and-uncaught-exceptions-carry-their-data-from-when-a-listener-is-armed"
+covers = ["story:5-48", "operation:page.on", "event:page.console", "event:page.page_error"]
+
+[[capability.case]]
+id = "a-blocked-an-aborted-and-a-failed-request-each-fail-as-playwright-reports-them"
+covers = ["story:5-48", "operation:page.on", "event:page.request_failed", "error:egress_refused"]
+
+[[capability.case]]
+id = "a-slow-listener-holds-its-page-events-and-reads-one-per-credit"
+covers = ["story:5-48", "operation:page.on", "event:page.request"]
+
+[[capability.case]]
+id = "a-pages-events-go-only-to-the-call-that-listens-never-the-event-stream"
+covers = ["operation:page.on", "operation:events.subscribe", "event:page.request"]
+
+[[capability]]
+name = "bodies"
+
+[[capability.case]]
+id = "a-kept-body-reads-whole-a-dropped-one-is-unavailable-and-a-cut-one-is-truncated"
+covers = ["story:5-46", "operation:response.body", "operation:page.wait_for_request_finished", "error:body_unavailable", "error:response_truncated"]
+
+[[capability.case]]
+id = "a-body-read-of-a-response-that-never-ends-raises-deadline-exceeded-at-its-timeout"
+covers = ["operation:response.body", "error:deadline_exceeded", "setting:timeout.wait"]
+
+[[capability]]
+name = "clean_up.hiding"
+
+[[capability.case]]
+id = "hidden-text-is-absent-from-extracted-output-in-shadow-roots-too-and-a-large-removal-is-flagged"
+covers = ["story:5-98", "operation:page.formats"]
+
+[[capability.case]]
+id = "the-hiding-sheet-hides-in-every-frame-and-is-absent-from-document-style-sheets"
+covers = ["story:5-98", "setting:live_view.hiding"]
+
+[[capability.case]]
+id = "a-click-on-a-target-a-hidden-element-covers-lifts-the-rule-for-the-session-and-lands"
+covers = ["story:5-98", "operation:locator.click"]
+
+[[capability.case]]
+id = "live-hiding-off-leaves-the-page-as-served-and-always-hides"
+covers = ["story:5-98", "setting:live_view.hiding"]
+
+[[capability]]
+name = "clean_up.consent"
+
+[[capability.case]]
+id = "prompts-modelled-on-each-vendor-are-refused-through-trusted-clicks"
+covers = ["story:5-100", "setting:consent.handling"]
+
+[[capability.case]]
+id = "a-prompt-no-rule-knows-is-refused-in-twelve-languages-in-the-page-and-in-a-cross-origin-frame"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "a-prompt-that-appears-late-or-on-a-route-change-is-refused"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "a-prompt-with-no-refusal-that-leaves-the-content-readable-is-hidden"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "the-pages-own-click-hook-never-sees-the-runners-clicks-and-no-autoconsent-element-is-left"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "runtime-is-never-enabled-and-a-snippets-world-is-as-the-snippet-table-says"
+covers = ["story:5-100"]
+
+[[capability.case]]
+id = "consent-handling-off-leaves-prompts-alone"
+covers = ["story:5-100", "setting:consent.handling"]
+
+[[capability]]
+name = "clean_up.consent_walls"
+
+[[capability.case]]
+id = "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered"
+covers = ["story:5-101", "error:blocked", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide"
+covers = ["story:5-101", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
+id = "with-consent-handling-off-the-wall-test-still-raises-blocked"
+covers = ["story:5-101", "setting:consent.handling", "error:blocked"]
+
+[[capability.case]]
+id = "on-a-domain-in-consent-domains-the-wall-is-accepted-and-provenance-records-the-acceptance"
+covers = ["story:5-101", "setting:consent.domains"]
+
+[[capability.case]]
+id = "a-run-widening-consent-domains-is-setting-locked-and-on-wall-ask-is-unavailable-until-the-human-pause"
+covers = ["story:5-101", "setting:consent.domains", "setting:consent.on_wall", "error:setting_locked", "error:capability_unavailable"]
+
+[[capability.case]]
+id = "a-domain-whose-consent-wall-a-run-left-is-offered-in-needs-you-for-consent-domains"
+covers = ["story:12-26", "operation:needs_you.list"]
+
+[[capability]]
+name = "page_states.service_workers"
+
+[[capability.case]]
+id = "a-service-workers-own-requests-pass-the-domain-policy-the-filter-lists-and-session-routes-never-a-page-route"
+covers = ["story:5-49", "operation:session.route", "operation:page.route", "event:page.request", "event:page.response", "error:egress_refused", "operation:page.wait_for_response", "operation:page.wait_for_load_state"]
+
+[[capability.case]]
+id = "with-service-workers-blocked-register-rejects-natively-and-the-pages-calls-reach-its-route"
+covers = ["story:5-50", "setting:browser.service_workers", "operation:run.new_session", "operation:page.route"]
+
+[[capability.case]]
+id = "a-headless-service-workers-requests-show-the-site-its-windows-identity"
+covers = ["story:5-56", "setting:browser.headless", "operation:page.goto"]
+
+[[capability]]
+name = "page_request"
+
+[[capability.case]]
+id = "page-request-answers-a-429-as-a-response-and-keeps-its-body"
+covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
+[[capability.case]]
+id = "cookies-a-page-sets-are-sent-by-page-request-and-the-next-navigation-of-its-session-alone"
+covers = ["story:5-44", "operation:page.request", "operation:run.new_session", "operation:session.new_page"]
+
+[[capability.case]]
+id = "page-request-passes-the-pages-domain-policy"
+covers = ["story:5-44", "operation:page.request", "error:egress_refused"]
+
+[[capability.case]]
+id = "page-request-refuses-a-header-value-with-a-line-break-or-a-nul-before-the-browser"
+covers = ["operation:page.request", "error:header_value_invalid"]
+
+[[capability.case]]
+id = "page-request-refuses-a-body-past-the-runs-limits-naming-the-setting"
+covers = ["operation:page.request", "error:response_limit_exceeded"]
+
+[[capability.case]]
+id = "a-coded-body-past-the-browsers-frame-is-refused-at-max-body-size-and-the-browser-goes-on"
+covers = ["operation:page.request", "operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
+
+[[capability.case]]
+id = "over-tls-page-request-refuses-the-brotli-and-zstd-bombs-at-the-ratio-and-a-zstd-window-past-8-mb-as-undecodable"
+covers = ["operation:page.request", "error:response_limit_exceeded", "error:navigation_failed"]
+
+[[capability.case]]
+id = "no-service-worker-answers-a-page-request"
+covers = ["story:5-44", "operation:page.request", "operation:response.body"]
+
+[[capability]]
+name = "page_request.fetch_edge"
+
+[[capability.case]]
+id = "page-request-follows-its-max-redirects-and-refuses-a-count-above-19"
+covers = ["story:5-45", "operation:page.request", "error:too_many_redirects", "error:setting_invalid"]
+
+[[capability.case]]
+id = "a-page-requests-cut-body-raises-response-truncated"
+covers = ["story:5-45", "operation:page.request", "operation:response.body", "error:response_truncated"]
+
+[[capability]]
+name = "page_request.decoding"
+
+[[capability.case]]
+id = "page-request-keeps-the-bytes-of-a-shift-jis-text-and-of-json-after-a-bom"
+covers = ["story:5-47", "operation:page.request", "operation:response.body"]
+
+[[capability.case]]
+id = "a-page-request-whose-content-coding-fails-to-decode-raises-navigation-failed"
+covers = ["story:5-47", "operation:page.request", "error:navigation_failed"]
+
+[[capability]]
+name = "dialogs"
+
+[[capability.case]]
+id = "an-alert-a-confirm-and-a-prompt-with-no-handler-are-dismissed-and-a-beforeunload-is-accepted"
+covers = ["story:5-52", "operation:locator.click", "operation:page.goto"]
+
+[[capability.case]]
+id = "dialog-handlers-answer-later-first-one-that-answers-nothing-falls-through-and-one-that-throws-gives-the-default"
+covers = ["story:5-52", "story:5-53", "operation:page.on_dialog", "operation:dialog.accept", "operation:dialog.dismiss", "error:dialog_already_handled", "error:page_handler_failed"]
+
+[[capability]]
+name = "popups"
+
+[[capability.case]]
+id = "a-popup-listener-armed-before-the-click-catches-it-one-armed-after-does-not-and-session-pages-lists-it"
+covers = ["story:5-55", "operation:page.on", "event:page.popup", "operation:session.on", "event:session.page", "operation:session.pages", "operation:page.close", "event:page.close", "error:closed"]
+
+[[capability]]
+name = "page_functions"
+
+[[capability.case]]
+id = "evaluate-answers-json-in-the-main-world-and-an-isolated-world-sees-no-page-global"
+covers = ["story:5-34", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "a-value-outside-json-raises-page-value-invalid-naming-its-path-and-kind"
+covers = ["story:5-34", "operation:page.evaluate", "error:page_value_invalid"]
+
+[[capability.case]]
+id = "a-function-reading-a-program-variable-raises-page-function-failed-whose-fix-names-the-argument"
+covers = ["story:5-34", "operation:page.evaluate", "error:page_function_failed"]
+
+[[capability.case]]
+id = "an-init-script-runs-before-the-pages-scripts-on-the-next-navigation-and-in-new-frames-and-provenance-marks-it"
+covers = ["story:5-35", "operation:page.add_init_script", "operation:page.evaluate", "operation:page.reload"]
+
+[[capability.case]]
+id = "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-evaluate-refuses"
+covers = ["story:5-34", "operation:locator.evaluate_all", "operation:page.evaluate", "error:page_value_invalid", "error:page_function_failed"]
+
+[[capability]]
+name = "waits"
+
+[[capability.case]]
+id = "a-url-waiter-armed-before-a-push-state-a-replace-state-and-a-hash-change-passes-for-each"
+covers = ["story:5-19", "story:5-20", "story:5-22", "operation:page.wait_for_url", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "network-idle-comes-on-a-polling-page-and-only-once-a-late-request-finished"
+covers = ["story:5-19", "story:5-21", "operation:page.wait_for_load_state"]
+
+[[capability.case]]
+id = "a-response-waiter-sent-before-the-click-catches-the-response-it-triggers"
+covers = ["story:5-19", "story:5-20", "operation:page.wait_for_response", "operation:page.wait_for_request", "operation:page.wait_for_function"]
+
+[[capability.case]]
+id = "locator-and-function-waits-resolve-on-re-rendering-pages"
+covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function", "operation:locator.wait_for_function"]
+
+[[capability.case]]
+id = "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call"
+covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "operation:page.wait_for_url"]
+
+[[capability.case]]
+id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability.case]]
+id = "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none"
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability.case]]
+id = "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page"
+covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability]]
+name = "robots_txt"
+
+[[capability.case]]
+id = "a-programs-goto-to-a-disallowed-page-loads-and-provenance-names-the-disallowing-group"
+covers = ["story:6-62", "story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "two-tabs-on-one-site-are-neither-delayed-nor-refused-under-crawl-delay-and-disallow"
+covers = ["story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-run-reads-robots-txt-once-per-origin-into-its-own-copy-and-leaves-foxhounds-untouched"
+covers = ["story:6-62", "story:6-64", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-robots-txt-past-max-body-size-is-recorded-unreachable-and-the-page-loads"
+covers = ["operation:page.goto", "setting:network.max_body_size"]
+
+[[capability.case]]
+id = "a-document-a-click-or-a-script-navigated-to-is-recorded-as-a-gotos-is"
+covers = ["story:6-62", "operation:run.new_page", "operation:page.goto", "operation:locator.click", "operation:page.evaluate", "operation:page.wait_for_url"]
+
+[[capability.case]]
+id = "a-page-request-is-recorded-as-a-document-is"
+covers = ["story:6-62", "operation:run.new_page", "operation:page.request"]
+
+[[capability.case]]
+id = "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file"
+covers = ["story:6-62", "story:6-64", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto"]

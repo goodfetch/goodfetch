@@ -1,0 +1,39 @@
+# goodfetch-fetch-tier's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: each target's body is a plain function of the
+# fetch-tier crate, whose seeds and past crashers `fuzz_replay!` replays
+# from `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
+# `cargo fuzz run refresh fuzz/refresh/seeds` (or `prescan`).
+[package]
+name = "goodfetch-fetch-tier-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-fetch-tier = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "prescan"
+path = "fuzz_targets/prescan.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "refresh"
+path = "fuzz_targets/refresh.rs"
+test = false
+doc = false
+bench = false
+
+# Goodfetch's forks of `wreq` and `wreq-util`, as the workspace's
+# `[patch.crates-io]` carries them.
+[patch.crates-io]
+wreq = { path = "../../../../vendor/wreq" }
+wreq-util = { path = "../../../../vendor/wreq-util" }

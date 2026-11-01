@@ -1,5 +1,7 @@
 # Which of goodfetch-session-pool's top-level modules may import which (ADR 0126).
 [modules]
-pool = ["settings", "store"]
+escalation = []
+labels = []
+pool = ["labels", "settings", "store"]
 settings = []
-store = []
+store = ["labels"]

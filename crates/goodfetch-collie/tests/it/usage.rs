@@ -14,6 +14,9 @@
 use goodfetch_test_support::{TestEnv, cli, pty};
 use serde_json::{Value, json};
 
+use crate::daemon::{StopsTheDaemon, short_idle};
+use crate::engine_choice::{On, daemon_dispatched};
+
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// Covers: story:3-67, story:3-79, command:usage.set, command:usage.list
@@ -40,10 +43,15 @@ fn usage_lists_a_limit_set_in_the_ledger_of_the_goodfetch_home() {
         .run()
         .unwrap();
 
-    let listed: Value = serde_json::from_str(&listed.stdout).unwrap();
+    let limits: Value = serde_json::from_str(&listed.stdout).unwrap();
     assert_eq!(
-        (listed, env.home().join("usage-ledger.sqlite").is_file()),
         (
+            listed.exit,
+            limits,
+            env.home().join("usage-ledger.sqlite").is_file()
+        ),
+        (
+            Some(0),
             json!({ "limits": [{
                 "limit": {
                     "scope": { "kind": "install", "id": "" },
@@ -183,6 +191,48 @@ fn usage_raise_asks_the_person_at_the_terminal(
     assert_eq!(
         (raised.exit, install_limit(&env)),
         (Some(0), after),
+        "{}",
+        raised.stripped()
+    );
+}
+
+/// `usage raise` runs on the engine its flags choose: an Attached engine
+/// in its process under `--attached`, the Daemon of the major, which it
+/// starts, under `--daemon`; either raises the same Limit (ticket #1183).
+///
+/// Covers: story:3-75, story:11-199, command:usage.raise
+#[rstest::rstest]
+#[case::attached(On::Attached)]
+#[case::daemon(On::Daemon)]
+fn usage_raise_runs_on_the_engine_its_flags_choose(#[case] on: On) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let set = cli(&env, COLLIE)
+        .args(install_requests("set", 500))
+        .arg("--attached")
+        .run()
+        .unwrap();
+    assert_eq!(set.exit, Some(0), "{set}");
+    let mut raise = pty(&env, COLLIE)
+        .args(install_requests("raise", 1_000))
+        .arg(on.flag())
+        .spawn()
+        .unwrap();
+
+    raise
+        .expect("Raise the install Limit on requests to 1000?")
+        .unwrap();
+    raise.send_line("y").unwrap();
+    let raised = raise.finish().unwrap();
+
+    assert_eq!(
+        (
+            raised.exit,
+            install_limit(&env),
+            daemon_dispatched(&env, "usage.raise"),
+        ),
+        (Some(0), (json!(1_000), json!("person")), on == On::Daemon),
         "{}",
         raised.stripped()
     );

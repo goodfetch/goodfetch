@@ -113,6 +113,222 @@ fn scan_reads_a_covers_line_between_rstest_cases_for_the_case_below_it_only() {
     );
 }
 
+/// A module whose file a `#[path]` attribute names is read from that file,
+/// relative to the declaring file's folder, and its own child modules from
+/// the named file's folder, as rustc reads them.
+#[test]
+fn scan_reads_a_module_from_the_file_its_path_attribute_names() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append(
+        "crates/sample/src/store/tests.rs",
+        "#[path = \"elsewhere/away.rs\"]\nmod away;\n",
+    );
+    workspace.write(
+        "crates/sample/src/store/elsewhere/away.rs",
+        b"/// Covers: story:1-2\n#[test]\nfn keeps_away() {}\n\nmod inner;\n",
+    );
+    workspace.write(
+        "crates/sample/src/store/elsewhere/inner.rs",
+        b"/// Covers: story:1-2\n#[test]\nfn keeps_inside() {}\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let names: Vec<&str> = outcome
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("story:1-2\tunit\tnextest\tsample store::tests::"))
+        .collect();
+    assert_eq!(names, vec!["away::inner::keeps_inside", "away::keeps_away"]);
+}
+
+/// A module with no file fails the scan, rather than leaving its tests'
+/// declarations unread; one behind a `cfg` may lack its file on this
+/// platform, and declares nothing.
+#[rstest]
+#[case::no_file("mod missing;\n", 2)]
+#[case::behind_a_cfg("#[cfg(target_os = \"none\")]\nmod missing;\n", 0)]
+fn scan_fails_on_a_module_with_no_file_unless_a_cfg_hides_it(
+    #[case] declaration: &str,
+    #[case] code: i32,
+) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", declaration);
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, code, "{}", outcome.stderr);
+    if code != 0 {
+        assert!(outcome.stderr.contains("missing"), "{}", outcome.stderr);
+    }
+}
+
+/// rstest names a `#[values]` test's cases by argument, value number and
+/// sanitized value, one module per argument in order, inside each
+/// `#[case]`'s. The expected names are `cargo nextest list`'s for these
+/// tests under rstest 0.27, so a declaration names the test nextest runs.
+#[test]
+fn scan_names_an_rstest_values_test_as_nextest_does() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod values;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/values.rs",
+        r#"//! Covers: story:1-2
+use rstest::rstest;
+
+#[rstest]
+fn one_list(#[values("delivery.write_ids", "b")] key: &str) {}
+
+#[rstest]
+fn two_lists(
+    #[values("delivery.write_ids_and_epochs", "x")] key: &str,
+    #[values(Layer::OperatorPolicy, Layer::Run)] layer: Layer,
+) {}
+
+#[rstest]
+#[case::first(1)]
+#[case(2)]
+fn cases_and_values(#[case] n: u8, #[values(-1, 10)] mut m: i32) {}
+
+#[rstest]
+fn padded(#[values(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)] d: u8) {}
+
+#[rstest]
+fn described(
+    #[values(
+        /// forty two
+        42,
+        "a very long value that goes on and on and on and on past sixty-four characters",
+        vec![1, 2],
+        Some(  (1 ,2) ),
+        'é'
+    )]
+    v: impl std::fmt::Debug,
+) {}
+"#
+        .as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let names: Vec<&str> = outcome
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("story:1-2\tunit\tnextest\tsample "))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "store::tests::values::cases_and_values::case_1_first::m_1__1",
+            "store::tests::values::cases_and_values::case_1_first::m_2_10",
+            "store::tests::values::cases_and_values::case_2::m_1__1",
+            "store::tests::values::cases_and_values::case_2::m_2_10",
+            "store::tests::values::described::v_1_forty_two",
+            "store::tests::values::described::v_2___averylongvaluethatgoesonandonandonandonpastsixty_fourcharacter",
+            "store::tests::values::described::v_3_vec__1_2_",
+            "store::tests::values::described::v_4_Some__1_2__",
+            "store::tests::values::described::v_5___é__",
+            "store::tests::values::one_list::key_1___delivery_write_ids__",
+            "store::tests::values::one_list::key_2___b__",
+            "store::tests::values::padded::d_01_0",
+            "store::tests::values::padded::d_02_1",
+            "store::tests::values::padded::d_03_2",
+            "store::tests::values::padded::d_04_3",
+            "store::tests::values::padded::d_05_4",
+            "store::tests::values::padded::d_06_5",
+            "store::tests::values::padded::d_07_6",
+            "store::tests::values::padded::d_08_7",
+            "store::tests::values::padded::d_09_8",
+            "store::tests::values::padded::d_10_9",
+            "store::tests::values::two_lists::key_1___delivery_write_ids_and_epochs__::layer_1_Layer__OperatorPolicy",
+            "store::tests::values::two_lists::key_1___delivery_write_ids_and_epochs__::layer_2_Layer__Run",
+            "store::tests::values::two_lists::key_2___x__::layer_1_Layer__OperatorPolicy",
+            "store::tests::values::two_lists::key_2___x__::layer_2_Layer__Run",
+        ]
+    );
+}
+
+/// A `#[files]` argument names one case per matched file, relative to the
+/// package's folder and sorted by path, without folders or dot files;
+/// `#[values]` lists come first. The expected names are `cargo nextest
+/// list`'s under rstest 0.27 for the same files.
+#[test]
+fn scan_names_an_rstest_files_test_as_nextest_does() {
+    let workspace = Workspace::from_fixture("features");
+    for file in [
+        "crates/sample/data/a-b.txt",
+        "crates/sample/data/.hidden.txt",
+        "crates/sample/data/c.txt",
+        "crates/sample/data/sub/inner.txt",
+        "conformance/x.v1.json",
+    ] {
+        workspace.write(file, b"");
+    }
+    workspace.append("crates/sample/src/store/tests.rs", "mod files;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/files.rs",
+        br#"//! Covers: story:1-2
+use rstest::rstest;
+
+#[rstest]
+fn reads(#[files("data/*")] path: PathBuf, #[values(1)] n: u8) {}
+
+#[rstest]
+#[case::one(1)]
+fn shared(#[case] n: u8, #[files("../../conformance/*.json")] #[files("data/c.txt")] path: PathBuf) {}
+"#,
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let names: Vec<&str> = outcome
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("story:1-2\tunit\tnextest\tsample "))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "store::tests::files::reads::n_1_1::path_1_data_a_b_txt",
+            "store::tests::files::reads::n_1_1::path_2_data_c_txt",
+            "store::tests::files::shared::case_1_one::path_1__UP__UP_conformance_x_v1_json",
+            "store::tests::files::shared::case_1_one::path_2_data_c_txt",
+        ]
+    );
+}
+
+/// An rstest form whose nextest names the scanner cannot derive fails the
+/// scan rather than declaring under a name nextest never runs.
+#[rstest]
+#[case::destructured_values("#[rstest] fn pairs(#[values((1, 2))] (a, b): (u8, u8)) {}")]
+#[case::values_in_the_rstest_attribute("#[rstest(n => [1, 2])] fn counts(n: u8) {}")]
+#[case::files_glob_naming_a_variable(
+    r#"#[rstest] fn reads(#[files("${DATA}/*.txt")] path: PathBuf) {}"#
+)]
+#[case::files_glob_matching_nothing(
+    r#"#[rstest] fn reads(#[files("none/*.txt")] path: PathBuf) {}"#
+)]
+fn scan_fails_on_an_rstest_form_it_cannot_name(#[case] test: &str) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.append("crates/sample/src/store/tests.rs", "mod odd;\n");
+    workspace.write(
+        "crates/sample/src/store/tests/odd.rs",
+        format!("//! Covers: story:1-2\nuse rstest::rstest;\n{test}\n").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["features", "scan", "--package", "sample"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome.stderr.contains("store/tests/odd.rs"),
+        "{}",
+        outcome.stderr
+    );
+}
+
 #[test]
 fn scan_without_listings_reads_rust_journeys_and_conformance_cases() {
     let workspace = Workspace::from_fixture("features");
@@ -177,6 +393,37 @@ fn check_passes_on_a_clean_workspace() {
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// `just features` asks the check about the changed packages alone: a
+/// package's findings are those of the Features its tests declare and of
+/// the generated Features its sources define, the package named or given
+/// by its folder; repository-wide findings are not any package's.
+#[rstest]
+#[case::the_declaring_crate(&["--package", "sample"], vec![finding("unknown-feature", "operation:sample.unlisted")])]
+#[case::the_declaring_crates_folder(&["--package", "crates/sample"], vec![finding("unknown-feature", "operation:sample.unlisted")])]
+#[case::the_defining_crate(&["--package", "goodfetch-protocol"], vec![finding("untested", "operation:sample.crawl")])]
+#[case::another_package(&["--package", "@sample/web"], vec![])]
+fn check_of_some_packages_reports_their_findings_alone(
+    #[case] packages: &[&str],
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("features");
+    workspace.edit(
+        "crates/sample/src/lib.rs",
+        "/// Covers: operation:sample.echo",
+        "/// Covers: operation:sample.echo, operation:sample.unlisted",
+    );
+    workspace.edit(
+        "crates/sample/tests/unit/main.rs",
+        "/// Covers: operation:sample.crawl",
+        "/// Covers: story:1-1",
+    );
+
+    let outcome =
+        workspace.xtask(&[&["features", "check", "--listings", LISTINGS], packages].concat());
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
 }
 
 #[test]
@@ -342,6 +589,18 @@ const STANDALONE: &str = "crates/sample/tests/standalone.rs";
     "",
     vec![finding("retired-without-reason", "story:1-3")],
 )]
+#[case::story_with_an_unknown_milestone(
+    STORIES,
+    "milestone = \"M2 Next\"",
+    "milestone = \"M5 Later\"",
+    vec![finding("milestone-unknown", "story:1-2")],
+)]
+#[case::active_story_with_a_reason(
+    STORIES,
+    "journey = true\nstatus = \"active\"",
+    "journey = true\nstatus = \"active\"\nreason = \"Merged into story 2.\"",
+    vec![finding("active-with-reason", "story:1-1")],
+)]
 #[case::stories_file_with_an_unknown_field(
     STORIES,
     "milestone = \"M2 Next\"",
@@ -399,5 +658,26 @@ fn check_fails_on_each_cause(
     let outcome = workspace.xtask(&["features", "check", "--listings", LISTINGS]);
 
     assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+/// A matrix row's milestone must be one the report judges, as a story's
+/// must: else the Quick check passes and the report then refuses it.
+#[test]
+fn check_fails_on_a_row_with_an_unknown_milestone() {
+    let workspace = Workspace::from_fixture("features");
+    workspace.write(
+        "features/rows.toml",
+        b"[[row]]\nid = \"CO-09\"\nmilestone = \"M5 Later\"\n",
+    );
+
+    let outcome = workspace.xtask(&["features", "check", "--listings", LISTINGS]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("milestone-unknown", "row:CO-09")],
+        "{}",
+        outcome.stderr
+    );
     assert_eq!(outcome.code, 1);
 }

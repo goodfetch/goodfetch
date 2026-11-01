@@ -9,11 +9,29 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.models import (
+    AxisReason,
+    Checkpoint,
+    Completeness,
+    EndingError,
+    ExplainedSetting,
+    FormatsRequest,
+    Lifecycle,
+    Locator,
+    NothingDone,
+    PlanReport,
+    PluginRun,
     PointInTime,
     ProjectSettings,
+    RecordingReport,
     RunId,
-    SampleEchoParams,
+    RunUsage,
+    RunWarning,
+    SampleEchoed,
+    StopReason,
     Tags,
+    UncertainEffect,
+    Verdict,
+    WeakenedSetting,
 )
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -36,6 +54,12 @@ class AttemptError(BaseModel):
     """Which attempt it was, from 1."""
     code: str
     """Its Error code."""
+    details: dict[str, Any] | None = None
+    """
+    The error's own details, as its Error code defines them, such as the
+    time a site's `Retry-After` asked for and a `fix`; left out when it
+    has none.
+    """
     message: str
     """What it said."""
 
@@ -62,6 +86,198 @@ class BlockCause(StrEnum):
     """A wall that asks for consent before it shows the page (ADR 0048)."""
 
 
+class CertificateExceptionKind(StrEnum):
+    """The kind of an invalid-certificate exception (ADR 0042)."""
+
+    trust_on_first_use = "trust_on_first_use"
+    """Its domain was listed without a pin: the key pinned on first use."""
+    any = "any"
+    """Its domain was listed with `any`, and the host has no pin."""
+
+
+class CertificateExceptionMark(BaseModel):
+    """
+    The invalid-certificate exception a Record's document was fetched
+    under (ADR 0042, pitfall H03).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: CertificateExceptionKind
+    """The kind of exception."""
+    spki_sha256: str
+    """
+    The SHA-256 of the public key of the certificate it accepted, as
+    `sha256/<base64>`, the known-certificates store's spelling.
+    """
+
+
+class CountOf(BaseModel):
+    """How many requests ended for one reason, code or cause."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many."""
+    name: str
+    """The reason, code or cause."""
+
+
+class CrawlRequestEnqueueLinksParams(BaseModel):
+    """
+    What `crawl_request.enqueue_links` takes: every link a locator matches,
+    to add from one attempt under one Label (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of, besides the crawl's scope."""
+    include: list[str] | None = None
+    """
+    URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    match one when there are any, besides the crawl's scope, which they
+    only narrow.
+    """
+    label: str
+    """Their Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """
+    At most this many links are added; once they are, each later
+    element whose link the Frontier would judge is not added, with
+    `link_limit`. None for no limit.
+    """
+    locator: Locator
+    """The locator, on the page `crawl_request.handle` gave."""
+    payload: Any | None = None
+    """The one Payload every link takes; never with `payloads`."""
+    payloads: list[Any] | None = None
+    """
+    Each matched element's own Payload, in the order
+    `crawl_request.links` answered them, as the program's Payload
+    function returned it: `null` skips that link, reported
+    `skipped_by_payload`. Never with `payload`.
+    """
+    priority: int | None = 0
+    """
+    Their priority among the requests of their domain, as
+    `crawl_request.enqueue`'s; 0 by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class CrawlRequestLinksParams(BaseModel):
+    """
+    What `crawl_request.links` takes: the locator whose elements an
+    attempt's `enqueueLinks` reads before its Payload function runs.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt reads the links."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    locator: Locator
+    """The locator, on the page `crawl_request.handle` gave."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class CrawlRequestPushParams(BaseModel):
+    """
+    What `crawl_request.push` takes: one Record an attempt pushes into one
+    of its crawl's Datasets.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt pushes."""
+    data: Any
+    """The Record."""
+    dataset: str
+    """The Dataset's name."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class CrawlRequestPushed(BaseModel):
+    """What `crawl_request.push` answers once the Record is staged."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DatasetDeclaration(BaseModel):
+    """
+    One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its
+    Records are checked against, and the top-level fields that identify one
+    Record.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: list[str] | None = None
+    """
+    The top-level fields that identify one Record, each one the schema
+    requires; none when no field does.
+    """
+    name: str
+    """Its name, unique in the crawl."""
+    schema_: Annotated[Any | None, Field(alias="schema")] = None
+    """
+    The JSON Schema its Records are checked against, the side the
+    program's schema parses from; none takes any JSON object (ADR 0082).
+    """
+
+
+class DatasetListParams(BaseModel):
+    """What `dataset.list` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class DatasetQueryParams(BaseModel):
+    """What `dataset.query` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    limit: Annotated[int | None, Field(ge=1)] = None
+    """
+    The most rows it returns, at most `dataset.query.max_rows`; absent,
+    that setting's value.
+    """
+    runs: Annotated[list[RunId], Field(max_length=100, min_length=1)]
+    """The runs it reads, from 1 to 100: only these are registered."""
+    sql: str
+    """One `SELECT` or `WITH` statement."""
+
+
 class DatasetRecords(BaseModel):
     """
     What a succeeded request's commit did with its Records in one Dataset
@@ -79,6 +295,49 @@ class DatasetRecords(BaseModel):
     """How many a Hook dropped."""
     rejected: Annotated[int, Field(ge=0)]
     """How many the Dataset's schema rejected."""
+
+
+class DatasetSummary(BaseModel):
+    """One Dataset a crawl declares, with what its crawl kept of it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    committed: Annotated[int, Field(ge=0)]
+    """How many Records the crawl committed into it."""
+    dropped: Annotated[int, Field(ge=0)]
+    """How many a Hook dropped before their commit."""
+    key: list[str]
+    """The top-level fields that identify one Record; empty when none do."""
+    name: str
+    """Its name."""
+    rejected: Annotated[int, Field(ge=0)]
+    """How many were rejected into its rejection table."""
+    schema_: Annotated[Any | None, Field(alias="schema")] = None
+    """
+    The JSON Schema its Records are checked against; none takes any
+    JSON object.
+    """
+
+
+class EncodingSource(StrEnum):
+    """
+    Where a document's encoding came from, in the order the tiers look
+    (ADR 0119).
+    """
+
+    bom = "bom"
+    """Its byte order mark."""
+    setting = "setting"
+    """`fetch.encoding`."""
+    header = "header"
+    """The `Content-Type` charset."""
+    meta = "meta"
+    """A declaration in its own bytes: a `<meta>` or an XML declaration."""
+    utf8 = "utf8"
+    """Nothing declared, and the body is valid UTF-8."""
+    detected = "detected"
+    """The browser's guess, after the request escalated to it."""
 
 
 class EnqueueDocument(BaseModel):
@@ -109,6 +368,385 @@ class Enqueued1(BaseModel):
     """
 
 
+class EnqueuedLink1(BaseModel):
+    """The Frontier admitted its link as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """Its URL as parsed and resolved, the URL its handler receives."""
+
+
+class EnqueuedLink3(BaseModel):
+    """The element has no `href`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["no_link"]
+
+
+class EnqueuedLink4(BaseModel):
+    """The program's Payload function skipped it, returning `null`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["skipped_by_payload"]
+    url: str
+    """Its `href`, as written."""
+
+
+class EquivalentForm(StrEnum):
+    """
+    Two spellings of one host's URLs a learned `equivalent_form` merges
+    (ADR 0120), each learned on evidence: a redirect from one to the
+    other, pairs of pages of matching signatures, or pages whose
+    `rel=canonical` differs from their URL only by it.
+    """
+
+    www = "www"
+    """One leading `www.` label against the bare host, the rule's host."""
+    scheme = "scheme"
+    """`http` against `https`."""
+    trailing_slash = "trailing_slash"
+    """A path with a trailing slash against the same path without it."""
+    index_html = "index_html"
+    """A final `index.html` against its folder."""
+    index_php = "index_php"
+    """A final `index.php` against its folder."""
+
+
+class ExportCompression(StrEnum):
+    """
+    How an Export's bytes are compressed: the whole file, once written in
+    its format.
+    """
+
+    none = "none"
+    """Not compressed."""
+    gzip = "gzip"
+    """One gzip member (RFC 1952)."""
+    zstd = "zstd"
+    """One Zstandard frame (RFC 8878)."""
+
+
+class ExportFormat(StrEnum):
+    """An Export's format, named, never inferred from a file name (ADR 0103)."""
+
+    json = "json"
+    """One JSON array of the Records' values."""
+    jsonl = "jsonl"
+    """One Record's value per line, each line ended by a line feed."""
+    csv = "csv"
+    """
+    RFC 4180 CSV: a header row of the fields seen, then one row per
+    Record, each line ended by CR LF.
+    """
+    xlsx = "xlsx"
+    """
+    One XLSX workbook of one sheet: a header row of the fields seen,
+    then one row per Record.
+    """
+    html_table = "html_table"
+    """
+    One HTML document holding one table: a header row of the fields
+    seen, then one row per Record.
+    """
+    markdown = "markdown"
+    """
+    One GitHub Flavored Markdown table: a header row of the fields seen,
+    then one row per Record.
+    """
+    xml = "xml"
+    """
+    One XML document: a root element holding one element per Record,
+    each field an element of its name.
+    """
+    parquet = "parquet"
+    """One Apache Parquet file of one column per field seen, typed."""
+    avro = "avro"
+    """
+    One Apache Avro object container file of one record per Record,
+    with one field per field seen, typed.
+    """
+    arrow_ipc = "arrow_ipc"
+    """One Apache Arrow IPC file of one column per field seen, typed."""
+    rss = "rss"
+    """One RSS 2.0 feed of one item per Record."""
+    atom = "atom"
+    """One Atom feed of one entry per Record."""
+
+
+class ExportId(RootModel[str]):
+    root: str
+    """
+    An Export of a Run, named by the engine when its file is whole:
+    `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
+    hexadecimal, so two Exports of the same bytes are one file.
+    """
+
+
+class ExportSaveAsParams(BaseModel):
+    """What `export.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    export_id: ExportId
+    """The Export."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+
+
+class ExportSaved(BaseModel):
+    """What `export.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class ExportStreamParams(BaseModel):
+    """What `export.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    export_id: ExportId
+    """The Export."""
+
+
+class ExportStreamed(BaseModel):
+    """What `export.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
+class ExtractionFollow(StrEnum):
+    """Which pages a code-free crawl fetches beyond its seeds."""
+
+    scope = "scope"
+    """
+    Every link of every page the crawl's scope admits: each `a[href]`
+    of the page, admitted as `enqueueLinks` admits it.
+    """
+    sitemap = "sitemap"
+    """
+    The entries of the sitemaps each seed's site names in its
+    robots.txt, read as a sitemap seed of that robots.txt reads them,
+    and no page's links.
+    """
+    none = "none"
+    """The seeds alone."""
+
+
+class FetchTier(StrEnum):
+    """
+    A tier that fetches a crawl request's document (ADR 0020), from the
+    cheapest up.
+    """
+
+    http = "http"
+    """
+    An HTTP request, over reqwest in `standard` and `identified`
+    Sessions.
+    """
+    discovered_api = "discovered_api"
+    """The site's own API, found from its pages."""
+    browser_fetch = "browser_fetch"
+    """A request sent from a browser page's context."""
+    light_browser = "light_browser"
+    """A browser that runs scripts without layout."""
+    browser = "browser"
+    """Collie's browser page."""
+
+
+class FieldFilter1(BaseModel):
+    """The field equals this JSON value."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """The field's name."""
+    op: Literal["equals"]
+    value: Any
+    """The value."""
+
+
+class FieldFilter2(BaseModel):
+    """
+    The field is text holding this text, compared code point by code
+    point, case included.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """The field's name."""
+    op: Literal["contains"]
+    text: str
+    """The text."""
+
+
+class FieldFilter(RootModel[FieldFilter1 | FieldFilter2]):
+    root: FieldFilter1 | FieldFilter2
+    """A condition on one top-level field of a Record."""
+
+
+class FieldLocator1(BaseModel):
+    """A CSS selector."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["css"]
+    selector: str
+    """The selector."""
+
+
+class FieldLocator2(BaseModel):
+    """
+    An `XPath` 1.0 expression that finds nodes, with no namespace
+    prefix and no variable; the field reads the first node it finds in
+    document order, when that node is an element.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["xpath"]
+    selector: str
+    """The expression."""
+
+
+class FieldLocator(RootModel[FieldLocator1 | FieldLocator2]):
+    root: FieldLocator1 | FieldLocator2
+    """
+    What finds a field's element, named by `kind`: a CSS selector or an
+    `XPath` expression, each read alike on every tier, a page a fetch tier
+    serves from its document reading it as a browser reads it.
+    """
+
+
+class FieldMatch(BaseModel):
+    """
+    The `match` before a field's transform (ADR 0123): a capture group of a
+    regular expression, in the `regex` crate's syntax (ADR 0081), over the
+    text read; that group's text is what the transform reads.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group: Annotated[int | None, Field(ge=0)] = 1
+    """The capture group, 1 by default; 0 is the whole match."""
+    pattern: str
+    """The expression's source."""
+
+
+class FieldTransform1(BaseModel):
+    """The text read: a string."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["text"]
+
+
+class FieldTransform2(BaseModel):
+    """
+    An integer or decimal: a JSON number, never through a float, so a
+    decimal a JSON number cannot hold exactly is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["number"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform3(BaseModel):
+    """A date: `YYYY-MM-DD`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform4(BaseModel):
+    """
+    A date and time: RFC 3339 with its offset, the one the text states,
+    else `time_zone`'s at that time; one stating neither is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date_time"]
+    locale: str
+    """Its locale."""
+    time_zone: str | None = None
+    """The time zone, an IANA name, of a text that states none."""
+
+
+class FieldTransform(
+    RootModel[FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4]
+):
+    root: FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4
+    """
+    A field's Value transform (ADR 0123), named by `kind`, each
+    locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+    `date` or `date_time` reads the machine-readable value of a `<time
+    datetime>`, a `<data value>` or an element's `content` attribute in its
+    invariant form (ISO 8601, a plain decimal with a dot), whatever the
+    locale; a text printed for people is read under its locale's CLDR
+    forms: a number in its digits, separators and grouping, a date or a
+    date and time in one of its short, medium or long forms with a
+    four-digit year; any other text is not a value.
+    """
+
+
+class ForcedBy(StrEnum):
+    """Which scope's `fetch.tier` forced a tier."""
+
+    run = "run"
+    """The Run's setting."""
+    label = "label"
+    """The setting of the request's Label."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -117,6 +755,80 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class LabelDeclaration(BaseModel):
+    """
+    One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
+    and the settings its requests take over the Run's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload: Any | None = None
+    """
+    The JSON Schema its requests' Payloads are checked against, the
+    side the program's schema parses from; none takes any Payload.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Its settings, nested by key: today `fetch.tier`, `session.page_check`,
+    which judges its pages in place of the Run's, and `session.source`,
+    which gives the Label a Session pool of its own (ADR 0093), any other
+    key refused with `setting_not_applicable`.
+    """
+
+
+class LearnedRuleKind(StrEnum):
+    """What a learned URL rule learned (ADRs 0005 and 0120)."""
+
+    no_effect_parameter = "no_effect_parameter"
+    """
+    A query parameter has no effect on the host's pages: pairs of
+    URLs differing only by it served pages of matching signatures, so a
+    URL that differs from an admitted one only by it is a `duplicate`.
+    """
+    trap_path = "trap_path"
+    """
+    A path pattern is a trap: its pages brought no new page signature
+    and no URL outside it, so its URLs are not added, with
+    `trap_path`.
+    """
+    equivalent_form = "equivalent_form"
+    """
+    Two forms of the host's URLs serve one page, so a URL in one form
+    is a `duplicate` of an admitted one in the other.
+    """
+    cursor_pagination = "cursor_pagination"
+    """
+    A listing pages by a cursor as well as by an offset: its offset
+    URLs not yet fetched are not added, with `duplicate`, and the cursor
+    is followed.
+    """
+
+
+class MatchedLink(BaseModel):
+    """
+    One element an `enqueueLinks` locator matched, as its Payload function
+    reads it (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attributes: dict[str, str]
+    """Its attributes, by name."""
+    href: str | None = None
+    """Its `href` attribute, as written; none for an element without one."""
+    text: str
+    """Its text content."""
+    url: str | None = None
+    """
+    Its `href` resolved against the document's base URL, its query
+    percent-encoded in the document's encoding: the URL it is fetched
+    at; none when it has no `href` or the `href` does not parse.
+    """
 
 
 class NotAddedReason(StrEnum):
@@ -153,6 +865,29 @@ class NotAddedReason(StrEnum):
     """
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
+    """
+    path_budget = "path_budget"
+    """
+    The first entry of `crawl.path_budgets` whose pattern its URL's path
+    and query match already counted that entry's `max_requests`.
+    """
+    trap_path = "trap_path"
+    """
+    Its URL's path falls under a trap the Frontier learned and closed
+    (ADR 0005): a path pattern whose pages brought no new page and no
+    URL outside it, which leaves a finished Run `unverified`.
+    """
+    no_rule = "no_rule"
+    """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
+    trap_link = "trap_link"
+    """
+    On the browser tier, its link is one a person cannot see, a
+    `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    """
+    link_limit = "link_limit"
+    """
+    The `enqueueLinks` call that matched it already added its `limit`
+    links (ADR 0093).
     """
 
 
@@ -214,6 +949,273 @@ class OutcomesAfter(RootModel[OutcomesAfter1 | Now]):
     """Where `run.outcomes` starts: after a position, or from the next commit."""
 
 
+class PaymentMark(BaseModel):
+    """
+    The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+    0045).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: str
+    """The amount charged, an exact decimal."""
+    currency: str
+    """Its currency, an ISO 4217 code."""
+    payee_domain: str
+    """The domain paid."""
+    scheme: str
+    """The payment scheme the site asked through."""
+
+
+class QueryColumn(BaseModel):
+    """One column of a query's result."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """Its name."""
+    type: str
+    """Its SQL type, as DuckDB names it, such as `BIGINT` or `VARCHAR`."""
+
+
+class RecordIssue(BaseModel):
+    """One way a Record does not hold for its Dataset."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    message: str
+    """What is wrong there."""
+    path: str
+    """Where in the Record, a JSON Pointer: empty for the Record itself."""
+
+
+class RecordsRead(BaseModel):
+    """
+    What `run.records` answers once it sent the last Record: how many it
+    sent, and the number of the last, which a later call's `after` takes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many Records it sent."""
+    last: Annotated[int, Field(ge=0)]
+    """
+    The number of the last Record it sent, else the `after` it took, 0
+    without one.
+    """
+
+
+class RejectedRecord(BaseModel):
+    """One entry of a Dataset's rejection table."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Any
+    """
+    The Record as JSON, as it was pushed, never parsed by the schema it
+    failed.
+    """
+    hook: str | None = None
+    """The Hook that rejected it; absent when the engine's own check did."""
+    issues: list[RecordIssue]
+    """
+    Each issue the check found, by its path, a JSON Pointer into the
+    Record; empty when a Hook rejected it with none.
+    """
+    number: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Dataset's rejection table, from 1, in commit
+    order with no gaps, which `run.rejected_records`'s `after` takes.
+    """
+    reason: str
+    """Why it was rejected."""
+    request_id: str
+    """The ID of the crawl request whose attempt pushed it."""
+    url: str
+    """That request's URL."""
+
+
+class RejectedRecords(BaseModel):
+    """One page of `run.rejected_records`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: bool
+    """
+    Whether the table is read to its end: the Run has ended, or has no
+    live writer, and no entry follows `next`.
+    """
+    next: Annotated[int, Field(ge=0)]
+    """The number the next page starts after."""
+    records: list[RejectedRecord]
+    """The entries after `after`, in number order."""
+
+
+class RequestCounts(BaseModel):
+    """How a crawl's requests ended (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    blocked: Annotated[int, Field(ge=0)]
+    """How many a site blocked."""
+    by_block_cause: list[CountOf] | None = None
+    """The blocked ones, by Block cause."""
+    by_error_code: list[CountOf] | None = None
+    """The failed ones, by Error code."""
+    by_skip_reason: list[CountOf] | None = None
+    """The skipped ones, by skip reason."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many failed."""
+    pending: Annotated[int, Field(ge=0)]
+    """How many were left pending."""
+    skipped: Annotated[int, Field(ge=0)]
+    """How many were skipped."""
+    succeeded: Annotated[int, Field(ge=0)]
+    """How many succeeded."""
+
+
+class RequestSeed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
+
+
+class ResponseOrigin1(BaseModel):
+    """The Response cache (ADR 0046)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    fetched_at: PointInTime
+    """When the cached response was fetched."""
+    kind: Literal["response_cache"]
+
+
+class ResponseOrigin2(BaseModel):
+    """A Response recording (ADR 0105)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["response_recording"]
+    recorded_at: PointInTime
+    """When the recorded response was received."""
+
+
+class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
+    root: ResponseOrigin1 | ResponseOrigin2
+    """What answered a Record's request in place of the network."""
+
+
+class RetriedFailed(BaseModel):
+    """What `run.retry_failed` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    readmitted: Annotated[int, Field(ge=0)]
+    """How many requests it re-admitted: 0 says there was nothing to retry."""
+
+
+class RobotsTxtMark(StrEnum):
+    """
+    What a Record's Provenance says of the robots.txt of its page's origin
+    (ADR 0086).
+    """
+
+    ignored = "ignored"
+    """
+    It disallowed the page's URL, and the fetch ignored it, since
+    `site_preferences.respect_robots_txt` was off.
+    """
+
+
+class RunAddSeedsParams(BaseModel):
+    """
+    What `run.add_seeds` takes: the running crawl its Client streams seeds
+    to.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunExportParams(BaseModel):
+    """What `run.export` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    compression: ExportCompression | None = None
+    """The compression; absent, `none`."""
+    dataset: str
+    """The Dataset's name."""
+    format: ExportFormat
+    """The format."""
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId
+    """The crawl's Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Export's settings, nested by key: the run layer (ADR 0083),
+    whose `export.*` keys shape its format.
+    """
+    wall: bool | None = None
+    """
+    `true` writes only the Records whose page was read past a Wall,
+    `false` only the others; absent, every Record (ADR 0052).
+    """
+
+
 class RunFailedRequestsParams(BaseModel):
     """What `run.failed_requests` takes."""
 
@@ -239,12 +1241,108 @@ class RunOutcomesParams(BaseModel):
     Where to start: after this position, or `now` for the next commit
     on; absent, from the first outcome.
     """
+    codes: list[str] | None = None
+    """
+    Only outcomes of requests one of whose failed attempts failed with
+    one of these Error codes; absent, every outcome.
+    """
     kinds: list[OutcomeKind] | None = None
     """Only outcomes of these kinds; absent, every kind."""
     labels: list[str] | None = None
     """Only outcomes of requests of these Labels; absent, every Label."""
     run_id: RunId
     """The crawl's Run."""
+
+
+class RunRecordsParams(BaseModel):
+    """
+    What `run.records` takes: a crawl's Run, one of its Datasets, and where
+    to start.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record the reader handled: the call starts
+    after it. Absent, it starts at the Dataset's first Record.
+    """
+    dataset: str
+    """The Dataset's name."""
+    run_id: RunId
+    """The crawl's Run."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record to read, such as the last one
+    committed when the reader began (`dataset.page`'s `through`): the
+    call answers once it sent every Record numbered through it, waiting
+    on a live Run for those not committed yet. Absent, it follows a live
+    Run until the Run ends.
+    """
+    wall: bool | None = None
+    """
+    `true` reads only the Records whose page was read past a Wall,
+    `false` only the others; absent, every Record (ADR 0052).
+    """
+
+
+class RunRejectedRecordsParams(BaseModel):
+    """What `run.rejected_records` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last entry a reader handled; absent, from the
+    first.
+    """
+    dataset: str
+    """The Dataset whose rejection table to read."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunRetryFailedParams(BaseModel):
+    """What `run.retry_failed` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    blocked: bool | None = False
+    """Also the requests whose latest outcome is `blocked`."""
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083),
+    read as `settings` is.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Run's settings from the retry on, nested by key, as a resume
+    takes them: read only when the retry returns an ended Run to
+    `running` (ADRs 0083 and 0102).
+    """
+
+
+class RunSeedsAdded(BaseModel):
+    """
+    What `run.add_seeds` answers once its stream ended: how many of the
+    seeds it took were added, and how many were not.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: Annotated[int, Field(ge=0)]
+    """The seeds added."""
+    not_added: Annotated[int, Field(ge=0)]
+    """The seeds not added, each with its reason in its answer."""
 
 
 class RunSeedsParams(BaseModel):
@@ -265,8 +1363,12 @@ class SampleCrawlParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
-    echo: SampleEchoParams
-    """The text each page repeats, a type Collie's catalog defines."""
+    echo: SampleEchoed
+    """
+    The text each page repeats, a type Collie's catalog defines. No
+    request's params type, which holds `_meta` (ADR 0132), is another
+    type's member.
+    """
     pages: Annotated[int, Field(ge=0)]
     """How many pages to visit."""
 
@@ -311,44 +1413,131 @@ class SamplePageFilterAdmitResult(BaseModel):
     """Whether the sample crawl visits the page."""
 
 
-class Seed(BaseModel):
+class SeedAttempt(BaseModel):
     """
-    One request a crawl starts from (ADR 0093): a URL, the Label that picks
-    its handler and its Payload, and how it is sent and identified.
+    The attempt a seed is added from: a handler's `ctx.run`, which is bound
+    to its attempt (ADR 0093).
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
-    body: HttpBody | None = None
-    """The body it is sent with, if any."""
-    key: str | None = None
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt adds the seed."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+
+
+class SinkStatus(StrEnum):
+    """A Sink's delivery status (ADRs 0026 and 0103)."""
+
+    complete = "complete"
+    """Everything was delivered."""
+    complete_with_rejections = "complete_with_rejections"
+    """Everything was delivered, some of it rejected."""
+    behind = "behind"
+    """It is still delivering."""
+    failed = "failed"
+    """It failed."""
+    inactive = "inactive"
+    """It names none of the crawl's Datasets and delivers nothing."""
+
+
+class SitemapFailure(BaseModel):
+    """A sitemap a sitemap seed could not read (ADR 0102; pitfall U19)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
     """
-    Its identity in the Frontier, declared by the program in place of
-    its method, its URL's key and its body's hash: a canonicalization
-    of the program's own, which always wins (ADR 0005).
+    Why, as a name: its fetch's Error code (`response_unavailable`,
+    `response_not_ok` for a status or a file that is no sitemap the
+    crawl reads, `response_limit_exceeded`), its skip reason
+    (`robots_txt`), its Block cause, or the reason the Frontier did not
+    add a nested sitemap (`domain_policy`).
     """
-    label: str
-    """Its Label."""
-    method: HttpMethod | None = None
-    """The method it is sent with: `GET` by default."""
-    payload: Any | None = None
-    """The data the program attaches for its handler."""
-    priority: int | None = None
-    """
-    Its priority among the requests of its domain: higher goes first,
-    and a priority never orders requests of different domains (ADR
-    0004); 0 by default.
-    """
+    message: str
+    """Why, in words."""
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """The status its site answered, when one answered."""
     url: str
     """Its URL."""
 
 
-class Seeds(RootModel[list[Seed]]):
-    """A crawl's seeds, at least one."""
+class SitemapReport(BaseModel):
+    """
+    A sitemap seed's sitemaps (ADR 0102): those it read, those it could
+    not, and its entries added and not added, counted, never listed, since
+    a sitemap holds up to 50,000.
+    """
 
-    root: Annotated[list[Seed], Field(min_length=1)]
-    """A crawl's seeds, at least one."""
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: Annotated[int, Field(ge=0)]
+    """How many of its sitemaps' entries were added."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many of its sitemaps could not be read."""
+    failures: list[SitemapFailure]
+    """The first 20 of those, by URL, each with why."""
+    not_added: Annotated[int, Field(ge=0)]
+    """How many of its sitemaps' entries were not."""
+    not_added_by_reason: list[CountOf]
+    """
+    Those not added, by the reason the Frontier gave, `no_rule` for an
+    entry no rule of the seed matched, sorted by name.
+    """
+    read: Annotated[int, Field(ge=0)]
+    """
+    How many of its sitemaps were read, nested ones included; a
+    robots.txt is none.
+    """
+    seed: str
+    """The sitemap or robots.txt the seed named."""
+
+
+class SitemapRule(BaseModel):
+    """
+    One rule of a sitemap seed: a URL pattern, a glob as
+    `crawl.scope.include` takes them, matched in the engine, and the Label
+    it gives the entries it matches, which take no Payload.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    """The Label of the entries it matches."""
+    pattern: str
+    """The URL pattern."""
+
+
+class SitemapSeed(BaseModel):
+    """
+    A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+    or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+    are read. The engine reads it, and every sitemap index it nests, once
+    the Run is running, through the domain policy, Politeness and robots.txt,
+    running no handler; each entry is checked as an enqueue is, at depth 0,
+    with the Label of the first rule whose pattern matches its URL and no
+    Payload, and one no rule matches is not added, with `no_rule`. The seed
+    widens the crawl's scope by the host of the URL it names, and an entry
+    outside the scope is not added, with `out_of_scope`, so a robots.txt
+    seed admits its own host's entries from a sitemap on another host it
+    names, and no other host's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    sitemap: str
+    """The URL of the sitemap, or of the site's robots.txt."""
 
 
 class SkipReason(StrEnum):
@@ -377,6 +1566,123 @@ class SkipReason(StrEnum):
     """The Run's Model allowance was reached."""
     content_type = "content_type"
     """Its response's content type is not one its Label takes."""
+
+
+class SortDirection(StrEnum):
+    """A sort's direction."""
+
+    ascending = "ascending"
+    """Smallest first."""
+    descending = "descending"
+    """Largest first."""
+
+
+class TierChosen(StrEnum):
+    """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
+
+    forced = "forced"
+    """`fetch.tier` forced it."""
+    compared = "compared"
+    """Under `auto`, the crawl's sample comparison chose it."""
+    sample = "sample"
+    """It was the browser run of a sample of that comparison."""
+    escalation = "escalation"
+    """A cheaper tier could not serve a call, and the request moved here."""
+    race = "race"
+    """It won a race of tiers (`fetch.tier_race`, ADR 0040)."""
+
+
+class TierProvenance(BaseModel):
+    """The tier that fetched a Record's document and how it was chosen."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call: str | None = None
+    """
+    The call a cheaper tier could not serve, which moved the request
+    here, for an escalation or a sample's browser run.
+    """
+    chosen: TierChosen
+    """How it was chosen."""
+    forced_by: ForcedBy | None = None
+    """What forced it, when `chosen` is `forced`."""
+    tier: FetchTier
+    """The tier."""
+
+
+class UnreadReason(StrEnum):
+    """Why a field of a code-free crawl's Record is null."""
+
+    no_element = "no_element"
+    """Its locator found no element."""
+    no_attribute = "no_attribute"
+    """Its element has no such attribute."""
+    no_match = "no_match"
+    """Its `match` did not match the text, or its group took no part."""
+    not_parsed = "not_parsed"
+    """Its transform does not read the text as a value."""
+    no_time_zone = "no_time_zone"
+    """A `date_time` whose text states no offset, with no `time_zone`."""
+
+
+class ValueTransform(StrEnum):
+    """One of the engine's closed list of Value transforms (ADR 0123)."""
+
+    text = "text"
+    """The element's text, or one attribute."""
+    match = "match"
+    """A capture group of a regular expression over that text."""
+    number = "number"
+    """A number or an amount under its locale."""
+    currency = "currency"
+    """A currency symbol or code under its locale."""
+    date = "date"
+    """A date under its locale or a stated pattern."""
+    date_time = "date_time"
+    """A date and time with its time zone."""
+    relative_time = "relative_time"
+    """A relative time under its locale, anchored at the fetch time."""
+    map = "map"
+    """An exact text looked up in the transform's table."""
+
+
+class WallFilter(StrEnum):
+    """Which Records a page takes by a Wall read past (ADR 0052)."""
+
+    with_ = "with"
+    """
+    Only Records whose page was read past a Wall: their Provenance
+    carries the `wall` marker.
+    """
+    without = "without"
+    """Only Records whose page met no Wall."""
+
+
+class WallKind(StrEnum):
+    """A Wall's kind (ADR 0052)."""
+
+    paywall = "paywall"
+    """A paywall."""
+    consent_wall = "consent_wall"
+    """A consent wall."""
+    ad_blocker_wall = "ad_blocker_wall"
+    """An ad-blocker wall."""
+
+
+class WallMarker(BaseModel):
+    """
+    The `wall` marker of a Record whose page was read past a Wall (ADR
+    0052), which Dataset queries and every Export format filter on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: WallKind
+    """The Wall's kind."""
+    vendor: str | None = None
+    """The vendor detected, when one was."""
 
 
 class CrawlRequestEnqueueParams(BaseModel):
@@ -430,34 +1736,17 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The URL to add, absolute or relative to the document's base URL."""
 
 
-class CrawlRequestOutcome1(BaseModel):
-    """Its handler returned, and what it staged was committed."""
+class CrawlRequestLinks(BaseModel):
+    """
+    What `crawl_request.links` answers: each element its locator matched,
+    in document order.
+    """
 
     model_config = ConfigDict(
         extra="allow",
-        arbitrary_types_allowed=True,
     )
-    attempts: Annotated[int, Field(ge=0)]
-    """How many attempts it took: retries are a count, not an outcome."""
-    ended_at: PointInTime
-    """When it ended."""
-    errors: list[AttemptError]
-    """The error of each failed attempt, in order."""
-    position: Annotated[int, Field(ge=0)]
-    """
-    Its place in the Run's commit order, from 1, which `run.outcomes`'s
-    `after` takes.
-    """
-    request: OutcomeRequest
-    """The request it ends."""
-    kind: Literal["succeeded"]
-    nothing_committed: NothingCommitted | None = None
-    """Why it committed no Record, when it committed none."""
-    records: list[DatasetRecords]
-    """
-    Per Dataset its handler pushed into, the Records committed,
-    dropped and rejected.
-    """
+    links: list[MatchedLink]
+    """The elements."""
 
 
 class CrawlRequestOutcome2(BaseModel):
@@ -537,6 +1826,414 @@ class CrawlRequestOutcome4(BaseModel):
     kind: Literal["blocked"]
 
 
+class DatasetList(BaseModel):
+    """What `dataset.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    datasets: list[DatasetSummary]
+    """Each Dataset the crawl declares, in the order declared."""
+
+
+class DatasetQueryResult(BaseModel):
+    """What `dataset.query` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    columns: list[QueryColumn]
+    """The result's columns, in order."""
+    rows: list[list[Any]]
+    """
+    Its first rows, each a value per column as JSON, at most the
+    call's `limit`.
+    """
+    total: Annotated[int, Field(ge=0)]
+    """How many rows the query produced, those not returned counted."""
+
+
+class EncodingProvenance(BaseModel):
+    """
+    The encoding a Record's document was read in, and where it came from
+    (ADR 0119).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    encoding: str
+    """Its WHATWG name, such as `Shift_JIS`."""
+    source: EncodingSource | None = None
+    """
+    Where it came from; none where the browser read the document by a
+    rule the engine did not see.
+    """
+
+
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
+class EnqueuedLink2(BaseModel):
+    """The Frontier did not admit its link."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its `href`, as written."""
+
+
+class EnqueuedLink(
+    RootModel[EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4]
+):
+    root: EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4
+    """What became of one element an `enqueueLinks` locator matched."""
+
+
+class EnqueuedLinks(BaseModel):
+    """
+    What `crawl_request.enqueue_links` answers: what became of each element
+    its locator matched, in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    links: list[EnqueuedLink]
+    """Each element's answer."""
+
+
+class Export(BaseModel):
+    """What `run.export` answers once the Export's file is whole (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    compression: ExportCompression
+    """Its compression."""
+    export_id: ExportId
+    """The Export, which `export.save_as` and `export.stream` take."""
+    format: ExportFormat
+    """Its format."""
+    last_number: Annotated[int, Field(ge=0)]
+    """The number of the last Record it holds, 0 when it holds none."""
+    records: Annotated[int, Field(ge=0)]
+    """How many Records it holds."""
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+
+
+class ExtractionField(BaseModel):
+    """
+    One named field of a code-free crawl's Records (ADR 0123): the first
+    element its locator finds in the page, its text, its runs of white
+    space read as one space and trimmed, or one of its attributes, an
+    `href` or `src` resolved against the document's base URL; optionally a
+    capture group of a regular expression over that text; then its Value
+    transform. A field the page does not give is null, and the Record's
+    Provenance names why (`unread_fields`).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attribute: str | None = None
+    """The attribute read in place of the element's text."""
+    locator: FieldLocator
+    """What finds its element."""
+    match: FieldMatch | None = None
+    """The `match` that picks the text its transform reads."""
+    transform: Annotated[FieldTransform | None, Field(validate_default=True)] = Field(
+        default_factory=lambda: FieldTransform.model_validate({"kind": "text"})
+    )
+    """Its Value transform: `text` by default."""
+
+
+class LearnedRule(BaseModel):
+    """
+    A URL rule the Frontier learned from the pages it fetched (ADRs 0005
+    and 0120), on one host and so never across a registrable domain, with
+    its evidence and every URL it merged, so each merge can be audited.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    contradiction: str | None = None
+    """
+    The pair of pages that contradicted it, naming their URLs: both
+    forms fetched, neither redirected, and their page signatures
+    differ. From then on it merges nothing more; absent while it holds.
+    """
+    evidence: str
+    """What it was learned from, naming the URLs."""
+    form: EquivalentForm | None = None
+    """The form it merges, for an `equivalent_form`."""
+    host: str
+    """The host it holds on."""
+    kind: LearnedRuleKind
+    """What it learned."""
+    merged: list[str]
+    """
+    Each URL it merged with another or refused, in the order the crawl
+    met them, a pending request it ended `skipped` with `duplicate`
+    included.
+    """
+    parameter: str | None = None
+    """
+    The query parameter it is about: one that has no effect, or the
+    offset parameter a cursor replaced; absent for a trap.
+    """
+    path: str | None = None
+    """
+    The path it holds on: a trap's path pattern, its numeric,
+    date-like and hexadecimal segments written `{number}`, `{date}` and
+    `{hex}`, or the path of a listing whose cursor replaced its offset;
+    absent for a rule of the whole host.
+    """
+
+
+class NotAddedAtCommit(BaseModel):
+    """
+    A request an attempt's enqueue, `enqueueLinks` call or seed answered
+    `added`, with its ID, that the attempt's commit did not add (ADR 0093):
+    the commit admits each staged request again on the run file as it then
+    stands, and another attempt's commit may have added the request
+    meanwhile, or a rule learned since refuses it. Its ID names no crawl
+    request.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    duplicate_of: str | None = None
+    """
+    The crawl request it is a duplicate of, when another request was
+    admitted under its identity first.
+    """
+    id: str
+    """The ID its staging answered."""
+    reason: NotAddedReason
+    """Why the commit did not add it."""
+    url: str
+    """Its URL, as parsed."""
+
+
+class RecordFilter(BaseModel):
+    """Which Records a page takes: those that meet every condition."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: list[FieldFilter] | None = None
+    """Conditions on the Records' fields, every one met."""
+    wall: WallFilter | None = None
+    """The Wall marker a Record carries or not; absent takes both."""
+
+
+class RecordSort(BaseModel):
+    """
+    The order of a page's Records: by one top-level field, Records that
+    lack it last, then by number.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    direction: SortDirection
+    """Its direction."""
+    field: str
+    """The field's name."""
+
+
+class RunSeeds(BaseModel):
+    """What `run.seeds` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    seeds: list[Enqueued]
+    """
+    Each seed's answer, in the order the start gave the seeds; none for
+    a Run that is no crawl.
+    """
+
+
+class Seed(RootModel[RequestSeed | SitemapSeed]):
+    root: RequestSeed | SitemapSeed
+    """
+    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+    seeds the entries of a site's sitemaps.
+    """
+
+
+class Seeds(RootModel[list[Seed]]):
+    """A crawl's seeds, at least one."""
+
+    root: Annotated[list[Seed], Field(min_length=1)]
+    """A crawl's seeds, at least one."""
+
+
+class SinkReport(BaseModel):
+    """A Sink that applies to a crawl's Run (ADRs 0026 and 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many deliveries are dead letters."""
+    guarantee_class: str
+    """Its Guarantee class."""
+    name: str
+    """Its name."""
+    outside_dedup_window: Annotated[int, Field(ge=0)]
+    """
+    How many deliveries fell outside the destination's deduplication
+    window, and so were at least once.
+    """
+    status: SinkStatus
+    """Its delivery status."""
+    undeclared_datasets: list[str] | None = None
+    """
+    For an inactive Sink, the Dataset names it gave that the crawl does
+    not declare.
+    """
+
+
+class TransformProvenance(BaseModel):
+    """How a Value transform gave one field of a Record (ADR 0123)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    anchor: PointInTime | None = None
+    """A relative time's anchor: the fetch time of the page's document."""
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    locale: str | None = None
+    """Its resolved locale, a BCP 47 tag, for a locale-dependent one."""
+    pattern: str | None = None
+    """The stated CLDR pattern, such as `dd/MM/yyyy`, when one was."""
+    text: str
+    """The page text exactly as read."""
+    time_zone: str | None = None
+    """
+    Its resolved time zone, an IANA name, for a date-time or a
+    relative time.
+    """
+    transform: ValueTransform
+    """The transform."""
+
+
+class UnreadField(BaseModel):
+    """
+    A field of a code-free crawl's Record that its page did not give, so
+    the Record holds null (ADR 0123).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    reason: UnreadReason
+    """Why."""
+    text: str | None = None
+    """
+    The text read, where one was: the text its `match` did not match, or
+    that its transform does not read as a value.
+    """
+
+
+class CrawlExtraction(BaseModel):
+    """
+    What a crawl with no handler reads from each page it fetches (spec
+    #582's code-free crawls; ADR 0103): the engine declares the Label
+    [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
+    `url`, whose JSON Schema is generated from `formats`, and commits one
+    Record per page fetched: the page's formats, as `page.formats` answers
+    them (its `url` the document's, after redirects), its response's
+    `status` and `fetched_at`, when the engine read it, and its named
+    `fields`, each read by a locator and given by a Value transform (ADR
+    0123).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    fields: dict[str, ExtractionField] | None = None
+    """
+    The named fields each page's Record holds beside its formats, by
+    name, which no format's property and neither `status` nor
+    `fetched_at` may take; none by default.
+    """
+    follow: ExtractionFollow | None = ExtractionFollow.scope
+    """Which pages the crawl fetches beyond its seeds: `scope` by default."""
+    formats: FormatsRequest
+    """The formats each page's Record holds, as `page.formats` takes them."""
+
+
+class CrawlRequestOutcome1(BaseModel):
+    """Its handler returned, and what it staged was committed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["succeeded"]
+    not_added: list[NotAddedAtCommit] | None = None
+    """
+    Each request its attempt's enqueues, `enqueueLinks` calls and
+    seeds answered `added` that the commit did not add, in order.
+    """
+    nothing_committed: NothingCommitted | None = None
+    """Why it committed no Record, when it committed none."""
+    records: list[DatasetRecords]
+    """
+    Per Dataset its handler pushed into, the Records committed,
+    dropped and rejected.
+    """
+
+
 class CrawlRequestOutcome(
     RootModel[
         CrawlRequestOutcome1
@@ -575,6 +2272,93 @@ class CrawlRequestOutcomes(BaseModel):
     """The outcomes that match, in commit order."""
 
 
+class CrawlRunReport(BaseModel):
+    """
+    A crawl's Run report (ADR 0102): what a crawl adds to every Run's
+    report, a part no area supplied being absent. On the wire, a crawl's
+    parts sit beside every Run's, which a reader of [`RunReport`] keeps among
+    its `kind_parts`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    checkpoint: Checkpoint | None = None
+    """The last Checkpoint written of it in this engine, when one was."""
+    completeness: Completeness
+    """Whether its results cover its scope."""
+    completeness_reasons: list[AxisReason] | None = None
+    """Why it is not `complete`, when it is not."""
+    console_url: str | None = None
+    """
+    Its page in the Console, where its Run trace replays, when the
+    engine knows a Console address (ADR 0031).
+    """
+    ended_at: PointInTime
+    """When it ended."""
+    error: EndingError | None = None
+    """
+    The error the call that ends it raises: the one that failed a
+    `failed` Run, or a write at its end that failed, such as its Plan
+    file's (ADR 0116).
+    """
+    learned_rules: list[LearnedRule] | None = None
+    """Its Frontier's learned URL rules (ADR 0005)."""
+    lifecycle: Lifecycle
+    """Where it ended."""
+    nothing_done: NothingDone | None = None
+    """Why the call that answered it did nothing, when it did nothing."""
+    plan: PlanReport | None = None
+    """What it did with its Plan file (ADR 0091)."""
+    plugins: list[PluginRun] | None = None
+    """Each Plugin that ran (ADRs 0016 and 0033)."""
+    policy_version: str | None = None
+    """
+    The version of the Operator policy it ran under, when one applied
+    (ADR 0031).
+    """
+    recording: RecordingReport | None = None
+    """What it did with the Response recording its start named (ADR 0105)."""
+    records: list[DatasetRecords] | None = None
+    """Its Records, per Dataset (ADR 0103)."""
+    requests: RequestCounts | None = None
+    """How its requests ended."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: list[ExplainedSetting] | None = None
+    """
+    Each effective value it ran with, the layer that set it and the one
+    that locked it, as `config.explain` gives them (ADR 0028).
+    """
+    sinks: list[SinkReport] | None = None
+    """Each Sink that applies to it (ADRs 0026 and 0103)."""
+    sitemaps: list[SitemapReport] | None = None
+    """Each sitemap seed's sitemaps, as its progress gives them."""
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, when it did."""
+    uncertain_effects: list[UncertainEffect] | None = None
+    """
+    Each Effect it left uncertain, until a person reconciles it (ADR
+    0106).
+    """
+    usage: RunUsage
+    """
+    What it used, as the Usage ledger charged it, with the Limits that
+    apply to it (ADR 0101).
+    """
+    verdict: Verdict
+    """Whether its own checks prove what it committed."""
+    verdict_reasons: list[AxisReason] | None = None
+    """Why it is not `verified`, when it is not."""
+    warnings: list[RunWarning] | None = None
+    """What the areas warn of, each with a code and a message."""
+    weakened: list[WeakenedSetting] | None = None
+    """Every setting that weakened a safeguard for it (ADR 0028)."""
+
+
 class CrawlStartParams(BaseModel):
     """What `crawl.start` takes."""
 
@@ -582,6 +2366,31 @@ class CrawlStartParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    datasets: list[DatasetDeclaration] | None = None
+    """
+    The crawl's Datasets, each with its JSON Schema and its key (ADR
+    0103): a second of one name fails the start with
+    `dataset_duplicate`, and a key on a field the schema does not
+    require with `dataset_key_invalid`. Its handlers push Records only
+    into these.
+    """
+    extraction: CrawlExtraction | None = None
+    """
+    What a crawl with no handler reads from each page (a code-free
+    crawl, ADR 0103): the engine handles each request itself and
+    declares the Label and the Dataset it commits into, so such a start
+    declares no Dataset of its own, else it fails with
+    `invalid_params`. None for a crawl whose program handles its
+    requests.
+    """
+    labels: dict[str, LabelDeclaration] | None = None
+    """
+    The crawl's Labels, by name, each with its Payload's JSON Schema or
+    none, and its own settings (ADRs 0082 and 0093): a scope between the
+    Run and its requests. A Payload of a declared schema is checked
+    against it at every enqueue; a Label the crawl does not declare
+    takes any Payload.
+    """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     run_id: Annotated[
@@ -596,24 +2405,36 @@ class CrawlStartParams(BaseModel):
     """The Run's opaque tags."""
 
 
-class Enqueued2(BaseModel):
-    """The Frontier did not admit it."""
+class DatasetPageParams(BaseModel):
+    """What `dataset.page` takes."""
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="forbid",
+        arbitrary_types_allowed=True,
     )
-    kind: Literal["not_added"]
-    reason: NotAddedReason
-    """Why."""
-    url: str
-    """Its URL as it was given."""
-
-
-class Enqueued(RootModel[Enqueued1 | Enqueued2]):
-    root: Enqueued1 | Enqueued2
+    after: Annotated[int | None, Field(ge=0)] = None
     """
-    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
-    value, never an error, since a request is one among many.
+    The number of the last Record of the previous page, its `next`: the
+    page starts after that Record in the page's order. Absent, at the
+    first.
+    """
+    columns: list[str] | None = None
+    """The top-level fields each Record's value keeps; absent, every one."""
+    dataset: str
+    """The Dataset's name."""
+    filter: RecordFilter | None = None
+    """Which Records to take; absent, every one."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """The most Records the page carries, from 1 to 1000; absent, 100."""
+    run_id: RunId
+    """The crawl's Run."""
+    sort: RecordSort | None = None
+    """Their order; absent, by number."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The previous page's `through`, so every page reads the Records
+    committed when the first was read. Absent, the last number
+    committed now.
     """
 
 
@@ -627,14 +2448,119 @@ class FailedRequests(BaseModel):
     """The latest outcome of each such request, in commit order."""
 
 
-class RunSeeds(BaseModel):
-    """What `run.seeds` answers."""
+class RecordProvenance(BaseModel):
+    """How one committed Record was obtained."""
 
     model_config = ConfigDict(
         extra="allow",
     )
-    seeds: list[Enqueued]
+    certificate_exception: CertificateExceptionMark | None = None
     """
-    Each seed's answer, in the order the start gave the seeds; none for
-    a Run that is no crawl.
+    The exception of `tls.accept_invalid_certs` its document's host was
+    reached through; none where its certificate verified.
+    """
+    clean_up_rules: str | None = None
+    """
+    The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+    whose Run trace names their date and the release that applied them.
+    """
+    encoding: EncodingProvenance | None = None
+    """
+    The encoding the document was read in, and where it came from;
+    none for a request with no document.
+    """
+    origin: ResponseOrigin | None = None
+    """
+    The Response cache or Response recording that answered in place of
+    the network; none when the network did.
+    """
+    payment: PaymentMark | None = None
+    """
+    The payment of a Paid fetch of its page; none where nothing was
+    paid.
+    """
+    request_id: str
+    """The ID of the crawl request whose attempt produced it."""
+    robots_txt: RobotsTxtMark | None = None
+    """
+    `ignored` when its page was fetched while
+    `site_preferences.respect_robots_txt` was off, from a URL its
+    origin's robots.txt disallows, so a result taken against a site's
+    stated preferences can be found and removed; none otherwise.
+    """
+    tier: TierProvenance | None = None
+    """
+    The tier that fetched that request's document, and how it was
+    chosen; none where the handler was given its request alone.
+    """
+    unread_fields: list[UnreadField] | None = None
+    """
+    Each field of a code-free crawl the page did not give, null in the
+    Record, with why; absent where every field was read.
+    """
+    value_transforms: Annotated[
+        list[TransformProvenance] | None, Field(validate_default=True)
+    ] = []
+    """
+    Each field whose value an engine Value transform gave, in the
+    order read; empty where the program parsed its own values.
+    """
+    wall: WallMarker | None = None
+    """The Wall its page was read past; none where no Wall was met."""
+
+
+class RunAddSeedParams(BaseModel):
+    """What `run.add_seed` takes: one seed for a running crawl."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds it, when a handler adds it through its
+    context's `run`; absent, the program adds it from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    seed: Seed
+    """The seed."""
+
+
+class DatasetRecord(BaseModel):
+    """One committed Record of a Dataset, as a reader reads it (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    committed_at: PointInTime
+    """When it was committed."""
+    number: Annotated[int, Field(ge=0)]
+    """Its number in its Dataset, from 1, in commit order, with no gaps."""
+    provenance: RecordProvenance
+    """How it was obtained (ADR 0123's Provenance of a Record)."""
+    request_id: str
+    """The ID of the crawl request whose attempt committed it."""
+    url: str
+    """That crawl request's URL."""
+    value: Any
+    """The Record, as JSON; the program's schema parses it."""
+
+
+class DatasetPage(BaseModel):
+    """One page of `dataset.page`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    next: Annotated[int | None, Field(ge=0)] = None
+    """The next page's `after`; absent once no Record follows."""
+    records: list[DatasetRecord]
+    """The Records, in the page's order."""
+    through: Annotated[int, Field(ge=0)]
+    """
+    The number of the last Record committed when the first page was
+    read: the next page's `through`.
     """

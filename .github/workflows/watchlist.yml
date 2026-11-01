@@ -18,7 +18,8 @@
 #
 # Network: beyond its own repository and GitHub's interface for the issues,
 # the job reads only the two lists' public repositories, through
-# `actions/checkout`. It runs none of the product, so ADR 0043's deny does
+# `actions/checkout`, and, on a cache miss, the toolchain and the crates the
+# xtask build fetches. It runs none of the product, so ADR 0043's deny does
 # not apply (ADR 0043 names the watchlist job outside its rule;
 # ci/egress/endpoints.toml). While the repository is private, it shares the
 # included minutes of the hosted jobs, a few minutes a week (ADR 0135).

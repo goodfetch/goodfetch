@@ -10,21 +10,31 @@ import { extname, join } from "node:path";
 import { text } from "node:stream/consumers";
 import { WebSocketServer } from "ws";
 
-/** The Console's Content Security Policy, as ADR 0031 describes it. */
-export const PRODUCTION_CSP: string = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self'",
-  "font-src 'self'",
-  "connect-src 'self'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "require-trusted-types-for 'script'",
-  "trusted-types 'none'",
-  "report-uri /csp-report",
-].join("; ");
+/**
+ * The Console's Content Security Policy (ADR 0031); `production-csp.spec.ts` holds it to the executable's.
+ * A Console with a content origin, `contentOrigin`, may frame that origin and nothing else's, and loosens no other directive.
+ */
+export function productionCsp(contentOrigin?: string): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self'",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "manifest-src 'self'",
+    ...(contentOrigin === undefined ? [] : [`frame-src ${contentOrigin}`]),
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "require-trusted-types-for 'script'",
+    "trusted-types 'none'",
+    "report-uri /csp-report",
+  ].join("; ");
+}
+
+/** The policy of a Console with no content origin, which the fixture pages and the stand-in Console serve. */
+export const PRODUCTION_CSP: string = productionCsp();
 
 /** The served fixture pages. */
 export interface CspPages {

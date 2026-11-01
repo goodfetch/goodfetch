@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
-use goodfetch_protocol::run::{LimitScope, RunId, RunKind, Tags};
-use goodfetch_protocol::usage::{Limit, LimitSetter};
+use goodfetch_protocol::run::LimitSetter;
+use goodfetch_protocol::run::{LimitScope, RunId, RunKind};
+use goodfetch_protocol::usage::Limit;
 use goodfetch_test_support::TestEnv;
 use jiff::Timestamp;
 use rstest::rstest;
@@ -57,20 +58,21 @@ const RESERVE: Operation = Operation {
     ..CHARGE
 };
 
-/// Starts a new Collie Run named by `params`' `run_id`.
+/// Starts a new Collie Run named by `params`' `run_id`, tagged with its
+/// `tags`.
 async fn started(params: &Value, context: &CallContext) -> Result<crate::runs::Run, CallError> {
     let started = context
         .runs()
         .start(Start {
             run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
-            tags: Tags::default(),
+            tags: serde_json::from_value(params["tags"].clone()).unwrap_or_default(),
             kind: RunKind::Collie,
             needs: Product::Collie,
             inputs: BTreeMap::new(),
             ended_by: EndedBy::Finish,
             initialize: None,
             policy_version: None,
-            weakened_by: Vec::new(),
+            weakened: Vec::new(),
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: None,
@@ -102,7 +104,7 @@ fn newer_limit() -> Limit {
     }
 }
 
-fn charging() -> Contribution {
+pub(super) fn charging() -> Contribution {
     Contribution::new("test-usage")
         .with_handler(Handler::new(
             &CHARGE,
@@ -150,7 +152,7 @@ fn charging() -> Contribution {
         ))
 }
 
-fn monthly_install_limit(amount: u64) -> Value {
+pub(super) fn monthly_install_limit(amount: u64) -> Value {
     json!({
         "scope": "install",
         "usage_kind": "requests",
@@ -160,7 +162,7 @@ fn monthly_install_limit(amount: u64) -> Value {
 }
 
 /// The install's monthly Limit on requests, as the engine names it.
-fn install_month() -> Value {
+pub(super) fn install_month() -> Value {
     json!({
         "scope": { "kind": "install", "id": "" },
         "usage_kind": "requests",
@@ -547,7 +549,10 @@ fn a_run_that_can_spend_money_no_limit_caps_is_marked_uncapped(
 
     let replies = replies(&env, Product::Collie, &calls);
 
-    assert_eq!(replies.last().unwrap()["result"]["uncapped"], uncapped);
+    assert_eq!(
+        replies.last().unwrap()["result"]["usage"]["uncapped"],
+        uncapped
+    );
 }
 
 /// Covers: story:3-74

@@ -101,10 +101,10 @@ pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
         .map(|package| Entry {
             ecosystem: Ecosystem::Cargo,
             source: Some(source(&package, root)),
+            usage: usage(&package),
             name: package.name,
             version: package.version,
             license: package.license,
-            usage: Usage::Unmodified,
         })
         .collect())
 }
@@ -143,6 +143,18 @@ fn shipped(metadata: &Metadata) -> BTreeSet<String> {
         );
     }
     reached
+}
+
+/// How it is shipped: as published when it comes from a registry, and with
+/// Goodfetch's changes otherwise, as a fork the repository carries in place
+/// of its registry release (the workspace's `[patch.crates-io]`).
+fn usage(package: &Package) -> Usage {
+    match package.source.as_deref() {
+        Some(source) if source.starts_with("registry+") || source.starts_with("sparse+") => {
+            Usage::Unmodified
+        }
+        _ => Usage::Modified,
+    }
 }
 
 /// Its crates.io page, its other registry or repository, or its folder.

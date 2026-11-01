@@ -4,8 +4,10 @@
 //! VFS name as a value and production passes none. It holds every write and
 //! truncation until a sync of its file; a crash then keeps them (a process
 //! crash) or drops, tears or reorders them from the seed (a power cut), and
-//! refuses every later I/O of the crashed instance. It also injects I/O
-//! errors and a full disk at chosen operations.
+//! refuses every later I/O through a handle the crashed instance opened.
+//! Opening, deleting and looking up a file belong to the next instance, as a
+//! restarted process's would. It also injects I/O errors and a full disk at
+//! chosen operations.
 //!
 //! Files live in memory under the path SQLite opens them with, so a test
 //! touches no real file and behaves alike on every OS. Creating and deleting
@@ -21,21 +23,36 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
+use std::fmt;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use chacha20::ChaCha20Rng;
-use chacha20::rand_core::{Rng as _, SeedableRng as _};
+use chacha20::rand_core::Rng as _;
 use rusqlite::{Connection, ErrorCode, OpenFlags};
 use sqlite_plugin::flags::{AccessFlags, CreateMode, LockLevel, OpenMode, OpenOpts, ShmLockMode};
 use sqlite_plugin::vars;
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult, register_static};
 
+use crate::seeded;
+
 /// A crash VFS registered under its name. Clones share one in-memory disk.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CrashVfs {
     name: String,
     disk: Arc<Mutex<Disk>>,
+}
+
+/// The name alone: the disk is behind a lock SQLite may hold, and its
+/// shared memory is written through raw addresses, so `Debug` reads
+/// neither.
+impl fmt::Debug for CrashVfs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CrashVfs")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CrashVfs {
@@ -99,6 +116,12 @@ impl CrashVfs {
     /// same index replaces the fault.
     pub fn fail_at(&self, index: u64, fault: IoFault) {
         lock(&self.disk).faults.insert(index, fault);
+    }
+
+    /// Frees the disk an [`IoFault::Full`] filled, as a person freeing space
+    /// does: writes that grow a file succeed again.
+    pub fn free_space(&self) {
+        lock(&self.disk).full = false;
     }
 
     /// Crashes the instance: every file the code under test opened before
@@ -282,7 +305,6 @@ fn lock(disk: &Mutex<Disk>) -> MutexGuard<'_, Disk> {
 const SHM_LOCKS: usize = 8;
 
 /// The in-memory disk behind one registered VFS.
-#[derive(Debug)]
 struct Disk {
     /// Every file, by the path SQLite opened it with.
     files: BTreeMap<String, File>,
@@ -308,12 +330,25 @@ struct Disk {
     full: bool,
 }
 
+/// File names and sizes, never their bytes or the shared memory's.
+impl fmt::Debug for Disk {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sizes: BTreeMap<&str, usize> = self
+            .files
+            .iter()
+            .map(|(path, file)| (path.as_str(), file.current.len()))
+            .collect();
+        formatter
+            .debug_struct("Disk")
+            .field("files", &sizes)
+            .field("instance", &self.instance)
+            .field("operations", &self.operations)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Disk {
     fn new(seed: u64) -> Self {
-        // Keyed as `Moment::drawn` keys it: the seed's 8 little-endian
-        // bytes, then zeros.
-        let mut key = [0_u8; 32];
-        key[..8].copy_from_slice(&seed.to_le_bytes());
         Self {
             files: BTreeMap::new(),
             temporary: BTreeSet::new(),
@@ -321,7 +356,8 @@ impl Disk {
             shared_memory: BTreeMap::new(),
             next_id: 0,
             instance: 0,
-            stream: ChaCha20Rng::from_seed(key),
+            // Its own domain of the seed, apart from a kill's moment.
+            stream: seeded::stream(seed, b"crash-vfs"),
             operations: 0,
             faults: BTreeMap::new(),
             full: false,
@@ -487,11 +523,22 @@ struct SharedMemory {
 
 /// One region of shared memory. SQLite reads and writes it through the
 /// address it was given, so the memory is never borrowed again from Rust
-/// once that address is taken.
-#[derive(Debug)]
+/// once that address is taken, `Debug` included.
 struct Region {
     _memory: Vec<u8>,
     address: usize,
+    size: usize,
+}
+
+/// Its address and size, never its bytes.
+impl fmt::Debug for Region {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Region")
+            .field("address", &format_args!("{:#x}", self.address))
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Region {
@@ -501,6 +548,7 @@ impl Region {
         Self {
             _memory: memory,
             address,
+            size,
         }
     }
 

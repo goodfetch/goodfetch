@@ -11,6 +11,12 @@
 //!                                    socket-activated Daemon
 //! <home>/<major>/daemon-service.json the per-user service `daemon install`
 //!                                    registered
+//! <home>/<major>/ops.token           the ops token, mode 0600, which the
+//!                                    ops listener's `/metrics` takes
+//! <home>/<major>/http-listener.token the HTTP listener's token, mode 0600,
+//!                                    which `daemon http-listener-token`
+//!                                    prints and `daemon rotate-token`
+//!                                    replaces
 //! ```
 //!
 //! A Daemon is running while its runtime file is there and its serving
@@ -18,14 +24,20 @@
 //! lock, so a Client replaces it, and a PID the OS reused never passes for
 //! it. The start lock makes two Clients starting it at once start one. A
 //! socket path too long for the OS moves into a folder of its own in the
-//! OS's temporary folder, mode `0700`, which the runtime file names.
+//! OS's temporary folder, or in `/tmp` when that one is too deep as well,
+//! mode `0700`, which the runtime file names.
 //!
 //! A service's socket must stay where its service manager listens, so one
-//! too long for the OS moves instead into `/tmp/goodfetch-daemon-<digest>`,
+//! too long for the OS, or under systemd one whose path holds a byte that
+//! systemd escapes, moves instead into `/tmp/goodfetch-daemon-<digest>`,
 //! named by the per-major folder's path, mode `0700` and refused unless it
 //! is the user's own. A socket-activated Daemon starts before any Client
 //! could read a runtime file it writes, so its Clients' `hello` carries a
-//! persistent token, which `daemon rotate-token` replaces (ADR 0031).
+//! persistent token, which `daemon rotate-token` replaces (ADR 0031). The
+//! ops token is a token of its own, scoped to reading the metrics of the
+//! ops listener and taken by no other listener (ADR 0050); an operator may
+//! write it before the Daemon starts, as a Kubernetes Secret mounted there
+//! does, and the Daemon makes one when it finds none.
 //!
 //! These are blocking calls, made on the tasks module's blocking policy or
 //! by an executable outside its runtime.
@@ -40,11 +52,15 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, InstalledService};
+use goodfetch_protocol::daemon::{
+    DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
+};
 
 use sha2::{Digest as _, Sha256};
 
+use crate::endpoint::new_token;
 use crate::home::Home;
+use crate::transport::{self, LONGEST_SOCKET_PATH};
 
 const RUNTIME_FILE: &str = "daemon.json";
 const SOCKET: &str = "daemon.sock";
@@ -52,13 +68,19 @@ const SERVING_LOCK: &str = "daemon.lock";
 const START_LOCK: &str = "daemon-start.lock";
 const TOKEN_FILE: &str = "daemon.token";
 const SERVICE_FILE: &str = "daemon-service.json";
+const OPS_TOKEN_FILE: &str = "ops.token";
+const HTTP_LISTENER_TOKEN_FILE: &str = "http-listener.token";
+/// The page that opens the Console's sign-in link in a browser.
+const CONSOLE_OPENER: &str = "console.html";
 
-/// The longest socket path every OS takes: macOS's `sun_path` holds 104
-/// bytes, its last a NUL.
-const LONGEST_SOCKET_PATH: usize = 103;
-
-/// How many bytes of the OS generator a token takes.
-const TOKEN_BYTES: usize = 32;
+/// The token in the file at `path`, or `None` when there is none.
+fn read_token(path: &Path) -> io::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(token) => Ok(Some(token.trim().to_owned()).filter(|token| !token.is_empty())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 
 /// The Daemon's files of one major.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,11 +206,54 @@ impl DaemonFiles {
     ///
     /// When its file exists but cannot be read.
     pub fn read_token(&self) -> io::Result<Option<String>> {
-        match fs::read_to_string(self.token_file()) {
-            Ok(token) => Ok(Some(token.trim().to_owned()).filter(|token| !token.is_empty())),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
+        read_token(&self.token_file())
+    }
+
+    /// The ops token's file.
+    pub fn ops_token_file(&self) -> PathBuf {
+        self.folder.join(OPS_TOKEN_FILE)
+    }
+
+    /// The ops token, made from the OS generator when there is none.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be read or written, or the OS generator gives
+    /// nothing.
+    pub fn ops_token(&self) -> io::Result<String> {
+        match read_token(&self.ops_token_file())? {
+            Some(token) => Ok(token),
+            None => self.write_token(OPS_TOKEN_FILE),
         }
+    }
+
+    /// The HTTP listener's token's file.
+    pub fn http_listener_token_file(&self) -> PathBuf {
+        self.folder.join(HTTP_LISTENER_TOKEN_FILE)
+    }
+
+    /// The HTTP listener's token, a token of its own (spec #608), made
+    /// from the OS generator when there is none.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be read or written, or the OS generator gives
+    /// nothing.
+    pub fn http_listener_token(&self) -> io::Result<String> {
+        match read_token(&self.http_listener_token_file())? {
+            Some(token) => Ok(token),
+            None => self.rotate_http_listener_token(),
+        }
+    }
+
+    /// Replaces the HTTP listener's token with a new one from the OS
+    /// generator, readable and writable by its owner alone, in one rename.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be written, or the OS generator gives nothing.
+    pub fn rotate_http_listener_token(&self) -> io::Result<String> {
+        self.write_token(HTTP_LISTENER_TOKEN_FILE)
     }
 
     /// The persistent token, made from the OS generator when there is none.
@@ -211,16 +276,52 @@ impl DaemonFiles {
     ///
     /// When its file cannot be written, or the OS generator gives nothing.
     pub fn rotate_token(&self) -> io::Result<String> {
+        self.write_token(TOKEN_FILE)
+    }
+
+    /// Writes a new token from the OS generator to the file `name`,
+    /// readable and writable by its owner alone, in one rename.
+    fn write_token(&self, name: &str) -> io::Result<String> {
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
         fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon.token.partial");
+        let partial = self.folder.join(format!(".{name}.partial"));
         remove(&partial)?;
         let mut written = owner_only(&partial)?;
         written.write_all(token.as_bytes())?;
         written.sync_all()?;
         drop(written);
-        fs::rename(&partial, self.token_file())?;
+        fs::rename(&partial, self.folder.join(name))?;
         Ok(token)
+    }
+
+    /// Writes the page that opens the Console's sign-in link `link`,
+    /// readable and writable by its owner alone, as the runtime file that
+    /// holds the same token is, and answers its path: a browser opened on
+    /// it goes on to the link, so the token is never in a command line
+    /// another user's process list shows.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be written.
+    pub fn write_console_opener(&self, link: &str) -> io::Result<PathBuf> {
+        let escaped = link
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let page = format!(
+            "<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta http-equiv=\"refresh\" content=\"0;url={escaped}\">\n<title>Console</title>\n<a href=\"{escaped}\" rel=\"noreferrer\">Open the Console</a>\n"
+        );
+        fs::create_dir_all(&self.folder)?;
+        let path = self.folder.join(CONSOLE_OPENER);
+        let partial = self.folder.join(".console.html.partial");
+        remove(&partial)?;
+        let mut written = owner_only(&partial)?;
+        written.write_all(page.as_bytes())?;
+        written.sync_all()?;
+        drop(written);
+        fs::rename(&partial, &path)?;
+        Ok(path)
     }
 
     /// Removes the persistent token.
@@ -270,16 +371,27 @@ impl DaemonFiles {
         remove(&self.folder.join(SERVICE_FILE))
     }
 
-    /// Where a service's socket goes, the same at every start: in the
-    /// per-major folder, or, when that path is too long for the OS, in
-    /// `/tmp/goodfetch-daemon-<digest>`, the user's own, mode `0700`.
+    /// Where the socket of a service that `manager` runs goes, the same at
+    /// every start: in the per-major folder, or, when that path is too long
+    /// for the OS, or `manager` is systemd and the path holds a byte it
+    /// escapes, in `/tmp/goodfetch-daemon-<digest>`, the user's own, mode
+    /// `0700`. systemd writes each listening socket's path with C escapes
+    /// when its manager reloads, and reads back the escaped text as the
+    /// path, so that socket would stop listening at the first reload any
+    /// program asks for (#1781).
     ///
     /// # Errors
     ///
     /// When that folder cannot be made, or is not the user's own.
-    pub fn service_socket(&self) -> io::Result<PathBuf> {
+    pub fn service_socket(&self, manager: ServiceManager) -> io::Result<PathBuf> {
         let socket = self.socket();
-        if socket.as_os_str().len() <= LONGEST_SOCKET_PATH {
+        let kept = manager != ServiceManager::Systemd
+            || !socket
+                .as_os_str()
+                .as_encoded_bytes()
+                .iter()
+                .any(|&byte| systemd_escapes(byte));
+        if kept && socket.as_os_str().len() <= LONGEST_SOCKET_PATH {
             return Ok(socket);
         }
         fs::create_dir_all(&self.folder)?;
@@ -328,7 +440,8 @@ impl DaemonFiles {
 
     /// Where the socket goes: in the per-major folder, or, when that path
     /// is too long for the OS, in a folder of its own in the OS's temporary
-    /// folder, which lives as long as the answered guard.
+    /// folder, or in `/tmp` when that one is too deep as well, which lives
+    /// as long as the answered guard.
     ///
     /// # Errors
     ///
@@ -339,26 +452,15 @@ impl DaemonFiles {
             fs::create_dir_all(&self.folder)?;
             return Ok((socket, None));
         }
-        let folder = tempfile::Builder::new()
-            .prefix("goodfetch-daemon-")
-            .tempdir()?;
+        let folder = transport::socket_folder("goodfetch-daemon-", SOCKET)?;
         Ok((folder.path().join(SOCKET), Some(folder)))
     }
 }
 
-/// A per-launch token from the OS generator, never from `Entropy` (ADR
-/// 0059): 32 bytes, in lowercase hex.
-///
-/// # Errors
-///
-/// When the OS generator gives nothing.
-pub fn new_token() -> Result<String, getrandom::Error> {
-    let mut bytes = [0; TOKEN_BYTES];
-    getrandom::fill(&mut bytes)?;
-    Ok(bytes.iter().fold(String::new(), |mut token, byte| {
-        let _ = write!(token, "{byte:02x}");
-        token
-    }))
+/// Whether systemd's C escaping (`cescape`) changes `byte`: a control or
+/// non-ASCII byte, `\`, `"` or `'`.
+fn systemd_escapes(byte: u8) -> bool {
+    !(b' '..=b'~').contains(&byte) || matches!(byte, b'\\' | b'"' | b'\'')
 }
 
 fn remove(path: &Path) -> io::Result<()> {

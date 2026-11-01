@@ -27,6 +27,27 @@ const AUDIT_LOG: &str = "audit-log.sqlite";
 /// The Audit log's head file, beside its store.
 const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
 
+/// The known-certificates store, beside the Usage ledger (ADR 0042).
+const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
+
+/// The per-major accounts store, beside the Operator policy (spec #592).
+const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
+
+/// The Console key, outside the per-major folders (ADR 0098).
+const CONSOLE_KEY: &str = "console-key";
+
+/// The log folder, outside the per-major folders, where every Daemon but
+/// `daemon run` writes its JSON lines (ADR 0122).
+const LOGS: &str = "logs";
+
+/// The encrypted local files' folder, outside the per-major folders
+/// (spec #564).
+const SECRET_FILES: &str = "secrets";
+
+/// The lock an engine holds while it makes its own key-encryption key,
+/// outside the per-major folders (spec #564).
+const ENGINE_KEY_LOCK: &str = "engine-key.lock";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +125,47 @@ impl Home {
     /// entry so that a truncated tail shows.
     pub fn audit_log_head(&self) -> PathBuf {
         self.root.join(AUDIT_LOG_HEAD)
+    }
+
+    /// The per-user known-certificates store, beside the Usage ledger and
+    /// outside the per-major folders, which every engine of every major and
+    /// of both Products reads (ADR 0042).
+    pub fn known_certificates(&self) -> PathBuf {
+        self.root.join(KNOWN_CERTIFICATES)
+    }
+
+    /// The accounts store of the Product version `version`'s major, in its
+    /// per-major folder beside the Operator policy, which only that major's
+    /// Daemon opens (spec #592).
+    pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(ACCOUNTS_STORE)
+    }
+
+    /// The log folder, outside the per-major folders, which holds one set
+    /// of files per Daemon and one per other process that writes its own
+    /// (ADR 0122).
+    pub fn logs(&self) -> PathBuf {
+        self.root.join(LOGS)
+    }
+
+    /// The per-user Console key, outside the per-major folders, which every
+    /// major shares (ADR 0098).
+    pub fn console_key(&self) -> PathBuf {
+        self.root.join(CONSOLE_KEY)
+    }
+
+    /// The folder of the encrypted local files `secretfile:` reads, and of
+    /// the identity they are encrypted to, outside the per-major folders,
+    /// which every major and both Products share (spec #564).
+    pub fn secret_files(&self) -> PathBuf {
+        self.root.join(SECRET_FILES)
+    }
+
+    /// The file whose lock an engine holds while it makes its own
+    /// key-encryption key in the OS keychain, so two engines of the user,
+    /// of any major and either Product, make one between them.
+    pub fn engine_key_lock(&self) -> PathBuf {
+        self.root.join(ENGINE_KEY_LOCK)
     }
 }
 

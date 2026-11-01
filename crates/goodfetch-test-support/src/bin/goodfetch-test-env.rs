@@ -1,6 +1,8 @@
 //! `goodfetch-test-env` (ADR 0062): a test's setup for TypeScript and
 //! Python. It builds a `TestEnv`, prints its description as one JSON line on
-//! stdout, and tears it down when its stdin closes. It exits non-zero, with a
+//! stdout, and tears it down when its stdin closes, keeping the test's folder
+//! when a line `failed` came first, as the packages write for a failed test.
+//! It exits non-zero, with a
 //! message on stderr, when a start fails. `--proving-ground <seed>` also
 //! starts the commit's Proving ground on that seed, which the description
 //! names and which stops before the folder is removed. `--daemon` also
@@ -8,6 +10,9 @@
 //! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
 //! description names its socket and token, and at teardown it is stopped
 //! with its executable's `daemon stop` and must leave no runtime file.
+//! `--console-port <port>` has its Console serve on that port, which a test
+//! that restarts the Daemon names so that no other program can take it in
+//! between, instead of one the OS chooses.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
@@ -59,6 +64,9 @@ struct Arguments {
         default_missing_value = "collie"
     )]
     daemon: Option<Product>,
+    /// The port the Daemon's Console serves on, instead of one the OS chooses.
+    #[arg(long, value_name = "PORT", requires = "daemon")]
+    console_port: Option<u16>,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -170,10 +178,10 @@ fn print_schemas() -> Result<(), Failure> {
 fn serve(arguments: &Arguments) -> Result<(), Failure> {
     let mut env = TestEnv::create(&arguments.test_name, &Variables::from_process())?;
     if let Some(tag) = &arguments.locale {
-        env = env.with_locale(tag);
+        env = env.with_locale(tag)?;
     }
     if let Some(zone) = &arguments.time_zone {
-        env = env.with_time_zone(zone);
+        env = env.with_time_zone(zone)?;
     }
     let tools = tools()?;
     let mut description = Description::new(&env, tools.clone());
@@ -191,6 +199,9 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     };
     let daemon = match arguments.daemon {
         Some(product) => {
+            if let Some(port) = arguments.console_port {
+                env.user_configuration(&format!("console.address = \"127.0.0.1:{port}\"\n"));
+            }
             // Its process joins the TestEnv's record too.
             let started =
                 Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;
@@ -200,11 +211,21 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         None => None,
     };
     write_line(&serde_json::to_string(&description)?)?;
+    let mut input = Vec::new();
     #[expect(
         clippy::disallowed_methods,
         reason = "goodfetch-test-env tears down when its stdin closes (ADR 0062)"
     )]
-    io::stdin().read_to_end(&mut Vec::new())?;
+    io::stdin().read_to_end(&mut input)?;
+    // A package whose test failed writes `failed` before it closes stdin:
+    // the folder stays for the failure's evidence, as a failed Rust test's.
+    let mut env = env;
+    if input
+        .split(|byte| *byte == b'\n')
+        .any(|line| line == b"failed")
+    {
+        env.keep();
+    }
     if let Some(daemon) = daemon {
         daemon.stop(&env)?;
     }

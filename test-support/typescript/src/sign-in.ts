@@ -34,7 +34,10 @@ export async function signInTo(
     withLink: async (page) => {
       const link = await daemon.signInLink();
       await page.goto(link);
-      await expectSignedIn(page, daemon, `the Console did not sign in through its link ${link}`);
+      // A link that carries its token in the fragment is signed in once
+      // the page has swapped it and taken it out of the address.
+      await page.waitForURL((url) => url.hash === "");
+      await expectSignedIn(page, daemon, "the Console did not sign in through its link");
     },
     withOidc: async (page, person = OIDC_PERSON) => {
       await page.goto(daemon.singleSignOn);
@@ -48,10 +51,17 @@ export async function signInTo(
       await form.getByRole("button", { name: "Sign in" }).click();
       const answer = await submitted;
       if (answer.status() !== 303) {
-        const alert = await page.getByRole("alert").textContent();
+        // Only the login page refusing a password has an alert: read it
+        // without waiting, else the answer itself, so no other answer waits
+        // out the test's timeout.
+        const alerts = page.getByRole("alert");
+        const why =
+          (await alerts.count()) > 0
+            ? await alerts.first().textContent()
+            : `HTTP ${answer.status()}, ${await answer.text()}`;
         throw new TestSupportError(
           "sign_in_failed",
-          `the OIDC provider did not sign ${person.login} in: ${alert ?? `HTTP ${answer.status()}`}`,
+          `the OIDC provider did not sign ${person.login} in: ${why ?? `HTTP ${answer.status()}`}`,
         );
       }
       await page.waitForURL((url) => url.href.startsWith(daemon.url));

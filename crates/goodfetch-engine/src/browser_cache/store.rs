@@ -51,6 +51,28 @@ pub(super) fn is_segment(segment: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+'))
 }
 
+/// Writes `files`, each a relative path with its bytes, under `folder`.
+///
+/// # Errors
+///
+/// When a path leaves `folder`, or a file cannot be written.
+pub(super) fn write_files(folder: &Path, files: &[(String, Vec<u8>)]) -> io::Result<()> {
+    for (path, bytes) in files {
+        if !path.split('/').all(is_segment) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("`{path}` is no path inside an artifact"),
+            ));
+        }
+        let file = folder.join(path);
+        if let Some(parent) = file.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(file, bytes)?;
+    }
+    Ok(())
+}
+
 /// The folder of `id`'s entry.
 pub(super) fn entry_folder(root: &Path, id: &ArtifactId) -> PathBuf {
     root.join(id.kind.as_str()).join(&id.name).join(&id.build)
@@ -207,6 +229,22 @@ pub(super) fn install(
             Err(error)
         }
     }
+}
+
+/// The bytes the files under `folder` take, its subfolders' included;
+/// links are counted as themselves, never followed.
+pub(super) fn bytes(folder: &Path) -> io::Result<u64> {
+    let mut total = 0;
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        total += if metadata.is_dir() {
+            bytes(&entry.path())?
+        } else {
+            metadata.len()
+        };
+    }
+    Ok(total)
 }
 
 /// Moves `folder` out of the cache into `.deleting/`, then deletes it. A

@@ -24,17 +24,27 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{ConsoleState, DAEMON_DEADLINE, Daemon, RuntimeFile, TestEnv, cli};
 use rstest::rstest;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::daemon::{StopsTheDaemon, validate};
+use crate::content_origin::Signed;
+use crate::daemon::{RawClient, StopsTheDaemon, validate};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The production Content Security Policy every answer carries (ADR 0031).
-const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report";
+/// The production Content Security Policy every answer carries (ADR 0031):
+/// with a content origin `content`, it lets the Console frame that origin,
+/// and nothing else's, and loosens no other directive: the content origin's
+/// files, images included, show in its `sandbox` frames. With none, it has
+/// no `frame-src`.
+pub(crate) fn policy(content: Option<&str>) -> String {
+    let frames = content.map_or_else(String::new, |content| format!("frame-src {content}; "));
+    format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; {frames}base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'; report-uri /csp-report"
+    )
+}
 
 /// The Console build Collie's executable embeds.
 fn console_build() -> PathBuf {
@@ -110,6 +120,28 @@ enum Route {
     Some("text/html; charset=utf-8"),
     "no-cache"
 )]
+#[case::a_route_of_the_build(
+    "GET",
+    Route::Path("/settings"),
+    200,
+    Some("text/html; charset=utf-8"),
+    "no-cache"
+)]
+#[case::a_route_with_a_parameter(
+    "GET",
+    Route::Path("/runs/nightly-run"),
+    200,
+    Some("text/html; charset=utf-8"),
+    "no-cache"
+)]
+#[case::a_path_longer_than_a_route(
+    "GET",
+    Route::Path("/runs/nightly-run/more"),
+    404,
+    None,
+    "no-store"
+)]
+#[case::a_route_with_an_empty_parameter("GET", Route::Path("/runs/"), 404, None, "no-store")]
 #[case::its_icon(
     "GET",
     Route::Path("/favicon.svg"),
@@ -139,8 +171,53 @@ enum Route {
     "public, max-age=31536000, immutable"
 )]
 #[case::a_policy_report("POST", Route::Path("/csp-report"), 204, None, "no-store")]
-#[case::a_path_with_no_file("GET", Route::Path("/runs"), 404, None, "no-store")]
+#[case::a_path_with_no_file("GET", Route::Path("/no-such-screen"), 404, None, "no-store")]
 #[case::a_write_to_the_page("POST", Route::Path("/"), 405, None, "no-store")]
+#[case::a_sign_in_from_no_page("POST", Route::Path("/sign-in"), 403, None, "no-store")]
+#[case::a_read_of_the_sign_in("GET", Route::Path("/sign-in"), 405, None, "no-store")]
+#[case::a_session_signed_out("GET", Route::Path("/session"), 401, None, "no-store")]
+#[case::an_offline_key_from_no_page("POST", Route::Path("/offline-key"), 403, None, "no-store")]
+#[case::a_read_of_the_offline_key("GET", Route::Path("/offline-key"), 405, None, "no-store")]
+#[case::a_websocket_from_no_page("GET", Route::Path("/protocol"), 403, None, "no-store")]
+#[case::an_event_stream_signed_out("GET", Route::Path("/protocol/events"), 401, None, "no-store")]
+#[case::a_write_to_the_event_stream("POST", Route::Path("/protocol/events"), 405, None, "no-store")]
+#[case::a_post_to_an_event_stream_from_no_page(
+    "POST",
+    Route::Path("/protocol/messages/0000000000000000"),
+    403,
+    None,
+    "no-store"
+)]
+#[case::a_read_of_an_event_streams_messages(
+    "GET",
+    Route::Path("/protocol/messages/0000000000000000"),
+    405,
+    None,
+    "no-store"
+)]
+#[case::a_file_by_handle_signed_out(
+    "GET",
+    Route::Path("/bodies/first/0000000000000000000000000000000000000000000000000000000000000000"),
+    401,
+    None,
+    "no-store"
+)]
+#[case::a_content_address_signed_out(
+    "GET",
+    Route::Path(
+        "/content-address/first/0000000000000000000000000000000000000000000000000000000000000000"
+    ),
+    401,
+    None,
+    "no-store"
+)]
+#[case::a_write_to_a_file_by_handle(
+    "POST",
+    Route::Path("/bodies/first/0000000000000000000000000000000000000000000000000000000000000000"),
+    405,
+    None,
+    "no-store"
+)]
 fn every_console_answer_carries_the_production_headers(
     #[case] method: &str,
     #[case] route: Route,
@@ -149,7 +226,8 @@ fn every_console_answer_carries_the_production_headers(
     #[case] cache: &str,
 ) {
     let env = TestEnv::new();
-    let daemon = Daemon::start_program(&env, Path::new(COLLIE), DAEMON_DEADLINE).unwrap();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let content = Signed::started(&env).content();
     let path = match route {
         Route::Path(path) => path.to_owned(),
         Route::Asset(suffix) => served_path_ending_in(suffix),
@@ -174,7 +252,11 @@ fn every_console_answer_carries_the_production_headers(
             .map(|value| value.to_str().unwrap().to_owned())
     };
     assert_eq!(response.status().as_u16(), status);
-    assert_eq!(header("content-security-policy").as_deref(), Some(POLICY));
+    assert_eq!(
+        header("content-security-policy"),
+        Some(policy(Some(&content))),
+        "the Console's policy names its content origin"
+    );
     assert_eq!(header("referrer-policy").as_deref(), Some("no-referrer"));
     assert_eq!(
         header("cross-origin-opener-policy").as_deref(),
@@ -189,7 +271,6 @@ fn every_console_answer_carries_the_production_headers(
     assert_eq!(header("content-type").as_deref(), content_type);
     let encoding = content_type.map(|_| "br");
     assert_eq!(header("content-encoding").as_deref(), encoding);
-    daemon.stop(&env).unwrap();
 }
 
 /// Covers: story:12-128
@@ -212,6 +293,33 @@ fn the_console_serves_its_builds_files_as_they_are_stored() {
     daemon.stop(&env).unwrap();
 }
 
+/// A Run on a Daemon that serves the Console names its page there in its
+/// report (ADRs 0031 and 0102).
+/// Covers: story:3-154, operation:run.start, operation:run.finish
+#[test]
+fn a_runs_report_names_its_page_in_the_console_its_daemon_serves() {
+    let env = TestEnv::new();
+    env.user_configuration("console.address = \"127.0.0.1:0\"\n");
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let started = cli(&env, COLLIE)
+        .args(["daemon", "start", "--json"])
+        .run()
+        .unwrap();
+    assert_eq!(started.exit, Some(0), "{}", started.stderr);
+
+    let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
+    let mut client = RawClient::opened(&found, "collie");
+
+    let started = client.call(1, "run.start", &serde_json::json!({ "run_id": "paged" }));
+    let finished = client.call(2, "run.finish", &serde_json::json!({ "run_id": "paged" }));
+
+    assert_eq!(started["result"]["run_id"], "paged", "{started}");
+    assert_eq!(
+        finished["result"]["console_url"],
+        Value::from(format!("{}runs/paged", console_url(&env)))
+    );
+}
+
 /// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status
 #[test]
 fn a_daemon_on_port_zero_reports_its_consoles_address() {
@@ -226,7 +334,7 @@ fn a_daemon_on_port_zero_reports_its_consoles_address() {
 
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
     let started: Value = serde_json::from_str(&started.stdout).unwrap();
-    validate(&started, "DaemonStartOutput");
+    validate(&started, "DaemonStatus");
     let url = console_url(&env);
     let port: u16 = url
         .trim_start_matches("http://127.0.0.1:")
@@ -234,16 +342,16 @@ fn a_daemon_on_port_zero_reports_its_consoles_address() {
         .parse()
         .unwrap();
     assert_ne!(port, 0);
-    assert_eq!(started["daemon"]["console"]["serving"], url.as_str());
+    assert_eq!(started["console_url"], url.as_str());
     let status = cli(&env, COLLIE)
         .args(["daemon", "status", "--json"])
         .run()
         .unwrap();
     let status: Value = serde_json::from_str(&status.stdout).unwrap();
-    assert_eq!(status["daemon"]["console"]["serving"], url.as_str());
+    assert_eq!(status["console_url"], url.as_str());
 }
 
-/// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status
+/// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status, command:daemon.restart
 #[test]
 fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
     let env = TestEnv::new();
@@ -257,18 +365,23 @@ fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
         .run()
         .unwrap();
 
-    // `console_port_in_use` has no row of its own: its group's, `8`.
+    // `console_port_in_use` has no row of its own: its group's, `8`. Under
+    // `--json` the status printed carries the failure as `console_error`
+    // (608-O4), and a person reads it as every failure prints.
     assert_eq!(started.exit, Some(8), "{}", started.stderr);
-    let started: Value = serde_json::from_str(&started.stdout).unwrap();
+    let printed: Value = serde_json::from_str(&started.stdout).unwrap();
+    let error = &printed["console_error"];
     assert_eq!(
-        started["daemon"]["console"]["failed"]["code"],
-        "console_port_in_use"
-    );
-    assert!(
-        started["daemon"]["console"]["failed"]["fix"]
-            .as_str()
-            .unwrap()
-            .contains("`console.address`")
+        (
+            printed["pid"].is_u64(),
+            printed["console_url"].clone(),
+            error["code"].clone(),
+            error["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("`console.address`")),
+        ),
+        (true, Value::Null, json!("console_port_in_use"), true),
+        "{started}"
     );
     let status = cli(&env, COLLIE)
         .args(["daemon", "status", "--json"])
@@ -277,8 +390,23 @@ fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
     assert_eq!(status.exit, Some(0), "{}", status.stderr);
     let status: Value = serde_json::from_str(&status.stdout).unwrap();
     assert_eq!(
-        status["daemon"]["console"]["failed"]["code"],
-        "console_port_in_use"
+        (
+            status["console_url"].clone(),
+            status["console_error"]["code"].clone()
+        ),
+        (Value::Null, json!("console_port_in_use"))
+    );
+    let restarted = cli(&env, COLLIE).args(["daemon", "restart"]).run().unwrap();
+    assert_eq!(
+        (
+            restarted.exit,
+            restarted
+                .stderr
+                .lines()
+                .any(|line| line == "code: console_port_in_use"),
+        ),
+        (Some(8), true),
+        "{restarted}"
     );
     drop(held);
 }

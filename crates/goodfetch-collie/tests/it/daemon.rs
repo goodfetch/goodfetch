@@ -19,15 +19,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_test_support::{
-    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
-    ListenerKind, Process, Rule, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
+    Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
+    ListenerKind, Process, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
     record_command, reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
@@ -103,7 +102,7 @@ fn installed_copy(env: &TestEnv) -> PathBuf {
         .join(Path::new(COLLIE).file_name().unwrap())
 }
 
-fn runtime_file(env: &TestEnv) -> PathBuf {
+pub(crate) fn runtime_file(env: &TestEnv) -> PathBuf {
     RuntimeFile::path(env.home(), VERSION)
 }
 
@@ -159,8 +158,15 @@ impl RawClient {
 
     /// Whether the Daemon `found` names closes, unanswered, a Connection
     /// whose `hello` carries `found`'s token.
+    #[cfg(unix)]
     pub(crate) fn refused(found: &RuntimeFile) -> bool {
-        let mut client = Self::connected(&found.endpoint);
+        Self::refused_at(&found.endpoint, &found.token)
+    }
+
+    /// Whether the Daemon at `endpoint` closes, unanswered, a Connection
+    /// whose `hello` carries `token`.
+    pub(crate) fn refused_at(endpoint: &DaemonEndpoint, token: &str) -> bool {
+        let mut client = Self::connected(endpoint);
         client.send(&json!({
             "jsonrpc": "2.0",
             "id": 0,
@@ -168,7 +174,7 @@ impl RawClient {
             "params": {
                 "protocol_version": PROTOCOL_VERSION.to_string(),
                 "surface": "sdk_typescript",
-                "token": found.token,
+                "token": token,
                 "needs": "collie",
                 "product_version": VERSION,
             },
@@ -245,9 +251,9 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
     let stopped = json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
     let after = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
-    validate(&started, "DaemonStartOutput");
-    validate(&status, "DaemonStatusOutput");
-    validate(&stopped, "DaemonStopOutput");
+    validate(&started, "DaemonStatus");
+    validate(&status, "DaemonStatus");
+    validate(&stopped, "DaemonStatus");
     let copy = &installed_copy(&env);
     let installed: Value = serde_json::from_slice(
         &std::fs::read(env.home().join("installed-executables.json")).unwrap(),
@@ -255,35 +261,36 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
     .unwrap();
     assert_eq!(
         (
-            started["started"].clone(),
-            status["daemon"]["product"].clone(),
-            status["daemon"]["pid"].clone(),
+            started["pid"] == status["pid"],
+            status["product"].clone(),
+            status["pid"].clone(),
             found.version.as_str(),
             installed["executables"][0]["copy"]["kind"].clone(),
             copy.is_file(),
-            stopped,
-            after["daemon"].clone(),
+            stopped["pid"].clone(),
+            after["pid"].clone(),
         ),
         (
-            json!(true),
+            true,
             json!("collie"),
             json!(found.pid),
             VERSION,
             json!("executable_copy"),
             true,
-            json!({ "stopped": { "live_runs": 0 } }),
+            Value::Null,
             Value::Null,
         )
     );
 }
 
 /// With no service installed, `daemon uninstall` has nothing to remove and
-/// `daemon rotate-token` refuses, since a Daemon's token is new at each
-/// launch; neither touches a service manager.
+/// `daemon rotate-token` replaces the persistent token a foreground Daemon
+/// takes; neither touches a service manager.
 ///
 /// Covers: story:3-21, command:daemon.uninstall, command:daemon.rotate-token
 #[test]
-fn with_no_service_installed_uninstall_removes_nothing_and_no_token_rotates() {
+fn with_no_service_installed_uninstall_removes_nothing_and_rotate_token_replaces_the_persistent_token()
+ {
     let env = TestEnv::new();
 
     let uninstalled = json_of(COLLIE.as_ref(), &env, &["daemon", "uninstall", "--json"]);
@@ -294,25 +301,18 @@ fn with_no_service_installed_uninstall_removes_nothing_and_no_token_rotates() {
     let status = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
     validate(&uninstalled, "DaemonUninstallOutput");
+    validate(
+        &serde_json::from_str(&rotated.stdout).unwrap(),
+        "TokenRotated",
+    );
     assert_eq!(
         (
             uninstalled,
             rotated.exit,
-            rotated.stdout.as_str(),
-            rotated
-                .stderr
-                .contains("no service with socket activation is installed"),
             status["service"].clone(),
             env.home().join("0.0").join("daemon.token").exists(),
         ),
-        (
-            json!({ "removed": null }),
-            Some(1),
-            "",
-            true,
-            Value::Null,
-            false,
-        )
+        (json!({ "removed": null }), Some(0), Value::Null, true)
     );
 }
 
@@ -357,14 +357,74 @@ fn two_starts_at_once_start_one_daemon() {
         .map(|child| serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap())
         .collect();
 
-    let mut started: Vec<bool> = outputs
-        .iter()
-        .map(|output| output["started"].as_bool().unwrap())
-        .collect();
-    started.sort_unstable();
+    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
     assert_eq!(
-        (started, outputs[0]["daemon"]["pid"].clone()),
-        (vec![false, true], outputs[1]["daemon"]["pid"].clone())
+        (outputs[0]["pid"].clone(), outputs[1]["pid"].clone()),
+        (json!(found.pid), json!(found.pid))
+    );
+}
+
+/// Collie's executable run with a Goodfetch home and a temporary folder of
+/// the test's choosing, which stops that home's Daemon when the test ends,
+/// passing or failing.
+#[cfg(unix)]
+struct Under<'env> {
+    env: &'env TestEnv,
+    home: PathBuf,
+    temporary: PathBuf,
+}
+
+#[cfg(unix)]
+impl Under<'_> {
+    fn run(&self, arguments: &[&str]) -> goodfetch_test_support::CliOutput {
+        cli(self.env, COLLIE)
+            .env("GOODFETCH_HOME", &self.home)
+            .env("TMPDIR", &self.temporary)
+            .args(arguments)
+            .run()
+            .unwrap()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Under<'_> {
+    fn drop(&mut self) {
+        self.run(&["daemon", "stop"]);
+    }
+}
+
+/// A Daemon whose Goodfetch home and temporary folder are both too deep
+/// for the OS's socket paths, as a long user or project name under a
+/// sandbox's or build tool's `TMPDIR` makes them, still serves, on a socket
+/// whose path the OS takes.
+///
+/// Covers: story:3-11, command:daemon.start
+#[cfg(unix)]
+#[test]
+fn a_daemon_under_a_deep_home_and_temporary_folder_serves_on_a_socket_the_os_takes() {
+    let env = TestEnv::new();
+    let deep = env
+        .folder()
+        .join("a folder as deep as a sandbox's or a build tool's temporary folder can be");
+    std::fs::create_dir_all(deep.join("tmp")).unwrap();
+    let under = Under {
+        env: &env,
+        home: deep.join("home"),
+        temporary: deep.join("tmp"),
+    };
+
+    let started = under.run(&["daemon", "start", "--json"]);
+    let found = RuntimeFile::read(&RuntimeFile::path(&under.home, VERSION));
+
+    let socket = found.as_ref().ok().map(|found| match &found.endpoint {
+        DaemonEndpoint::Unix(socket) => socket.as_os_str().len() <= 103,
+        DaemonEndpoint::Tcp(_) => false,
+    });
+    assert_eq!(
+        (started.exit, socket),
+        (Some(0), Some(true)),
+        "{}",
+        started.stderr
     );
 }
 
@@ -380,7 +440,7 @@ fn the_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {
     let after = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
     assert_eq!(
-        (after["daemon"].clone(), runtime_file(&env).exists()),
+        (after["pid"].clone(), runtime_file(&env).exists()),
         (Value::Null, false)
     );
 }
@@ -412,10 +472,7 @@ fn daemon_launched_prints_its_runtime_file_once_it_serves_and_exits_0_when_stopp
     let exit = daemon.child().wait().unwrap().code();
     record_command(&env, &["daemon", "launched"], exit).unwrap();
 
-    assert_eq!(
-        (status["daemon"]["pid"].clone(), exit),
-        (json!(printed.pid), Some(0))
-    );
+    assert_eq!((status["pid"].clone(), exit), (json!(printed.pid), Some(0)));
 }
 
 /// A Daemon killed while a Client's Run is live leaves that Run's state
@@ -464,24 +521,17 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
         (
             lifecycle.as_str(),
             integrity.as_str(),
-            restarted["started"].clone(),
-            restarted["daemon"]["pid"] == json!(found.pid)
+            restarted["pid"].is_u64(),
+            restarted["pid"] == json!(found.pid)
         ),
-        ("running", "ok", json!(true), false)
+        ("running", "ok", true, false)
     );
 }
 
-/// The endpoint table's Daemon socket column, each refusal checked in the
-/// Daemon's log until the Audit log records it (area 4).
-///
-/// Covers: story:3-12
-#[test]
-fn the_daemon_socket_passes_its_endpoint_table_rows() {
-    let env = TestEnv::new();
-    short_idle(&env, 60_000);
-    let _stops = StopsTheDaemon::of(&env, COLLIE);
-    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
-    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
+/// The Daemon socket of the Daemon the runtime file of `env`'s home names,
+/// as the endpoint table's listener, with its token.
+pub(crate) fn socket_listener(env: &TestEnv) -> Listener {
+    let found = RuntimeFile::read(&runtime_file(env)).unwrap();
     let address = match &found.endpoint {
         #[cfg(unix)]
         DaemonEndpoint::Unix(path) => ListenerAddress::Unix(path.clone()),
@@ -495,49 +545,55 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
         "needs": "collie",
         "product_version": VERSION,
     });
-    let listener = Listener::new(
+    Listener::new(
         ListenerKind::DaemonSocket,
         Endpoint::JsonRpc {
             address,
             hello: Hello::new(hello.as_object().unwrap().clone(), "token"),
         },
-        found.token.clone(),
+        found.token,
     )
-    .with_other_listener_token("a-private-endpoints-token");
-    let log = env
-        .home()
-        .join("logs")
-        .join(format!("goodfetch-collie-{}.jsonl", found.pid));
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-    let verifier = move |_: ListenerKind, rule: Rule| {
-        let reason = match rule {
-            Rule::TokenMissing => "token_missing",
-            Rule::TokenWrong | Rule::TokenFromAnotherListener => "token_wrong",
-            Rule::HelloNotFirst => "hello_not_first",
-            _ => return Ok(false),
-        };
-        let text = std::fs::read_to_string(&log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!("daemon_socket")
-                    && record["fields"]["reason"] == json!(reason)
-            })
-            .count();
-        let earlier = seen.insert(reason.to_owned(), refusals).unwrap_or(0);
-        Ok(refusals > earlier)
-    };
+}
 
-    let ran = EndpointRunner::new(verifier).run(&listener);
+/// The token of the Daemon the runtime file of `env`'s home names.
+fn daemon_token(env: &TestEnv) -> String {
+    RuntimeFile::read(&runtime_file(env)).unwrap().token
+}
+
+/// The endpoint table's Daemon socket column, each refusal found in the
+/// Audit log: the token of a launch `daemon stop` ended is expired, that of
+/// the launch `daemon restart` replaced is revoked, and the operator's ops
+/// token, read-only on `/metrics`, is scoped elsewhere.
+///
+/// Covers: story:3-12, story:4-21, story:4-24, story:4-90
+#[test]
+fn the_daemon_socket_passes_its_endpoint_table_rows() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let mut canaries = Canaries::new(env.seed());
+    let ops_token = crate::endpoint::provision_ops_token(&env, &mut canaries);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let expired = daemon_token(&env);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let revoked = daemon_token(&env);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "restart", "--json"]);
+    let listener = socket_listener(&env)
+        .with_other_listener_token("a-private-endpoints-token")
+        .with_expired_token(expired)
+        .with_revoked_token(revoked)
+        .with_scoped_elsewhere_token(ops_token);
+
+    let ran =
+        EndpointRunner::new(crate::endpoint::audit_verifier(&env, "daemon_socket")).run(&listener);
 
     assert_eq!(ran, Ok(()));
 }
 
 /// Starts the Scripted engine as the Daemon of the test's home, on a script
 /// of the corpus's `daemon/` group.
-fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
+pub(crate) fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
     let scripted = tools()
         .unwrap()
         .path(goodfetch_test_support::Tool::ScriptedEngine)
@@ -555,18 +611,8 @@ fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
 }
 
 fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
-    let mut settings = snapshot_settings(&SnapshotValues::of(env));
-    settings.add_filter(&regex_escape(COLLIE), "[COLLIE]");
-    settings.bind(|| insta::assert_snapshot!(name, stderr.trim()));
-}
-
-fn regex_escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            let escaped = "\\.+*?()|[]{}^$".contains(character);
-            escaped.then_some('\\').into_iter().chain([character])
-        })
-        .collect()
+    let values = SnapshotValues::of(env).with_path(COLLIE, "[COLLIE]");
+    snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
 /// A Daemon that refuses this Client's version, while it cannot hand over,
@@ -604,16 +650,14 @@ fn a_runtime_file_whose_daemon_died_is_replaced() {
     let started = json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
 
     assert_eq!(
-        (
-            started["started"].clone(),
-            started["daemon"]["pid"] == json!(dead.pid)
-        ),
-        (json!(true), false)
+        (started["pid"].is_u64(), started["pid"] == json!(dead.pid)),
+        (true, false)
     );
 }
 
 /// A Daemon that drops the Connection before it answers fails the command
-/// rather than hanging it.
+/// with `connection_lost`, exit `8`, as every command that reaches the
+/// Daemon does, rather than hanging it (ticket #1183).
 ///
 /// Covers: story:3-11
 #[test]
@@ -628,8 +672,15 @@ fn a_connection_dropped_mid_command_fails_the_command() {
     scripted.child().wait().unwrap();
 
     assert_eq!(
-        (output.exit, output.stdout.as_str()),
-        (Some(1), ""),
+        (
+            output.exit,
+            output.stdout.as_str(),
+            output
+                .stderr
+                .lines()
+                .any(|line| line == "code: connection_lost"),
+        ),
+        (Some(8), "", true),
         "{}",
         output.stderr
     );

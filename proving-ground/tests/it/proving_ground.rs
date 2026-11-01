@@ -148,11 +148,27 @@ impl ProvingGround {
             .to_owned()
     }
 
+    /// The password the authenticated proxies accept.
+    pub(crate) fn proxy_password(&self) -> String {
+        self.line_json()["proxy_credentials"]["password"]
+            .as_str()
+            .expect("the line names the proxy password")
+            .to_owned()
+    }
+
     /// The address of the DNS fixture `serve` reported.
     pub(crate) fn dns(&self) -> String {
         self.line_json()["dns"]
             .as_str()
             .expect("the line names the DNS fixture")
+            .to_owned()
+    }
+
+    /// The address of the UDP fixture `serve` reported.
+    pub(crate) fn udp(&self) -> String {
+        self.line_json()["udp"]
+            .as_str()
+            .expect("the line names the UDP fixture")
             .to_owned()
     }
 
@@ -289,6 +305,15 @@ impl ProvingGround {
     /// PEM.
     pub(crate) fn certificate_authority(&self) -> String {
         self.control("/certificate-authority").body
+    }
+
+    /// The client certificate the hosts that require mutual TLS accept, and
+    /// its private key, each as PEM.
+    pub(crate) fn client_identity(&self) -> (String, String) {
+        (
+            self.control("/client-certificate").body,
+            self.control("/client-key").body,
+        )
     }
 
     /// Every request the Proving ground recorded, with its sums.

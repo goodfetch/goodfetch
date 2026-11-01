@@ -2,16 +2,42 @@
 //! answer to each read past the notifications that come meanwhile, and every
 //! message exchanged recorded as a case's evidence, `{"from": "client" |
 //! "engine", "message": …}`, or `"raw"` for a line that is no JSON, as the
-//! Scripted engine records them (ADR 0069).
+//! Scripted engine records them (ADR 0069), a Daemon's token redacted.
 
 use std::fmt;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::ErrorGroup;
 use serde_json::{Value, json};
 
 use super::target::{
     BROWSER_DEADLINE, DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started,
 };
+
+/// What a kept message holds in place of the Daemon's token: the evidence
+/// lands in a result document a Release cell uploads, whose secret scan
+/// refuses the token (ADR 0067).
+const REDACTED: &str = "[redacted]";
+
+/// `message` with each string that holds `token` holding [`REDACTED`] there.
+fn redacted(message: &Value, token: &str) -> Value {
+    if token.is_empty() {
+        return message.clone();
+    }
+    match message {
+        Value::String(text) if text.contains(token) => Value::String(text.replace(token, REDACTED)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|item| redacted(item, token)).collect())
+        }
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(name, value)| (name.clone(), redacted(value, token)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
 
 /// Why the Connection gave no more answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +75,8 @@ pub(crate) struct Connection {
     started: Started,
     next_id: i64,
     exchanged: Vec<Value>,
+    /// Whether its `hello` named a surface that acts for a model.
+    for_model: bool,
 }
 
 impl Connection {
@@ -57,7 +85,18 @@ impl Connection {
             started,
             next_id: 1,
             exchanged: Vec::new(),
+            for_model: false,
         }
+    }
+
+    /// Whether it acts for a model, as its `hello` said.
+    pub(crate) fn acts_for_model(&self) -> bool {
+        self.for_model
+    }
+
+    /// Marks it as acting for a model, or not, once its `hello` is sent.
+    pub(crate) fn set_for_model(&mut self, for_model: bool) {
+        self.for_model = for_model;
     }
 
     /// The token of the Daemon reached, if any.
@@ -80,8 +119,12 @@ impl Connection {
 
     fn send(&mut self, message: &Value) -> Result<(), Gone> {
         let line = serde_json::to_vec(message).expect("invariant: a JSON value serializes");
+        let kept = match &self.started.token {
+            Some(token) => redacted(message, token),
+            None => message.clone(),
+        };
         self.exchanged
-            .push(json!({ "from": "client", "message": message }));
+            .push(json!({ "from": "client", "message": kept }));
         self.started
             .write_line(&line)
             .map_err(|error| Gone::Failed(error.to_string()))
@@ -127,12 +170,19 @@ impl Connection {
                 Next::Failed(error) => return Err(Gone::Failed(error.to_string())),
             };
             let Ok(message) = serde_json::from_str::<Value>(&line) else {
-                self.exchanged
-                    .push(json!({ "from": "engine", "raw": line }));
+                let raw = match &self.started.token {
+                    Some(token) => line.replace(token.as_str(), REDACTED),
+                    None => line,
+                };
+                self.exchanged.push(json!({ "from": "engine", "raw": raw }));
                 continue;
             };
+            let kept = match &self.started.token {
+                Some(token) => redacted(&message, token),
+                None => message.clone(),
+            };
             self.exchanged
-                .push(json!({ "from": "engine", "message": message }));
+                .push(json!({ "from": "engine", "message": kept }));
             return Ok(message);
         }
     }
@@ -146,6 +196,42 @@ impl Connection {
     /// Answers the engine's request `id` with `result`.
     pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+    }
+
+    /// Answers the engine's request `id` with a failure of the Error code
+    /// `code`, of the `program` group, as a handler that threw does.
+    pub(crate) fn fail(&mut self, id: &Value, code: &str, message: &str) -> Result<(), Gone> {
+        self.send(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": ErrorGroup::Program.json_rpc_class(),
+                "message": message,
+                "data": { "code": code, "retryable": false },
+            },
+        }))
+    }
+
+    /// Answers the engine's request `id` with a failure of the Error code
+    /// `code` in `group`, retryable as `group` is, carrying `details`, as a
+    /// handler that raised an engine error does.
+    pub(crate) fn fail_with(
+        &mut self,
+        id: &Value,
+        group: ErrorGroup,
+        code: &str,
+        message: &str,
+        details: &Value,
+    ) -> Result<(), Gone> {
+        let mut data = json!({ "code": code, "retryable": true });
+        if let (Some(data), Some(details)) = (data.as_object_mut(), details.as_object()) {
+            data.extend(details.clone());
+        }
+        self.send(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": group.json_rpc_class(), "message": message, "data": data },
+        }))
     }
 
     /// Opens a further Connection to the same target, before any `hello`,

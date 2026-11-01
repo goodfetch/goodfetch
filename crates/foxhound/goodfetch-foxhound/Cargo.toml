@@ -19,16 +19,54 @@ executable = ["dep:mimalloc", "goodfetch-collie/executable"]
 goodfetch-collie.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-fetch-tier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
+goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
+
+[build-dependencies]
+# Reads the Console build's routes, `routes.json` (ADR 0072).
+serde_json.workspace = true
 
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
+# The robots.txt URLs the run state's corpus writer keeps copies of
+# (examples/compat-run-state.rs).
+url.workspace = true
+# The test subscriber an in-process engine's dispatch records reach the
+# exercise record through (tests/it/code_free_resume.rs and
+# tests/it/tier_race/scripted.rs; ADR 0072).
+tracing.workspace = true
+# The Exports' bytes the tests decode and digest (tests/it/exports.rs).
+data-encoding.workspace = true
+sha2.workspace = true
+# The readers the table Exports are read back with: a CSV reader, an
+# XLSX workbook's ZIP and XML, an HTML parser and a Markdown parser
+# (tests/it/exports.rs; pitfall D07). No spreadsheet library: calamine
+# turns on flate2's zlib-rs backend, which changes the Proving ground's
+# compressed bodies in a shared build.
+csv.workspace = true
+pulldown-cmark.workspace = true
+quick-xml.workspace = true
+scraper.workspace = true
+zip = { workspace = true, features = ["deflate-flate2"] }
+# The readers the other Exports are read back with (tests/it/export_formats.rs):
+# Arrow IPC and Parquet through arrow-rs, Avro through apache-avro, the gzip
+# and zstd forms through flate2 and zstd, XML and feeds through quick-xml.
+apache-avro.workspace = true
+arrow-array.workspace = true
+arrow-ipc.workspace = true
+arrow-schema.workspace = true
+bytes.workspace = true
+flate2.workspace = true
+parquet.workspace = true
+zstd.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true
@@ -38,8 +76,14 @@ insta.workspace = true
 rstest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+# The Journey files a Journey variant's document is read back against
+# (tests/it/journeys/).
+toml.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "macros", "time"] }
+# The tier race on a scripted browser (tests/it/tier_race/scripted.rs): the
+# `BrowserPages` seam its fetch tiers are handed.
+goodfetch-page.workspace = true
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.
@@ -53,6 +97,11 @@ required-features = ["executable"]
 # ADR 0071: the startup benchmarks of Foxhound's executable.
 [[bench]]
 name = "startup"
+harness = false
+
+# ADR 0134: the bytes a crawled page allocates, a crawl fed from memory.
+[[bench]]
+name = "heap"
 harness = false
 
 [lints]

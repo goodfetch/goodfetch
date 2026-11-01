@@ -219,6 +219,21 @@
         ],
         "type": "object"
       },
+      "Resource": {
+        "description": "A resource the governor can run out of (ADR 0122).",
+        "oneOf": [
+          {
+            "const": "memory",
+            "description": "The machine's or the container's memory.",
+            "type": "string"
+          },
+          {
+            "const": "storage",
+            "description": "A filesystem the Run writes to.",
+            "type": "string"
+          }
+        ]
+      },
       "RunId": {
         "description": "A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.",
         "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
@@ -310,6 +325,13 @@
             "$ref": "#/$defs/Product",
             "description": "The Product it needs (ADR 0098)."
           },
+          "nothing_done": {
+            "description": "Why the Run did nothing, as JSON, once its driver found it so (ADR\n0102).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "policy_version": {
             "description": "The version of the Operator policy it ran under (ADR 0028).",
             "type": [
@@ -319,6 +341,13 @@
           },
           "progress_message": {
             "description": "The program's own status line, once it set one (RT-15).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "report": {
+            "description": "Its Run report, as JSON, once it ended (ADR 0102).",
             "type": [
               "string",
               "null"
@@ -343,6 +372,10 @@
             ],
             "description": "Why it stopped."
           },
+          "uncapped": {
+            "description": "Whether it spent money no Limit caps (ADR 0041).",
+            "type": "boolean"
+          },
           "verdict": {
             "anyOf": [
               {
@@ -354,8 +387,8 @@
             ],
             "description": "Its Verdict, once it ended."
           },
-          "weakened_by": {
-            "description": "The settings it ran with that weaken a guarantee or switch off a\ncostly control, as a JSON list of each one's key, value and layer\n(ADR 0028).",
+          "weakened": {
+            "description": "The settings it ran with that weaken a guarantee or switch off a\ncostly control, as a JSON list of each one's key, value, layer and\norigin (ADR 0028).",
             "type": "string"
           }
         },
@@ -368,13 +401,14 @@
           "inputs",
           "lifecycle",
           "started_at",
-          "weakened_by",
-          "journal_position"
+          "weakened",
+          "journal_position",
+          "uncapped"
         ],
         "type": "object"
       },
       "StopReason": {
-        "description": "Why a Run stopped (ADR 0102); the other causes join with the tickets that\nstop Runs for them.",
+        "description": "Why a Run stopped (ADRs 0029, 0080 and 0102).",
         "oneOf": [
           {
             "description": "Its program, a person or a Client aborted it, a Connection's close\nincluded (ADR 0078).",
@@ -474,6 +508,46 @@
               "kind"
             ],
             "type": "object"
+          },
+          {
+            "description": "Its engine was lost while it ran, and another engine stopped it.",
+            "properties": {
+              "kind": {
+                "const": "engine_lost",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
+            "properties": {
+              "folder": {
+                "arrived_in": "0.1",
+                "description": "For storage, the folder whose filesystem filled.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "const": "resources",
+                "type": "string"
+              },
+              "resource": {
+                "$ref": "#/$defs/Resource",
+                "arrived_in": "0.1",
+                "description": "The resource that ran out."
+              }
+            },
+            "required": [
+              "kind",
+              "resource"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -483,6 +557,16 @@
           {
             "const": "client",
             "description": "A Client, such as through `$/cancel`.",
+            "type": "string"
+          },
+          {
+            "const": "program",
+            "description": "The program, such as through `run.stop` (ADR 0102).",
+            "type": "string"
+          },
+          {
+            "const": "browser",
+            "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
             "type": "string"
           }
         ]

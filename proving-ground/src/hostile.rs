@@ -5,9 +5,11 @@
 //! loopback address, chains around ADR 0118's limit of 20 and a loop), the
 //! `headers` family (oversized, repeated and malformed heads, and attempts to
 //! inject a header), the `downloads` family (page-suggested download names
-//! that try to leave the download folder). A page a correct tool keeps
-//! shows one Record, `id` and `word`, drawn from the seed.
+//! that try to leave the download folder) and the `bombs` family
+//! (decompression bombs past the engine's ratio limit). A page a correct
+//! tool keeps shows one Record, `id` and `word`, drawn from the seed.
 
+mod bombs;
 mod downloads;
 mod headers;
 mod redirects;
@@ -76,6 +78,7 @@ pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
         downloads::HOST,
         downloads::TASKS,
     ));
+    hosts.extend(task::family_hosts(bombs::FAMILY, bombs::HOST, bombs::TASKS));
     hosts
 }
 
@@ -85,6 +88,7 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     let mut tasks = redirects::tasks(seed, port);
     tasks.extend(headers::tasks(seed, port));
     tasks.extend(downloads::tasks(seed, port));
+    tasks.extend(bombs::tasks(seed, port));
     tasks
 }
 
@@ -105,6 +109,9 @@ pub(crate) fn respond(
     }
     if task::serves(host, downloads::HOST, downloads::TASKS) {
         return Some((downloads::respond(seed, host, request), None));
+    }
+    if task::serves(host, bombs::HOST, bombs::TASKS) {
+        return Some((bombs::respond(seed, host, request), None));
     }
     None
 }

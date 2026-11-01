@@ -47,6 +47,10 @@ struct StandIn {
 }
 
 impl StandIn {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the stand-in server, outside the engine, runs its accept loop and connections on the test's runtime (ADR 0062)"
+    )]
     async fn serve(files: BTreeMap<&'static str, Vec<u8>>) -> Self {
         let authority_key =
             rcgen::KeyPair::generate().expect("invariant: the stand-in and its fixtures set up");
@@ -162,6 +166,10 @@ struct Build {
     digest: Digest,
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test lays out a build's files by hand, outside any async worker"
+)]
 fn build(env: &TestEnv, marker: &str) -> Build {
     let tree = env.folder().join(format!("build {marker}"));
     std::fs::create_dir_all(tree.join("resources"))
@@ -218,6 +226,7 @@ fn pin(build_id: &str, url: String, build: &Build) -> PinnedArtifact {
         platform: Some(BuildPlatform::LinuxX64),
         url,
         archive_digest: Some(build.archive_digest),
+        application_settings: std::collections::BTreeMap::new(),
         digest: build.digest,
     }
 }
@@ -250,6 +259,10 @@ fn launch_path(cache: &BrowserCache, id: &ArtifactId) -> std::path::PathBuf {
     entry_folder(cache, id).join("files").join("chrome")
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a file the engine wrote, outside any async worker"
+)]
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path).expect("invariant: the stand-in and its fixtures set up")
 }
@@ -501,4 +514,72 @@ fn the_daily_clean_up_after_a_download_deletes_an_unpinned_build_unused_for_the_
         assert!(launch_path(&cache, &new.id).exists());
         assert!(!entry_folder(&cache, &old.id).exists());
     });
+}
+
+/// A pin whose URL names no ZIP archive downloads a single executable, as
+/// Lightpanda ships its builds: it is placed under the URL's last segment,
+/// executable, its digest the tree of that one file, so the light-browser
+/// tier runs it from the cache (ADR 0020).
+///
+/// Covers: row:SDK-08, story:5-120
+#[test]
+fn a_pinned_single_executable_is_placed_under_its_name_and_runs() {
+    let env = TestEnv::new();
+    let bytes = b"#!/bin/sh\necho light\n".to_vec();
+    let tree = env.folder().join("single");
+    write_file(&tree.join("lightpanda-x86_64-linux"), &bytes);
+    let digest = content_digest(&tree).expect("invariant: the stand-in and its fixtures set up");
+    goodfetch_test_support::runtime().block_on(async {
+        let stand_in = StandIn::serve(BTreeMap::from([(
+            "/lightpanda-x86_64-linux",
+            bytes.clone(),
+        )]))
+        .await;
+        let cache = cache(&env);
+        let pinned = PinnedArtifact {
+            id: ArtifactId {
+                kind: ArtifactKind::Browser,
+                name: "lightpanda".to_owned(),
+                build: "1".to_owned(),
+            },
+            platform: Some(BuildPlatform::LinuxX64),
+            url: stand_in.url("/lightpanda-x86_64-linux"),
+            archive_digest: Some(Digest::of(&bytes)),
+            application_settings: BTreeMap::new(),
+            digest,
+        };
+
+        let prepared = cache
+            .prepare(
+                &pinned,
+                &pinned_by(),
+                &stand_in.fetching(),
+                now(&env),
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+
+        let placed = prepared.artifact.files().join("lightpanda-x86_64-linux");
+        assert_eq!(read(&placed), "#!/bin/sh\necho light\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the test reads a file the engine wrote, outside any async worker"
+            )]
+            let mode = std::fs::metadata(&placed).unwrap().permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "{mode:o}");
+        }
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test lays out a build's files by hand, outside any async worker"
+)]
+fn write_file(path: &Path, bytes: &[u8]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, bytes).unwrap();
 }

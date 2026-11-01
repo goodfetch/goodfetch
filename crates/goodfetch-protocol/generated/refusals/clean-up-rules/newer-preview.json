@@ -1,0 +1,7 @@
+{
+  "format": "clean-up-rules",
+  "rule": "newest_readable",
+  "reader": "0.1",
+  "found": "0.2",
+  "compatibility": "newer_major"
+}

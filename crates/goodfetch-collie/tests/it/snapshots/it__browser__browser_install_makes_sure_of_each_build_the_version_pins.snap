@@ -1,0 +1,16 @@
+---
+source: crates/goodfetch-collie/tests/it/browser.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "builds": [
+    {
+      "name": "chrome-for-testing",
+      "outcome": "already_installed",
+      "version": "[build]"
+    }
+  ]
+}
+----- stderr -----

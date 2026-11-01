@@ -1,0 +1,12 @@
+{
+  "format_version": "0.1",
+  "source": "upstream",
+  "published_at": "2026-01-05T09:00:00Z",
+  "expires_at": "2026-01-05T21:00:00Z",
+  "lists": {
+    "ads": "easylist.txt",
+    "trackers": "easyprivacy.txt",
+    "annoyances": "fanboy-annoyance.txt",
+    "unbreak": "brave-unbreak.txt"
+  }
+}

@@ -52,6 +52,34 @@
             "expect"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP listener accepts the request, as it does the valid one, with\na 2xx. No refusal, so no Audit log entry.",
+          "properties": {
+            "expect": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP proxy asks for credentials with a `407` (RFC 9110, section\n15.5.8), as it answers every client's first request, the browser's\nincluded, before the client learns them. No refusal, so no Audit log\nentry; no byte is relayed.",
+          "properties": {
+            "expect": {
+              "const": "challenge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -82,6 +110,21 @@
           "const": "exposed_daemon",
           "description": "An Exposed Daemon's address, reached with newline-delimited\nJSON-RPC over TCP (ADR 0049).",
           "type": "string"
+        },
+        {
+          "const": "console",
+          "description": "The Console's WebSocket on its own origin, whose handshake carries\na sign-in's cookie and the Console's `Host` and `Origin` (ADRs\n0024, 0031 and 0067).",
+          "type": "string"
+        },
+        {
+          "const": "content_origin",
+          "description": "The Console's content origin, which serves a Run's file only to an\naddress signed for that one file, and reads no cookie (ADR 0031;\nspec #592).",
+          "type": "string"
+        },
+        {
+          "const": "proxy_relay",
+          "description": "A Session's proxy relay (`goodfetch-page`'s `proxy::relay`): a\nloopback HTTP proxy of the Session's own, which tunnels only for the\nSession's per-Session credentials (ADR 0037 / SA-22; spec #577).",
+          "type": "string"
         }
       ]
     },
@@ -96,6 +139,13 @@
             "maximum": 65535,
             "minimum": 0,
             "type": "integer"
+          },
+          "type": "array"
+        },
+        "advisories": {
+          "description": "The advisories whose bypass the row's attempt repeats, such as\n`CVE-2025-49596`, whose regression tests run the rows citing them.",
+          "items": {
+            "type": "string"
           },
           "type": "array"
         },
@@ -140,6 +190,21 @@
           "type": "string"
         },
         {
+          "const": "token_expired",
+          "description": "The token's life ended with the launch that issued it: the token of\nthe listener's earlier launch.",
+          "type": "string"
+        },
+        {
+          "const": "token_revoked",
+          "description": "The token was replaced while it was in force, as `daemon restart`\nor an operator's new ops token replaces it.",
+          "type": "string"
+        },
+        {
+          "const": "token_scoped_elsewhere",
+          "description": "The token is one of the same Daemon whose scope is another, such as\nthe ops token, read-only on `/metrics`, on a protocol listener.",
+          "type": "string"
+        },
+        {
           "const": "token_in_query_string",
           "description": "The valid token is sent in the query string.",
           "type": "string"
@@ -156,7 +221,12 @@
         },
         {
           "const": "origin_missing",
-          "description": "The WebSocket handshake carries no `Origin`.",
+          "description": "The request or the WebSocket handshake carries no `Origin`: an HTTP\nlistener accepts it with a header token, which a browser page cannot\nsend cross-site.",
+          "type": "string"
+        },
+        {
+          "const": "origin_missing_without_header_token",
+          "description": "The request carries no `Origin` and no header token, the valid token\nonly in a cookie, as a browser page's cross-site request could send\nit.",
           "type": "string"
         },
         {
@@ -167,6 +237,26 @@
         {
           "const": "probes_answer_status_only",
           "description": "The ops listener's probes answer with a status and no body.",
+          "type": "string"
+        },
+        {
+          "const": "csrf_token_missing",
+          "description": "A signed-in `POST` carries no CSRF token.",
+          "type": "string"
+        },
+        {
+          "const": "sign_in_revoked",
+          "description": "The cookie is of a sign-in that has ended: signed out or revoked.",
+          "type": "string"
+        },
+        {
+          "const": "token_for_another_file",
+          "description": "The address carries the valid signature of another file.",
+          "type": "string"
+        },
+        {
+          "const": "sign_in_rate_exceeded",
+          "description": "The address tries to sign in more often than the listener's rate\nallows: the eleventh attempt in a minute. Last in the table, since\nthe address's next attempts in that minute are refused too.",
           "type": "string"
         }
       ]

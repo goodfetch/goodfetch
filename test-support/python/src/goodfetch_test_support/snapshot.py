@@ -5,6 +5,7 @@ list insta and Vitest apply too, so inline-snapshot's snapshots redact as
 theirs do. A test asserts `redact(output, ...) == snapshot(...)`.
 """
 
+import json
 import os
 import re
 from typing import cast
@@ -21,8 +22,9 @@ def redact(
 ) -> str:
     """`text` with the shared rules applied.
 
-    The run's values go first, matched literally, then each committed
-    pattern, in the file's order.
+    The run's values go first, matched literally (the folder in each form an
+    output prints it in), then each committed pattern, in the file's order. A
+    word boundary is ASCII's, as in Rust and JavaScript.
 
     Args:
         text: The output to snapshot.
@@ -48,8 +50,29 @@ def redact(
     redacted = text
     for rule in filters["values"]:
         value = values[rule["value"]]
-        if value is not None:
-            redacted = redacted.replace(value, rule["replacement"])
+        if value is None:
+            continue
+        forms = _folder_forms(value) if rule["value"] == "folder" else [value]
+        for form in forms:
+            redacted = redacted.replace(form, rule["replacement"])
     for rule in filters["patterns"]:
-        redacted = re.sub(rule["pattern"], rule["replacement"], redacted)
+        redacted = re.sub(
+            rule["pattern"], rule["replacement"], redacted, flags=re.ASCII
+        )
     return redacted
+
+
+def _folder_forms(folder: str) -> list[str]:
+    """The forms an output prints a folder in, longest first.
+
+    The path, its canonical path when it has another, and each written
+    inside a JSON string as the engine writes one, so a longer form is
+    replaced before a shorter one inside it.
+    """
+    paths = [folder, os.path.realpath(folder)]
+    forms = {
+        form
+        for path in paths
+        for form in (path, json.dumps(path, ensure_ascii=False)[1:-1])
+    }
+    return sorted(forms, key=lambda form: (-len(form), form))

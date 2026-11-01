@@ -2,7 +2,10 @@
 //! build` planned, then runs each head target holding a new benchmark 20
 //! more times on the same build for its admission. Those runs are separate
 //! processes, several at once, since counts under Callgrind and DHAT do not
-//! depend on what else runs. A stand-in Cargo plays `cargo bench` here.
+//! depend on what else runs. A stand-in Cargo, a shell script, plays `cargo
+//! bench` here, so these tests run on Unix only.
+
+use std::os::unix::fs::PermissionsExt as _;
 
 use crate::perf::{bench_summary, metric};
 use crate::workspace::Workspace;
@@ -52,15 +55,10 @@ cat "{summary}"
     );
     let cargo = folder.join("cargo");
     std::fs::write(&cargo, script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
     cargo
 }
 
-#[cfg(unix)]
 #[test]
 fn admission_runs_several_runs_at_once_and_admits_on_all_20() {
     let workspace = Workspace::from_fixture("empty");

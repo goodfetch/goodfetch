@@ -11,36 +11,76 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+# The run's `Mask`: one automaton over every resolved value and its
+# encodings (spec #564, ADR 0071).
+aho-corasick.workspace = true
+# Bodies are `Bytes`, read once and never copied (STYLE.md).
+bytes.workspace = true
 chacha20.workspace = true
+# Run state's field encryption and its data key's wrap (ADR 0015).
+chacha20poly1305.workspace = true
 # The Base64 of the page-body chunks `page.body` sends.
 data-encoding.workspace = true
-# Only names the inflate backend (miniz_oxide) for zip's DEFLATE.
+# Brotli's decoder alone, for a body under `br` (SC-05).
+brotli-decompressor.workspace = true
+# gzip and deflate bodies (SC-05), and the inflate backend (miniz_oxide) for
+# zip's DEFLATE.
 flate2.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
 getrandom.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
+# Derives the wrap of each Run's data key from its key-encryption key.
+hkdf.workspace = true
+# Names from outside input in Unicode's composed form (ADR 0067).
+icu_normalizer.workspace = true
+# The Console's sign-in verifiers and CSRF tokens, HMACs under the Console
+# key (spec #592).
+hmac.workspace = true
 # The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1,
 # and the Console's server, HTTP/1.1 (ADR 0057).
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+# A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118).
+httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# The addresses of `egress.local_addresses`' interface at each Session's
+# start, on every OS (ADR 0044).
+netdev.workspace = true
+# The runtime's metrics, through OpenTelemetry's API: the meter is a value
+# the executable gives the engine, a no-op one otherwise (ADR 0050). The
+# Trace context each request carries, the request spans' parents and links,
+# and trace and span IDs drawn from the Entropy (ADR 0132): the API, its
+# SDK's ID generator and the bridge from `tracing`.
+opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry_sdk.workspace = true
+tracing-opentelemetry.workspace = true
 rusqlite.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# The encrypted local file (`secretfile:`, spec #564).
+age.workspace = true
+# The OS keychain's API (`keychain:`, ADR 0015); each OS's store is below.
+keyring-core.workspace = true
+# The registrable domain a person adds to `consent.domains` (ADRs 0004 and 0048).
+psl.workspace = true
 # Every resolved Secret reference's value, zeroized when dropped (ADR 0015).
 secrecy.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# JSON from outside is parsed with no recursion limit of the parser's own,
+# once a scan bounded its depth (SC-05).
+serde_json = { workspace = true, features = ["unbounded_depth"] }
 # RFC 8785, the canonical JSON each Audit log entry's hash covers (ADR 0016).
 serde_json_canonicalizer.workspace = true
 sha2.workspace = true
 # The per-install layout's VFS, which keeps each Run's run file inside the
 # install database (ADR 0002), registered with the SQLite rusqlite bundles.
 sqlite-plugin.workspace = true
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).
@@ -59,24 +99,40 @@ ulid.workspace = true
 url.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+# A body under `zstd` (SC-05).
+zstd.workspace = true
 
 # Frees the buffer launchd answers the Daemon's activated sockets in, and
 # watches an Attached engine's parent (prctl, kqueue).
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# The OS keychain on each OS (ADR 0015): the Secret Service on Linux, over
+# zbus on the engine's runtime, the login keychain on macOS and the
+# Credential Manager on Windows.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { workspace = true, features = ["tokio"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { workspace = true, features = ["keychain"] }
+
 # Ties an Attached engine to its parent and its children to itself through
-# kill-on-close Job Objects (ADR 0024).
+# kill-on-close Job Objects (ADR 0024), and gives the Resource governor its
+# Job object limit, memory notifications and footprints (ADR 0040), and a
+# volume's free space to the caller (ADR 0122).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-native-keyring-store.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it, as
 # goodfetch-test-support's does.
 [build-dependencies]
-bindgen = { version = "0.72.1", default-features = false, features = ["runtime"] }
+bindgen.workspace = true
 
 [dev-dependencies]
+# Brotli bodies the response limits' tests decode.
+brotli.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).
@@ -84,12 +140,14 @@ hyper = { workspace = true, features = ["server"] }
 rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
 mimalloc.workspace = true
+# The metrics tests read what the engine records through the SDK and the
+# Prometheus exporter the executables use (src/engine/tests/metrics.rs).
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
-# Reads the transition tables' source to show they match with no wildcard
-# (ADR 0128, src/transition/tests.rs).
-syn = { workspace = true, features = ["visit"] }
 tempfile.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
@@ -102,8 +160,7 @@ name = "heap"
 harness = false
 
 [package.metadata.cargo-shear]
-# flate2 is never named: it only picks the backend zip inflates with.
-ignored = ["bindgen", "flate2"]
+ignored = ["bindgen"]
 
 [lints]
 workspace = true

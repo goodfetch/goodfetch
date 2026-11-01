@@ -11,16 +11,19 @@
 //!
 //! The command is the longest run of the test's arguments whose names,
 //! joined by dots, are a `command:` Feature of `features/inventory.json`
-//! (`browsers install` is `browsers.install`); arguments that hold none are
+//! (`browser install` is `browser.install`); arguments that hold none are
 //! recorded as `unmatched`, which the audit reports.
 //!
 //! `json(schema)` checks a `--json` run: stdout holds exactly one document,
 //! valid against that schema of the committed JSON Schema bundle, read as a
 //! file; `json_lines(schema)` checks that every line of stdout is one
 //! document of that event type. The caller names the type, so test support
-//! stays on values. `mode(Mode::Daemon)` runs the command as a Client of a
-//! Daemon of the test's home, which the run starts and stops, so one rstest
-//! case per mode shares one snapshot.
+//! stays on values. `mode(Mode::Attached)` runs the command with
+//! `--attached`, on an Attached engine in the executable's own process, and
+//! `mode(Mode::Daemon)` as a Client of a Daemon of the test's home, which
+//! the run starts and stops, so one rstest case per mode shares one
+//! snapshot; with no mode, the command runs with the arguments the test
+//! gave, on the engine the executable chooses.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support runs commands and writes the command record outside any async worker (ADR 0062)"
@@ -36,9 +39,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::daemon::{DAEMON_DEADLINE, Daemon, DaemonError};
-use crate::env::{TestEnv, command, posix_locale};
+use crate::env::TestEnv;
 use crate::exercise::{COMMAND_TARGET, command_record};
-use crate::locales::{locales, time_zones};
+use crate::locales::{table_lang, table_zone};
 use crate::snapshot::{SnapshotValues, snapshot_settings};
 
 /// The Feature inventory, whose `command:` Features name the commands.
@@ -54,27 +57,74 @@ const BUNDLE: &str = concat!(
 /// The flag that makes a command a Client of the Daemon (ADR 0024).
 const DAEMON_FLAG: &str = "--daemon";
 
+/// The flag that runs a command on an Attached engine in the executable's
+/// own process (ADR 0024).
+const ATTACHED_FLAG: &str = "--attached";
+
 /// The byte every ANSI escape sequence starts with.
 const ESCAPE: u8 = 0x1B;
+
+/// A command line of a Product's executable as a test builds it: the
+/// command, and the arguments its command record names. [`cli`] and
+/// [`pty`](crate::pty) build theirs through it, so each records exactly the
+/// arguments its child got, the ones they add themselves (`--daemon`,
+/// `--color always`) among them.
+pub(crate) struct Invocation {
+    command: std::process::Command,
+    arguments: Vec<String>,
+}
+
+impl Invocation {
+    /// The command line of `program` in the test's folder, with its cleared
+    /// environment and these variables over the test's map.
+    pub(crate) fn of(
+        env: &TestEnv,
+        program: impl AsRef<OsStr>,
+        variables: &[(&str, &str)],
+    ) -> Self {
+        let mut command = env.process_command(program);
+        command.envs(variables.iter().copied());
+        Self {
+            command,
+            arguments: Vec::new(),
+        }
+    }
+
+    /// Adds one argument.
+    pub(crate) fn arg(&mut self, argument: &str) {
+        self.command.arg(argument);
+        self.arguments.push(argument.to_owned());
+    }
+
+    /// Sets one more variable.
+    pub(crate) fn env(&mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+        self.command.env(name, value);
+    }
+
+    /// The command to start, and the arguments to record once it ended.
+    pub(crate) fn into_parts(self) -> (std::process::Command, Vec<String>) {
+        (self.command, self.arguments)
+    }
+}
 
 /// One run of a Product's executable, which [`Cli::run`] starts.
 pub struct Cli<'env> {
     env: &'env TestEnv,
-    command: assert_cmd::Command,
-    arguments: Vec<String>,
+    invocation: Invocation,
+    stdin: Option<Vec<u8>>,
     refused: Option<CliError>,
     executable: PathBuf,
-    mode: Mode,
+    mode: Option<Mode>,
 }
 
 /// How a command reaches the engine (ADRs 0024 and 0069): every test of a
 /// command that runs the engine has one rstest case per mode, which share
 /// one snapshot.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// In the executable's own process, as the CLI runs with no Daemon:
-    /// the arguments as the test gave them, in a home where none runs.
-    #[default]
+    /// In the executable's own process: the run adds `--attached` after
+    /// the test's arguments, so even a command whose value outlives it,
+    /// which reaches the Daemon by default, starts none.
     Attached,
     /// As a Client of the Daemon of the test's home: the run starts the
     /// executable's Daemon, adds `--daemon` after the test's arguments,
@@ -88,18 +138,17 @@ pub enum Mode {
 /// in the test's folder with its cleared environment, `NO_COLOR=1`,
 /// `COLUMNS=100` and `TERM=dumb`.
 pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
-    let mut command = command(env, &executable);
-    command
-        .env("NO_COLOR", "1")
-        .env("COLUMNS", "100")
-        .env("TERM", "dumb");
     Cli {
         env,
-        command,
-        arguments: Vec::new(),
+        invocation: Invocation::of(
+            env,
+            &executable,
+            &[("NO_COLOR", "1"), ("COLUMNS", "100"), ("TERM", "dumb")],
+        ),
+        stdin: None,
         refused: None,
         executable: PathBuf::from(executable.as_ref()),
-        mode: Mode::Attached,
+        mode: None,
     }
 }
 
@@ -107,9 +156,7 @@ impl Cli<'_> {
     /// Adds one argument.
     #[must_use]
     pub fn arg(mut self, argument: impl AsRef<str>) -> Self {
-        let argument = argument.as_ref();
-        self.command.arg(argument);
-        self.arguments.push(argument.to_owned());
+        self.invocation.arg(argument.as_ref());
         self
     }
 
@@ -127,14 +174,14 @@ impl Cli<'_> {
     /// otherwise, as `--settings -` reads it.
     #[must_use]
     pub fn stdin(mut self, input: impl Into<Vec<u8>>) -> Self {
-        self.command.write_stdin(input);
+        self.stdin = Some(input.into());
         self
     }
 
     /// Sets one more variable, over the test's map and the helper's own.
     #[must_use]
     pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
-        self.command.env(name, value);
+        self.invocation.env(name, value);
         self
     }
 
@@ -144,12 +191,15 @@ impl Cli<'_> {
     /// fails the run with [`CliError::LocaleUnknown`].
     #[must_use]
     pub fn with_locale(mut self, tag: &str) -> Self {
-        if locales().iter().any(|locale| locale == tag) {
-            self.command.env("LANG", posix_locale(tag));
-        } else {
-            self.refused.get_or_insert(CliError::LocaleUnknown {
-                tag: tag.to_owned(),
-            });
+        match table_lang(tag) {
+            Ok(lang) => {
+                self.invocation.env("LANG", lang);
+            }
+            Err(_) => {
+                self.refused.get_or_insert(CliError::LocaleUnknown {
+                    tag: tag.to_owned(),
+                });
+            }
         }
         self
     }
@@ -160,8 +210,8 @@ impl Cli<'_> {
     /// [`CliError::TimeZoneUnknown`].
     #[must_use]
     pub fn with_time_zone(mut self, zone: &str) -> Self {
-        if time_zones().iter().any(|case| case.name == zone) {
-            self.command.env("TZ", zone);
+        if table_zone(zone).is_ok() {
+            self.invocation.env("TZ", zone);
         } else {
             self.refused.get_or_insert(CliError::TimeZoneUnknown {
                 zone: zone.to_owned(),
@@ -170,10 +220,11 @@ impl Cli<'_> {
         self
     }
 
-    /// Runs the command in this mode; [`Mode::Attached`] unless set.
+    /// Runs the command in this mode; unless set, with the arguments the
+    /// test gave, on the engine the executable chooses.
     #[must_use]
     pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
+        self.mode = Some(mode);
         self
     }
 
@@ -190,13 +241,57 @@ impl Cli<'_> {
         Ok(CliJson::of(output, vec![document]))
     }
 
+    /// Runs the executable as [`Cli::run`] does, then checks that its
+    /// stdout holds exactly one JSON array, each item valid against
+    /// `schema`, a type of the committed bundle's `$defs`: what a command
+    /// of a sequence prints under `--json` once its call ended, such as
+    /// `run records` (ADR 0099).
+    pub fn json_array(self, schema: &str) -> Result<CliJson, CliError> {
+        let validator = validator(schema)?;
+        let output = self.run()?;
+        let document = one_document(&output.stdout)?;
+        let items = match &document {
+            Value::Array(items) => items.as_slice(),
+            _ => std::slice::from_ref(&document),
+        };
+        let mut errors: Vec<String> = Vec::new();
+        if !document.is_array() {
+            errors.push("/: the document is no array".to_owned());
+        }
+        for (index, item) in items.iter().enumerate() {
+            errors.extend(
+                validator
+                    .iter_errors(item)
+                    .map(|error| format!("/{index}{}: {error}", error.instance_path())),
+            );
+        }
+        if !errors.is_empty() {
+            return Err(CliError::SchemaViolated {
+                schema: schema.to_owned(),
+                line: None,
+                errors,
+                document,
+            });
+        }
+        Ok(CliJson::of(output, vec![document]))
+    }
+
     /// Runs the executable as [`Cli::run`] does, then checks that each
     /// line of its stdout is one JSON document valid against `schema`, the
-    /// command's declared event type, and nothing else is: JSON Lines. No
-    /// line at all is a stream of no event.
+    /// command's declared event type, and nothing else is: JSON Lines. A
+    /// stdout with no line fails too, since a stream command that prints
+    /// nothing, its output gone elsewhere, would otherwise pass; a test that
+    /// expects no event checks [`Cli::run`]'s empty stdout instead.
     pub fn json_lines(self, schema: &str) -> Result<CliJson, CliError> {
         let validator = validator(schema)?;
         let output = self.run()?;
+        if output.stdout.is_empty() {
+            return Err(CliError::NotJson {
+                line: None,
+                reason: "stdout holds no line".to_owned(),
+                stdout: output.stdout,
+            });
+        }
         let mut documents = Vec::new();
         for (index, line) in output.stdout.lines().enumerate() {
             let number = Some(index + 1);
@@ -224,8 +319,12 @@ impl Cli<'_> {
             return Err(refused);
         }
         let daemon = match self.mode {
-            Mode::Attached => None,
-            Mode::Daemon => {
+            None => None,
+            Some(Mode::Attached) => {
+                self = self.arg(ATTACHED_FLAG);
+                None
+            }
+            Some(Mode::Daemon) => {
                 self = self.arg(DAEMON_FLAG);
                 Some(Daemon::start_program(
                     self.env,
@@ -234,13 +333,18 @@ impl Cli<'_> {
                 )?)
             }
         };
-        let output = self.command.output().map_err(CliError::Start);
+        let (command, arguments) = self.invocation.into_parts();
+        let mut command = assert_cmd::Command::from_std(command);
+        if let Some(input) = self.stdin {
+            command.write_stdin(input);
+        }
+        let output = command.output().map_err(CliError::Start);
         if let Some(daemon) = daemon {
             daemon.stop(self.env)?;
         }
         let output = output?;
         let exit = output.status.code();
-        record_command(self.env, &self.arguments, exit)?;
+        record_command(self.env, &arguments, exit)?;
         let stdout = text(Stream::Stdout, output.stdout)?;
         let stderr = text(Stream::Stderr, output.stderr)?;
         Ok(CliOutput {
@@ -365,7 +469,9 @@ pub fn record_command_in(
         .create(true)
         .append(true)
         .open(&path)
-        .and_then(|mut file| writeln!(file, "{line}"))
+        // One write, its newline included: commands run at once append
+        // whole lines.
+        .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()))
         .map_err(|error| CliError::Record { path, error })
 }
 
@@ -450,6 +556,11 @@ pub struct CliJson {
     pub output: CliOutput,
     /// The documents stdout held: the one document, or each line's.
     pub documents: Vec<Value>,
+    /// Stdout as the command printed it. The snapshot's pretty-printed
+    /// documents leave out its layout, key order and number spelling, so a
+    /// test that runs one command in several modes compares these bytes
+    /// across them.
+    pub printed: String,
 }
 
 impl CliJson {
@@ -459,6 +570,7 @@ impl CliJson {
             .flat_map(|document| [format!("{document:#}"), "\n".to_owned()])
             .collect();
         Self {
+            printed: output.stdout.clone(),
             output: CliOutput { stdout, ..output },
             documents,
         }

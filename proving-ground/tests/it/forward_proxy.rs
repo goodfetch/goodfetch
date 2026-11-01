@@ -2,7 +2,8 @@
 //! a real one, never mocked): plain HTTP relayed in absolute form and
 //! `CONNECT` tunnels, open or behind Basic authentication, one that refuses
 //! tunnels, one that is down, and one per proxy kind with its own pool of
-//! exits, which a provider's sticky username pins per Session. Each relay is
+//! exits, which a provider's sticky username pins per Session, and a SOCKS5
+//! proxy behind the same credentials. Each relay is
 //! recorded in `GET /observations`'s `relays`, and the request it carries to
 //! a task's host is observed for that task like any other.
 //! Covers: story:2-82
@@ -188,12 +189,166 @@ fn the_proxy_that_refuses_tunnels_still_relays_plain_http() {
     assert_eq!(exchange.status(), 200);
 }
 
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_answers_too_many_requests_to_one_sent_while_it_relays_another() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    let after = clients::raw(&proxy, &absolute(&url, None));
+
+    let mut statuses = [first.status(), second.status()];
+    statuses.sort_unstable();
+    let refused = [first, second]
+        .into_iter()
+        .find(|exchange| exchange.status() == 429)
+        .and_then(|exchange| exchange.header("proxy-status"));
+    let mut outcomes: Vec<Value> = proving_ground.observations()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| relay["outcome"].clone())
+        .collect();
+    outcomes.sort_by_key(ToString::to_string);
+    assert_eq!(
+        (statuses, after.status(), refused, outcomes),
+        (
+            [200, 429],
+            200,
+            Some("proving-ground; error=http_request_denied".to_owned()),
+            vec![
+                json!("relayed"),
+                json!("relayed"),
+                json!("too_many_requests")
+            ],
+        )
+    );
+}
+
+/// The limited proxy stops counting a request once it read the site's whole
+/// answer, before its client receives any of it: a client that keeps its
+/// connection open after reading the answer holds no room, so a request
+/// sent once the answer arrived is relayed (FQ57: the engine admits the
+/// next navigation once the page loaded, and nothing orders the client's
+/// close before it).
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_relays_a_request_sent_once_the_answer_before_arrived() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, open) = clients::raw_kept_open(&proxy, &absolute(&url, None));
+    let second = clients::raw(&proxy, &absolute(&url, None));
+    drop(open);
+
+    assert_eq!((first.status(), second.status()), (200, 200));
+}
+
+/// The limited proxy counts the pages a client loads, never a site's
+/// robots.txt or its icon, which an engine reads and a browser asks for of
+/// their own beside a page (ADRs 0086 and 0088): one sent while it relays a
+/// page is relayed too.
+/// Covers: story:5-90
+#[rstest]
+#[case::robots_txt("/robots.txt")]
+#[case::icon("/favicon.ico")]
+fn the_limited_proxy_counts_no_robots_txt_or_icon(#[case] path: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+    let page = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let beside = format!("http://catalog.test:{}{path}", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&page, None)));
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&beside, None)));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+
+    assert_eq!((first.status(), second.status() == 429), (200, false));
+}
+
+/// While a harness holds the limited proxy, the first request it counts
+/// waits until the hold is released, however late the second comes: the
+/// second, sent well past the proxy's usual 300 ms hold, is still refused,
+/// and the first is relayed once released.
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_held_keeps_its_request_until_released_and_refuses_another() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let held = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": true }"#);
+    let (statuses, released) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        pause(LATE);
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        // Whichever came first is held: the other's refusal ends first.
+        while !first.is_finished() && !second.is_finished() {
+            pause(POLL);
+        }
+        let released = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": false }"#);
+        let mut statuses = [
+            first.join().unwrap().status(),
+            second.join().unwrap().status(),
+        ];
+        statuses.sort_unstable();
+        (statuses, released)
+    });
+
+    assert_eq!(
+        (held.status, released.status, statuses),
+        (200, 200, [200, 429])
+    );
+}
+
+/// Past the limited proxy's usual 300 ms hold, as late as a request sent
+/// at once may come under load.
+const LATE: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// How often the test looks whether a request ended.
+const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Waits `duration` on the test's own thread.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test paces its own threads, outside any runtime"
+)]
+fn pause(duration: std::time::Duration) {
+    std::thread::sleep(duration);
+}
+
 #[test]
 fn the_down_proxy_refuses_every_connection() {
     let proving_ground = ProvingGround::start(SEED);
 
     let refused = clients::connection_refused(&proving_ground.proxy("down"));
 
+    assert!(refused);
+}
+
+/// Another program on the machine cannot take the `down` proxy's address,
+/// so a connection to it stays refused for as long as the Proving ground
+/// runs.
+#[test]
+fn no_other_program_can_take_the_down_proxy_address() {
+    let proving_ground = ProvingGround::start(SEED);
+    let down = proving_ground.proxy("down");
+
+    let other = clients::listen(&down);
+    let refused = clients::connection_refused(&down);
+
+    assert_eq!(
+        other.map(|_| ()).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::AddrInUse)
+    );
     assert!(refused);
 }
 
@@ -322,4 +477,69 @@ fn a_proxy_relays_only_to_names_it_resolves_on_this_host(
     let observations = proving_ground.observations();
     assert_eq!(exchange.status(), status);
     assert_eq!(observations["relays"][0]["outcome"], outcome);
+}
+
+#[test]
+fn a_socks5_client_with_the_credentials_reaches_a_tasks_host_and_its_username_is_recorded() {
+    let proving_ground = ProvingGround::start(SEED);
+    let username = proving_ground.proxy_username();
+    let password = proving_ground.proxy_password();
+    let port: u16 = proving_ground.port().parse().unwrap();
+    let request = format!(
+        "GET /catalog/1 HTTP/1.1\r\nHost: 1.catalog.test:{port}\r\nConnection: close\r\n\r\n"
+    );
+
+    let exchange = clients::socks5(
+        &proving_ground.proxy("socks5"),
+        (&username, &password),
+        ("1.catalog.test", port),
+        request.as_bytes(),
+    )
+    .unwrap();
+
+    let observations = proving_ground.observations();
+    assert_eq!(exchange.status(), 200);
+    assert_eq!(
+        relay(
+            &observations["relays"][0],
+            &["proxy", "method", "target", "task", "username", "outcome"]
+        ),
+        json!({
+            "proxy": "socks5",
+            "method": "CONNECT",
+            "target": format!("1.catalog.test:{port}"),
+            "task": "catalog/1",
+            "username": username,
+            "outcome": "relayed",
+        })
+    );
+    assert_eq!(observations["requests"][0]["task"], "catalog/1");
+}
+
+#[test]
+fn the_socks5_proxy_refuses_a_wrong_password_and_records_the_username_alone() {
+    let proving_ground = ProvingGround::start(SEED);
+    let username = proving_ground.proxy_username();
+    let port: u16 = proving_ground.port().parse().unwrap();
+
+    let refused = clients::socks5(
+        &proving_ground.proxy("socks5"),
+        (&username, "wrong"),
+        ("1.catalog.test", port),
+        b"",
+    );
+
+    let observations = proving_ground.observations();
+    assert_eq!(refused.err(), Some(clients::Socks5Refusal::Credentials(1)));
+    assert_eq!(
+        relay(
+            &observations["relays"][0],
+            &["proxy", "username", "outcome"]
+        ),
+        json!({
+            "proxy": "socks5",
+            "username": username,
+            "outcome": "proxy_authentication_required",
+        })
+    );
 }

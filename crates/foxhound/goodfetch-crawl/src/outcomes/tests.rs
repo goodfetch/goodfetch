@@ -50,7 +50,7 @@ fn seeds() -> Value {
 fn handler(params: &Value) -> Reply {
     let attempt = params["attempt"].as_u64();
     match params["crawl_request"]["url"].as_str() {
-        Some("https://shop.test/a") => Reply::Records(vec![json!(1), json!(2)]),
+        Some("https://shop.test/a") => Reply::Records(vec![json!({ "n": 1 }), json!({ "n": 2 })]),
         Some("https://shop.test/b") if attempt == Some(1) => Reply::Fails("retry_requested", true),
         Some("https://shop.test/b") => Reply::Records(Vec::new()),
         Some("https://shop.test/c") => Reply::Fails("handler_failed", true),
@@ -158,6 +158,12 @@ fn every_ending_of_a_crawl_is_read_in_commit_order_with_its_attempts_and_records
 #[case::kinds(json!({ "kinds": ["failed", "blocked"] }), vec![failed_c(), blocked_e()])]
 #[case::labels(json!({ "labels": ["list"] }), vec![failed_c(), blocked_e()])]
 #[case::kinds_and_labels(json!({ "kinds": ["succeeded", "skipped"], "labels": ["page"] }), vec![succeeded_a(), succeeded_b(), skipped_d()])]
+/// Covers: story:12-219
+#[case::codes_of_the_last_attempt(json!({ "codes": ["handler_failed"] }), vec![failed_c()])]
+/// Covers: story:12-219
+#[case::codes_of_an_earlier_attempt(json!({ "codes": ["retry_requested", "lease_lost"] }), vec![succeeded_b()])]
+/// Covers: story:12-219
+#[case::codes_and_kinds(json!({ "codes": ["retry_requested"], "kinds": ["failed"] }), Vec::new())]
 #[case::after_a_position(json!({ "after": 3 }), vec![skipped_d(), blocked_e()])]
 #[case::after_now(json!({ "after": "now" }), Vec::new())]
 fn a_filtered_read_holds_only_the_outcomes_its_filters_take(
@@ -231,7 +237,7 @@ fn a_reader_from_now_on_reads_only_the_endings_committed_after_its_call() {
                     "run.outcomes",
                     json!({ "run_id": "live", "after": "now" }),
                     &mut |params: &Value| match params["crawl_request"]["id"].as_str() {
-                        Some("2") => Reply::Records(vec![json!("b")]),
+                        Some("2") => Reply::Records(vec![json!({ "page": "b" })]),
                         _ => Reply::Silent,
                     },
                 )
@@ -331,4 +337,55 @@ fn reading_the_outcomes_of_no_run_fails_with_run_not_found() {
     );
 
     assert_eq!(failed["error"]["data"]["code"], "run_not_found");
+}
+
+/// A `site_preferences_refused` that escapes the handler, raised by its
+/// own navigation the site's preferences refused, ends the request
+/// `skipped` with that refusal's reason, not `failed`, and is never
+/// retried (ADR 0093).
+///
+/// Covers: story:6-244, operation:run.outcomes
+#[rstest]
+#[case::robots_txt("robots_txt")]
+#[case::crawl_delay("crawl_delay")]
+#[case::use_signals("use_signals")]
+fn a_refusal_escaping_the_handler_ends_its_request_skipped_with_its_reason(
+    #[case] reason: &'static str,
+) {
+    let env = TestEnv::new();
+    let details = json!({ "url": "https://shop.test/private", "reason": reason });
+
+    let page = crawl(
+        || one_at_a_time(&env),
+        async |client| {
+            let seeds = json!([{ "url": "https://shop.test/a", "label": "page" }]);
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "refused", "seeds": seeds }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler =
+                |_: &Value| Reply::FailsWith("site_preferences_refused", false, details.clone());
+            client
+                .call("run.finish", json!({ "run_id": "refused" }), &mut handler)
+                .await;
+            client
+                .call("run.outcomes", json!({ "run_id": "refused" }), &mut |_| {
+                    Reply::Silent
+                })
+                .await
+        },
+    );
+
+    assert_eq!(
+        page["result"]["outcomes"],
+        json!([{
+            "position": 1,
+            "request": { "id": "1", "url": "https://shop.test/a", "label": "page", "depth": 0 },
+            "attempts": 1, "errors": [], "ended_at": ENDED_AT,
+            "kind": "skipped", "reason": reason,
+        }])
+    );
 }

@@ -1,17 +1,37 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use proptest::prelude::*;
 use rstest::rstest;
 use rusqlite::Connection;
 use url::Url;
 
-use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
+
+use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, rewrite, url_key};
 use crate::admit::{Candidate, admit};
+use crate::bounds;
 use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
+
+/// The domain policy that allows every host: the settings' defaults.
+fn every_host() -> Policy {
+    Policy::new(&["*"], &[] as &[&str]).unwrap()
+}
 
 /// A run file holding the visited set and the scope, in memory.
 fn run_file() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements.iter().chain(scope::TABLES.statements) {
+    for statement in TABLES
+        .statements
+        .iter()
+        .chain(scope::TABLES.statements)
+        .chain(bounds::TABLES.statements)
+        .chain(crate::rules::TABLES.statements)
+    {
         connection.execute(statement, []).unwrap();
     }
     connection
@@ -162,12 +182,14 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
         admit(
             &connection,
             &scope,
+            &every_host(),
             Candidate::Seed {
                 url,
                 declared: Declared {
                     method: &get,
                     body: None,
                     key: None,
+                    keeps_fragment: false,
                 },
             },
             |_| {
@@ -183,6 +205,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
         redirect_hop(
             &connection,
             &Scope::read(&connection).unwrap(),
+            &every_host(),
             crawl_request,
             &Url::parse(url).unwrap(),
             &get,
@@ -226,6 +249,76 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
     );
 }
 
+/// Two redirect chains that reach one key at once, each hop checked
+/// before either chain's document arrived, both pass their hop's check;
+/// the chain whose document arrives first records the key, and the other
+/// is a duplicate at its chain's end, the key left the first's (ADR 0120's
+/// #832 note, closed at the chain's end).
+///
+/// Covers: story:6-220
+#[test]
+fn of_two_chains_reaching_one_key_at_once_the_second_to_arrive_is_a_duplicate() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let slug = Url::parse("http://shop.test/product/1-slug").unwrap();
+    // Requests A and B, which both redirect to the slug no request holds.
+    for (id, url) in [
+        ("A", "http://shop.test/p?id=1"),
+        ("B", "http://shop.test/product/1"),
+    ] {
+        admit(
+            &connection,
+            &Scope::default(),
+            &every_host(),
+            Candidate::Seed {
+                url,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                    keeps_fragment: false,
+                },
+            },
+            |_| Ok(id.to_owned()),
+        )
+        .unwrap();
+    }
+    let hop = |crawl_request: &str| {
+        redirect_hop(
+            &connection,
+            &Scope::read(&connection).unwrap(),
+            &every_host(),
+            crawl_request,
+            &slug,
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+    let reached = |crawl_request: &str| {
+        redirect_reached(&connection, crawl_request, &slug, &get, None).unwrap()
+    };
+
+    let checked = (hop("A"), hop("B"));
+    let arrived = (reached("A"), reached("B"), reached("A"));
+    let visitor: String = connection
+        .query_row(
+            "SELECT crawl_request FROM visited WHERE identity LIKE '%1-slug'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(
+        (checked, arrived, visitor),
+        (
+            (Hop::Follow, Hop::Follow),
+            (Hop::Follow, Hop::Duplicate, Hop::Follow),
+            "A".to_owned()
+        )
+    );
+}
+
 /// A redirect hop leaving the crawl's scope ends the request `skipped`
 /// with `out_of_scope` before any other check, a hop to a key admitted for
 /// another request included, while one inside it is followed (ADR 0093;
@@ -249,9 +342,10 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
         };
-        admit(&connection, &scope, candidate, |_| {
+        admit(&connection, &scope, &every_host(), candidate, |_| {
             added += 1;
             Ok(added.to_string())
         })
@@ -261,6 +355,7 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
         redirect_hop(
             &connection,
             &scope,
+            &every_host(),
             "1",
             &Url::parse(url).unwrap(),
             &get,
@@ -289,6 +384,192 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
     );
 }
 
+/// The seeds `urls` admitted under `scope`, every host allowed, in the run
+/// file `connection`.
+fn seeded(connection: &Connection, scope: &Scope, urls: &[&str]) {
+    let get = HttpMethod::get();
+    for (at, url) in urls.iter().enumerate() {
+        let candidate = Candidate::Seed {
+            url,
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+                keeps_fragment: false,
+            },
+        };
+        admit(connection, scope, &every_host(), candidate, |_| {
+            Ok((at + 1).to_string())
+        })
+        .unwrap();
+    }
+}
+
+/// A redirect hop is judged by the scope, then by the domain policy, then
+/// by the visited set (ADRs 0093 and 0120): a hop to a host the policy
+/// refuses, in any spelling the WHATWG parser reads as that host, is
+/// `domain_policy`, a key admitted for another request on it included; an
+/// off-site hop the policy refuses too stays `out_of_scope`; and a hop to
+/// another spelling of a seed's host is in scope and followed.
+///
+/// Covers: story:4-95, story:4-97, setting:egress.blocked_domains
+#[test]
+fn a_redirect_hop_the_domain_policy_refuses_is_domain_policy_after_the_scope() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    seeded(
+        &connection,
+        &scope,
+        &[
+            "http://bücher.test/",
+            "http://127.0.0.1/",
+            "http://127.0.0.2/",
+            "http://bücher.test/taken",
+        ],
+    );
+    let policy = Policy::new(&["*"], &["bücher.test", "127.0.0.1", "elsewhere.test"]).unwrap();
+    let hop = |url: &str| {
+        redirect_hop(
+            &connection,
+            &scope,
+            &policy,
+            "1",
+            &Url::parse(url).unwrap(),
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+
+    let hops = [
+        hop("http://xn--bcher-kva.test/a"),
+        hop("http://BÜCHER.test/b"),
+        hop("http://0x7f000001/c"),
+        hop("http://2130706433/d"),
+        hop("http://bücher.test/taken"),
+        hop("http://elsewhere.test/"),
+        hop("http://0x7f000002/e"),
+        hop("http://127.2/f"),
+    ];
+
+    assert_eq!(
+        hops,
+        [
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::OutOfScope,
+            Hop::Follow,
+            Hop::Follow,
+        ]
+    );
+}
+
+/// A Hook's rewrite is judged as an enqueue is (ADRs 0093 and 0104): one
+/// leaving the scope ends its request `skipped` with `out_of_scope`, one in
+/// scope to a host the domain policy refuses, in any spelling, with
+/// `domain_policy`, an off-site host the policy refuses too staying
+/// `out_of_scope`; one in scope to an allowed host is followed.
+///
+/// Covers: story:4-97, setting:egress.blocked_domains
+#[test]
+fn a_hook_rewrite_is_judged_by_the_scope_then_the_domain_policy() {
+    let connection = run_file();
+    let scope = Scope::new(
+        ScopeStrategy::SameDomain,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    seeded(&connection, &scope, &["http://shop.test/"]);
+    let policy = Policy::new(&["*"], &["admin.shop.test", "elsewhere.test"]).unwrap();
+    let judged =
+        |url: &str| rewrite(&connection, &scope, &policy, &Url::parse(url).unwrap()).unwrap();
+
+    let rewrites = [
+        judged("http://shop.test/b"),
+        judged("http://cdn.shop.test/a"),
+        judged("http://ADMIN.shop.test/"),
+        judged("http://elsewhere.test/"),
+        judged("http://outlet.test/"),
+    ];
+
+    assert_eq!(
+        rewrites,
+        [
+            None,
+            None,
+            Some(SkipReason::DomainPolicy),
+            Some(SkipReason::OutOfScope),
+            Some(SkipReason::OutOfScope),
+        ]
+    );
+}
+
 mod url_key_target {
     goodfetch_test_support::fuzz_replay!(crate::identity::fuzz_url_key, "fuzz/url_key");
+}
+
+/// What each seed of `urls` is answered, every host allowed, its key
+/// keeping the fragment when `keeps_fragment` is on: `true` when added.
+fn added_keeping(urls: &[&str], keeps_fragment: bool) -> Vec<bool> {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let mut added = 0;
+    urls.iter()
+        .map(|url| {
+            let candidate = Candidate::Seed {
+                url,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                    keeps_fragment,
+                },
+            };
+            let answer = admit(
+                &connection,
+                &Scope::default(),
+                &every_host(),
+                candidate,
+                |_| {
+                    added += 1;
+                    Ok(added.to_string())
+                },
+            )
+            .unwrap();
+            matches!(answer, Enqueued::Added { .. })
+        })
+        .collect()
+}
+
+/// A request whose Label keeps fragments (`crawl.keep_url_fragment`, ADR
+/// 0120; pitfall U05) keeps its URL's fragment in its key, so a hash-routed
+/// app's `#/a` and `#/b` are two requests and `#/a` twice is one, while
+/// the other rules still apply: a tracking parameter still splits nothing.
+/// With the setting off, the fragment is dropped and they are one.
+///
+/// Covers: story:6-221
+#[test]
+fn a_request_keeping_its_fragment_is_one_request_per_fragment() {
+    let routes = [
+        "http://app.test/#/a",
+        "http://app.test/#/b",
+        "http://app.test/?utm_source=x#/a",
+        "http://app.test/",
+    ];
+
+    assert_eq!(
+        (added_keeping(&routes, true), added_keeping(&routes, false)),
+        (
+            vec![true, true, false, true],
+            vec![true, false, false, false]
+        )
+    );
 }

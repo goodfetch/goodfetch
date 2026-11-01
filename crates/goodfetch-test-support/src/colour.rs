@@ -14,7 +14,8 @@ use crate::pty::{PtyError, PtyOutput, pty};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColourProperty {
     /// The coloured output, stripped of its escape sequences, equals the
-    /// `NO_COLOR=1` output, exit code included.
+    /// `NO_COLOR=1` output, exit code included; a coloured run that shows
+    /// no colour fails it, since its stripping would prove nothing.
     StrippedColourEqualsNoColor,
     /// `NO_COLOR` set to the empty string leaves colour on (no-color.org).
     EmptyNoColorKeepsColour,
@@ -44,6 +45,9 @@ impl ColourProperty {
         match self {
             Self::StrippedColourEqualsNoColor => {
                 let coloured = run(None, &[])?;
+                if !coloured.has_colour() {
+                    return Err(ColourError::NoColourShown { coloured });
+                }
                 let no_color = run(Some("1"), &[])?;
                 if (coloured.exit, coloured.stripped()) == (no_color.exit, no_color.stripped()) {
                     Ok(())
@@ -85,6 +89,13 @@ pub enum ColourError {
         coloured: PtyOutput,
         /// The run with `NO_COLOR=1`.
         no_color: PtyOutput,
+    },
+    /// The run with colour on showed none, so its stripping proves
+    /// nothing: the command never colours, or its terminal detection broke.
+    #[error("the run with colour on showed no colour, so stripping it proves nothing:\n{coloured}")]
+    NoColourShown {
+        /// The run with colour on.
+        coloured: PtyOutput,
     },
     /// An empty `NO_COLOR` turned colour off.
     #[error("an empty NO_COLOR turned colour off:\n{output}")]

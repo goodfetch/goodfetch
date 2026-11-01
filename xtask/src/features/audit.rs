@@ -18,9 +18,16 @@
 //!   `exit_codes` table names; or, for arguments that name no `command:`
 //!   Feature, `unmatched`, the arguments joined by spaces.
 //!
+//! Only Rust tests' declarations are audited: a conformance case's or a
+//! Journey's `covers` list leaves no exercise record of its own, and counts
+//! as its kept result document gives it (ADR 0072's note).
+//!
 //! A command run with arguments that match no `command:` Feature is
 //! reported, since no declaration can claim it. A declaring test with no
-//! record is reported, never passed. The one exception is ADR 0072's: a test
+//! record is reported, never passed. Over the tests that ran, a declaring
+//! test that did not run while nextest ran tests below its name (an rstest
+//! form named apart from nextest) is reported as `name-unmatched`, never
+//! left out as a test that did not run. The one exception is ADR 0072's: a test
 //! that never reached `rpc` (its record holds no dispatch record, or it is a
 //! unit test with no record) may declare the `error:` or `event:` Feature it
 //! asserts itself, which no record need show. A test whose record shows it
@@ -32,6 +39,7 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -150,10 +158,30 @@ pub(crate) fn audit(
         }
     }
     let mut by_test: BTreeMap<&str, Vec<(&Declaration, Kind, &str)>> = BTreeMap::new();
+    let mut unmatched = BTreeSet::new();
     for declaration in declarations {
-        if declaration.source != Source::Nextest
-            || ran.is_some_and(|ran| !ran.contains(&declaration.test))
+        if declaration.source != Source::Nextest {
+            continue;
+        }
+        if let Some(ran) = ran
+            && !ran.contains(&declaration.test)
         {
+            // nextest ran tests below this name but not this one: the
+            // scanner named the test apart from nextest, so its
+            // declarations would go unaudited, not merely unrun.
+            let below = format!("{}::", declaration.test);
+            if ran
+                .range::<str, _>((Bound::Excluded(declaration.test.as_str()), Bound::Unbounded))
+                .next()
+                .is_some_and(|next| next.starts_with(&below))
+                && unmatched.insert(declaration.test.as_str())
+            {
+                findings.push(Finding::new(
+                    "name-unmatched",
+                    &declaration.test,
+                    "nextest ran tests below this declaring test's name but not the name itself; its declarations name no test that ran",
+                ));
+            }
             continue;
         }
         let Some((kind, name)) = Kind::of(&declaration.feature) else {

@@ -8,21 +8,25 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
+    )
 )]
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache, cli,
-    runtime,
+    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
+    cli, runtime,
 };
+use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
@@ -60,12 +64,73 @@ pub(crate) fn started_with<'env>(
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
 ) -> Attached<'env> {
+    started_after(env, cache, proving_ground, run_id, settings, change, &[])
+}
+
+/// As [`started_with`], once the engine answered `before`, calls such as
+/// `usage.set` the Run's start depends on, each with an ID from 100.
+pub(crate) fn started_after<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+    before: &[(&str, Value)],
+) -> Attached<'env> {
+    begun(
+        env,
+        cache,
+        proving_ground,
+        ("run.start", run_id),
+        settings,
+        change,
+        before,
+    )
+}
+
+/// As [`started_with`], resuming the Run `run_id` with `run.resume` in a
+/// new engine, such as after its engine was killed.
+pub(crate) fn resumed_with<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+) -> Attached<'env> {
+    begun(
+        env,
+        cache,
+        proving_ground,
+        ("run.resume", run_id),
+        settings,
+        change,
+        &[],
+    )
+}
+
+/// An engine started as [`started_after`] says, once `method` began the
+/// Run `run_id`.
+fn begun<'env>(
+    env: &'env TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    (method, run_id): (&str, &str),
+    settings: &Map<String, Value>,
+    change: impl FnOnce(&mut Command),
+    before: &[(&str, Value)],
+) -> Attached<'env> {
     let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
         change(command);
     });
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
+    for ((method, params), id) in before.iter().zip(100..) {
+        let answered = call(&mut engine, id, method, params);
+        assert!(answered.get("result").is_some(), "{answered}");
+    }
     let resolve: Map<String, Value> = proving_ground
         .description()
         .resolve
@@ -73,15 +138,42 @@ pub(crate) fn started_with<'env>(
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
     let mut settings = settings.clone();
-    settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+    allow_private(&mut settings, resolve.keys());
+    settings
+        .entry("network")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("a test's `network` settings are a table")
+        .insert("resolve".to_owned(), Value::Object(resolve));
     let started = call(
         &mut engine,
         1,
-        "run.start",
+        method,
         &json!({ "run_id": run_id, "settings": settings }),
     );
     assert!(started.get("result").is_some(), "{started}");
     engine
+}
+
+/// Lists `hosts`, names a Run's `network.resolve` maps to the Proving
+/// ground's loopback address, in its `egress.private_ranges`, unless the
+/// test's own `settings` list ranges: the relay judges a mapping's answers
+/// as any other (spec #563's reading of #325), so a test reaches loopback
+/// by listing it and keeps the resolved-address check on. Listing the
+/// names rather than `127.0.0.0/8` keeps `localhost` and literal loopback
+/// addresses refused.
+pub(crate) fn allow_private<'host>(
+    settings: &mut Map<String, Value>,
+    hosts: impl IntoIterator<Item = &'host String>,
+) {
+    let egress = settings
+        .entry("egress")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("a test's `egress` settings are a table");
+    egress
+        .entry("private_ranges")
+        .or_insert_with(|| json!(hosts.into_iter().collect::<Vec<_>>()));
 }
 
 pub(crate) fn opened(answer: &Value) -> PageOpened {
@@ -146,6 +238,52 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
             (vec![], true)
         )
     );
+}
+
+/// An engine whose temporary folder is too deep for the OS's socket paths,
+/// as a sandbox's or a build tool's `TMPDIR` can be, still starts its
+/// browser and goes to a page: Chromium puts its own socket in its
+/// temporary folder and stops when that path is too long.
+///
+/// Covers: operation:run.new_page, operation:page.goto
+#[cfg(unix)]
+#[test]
+fn an_engine_under_a_deep_temporary_folder_starts_its_browser_and_goes_to_a_page() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let temporary = env
+        .folder()
+        .join("a folder as deep as a sandbox's or a build tool's temporary folder can be");
+    std::fs::create_dir_all(&temporary).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "deep",
+        &Map::new(),
+        |command| {
+            command.env("TMPDIR", &temporary);
+        },
+    );
+    let url = proving_ground.url("catalog.test", "/catalog/1");
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "deep" }),
+    ));
+    let went = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": url }),
+    );
+    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "deep" }));
+    let _ = engine.finish();
+
+    assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
 }
 
 /// `page.formats` reads the main content of the page a program is on as
@@ -219,7 +357,7 @@ fn a_program_reads_the_main_content_of_its_page_as_markdown() {
                 "main_content": "found",
                 "markdown": "## Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
             }),
-            &json!({ "url": product, "base_url": product, "main_content": "found" }),
+            &json!({ "url": product, "base_url": product }),
             &json!({
                 "url": navigation,
                 "base_url": navigation,
@@ -290,8 +428,9 @@ pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
 }
 
 /// The CDP methods the Run's trace recorded.
-fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
-    let file: PathBuf = env
+#[cfg(unix)]
+pub(crate) fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
+    let file = env
         .home()
         .join("0.0")
         .join("runs")
@@ -312,6 +451,7 @@ fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
 
 /// The checks the Proving ground's CDP probe page reported, once it
 /// reported that it ran (within 10 s).
+#[cfg(unix)]
 fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
     let ran = ("ran".to_owned(), "content".to_owned());
     let mut reports = Vec::new();
@@ -338,6 +478,7 @@ fn probe_reports(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 /// What the probe would see of `Runtime` enabled and of a script outside
 /// its isolated world. `navigator.webdriver`, which it also reports, is
 /// the same with a window or without (#696); hiding it is area 8's.
+#[cfg(unix)]
 const SIDE_EFFECTS: [&str; 2] = ["runtime_enable", "automation_bindings"];
 
 /// The browser runs over a pipe with no debugging port, `Runtime` is never
@@ -453,17 +594,20 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
 /// the command's own Attached engine stopped as the command ended has no
 /// page to open, so the call fails typed (ADR 0099).
 /// Covers: command:run.new-page
-#[test]
-fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found(#[case] mode: Mode) {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{started}");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "new-page", "first", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -480,8 +624,10 @@ fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
 /// `page goto` through the command generated from the catalog: no engine
 /// holds a page the command names, so the call fails with `closed`.
 /// Covers: command:page.goto
-#[test]
-fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_goto_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
@@ -493,6 +639,7 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
             "http://catalog.test/",
             "--json",
         ])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -510,8 +657,10 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
 /// request given as JSON: no engine holds a page the command names, so the
 /// call fails with `closed`.
 /// Covers: command:page.formats
-#[test]
-fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_formats_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
@@ -523,6 +672,7 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
             r#"{"markdown":true}"#,
             "--json",
         ])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -536,12 +686,13 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
     );
 }
 
-/// Runs `page <command> page-1 --json`, which names a page no engine holds,
-/// and returns its exit status, Error code and operation.
-fn closed_page(command: &str) -> (Option<i32>, Value, Value) {
+/// Runs `page <command> page-1 --json` in `mode`, which names a page no
+/// engine holds, and returns its exit status, Error code and operation.
+fn closed_page(command: &str, mode: Mode) -> (Option<i32>, Value, Value) {
     let env = TestEnv::new();
     let checked = cli(&env, COLLIE)
         .args(["page", command, "page-1", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
     (
@@ -554,21 +705,38 @@ fn closed_page(command: &str) -> (Option<i32>, Value, Value) {
 /// `page reload` through the command generated from the catalog (#698): no
 /// engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.reload
-#[test]
-fn page_reload_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_reload_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("reload"),
+        closed_page("reload", mode),
         (Some(3), json!("closed"), json!("page.reload"))
+    );
+}
+
+/// `page close` through the command generated from the catalog (#719): no
+/// engine holds the page it names, so the call fails with `closed`.
+/// Covers: command:page.close
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_close_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    assert_eq!(
+        closed_page("close", mode),
+        (Some(3), json!("closed"), json!("page.close"))
     );
 }
 
 /// `page go-back` through the command generated from the catalog (#698):
 /// no engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.go-back
-#[test]
-fn page_go_back_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_go_back_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("go-back"),
+        closed_page("go-back", mode),
         (Some(3), json!("closed"), json!("page.go_back"))
     );
 }
@@ -577,10 +745,12 @@ fn page_go_back_of_a_page_no_engine_holds_fails_with_closed() {
 /// (#698): no engine holds the page it names, so the call fails with
 /// `closed`.
 /// Covers: command:page.go-forward
-#[test]
-fn page_go_forward_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_go_forward_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("go-forward"),
+        closed_page("go-forward", mode),
         (Some(3), json!("closed"), json!("page.go_forward"))
     );
 }

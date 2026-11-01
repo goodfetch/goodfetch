@@ -145,8 +145,10 @@ async function answer(
       { login: { accountId: OIDC_PERSON.login }, consent: { grantId: await grant.save() } },
       { mergeWithLastSubmission: false },
     );
-  } catch {
-    response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("no such sign-in");
+  } catch (error) {
+    response
+      .writeHead(400, { "Content-Type": "text/plain; charset=utf-8" })
+      .end(`no such sign-in: ${String(error)}`);
   }
 }
 

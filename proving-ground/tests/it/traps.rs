@@ -174,3 +174,66 @@ fn records_once(pages: &[Fetched]) -> Vec<Value> {
     records.dedup();
     records
 }
+
+/// `/hidden-links`, which no page links, holds a honeypot under `/hp/` for
+/// each way a link hides from people, eleven, beside the links a person
+/// sees, reaches by scrolling or reveals, to items 1 to 13 in order.
+#[test]
+fn the_hidden_links_page_hides_eleven_honeypots_beside_thirteen_items() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground);
+
+    let page = proving_ground.get(&format!("{start}hidden-links"));
+    let every = links(&page.body, true);
+
+    assert_eq!(page.status, 200);
+    assert_eq!(
+        every.iter().filter(|link| link.starts_with("/hp/")).count(),
+        11,
+        "{}",
+        page.body
+    );
+    assert_eq!(
+        every
+            .iter()
+            .filter(|link| !link.starts_with("/hp/"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        (1..=13)
+            .map(|number| format!("/items/I-{number:04}"))
+            .collect::<Vec<_>>()
+    );
+    assert!(!links(&proving_ground.get(&start).body, true).contains(&"/hidden-links".to_owned()));
+}
+
+/// `/cards`, which no page links, links item 3 only through an image link
+/// hidden from assistive technology, category 1 from a `hidden` menu then
+/// from the visible one, and items 1 and 2 each through the hidden image
+/// link and the visible title, item 1's image first and item 2's title
+/// first.
+#[test]
+fn the_cards_page_hides_some_links_to_pages_a_person_also_reaches() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground);
+
+    let page = proving_ground.get(&format!("{start}cards"));
+
+    assert_eq!(page.status, 200);
+    assert_eq!(
+        links(&page.body, true),
+        [
+            "/items/I-0003",
+            "/categories/1",
+            "/items/I-0001",
+            "/items/I-0001",
+            "/items/I-0002",
+            "/items/I-0002",
+            "/categories/1",
+        ],
+        "{}",
+        page.body
+    );
+    assert_eq!(page.body.matches("aria-hidden=\"true\"").count(), 3);
+    assert!(page.body.contains("<nav hidden><a href=\"/categories/1\">"));
+    assert!(!links(&proving_ground.get(&start).body, true).contains(&"/cards".to_owned()));
+}

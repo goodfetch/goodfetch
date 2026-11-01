@@ -28,6 +28,7 @@ use url::Url;
 
 use crate::clock::Stopwatch;
 use crate::digest;
+use crate::html;
 use crate::markdown;
 use crate::observation::Seen;
 use crate::robots;
@@ -66,6 +67,10 @@ struct SubmittedError {
     /// The rule an egress refusal names, such as `private_address`.
     #[serde(default)]
     rule: Option<String>,
+    /// The engine setting a `response_limit_exceeded` names, such as
+    /// `network.max_decompression_ratio`.
+    #[serde(default)]
+    setting: Option<String>,
 }
 
 /// A file a tool returns: its name and its bytes in lowercase or uppercase
@@ -470,6 +475,9 @@ pub(crate) fn judge(
                 && named
                     .rule
                     .is_none_or(|rule| error.rule.as_deref() == Some(rule))
+                && named
+                    .setting
+                    .is_none_or(|setting| error.setting.as_deref() == Some(setting))
         });
         (!matches && submission.status == ToolStatus::Failure).then(|| WrongError {
             expected: named.clone(),
@@ -627,13 +635,13 @@ fn judge_records(expected_task: &Expected, submitted: Vec<Value>) -> Records {
         quality.count("id", true);
         for (field, value) in expected.iter().filter(|(field, _)| **field != "id") {
             let submitted = record.get(*field);
-            let markdown_site = expected_task
+            let format = expected_task
                 .markdown_site
-                .filter(|_| *field == MARKDOWN_FIELD);
-            let correct = match markdown_site {
-                Some(site) => submitted
+                .and_then(|site| Format::of(field).map(|format| (site, format)));
+            let correct = match format {
+                Some((site, format)) => submitted
                     .and_then(Value::as_str)
-                    .is_some_and(|text| same_markdown_on(site, id, value, text)),
+                    .is_some_and(|text| format.same(site, id, value, text)),
                 None => same_value(value, submitted),
             };
             quality.count(field, correct);
@@ -645,7 +653,7 @@ fn judge_records(expected_task: &Expected, submitted: Vec<Value>) -> Records {
                     submitted: submitted.cloned().unwrap_or(Value::Null),
                     difference: submitted
                         .and_then(Value::as_str)
-                        .filter(|_| markdown_site.is_none())
+                        .filter(|_| format.is_none())
                         .map(|text| Difference::between(value, text)),
                 });
             }
@@ -758,8 +766,46 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
         .flatten()
 }
 
-/// The field a task with a Markdown site judges as Markdown.
+/// The field a task with a Markdown site judges as Markdown, and the
+/// prefix of the others it does.
 const MARKDOWN_FIELD: &str = "markdown";
+const MARKDOWN_PREFIX: &str = "markdown_";
+/// The prefix of the fields such a task judges as HTML.
+const HTML_PREFIX: &str = "html_";
+/// The field such a task judges as text.
+const TEXT_FIELD: &str = "text";
+
+/// How a task with a Markdown site judges one of its formats' fields.
+#[derive(Clone, Copy)]
+enum Format {
+    Markdown,
+    Html,
+    Text,
+}
+
+impl Format {
+    fn of(field: &str) -> Option<Self> {
+        if field == MARKDOWN_FIELD || field.starts_with(MARKDOWN_PREFIX) {
+            Some(Self::Markdown)
+        } else if field.starts_with(HTML_PREFIX) {
+            Some(Self::Html)
+        } else if field == TEXT_FIELD {
+            Some(Self::Text)
+        } else {
+            None
+        }
+    }
+
+    /// Whether `submitted` is `expected` in this format, for the page `id`
+    /// (its path) on `site`.
+    fn same(self, site: &str, id: &str, expected: &str, submitted: &str) -> bool {
+        match self {
+            Self::Markdown => same_markdown_on(site, id, expected, submitted),
+            Self::Html => html::same_html(expected, submitted),
+            Self::Text => html::same_text(expected, submitted),
+        }
+    }
+}
 
 /// Whether `submitted` is the Markdown `expected` is, for the page `id` (its
 /// path) on `site`.
@@ -769,13 +815,17 @@ fn same_markdown_on(site: &str, id: &str, expected: &str, submitted: &str) -> bo
         .is_ok_and(|page| markdown::same_markdown(expected, submitted, &page, site))
 }
 
-/// Whether a submitted value is the expected one: the same text, or a number
-/// of the same decimal value (`12.3` for `"12.30"`).
+/// Whether a submitted value is the expected one: the same text, a number
+/// of the same decimal value (`12.3` for `"12.30"`), or an array or object
+/// equal to the JSON the expected value is written as.
 fn same_value(expected: &str, submitted: Option<&Value>) -> bool {
     match submitted {
         Some(Value::String(text)) => text == expected,
         Some(Value::Number(number)) => {
             decimal(expected).is_some_and(|value| decimal(&number.to_string()) == Some(value))
+        }
+        Some(value @ (Value::Array(_) | Value::Object(_))) => {
+            serde_json::from_str::<Value>(expected).is_ok_and(|expected| &expected == value)
         }
         _ => false,
     }

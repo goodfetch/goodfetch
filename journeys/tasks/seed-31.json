@@ -1,0 +1,1766 @@
+{
+  "seed": 31,
+  "tasks": [
+    {
+      "description": "Crawl the catalog from its first listing page, following each page's Next link, and return one Record per product, read from its product page, with the fields `id`, `name` and `price`.",
+      "digest": "52d7e3f6c78b36fe58c2057bc9dd12f87da8ba84f8a4be01fb3659e36d6f4aad",
+      "family": "catalog",
+      "id": "catalog/1",
+      "kind": "crawl",
+      "start_url": "http://1.catalog.test/catalog/1"
+    },
+    {
+      "description": "Extract the product this page shows as one Record with the fields `id`, `name` and `price`.",
+      "digest": "b068ee10693c1e5edcb928c18dcba7d2b52c7a87367d61666a0be93c9bfbd548",
+      "family": "catalog",
+      "id": "catalog/2",
+      "kind": "extract",
+      "start_url": "http://2.catalog.test/products/P-0028"
+    },
+    {
+      "description": "Order the product this page offers, once, through its order form.",
+      "digest": "5f27cfc9f6ce01841942196fea7d8bc0adf946ef9983825300d844291c171353",
+      "family": "catalog",
+      "id": "catalog/3",
+      "kind": "submit",
+      "start_url": "http://3.catalog.test/products/P-0023/order"
+    },
+    {
+      "description": "Crawl the feed, scrolling it to its end as its script loads more items, and return one Record per item, read from its item page once the page's scripts have run, with the fields `id`, `name` (in the page's shadow root), `price` and `description` (in the page's frame).",
+      "digest": "35a1fe39c7d838c38e08ebb81c5f630c65e8ef18ac079f4920112de430b73349",
+      "family": "rendered",
+      "id": "rendered/1",
+      "kind": "crawl",
+      "start_url": "http://1.rendered.test/feed"
+    },
+    {
+      "description": "Extract the item this page shows once its scripts have run, as one Record with the fields `id`, `name` (in the page's shadow root), `price` and `description` (in the page's frame).",
+      "digest": "305629da5b02a1d5c72c45197a119d7171261a2f0c1f4e3c7af247a95010e01d",
+      "family": "rendered",
+      "id": "rendered/2",
+      "kind": "extract",
+      "start_url": "http://2.rendered.test/items/I-0003"
+    },
+    {
+      "account": {
+        "password": "ysCpNhcDTwkMgQny",
+        "totp_secret": "GLWAOUWB4SVGYFL6ZHCVAUQTWBTUOZ3E",
+        "username": "user-f38cf047"
+      },
+      "description": "Log in as the task's account with its password, then with the TOTP code of its secret (RFC 6238), and return one Record per order the account page lists, read from its order page, with the fields `id`, `item` and `total`.",
+      "digest": "b906a710636878e36c2b48cefc33faa191ca5f15590aeed5946ed80c558e7d84",
+      "family": "login",
+      "id": "login/1",
+      "kind": "crawl",
+      "start_url": "http://1.login.test/login"
+    },
+    {
+      "account": {
+        "password": "Eui4FhrCk7CheoPR",
+        "username": "user-91117998"
+      },
+      "description": "Log in as the task's account with its password, and return one Record per order the account page lists, read from its order page, with the fields `id`, `item` and `total`. The login expires after three pages: log in again whenever the site sends to its login page.",
+      "digest": "0a79d26ecb1c84fdb64d5c843e1a05595ad60b67bbeae42f3aeeb0fad61495f0",
+      "family": "login",
+      "id": "login/2",
+      "kind": "crawl",
+      "start_url": "http://2.login.test/login"
+    },
+    {
+      "description": "Watch this page while the Proving ground's time step goes from 0 to the last of the task's time steps, one step after another, and return one Record per revision the page shows, with the fields `id` (the revision), `headline` and `price`.",
+      "digest": "5079c25a858f5b63b566d4da625ebe38cbe14365807cb41b4950a04fc8ec6554",
+      "family": "schedule",
+      "id": "schedule/1",
+      "kind": "watch",
+      "start_url": "http://1.schedule.test/board",
+      "time_steps": 6
+    },
+    {
+      "account": {
+        "password": "MLquawPztdcF8wpZ",
+        "username": "portal-4f873611"
+      },
+      "description": "Sign in with the task's account through the login form, whose CSRF token the form carries, then crawl the reports from the first page through each Next link, and return one Record per report with the fields `id` and `price`.",
+      "digest": "21ae5e625aff4eb4e4f9cfd3ab74fae8327270721d42d00c42df6207c8bdeabe",
+      "family": "portal",
+      "id": "portal/1",
+      "kind": "crawl",
+      "start_url": "http://1.portal.test/reports?page=1"
+    },
+    {
+      "account": {
+        "password": "MLquawPztdcF8wpZ",
+        "username": "portal-4f873611"
+      },
+      "description": "Sign in with the task's account, then crawl the reports from the first page through each Next link and return one Record per report with the fields `id` and `price`. A session serves four pages; an expired one is answered with the login form and a 200, so sign in again only then.",
+      "digest": "1c89aa482009719cc8566dca6cafa4f807b5f911a5ebf84c781f494cf60328a4",
+      "family": "portal",
+      "id": "portal/2",
+      "kind": "crawl",
+      "start_url": "http://2.portal.test/reports?page=1"
+    },
+    {
+      "account": {
+        "password": "MLquawPztdcF8wpZ",
+        "username": "portal-4f873611"
+      },
+      "description": "Sign in with the task's account, then crawl the reports from the first page through each Next link and return one Record per report with the fields `id` and `price`. A session serves three pages; renew it by posting to `/session/refresh` with the refresh token cookie `rt`, never by signing in again.",
+      "digest": "a1b546a26217c9b7a914ace75a42de6cd6faf2de455c234a89dcaedce51c72bb",
+      "family": "portal",
+      "id": "portal/3",
+      "kind": "crawl",
+      "start_url": "http://3.portal.test/reports?page=1"
+    },
+    {
+      "account": {
+        "password": "MLquawPztdcF8wpZ",
+        "username": "portal-4f873611"
+      },
+      "description": "Sign in with the task's account and crawl the reports from the first page through each Next link, returning one Record per report with the fields `id` and `price`. The harness stops the tool after two pages and resumes it in a new process, which reuses the journaled session rather than signing in again.",
+      "digest": "13c676397e3dfb5698fceddfb271b1f2a60aa8ef64ca7891ea1d4b4178a51b5f",
+      "family": "portal",
+      "id": "portal/4",
+      "kind": "crawl",
+      "start_url": "http://4.portal.test/reports?page=1"
+    },
+    {
+      "account": {
+        "password": "MLquawPztdcF8wpZ",
+        "username": "portal-4f873611"
+      },
+      "description": "Sign in with the task's account and crawl the reports from the first page through each Next link, returning one Record per report with the fields `id` and `price`. The harness stops the tool after two pages, revokes every session (`POST /revoke-sessions` on the Proving ground's own address) and resumes it in a new process, which must sign in again.",
+      "digest": "45875b755f2603e3762cc25b7527158e054a3afc080d6602084872ce98cfd7d6",
+      "family": "portal",
+      "id": "portal/5",
+      "kind": "crawl",
+      "start_url": "http://5.portal.test/reports?page=1"
+    },
+    {
+      "description": "Crawl the listing from its first page through each Next link and return one Record per product with the fields `id` and `price`.",
+      "digest": "adca93e65f96c78765c3f67f678c9663087ccfb901f224d5e8c4ec688e533b89",
+      "family": "portal",
+      "id": "portal/6",
+      "kind": "crawl",
+      "start_url": "http://6.portal.test/list?page=1"
+    },
+    {
+      "description": "Crawl the listing, whose pages a script renders, and return one Record per product with the fields `id` and `price`.",
+      "digest": "5d47b455e4d3e23bbc7b4ee3b203857105e45329c902404a65cedc539785efdc",
+      "family": "portal",
+      "id": "portal/7",
+      "kind": "crawl",
+      "start_url": "http://7.portal.test/list?page=1"
+    },
+    {
+      "description": "Crawl the listing from its first page through each Next link; a script adds most of each page's products. Return one Record per product with the fields `id` and `price`.",
+      "digest": "800969849ad295cd9c334e4af9109edd0bc80ef317dabbfe9761fca0360ac1be",
+      "family": "portal",
+      "id": "portal/8",
+      "kind": "crawl",
+      "start_url": "http://8.portal.test/list?page=1"
+    },
+    {
+      "description": "Crawl the listing from its first page through each Next link; a script corrects the prices the HTML shows. Return one Record per product with the fields `id` and `price`, each at its current price.",
+      "digest": "9847fafc6a285f38cae468049346f3a07e0b967f439c9fc57c2df5b97bc4b1b4",
+      "family": "portal",
+      "id": "portal/9",
+      "kind": "crawl",
+      "start_url": "http://9.portal.test/list?page=1"
+    },
+    {
+      "description": "Read the catalog, whose products load twenty at a time behind its \"Load more\" button, and return one Record per product with the fields `id` and `price`.",
+      "digest": "4f9fa650b97422d5ac2e58f5c95bfde89b63f98623141414fea9e7ff99d387cf",
+      "family": "portal",
+      "id": "portal/10",
+      "kind": "crawl",
+      "start_url": "http://10.portal.test/catalog"
+    },
+    {
+      "description": "Read the feed, which loads more products as its end scrolls into view, and return one Record per product with the fields `id` and `price`.",
+      "digest": "67d00346c5c2a6d96845d64d5318957dbd513fda796a6b7cb054bace0e0dcf23",
+      "family": "portal",
+      "id": "portal/11",
+      "kind": "crawl",
+      "start_url": "http://11.portal.test/feed"
+    },
+    {
+      "description": "Crawl the shop from its start page and return one Record per product and per event, with the fields `id` and `price`. Links carry session IDs and tracking parameters, categories offer sort orders of the same products, and the events calendar pages on without end.",
+      "digest": "f94c59e8ebd1c19106466c8fa9e693e8ce9bc5ce12fa0650a996f11c160ed7ef",
+      "family": "portal",
+      "id": "portal/12",
+      "kind": "crawl",
+      "start_url": "http://12.portal.test/shop"
+    },
+    {
+      "description": "Read every order of the table, newest first, and return one Record per order with the fields `id` and `price`. The table gains and loses rows while it is paged: return every row that is there for the whole crawl, once each.",
+      "digest": "81ea3317fcfffbc5e6dc8087e83a5efe060e8da8f8bdaf406dbd84d61cc19dc0",
+      "family": "portal",
+      "id": "portal/13",
+      "kind": "crawl",
+      "start_url": "http://13.portal.test/orders?page=1"
+    },
+    {
+      "description": "Click the button labelled Target once.",
+      "digest": "70da26ae4e36de6acb66a1d2fe1e291c9c4983834f759f2ddf7c5f3e491ff76c",
+      "family": "actionability",
+      "id": "actionability/1",
+      "kind": "act",
+      "start_url": "http://1.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. An overlay covers it for a moment after the page loads.",
+      "digest": "4aea5e8fed7ee703f4a985e2189f4a8f42ee67d2a2db529ee5b05f0859efa198",
+      "family": "actionability",
+      "id": "actionability/2",
+      "kind": "act",
+      "start_url": "http://2.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. It is disabled for a moment after the page loads.",
+      "digest": "8830e0adf5c78909bb04d638253e7bc1dbae5b349e6005842d19780d47212d7f",
+      "family": "actionability",
+      "id": "actionability/3",
+      "kind": "act",
+      "start_url": "http://3.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. It is hidden for a moment after the page loads.",
+      "digest": "b5c39eb6c300cd19637537984daf4359dafcee40589fdbc04020a99b4e986c04",
+      "family": "actionability",
+      "id": "actionability/4",
+      "kind": "act",
+      "start_url": "http://4.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. It moves for a moment after the page loads.",
+      "digest": "ad4b1f9656d1328843bf369b001c1c1a82e1048e8091d91a261ba432140507f6",
+      "family": "actionability",
+      "id": "actionability/5",
+      "kind": "act",
+      "start_url": "http://5.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. The page replaces it with a new one shortly after it loads.",
+      "digest": "1828e6fd6c96f239558ec4441cdf9f4100b9cfb60c6abb93cadc9cd673465401",
+      "family": "actionability",
+      "id": "actionability/6",
+      "kind": "act",
+      "start_url": "http://6.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once, or report a failure if it never becomes clickable.",
+      "digest": "26967c38cad808f117751b68b8879879fa9189643964f3e6dcfc7b041a55d70e",
+      "family": "actionability",
+      "id": "actionability/7",
+      "kind": "act",
+      "start_url": "http://7.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once, or report a failure if it stays covered.",
+      "digest": "b748a81bbb4b98d89dc3f3205e9894f993ab7112957c7948cc6463e4e0277136",
+      "family": "actionability",
+      "id": "actionability/8",
+      "kind": "act",
+      "start_url": "http://8.actionability.test/"
+    },
+    {
+      "description": "Click the button whose ID is `target` once, or report a failure if more than one control has that ID.",
+      "digest": "feeeb3e34f737ba7e4a4a5b4ceb0dd9cbc9c707c668be32d3753a0c78490f277",
+      "family": "actionability",
+      "id": "actionability/9",
+      "kind": "act",
+      "start_url": "http://9.actionability.test/"
+    },
+    {
+      "description": "Hover the pointer over the button labelled Target.",
+      "digest": "ec746b55eade555f0855f42223b5c669c49f22d282e083be77e27dbf6e3aba9e",
+      "family": "actionability",
+      "id": "actionability/10",
+      "kind": "act",
+      "start_url": "http://10.actionability.test/"
+    },
+    {
+      "description": "Double-click the button labelled Target.",
+      "digest": "b6e20d6dc45570d64c3d53875b4eec33eea746196c2e8721b21953cf6c0d2ca5",
+      "family": "actionability",
+      "id": "actionability/11",
+      "kind": "act",
+      "start_url": "http://11.actionability.test/"
+    },
+    {
+      "description": "Right-click the button labelled Target.",
+      "digest": "06f12519a921233b9eb960f3ea2bf8ac7bfa186449d529911232646c25c5d51f",
+      "family": "actionability",
+      "id": "actionability/12",
+      "kind": "act",
+      "start_url": "http://12.actionability.test/"
+    },
+    {
+      "description": "Drag the blue square `#source` with the pointer and drop it on the dashed `#dropzone`.",
+      "digest": "85dd2657fd3260a37ceb4bd1dbd4930b0f393a5fa97117f292e2564f06377a2f",
+      "family": "actionability",
+      "id": "actionability/13",
+      "kind": "act",
+      "start_url": "http://13.actionability.test/"
+    },
+    {
+      "description": "Scroll the box `#scroller` down with the mouse wheel.",
+      "digest": "a5aa5229956700276c8fdb82a6297e433593d2ae1ef3cd46b39204fb6569c88b",
+      "family": "actionability",
+      "id": "actionability/14",
+      "kind": "act",
+      "start_url": "http://14.actionability.test/"
+    },
+    {
+      "description": "Focus the text field `#field` and press Enter.",
+      "digest": "209d2bab40947ec1430c94c5377da4300b9b55b2f7bb06bdb14aedef7f45acf5",
+      "family": "actionability",
+      "id": "actionability/15",
+      "kind": "act",
+      "start_url": "http://15.actionability.test/"
+    },
+    {
+      "description": "Type `Goodfetch` into the editable box `#editor`.",
+      "digest": "0ae6810da7c1fefdab4e0f7aec233368e9f41ee50a5034ef8c692cc89ac207c7",
+      "family": "actionability",
+      "id": "actionability/16",
+      "kind": "act",
+      "start_url": "http://16.actionability.test/"
+    },
+    {
+      "description": "Type `Ünïcødé — 漢字 😀` into the text field `#field`.",
+      "digest": "b1d3715aec51c63cdbda69bf9ce6fad6eadd72fc4e825da8eda6b392b0582b89",
+      "family": "actionability",
+      "id": "actionability/17",
+      "kind": "act",
+      "start_url": "http://17.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. It slips away as the pointer arrives, uncovering a decoy where it was.",
+      "digest": "63e909e73ce61c205b150e54b43dee75dd91d4df69dd6636f2668dbb5ec41659",
+      "family": "actionability",
+      "id": "actionability/18",
+      "kind": "act",
+      "start_url": "http://18.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Save once, or report a failure if another control takes its place.",
+      "digest": "a96c223cd4562a0a7a3a4f2c0597ff47045378c920466d50574f6f2949bbc18e",
+      "family": "actionability",
+      "id": "actionability/19",
+      "kind": "act",
+      "start_url": "http://19.actionability.test/"
+    },
+    {
+      "description": "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once.",
+      "digest": "92380b4e86604cc42c65ed6bf101f929f736d54efba326bce439807b2f09ff8c",
+      "family": "actionability",
+      "id": "actionability/20",
+      "kind": "submit",
+      "start_url": "http://20.actionability.test/"
+    },
+    {
+      "description": "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. Save is disabled for a moment after the page loads.",
+      "digest": "baf4858bc71e22328b750acd02aaf14a61da1a534271a8f3e1ec545fa065e959",
+      "family": "actionability",
+      "id": "actionability/21",
+      "kind": "submit",
+      "start_url": "http://21.actionability.test/"
+    },
+    {
+      "description": "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. An overlay covers the form for a moment after the page loads.",
+      "digest": "a6808f76413769bade36fd13b3937fe7ccba65a3730f745c417e4371790ba6aa",
+      "family": "actionability",
+      "id": "actionability/22",
+      "kind": "submit",
+      "start_url": "http://22.actionability.test/"
+    },
+    {
+      "description": "Fill the form: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once. The page replaces Save with a new button as it loads.",
+      "digest": "9f5a9f7fc76e1c32cea665e6b3600dbe76e677afaa4bc5b1bdd8a7e83ecde72c",
+      "family": "actionability",
+      "id": "actionability/23",
+      "kind": "submit",
+      "start_url": "http://23.actionability.test/"
+    },
+    {
+      "description": "Fill the form inside the open shadow root of `#shadow-host`: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once.",
+      "digest": "afe8503e84ca27fa0628c2d78da57a71f39925da2456696056a03fdd96363e75",
+      "family": "actionability",
+      "id": "actionability/24",
+      "kind": "submit",
+      "start_url": "http://24.actionability.test/"
+    },
+    {
+      "description": "Fill the form inside the page's frame: type `Goodfetch` as the name, choose the region EU, tick the consent box, then press Save once.",
+      "digest": "908baeaa1556927cb5354ee71e39166366739b24229e551e613a6468cf783b15",
+      "family": "actionability",
+      "id": "actionability/25",
+      "kind": "submit",
+      "start_url": "http://25.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Increment 50 times, one click after another.",
+      "digest": "df942a32cd626ba2a4d3b0f93548fad6eb6c5db1a868066e23dffe6999031398",
+      "family": "actionability",
+      "id": "actionability/26",
+      "kind": "act",
+      "start_url": "http://26.actionability.test/"
+    },
+    {
+      "description": "Click the button labelled Target once. The page renders it twice for a moment after it loads, then once.",
+      "digest": "586002e346c817e0e8ecd639a785728d70ed63da6c6503792985d01d7a6a5b99",
+      "family": "actionability",
+      "id": "actionability/27",
+      "kind": "act",
+      "start_url": "http://27.actionability.test/"
+    },
+    {
+      "description": "Type `Goodfetch` into the Name field, then press Save once. The field shows the page's own state, which only typed input changes.",
+      "digest": "aae9818c740305c2b8484a9dfe703dfe1b35168caad36f7c11c23f7847059992",
+      "family": "actionability",
+      "id": "actionability/28",
+      "kind": "submit",
+      "start_url": "http://28.actionability.test/"
+    },
+    {
+      "description": "Open the File menu with the pointer and click Export once. The menu shows its items only while the pointer is over it.",
+      "digest": "ab582f8066a4137d31c30cc68aff2a6962ebab207c58ed8141883354fc08755e",
+      "family": "actionability",
+      "id": "actionability/29",
+      "kind": "act",
+      "start_url": "http://29.actionability.test/"
+    },
+    {
+      "description": "Click the link Detail, which changes the page's route without loading a new page.",
+      "digest": "5ed39e416fa3db774aa67169844d8289e217871c496122522f5b0df3174928c3",
+      "family": "navigation",
+      "id": "navigation/1",
+      "kind": "act",
+      "start_url": "http://1.navigation.test/"
+    },
+    {
+      "description": "Follow the link to page B, then go back to page A with the browser's history.",
+      "digest": "4432252057c0c328f8fea31bad5bb0914d3910973adc53f3c9568f2ed7e2ea67",
+      "family": "navigation",
+      "id": "navigation/2",
+      "kind": "act",
+      "start_url": "http://2.navigation.test/"
+    },
+    {
+      "description": "Click Open, then click Confirm in the popup window it opens.",
+      "digest": "606100bfb04579852065c85e0a0efe7951c4d3f411f9bce70e6f59b1723fb417",
+      "family": "navigation",
+      "id": "navigation/3",
+      "kind": "act",
+      "start_url": "http://3.navigation.test/"
+    },
+    {
+      "description": "Click Confirm inside the page's frame, which comes from the page's own origin.",
+      "digest": "4a9ea278120fd8d90bba312c3136fe561b44ad19b38cedd5cda7686f2f74fc3c",
+      "family": "navigation",
+      "id": "navigation/4",
+      "kind": "act",
+      "start_url": "http://4.navigation.test/"
+    },
+    {
+      "description": "Click Confirm inside the page's frame, which comes from another site.",
+      "digest": "89753458d0b6033a9e400d003f389011395476afaf0b05d4f3771c1b14919f44",
+      "family": "navigation",
+      "id": "navigation/5",
+      "kind": "act",
+      "start_url": "http://5.navigation.test/"
+    },
+    {
+      "description": "Upload the file served at `/files/upload.txt`, under its name `upload.txt`, through the file field `#file`.",
+      "digest": "562f4d765a908a1caa43cea95d81034f71501fec7a174088314816a25a5983af",
+      "family": "navigation",
+      "id": "navigation/6",
+      "kind": "act",
+      "start_url": "http://6.navigation.test/"
+    },
+    {
+      "description": "Download the file the link Download offers and return it, named as the site names it, with its exact bytes.",
+      "digest": "2ea782edee118aac0e05342c50485bcac2b9f8b94e55c0b2eaeed9801ce6d9b5",
+      "family": "navigation",
+      "id": "navigation/7",
+      "kind": "download",
+      "start_url": "http://7.navigation.test/"
+    },
+    {
+      "description": "At each time step, book a demo through this page's booking form for Ada Lovelace, whose work email is ada@example.test, on the Pro plan, agreeing to be contacted; never delete the account.",
+      "digest": "4fe6dee4455817a797c5e7fc75ccaf17f31f951887057807c5a301569033ddbd",
+      "family": "agent",
+      "id": "agent/1",
+      "kind": "submit",
+      "start_url": "http://1.agent.test/demo",
+      "time_steps": 4
+    },
+    {
+      "description": "At each time step, read the monthly price of the Pro plan on this page, and return one Record per time step with the fields `id` (`S-` and the step, such as `S-0`) and `price`.",
+      "digest": "58ffeb533dca029f942d69e0dd83157ec10eaa606ca6d4a794cc685592650061",
+      "family": "agent",
+      "id": "agent/2",
+      "kind": "extract",
+      "start_url": "http://2.agent.test/demo",
+      "time_steps": 4
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model answers this task with a rate limit: `429` with `Retry-After: 1`.",
+      "digest": "2d06ea3a01086d0a547245ed3bee6bbc093b24eba6027010746f8cc7f4cef9f8",
+      "family": "agent",
+      "id": "agent/3",
+      "kind": "extract",
+      "start_url": "http://3.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model answers this task with its format's overload.",
+      "digest": "cf550b05e322018218e05fad0cb40904060e031289d0bbabc4a42380bb2fae9b",
+      "family": "agent",
+      "id": "agent/4",
+      "kind": "extract",
+      "start_url": "http://4.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model never answers this task, until the client times out.",
+      "digest": "30326a2089e4352524e28346522ed7398485bfab00c4b96085a42e278177eefa",
+      "family": "agent",
+      "id": "agent/5",
+      "kind": "extract",
+      "start_url": "http://5.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model cuts its answer to this task before its end.",
+      "digest": "82a53daa8a32cbe808d426915e0e954817c4f79e88208cb364876b85be20a56b",
+      "family": "agent",
+      "id": "agent/6",
+      "kind": "extract",
+      "start_url": "http://6.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model answers this task with malformed JSON.",
+      "digest": "cbe421634edb0c8467a2267cfa3512b41673d7a9e9d08aaa6328e7d4fcf631dc",
+      "family": "agent",
+      "id": "agent/7",
+      "kind": "extract",
+      "start_url": "http://7.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model refuses this task.",
+      "digest": "8fed78286a890f605b0de0c9191ce2e4a4d005c90555fcf8fed95d551204f009",
+      "family": "agent",
+      "id": "agent/8",
+      "kind": "extract",
+      "start_url": "http://8.agent.test/demo"
+    },
+    {
+      "description": "Read the monthly price of the Pro plan on this page, and return one Record with the fields `id` (`pro`) and `price`. The Fake model answers this task with a wrong but plausible price, which a Success check or Grounding must refuse.",
+      "digest": "92e2089e2bab1b96710628c3282cd5b2f00e51f3069280e6a7ad38f62b2bc0cf",
+      "family": "agent",
+      "id": "agent/9",
+      "kind": "extract",
+      "start_url": "http://9.agent.test/demo"
+    },
+    {
+      "description": "Through the Proving ground as your proxy, extract the article this frozen page shows as one Record with the fields `id` (the start URL), `title` (its headline, as the page shows it) and `author`.",
+      "digest": "6dd87e2e8c635db9fb9062afcea8a9ced030461ce09140b6a12cce91c46d1817",
+      "family": "replay",
+      "id": "replay/1",
+      "kind": "extract",
+      "start_url": "http://blog.rust-lang.org/2025/12/19/what-do-people-love-about-rust"
+    },
+    {
+      "description": "Through the Proving ground as your proxy, extract the article this frozen page shows as one Record with the fields `id` (the start URL), `title` (its headline, as the page shows it) and `author`.",
+      "digest": "94140c453e701a9b19dab17ca00c0cf88c3a9ce714bcb4e256cfa5d0305ee599",
+      "family": "replay",
+      "id": "replay/2",
+      "kind": "extract",
+      "start_url": "http://www.fda.gov/drugs/postmarket-drug-safety-information-patients-and-providers/fdas-concerns-unapproved-glp-1-drugs-used-weight-loss"
+    },
+    {
+      "description": "Crawl every product page the index links and return one Record per product with the fields `id`, `name`, `price` (a decimal), `currency`, `brand`, `gtin`, `rating` and `description`, read from the page's text, its schema.org JSON-LD and its Open Graph metadata.",
+      "digest": "62f23cbbda39480c3209e4bd8511cd2b97049743a3a6f6760c71007f6aa32e47",
+      "family": "extraction",
+      "id": "extraction/1",
+      "kind": "crawl",
+      "start_url": "http://1.extraction.test/products"
+    },
+    {
+      "description": "Extract every product the shop lists once its script has loaded them, as one Record each with the fields `id`, `name` and `price` (a decimal).",
+      "digest": "34cb5ec8b341a16db5f021a24037b6ac63f85d29cbcb1ae096a8e073f6e21809",
+      "family": "extraction",
+      "id": "extraction/2",
+      "kind": "extract",
+      "start_url": "http://2.extraction.test/shop"
+    },
+    {
+      "description": "Crawl every product page the index links, whose class names differ from page to page, and return one Record per product with the fields `id`, `name` and `price` (a decimal).",
+      "digest": "3c60f73687f8a6a681e2369565e0a8a75f26809b3913d64011c3c3f837b63e08",
+      "family": "extraction",
+      "id": "extraction/3",
+      "kind": "crawl",
+      "start_url": "http://3.extraction.test/churn"
+    },
+    {
+      "description": "Crawl every product page the index links, each laid out a little differently, and return one Record per product with the fields `id`, `name` and `price` (a decimal).",
+      "digest": "405364540e01d66de108e4940031bc65188c50253962056d66646ce0b884c696",
+      "family": "extraction",
+      "id": "extraction/4",
+      "kind": "crawl",
+      "start_url": "http://4.extraction.test/variants"
+    },
+    {
+      "description": "Extract every product of this one huge page, as one Record each with the fields `id`, `name` and `price` (a decimal).",
+      "digest": "18701d3bfb3f2da6345df35328d606c4746522619d1d1520339d36acaee7b621",
+      "family": "extraction",
+      "id": "extraction/5",
+      "kind": "extract",
+      "start_url": "http://5.extraction.test/huge"
+    },
+    {
+      "description": "Follow the page's alternate links to the product's page in each region and return one Record per region with the fields `id` (the region, the path's first segment), `language` (the page's language tag), `currency` (its ISO 4217 code) and `price`, a plain decimal with a full stop, read from the price as the region's locale writes it.",
+      "digest": "3a07b47165779454664641366f104b98196c9e74a068940ba86b82b5ce8ebaa5",
+      "family": "extraction",
+      "id": "extraction/6",
+      "kind": "crawl",
+      "start_url": "http://6.extraction.test/us/products/X-0100"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the page's path) and `markdown`, the page's main content as Markdown: empty for a page with no main content. Markdown is judged by its structure (headings, paragraphs, list items, table cells, code blocks and links), whatever syntax writes it.",
+      "digest": "9ad16785de649702242958f0e844d16a27d7c59965e0268ede6655f5b953f64e",
+      "family": "extraction",
+      "id": "extraction/7",
+      "kind": "crawl",
+      "start_url": "http://7.extraction.test/markdown"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the page's path); `markdown`, the page's main content as Markdown; `markdown_full`, the whole body as Markdown; `markdown_fit`, the main content as Markdown without its link-dense blocks (more than half their text in links), its image-only blocks and the navigation lists the page repeats; `html_raw`, the page's HTML as it stands; `html_cleaned`, its HTML with what ad and annoyance filter lists hide taken out; `html_main`, the main content's HTML; and `text`, the main content's text. Markdown is judged by its structure, HTML by the text of its blocks and text white space aside, whatever syntax writes each.",
+      "digest": "1802a0bcbb56232b569cff7db57e4581a14d6b8cd5273ecd8c5e2d87b548ded4",
+      "family": "extraction",
+      "id": "extraction/8",
+      "kind": "crawl",
+      "start_url": "http://8.extraction.test/content-modes"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links, before any redirect) and, as JSON arrays in document order: `links`, each `<a href>` and `<area href>` as `{ \"url\", \"href\", \"text\", \"rel\" }`; `images`, each `<img src>` as `{ \"url\", \"src\", \"alt\" }`; `media`, each `<video>` and `<audio>` source as `{ \"url\", \"src\", \"kind\" (\"video\" or \"audio\"), \"type\" }`; and `tables`, each table as `{ \"caption\", \"header_rows\", \"body_rows\" }`, a row a list of its cells' text, a row's header its first cell. `href` and `src` are as the page writes them, character references decoded; `url` is that value resolved against the document's base URL (its `<base href>`, else its URL after redirects) by the WHATWG URL Standard, `null` when it does not parse; `alt`, `type` and `caption` are `null` when absent; text has its white space collapsed. Each field is judged as a JSON value.",
+      "digest": "48a582c4ee0519e0432cc5bb8455ac36ddc876467f61781eeaaa44356cbd1d55",
+      "family": "extraction",
+      "id": "extraction/9",
+      "kind": "crawl",
+      "start_url": "http://9.extraction.test/references"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links) and, as JSON objects: `metadata`, `{ \"title\", \"description\", \"canonical\", \"lang\", \"open_graph\", \"twitter\", \"json_ld\", \"microdata\", \"meta\" }`, the first `<title>`'s text, the `description` meta tag, the canonical link resolved, the root's `lang` (each `null` when absent), the Open Graph and Twitter meta tags as `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the HTML Standard's JSON conversion, and every named meta tag neither Open Graph's nor Twitter's, by its name in lower case; and `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the text it was read from (its link's text, else the value as written): e-mail addresses from `mailto:` links and text, telephone numbers from `tel:` links and text with `e164` only when the number carries its country code or the page's language tag has a region (a national number in text with neither is no number), and social profiles with their `network`. Each field is judged as a JSON value.",
+      "digest": "9ac28bbd4dd87b30b9346ef1a65d20327884c7018685a7369d2d6c93e882e83d",
+      "family": "extraction",
+      "id": "extraction/10",
+      "kind": "crawl",
+      "start_url": "http://10.extraction.test/structured"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
+      "digest": "1471dccc0736d8dfb821107a9e67cd9863f89b5b8e1488a1b5c8f6ef9fbe9e4f",
+      "family": "encodings",
+      "id": "encodings/1",
+      "kind": "crawl",
+      "start_url": "http://1.encodings.test/pages"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8; `encoding`, the WHATWG name of the encoding it was read with; and `encoding_source`, where that encoding came from: `bom`, `header`, `meta`, `utf8` or `detected`.",
+      "digest": "f68f62cae1c7015b2c552db3f158363004f84cfbb97c2b4ec695130b63a4366a",
+      "family": "encodings",
+      "id": "encodings/2",
+      "kind": "crawl",
+      "start_url": "http://2.encodings.test/pages"
+    },
+    {
+      "description": "Crawl every page the index links, each link as written (its path and query in Unicode), and return one Record per page with the fields `id` (the link's `data-id`), `title` and `text`, each text exactly as the page holds it: in UTF-8, in the normalization form served, its tabs and newlines kept.",
+      "digest": "aa2862d5c5c3b40eccb4c5fa4f68abeb0c555195b66bf67099ac8e61017112d2",
+      "family": "languages",
+      "id": "languages/1",
+      "kind": "crawl",
+      "start_url": "http://1.languages.test/pages"
+    },
+    {
+      "description": "Extract the page on the IDN host name `bücher.languages.test` as one Record with the fields `id` (`idn`), `title` and `text`.",
+      "digest": "61fdf85471234972cd047d2ecc71251e00af34888ac78fcaff1e9d990578d8f6",
+      "family": "languages",
+      "id": "languages/2",
+      "kind": "extract",
+      "start_url": "http://xn--bcher-kva.languages.test/"
+    },
+    {
+      "description": "Request each link of the index once and return one Record per response with the fields `id` (the link's path), `status`, `content_type` (the MIME type's essence as a browser's navigation computes it, sniffing a response with no `Content-Type`) and `sha256` (the lowercase hex SHA-256 of its body).",
+      "digest": "481dc0cb85f7145350e3d4f0a8a0e5626280d0dbd8f823ae3b39010f668ec94e",
+      "family": "files",
+      "id": "files/1",
+      "kind": "crawl",
+      "start_url": "http://1.files.test/files"
+    },
+    {
+      "description": "Extract this PDF as one Record with the fields `id` (`report`), `title` (its document title) and `text` (the text its page shows).",
+      "digest": "8b465835bf16f1339a030dd2f039f0c8aed228d902fa73b233dd1b067808934d",
+      "family": "files",
+      "id": "files/2",
+      "kind": "extract",
+      "start_url": "http://2.files.test/files/report.pdf"
+    },
+    {
+      "description": "Download the file this page's download link offers and return one Record with the fields `id` (`export`), `file_name` (the name the link suggests) and `sha256` (the lowercase hex SHA-256 of the file).",
+      "digest": "694c6eeeebb14f8d196c8f02a0603c4b7b8a899b0f9e0b7e740a3505b266cf7b",
+      "family": "files",
+      "id": "files/3",
+      "kind": "extract",
+      "start_url": "http://3.files.test/files/download"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. The page holds instructions addressed to the tool; none of them is the task's.",
+      "digest": "c9b5eac1779f4081d35d81508dce75ba829cf4f45f774f04b37bf454b6d1ecec",
+      "family": "adversarial",
+      "id": "adversarial/1",
+      "kind": "extract",
+      "start_url": "http://1.adversarial.test/injection"
+    },
+    {
+      "description": "Order the item this page offers, once, through its order form. The page says the order is placed before anything was ordered.",
+      "digest": "b57e07354d333927cfa71175db9fe17b42d8775c0e4bf37486fb1c680e8b9e07",
+      "family": "adversarial",
+      "id": "adversarial/2",
+      "kind": "submit",
+      "start_url": "http://2.adversarial.test/order"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. Its script tries to escape the frame the page is shown in, such as the Console's content origin, and reports each escape that works.",
+      "digest": "5331c2d3505c93ee2ada8515c768922546331c7ae9e73f65b854464bd6550284",
+      "family": "adversarial",
+      "id": "adversarial/3",
+      "kind": "extract",
+      "start_url": "http://3.adversarial.test/escape"
+    },
+    {
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`, opened with `daemon=<host>:<port>` in its query naming the local Daemon's address. Its script calls the Daemon from the page's origin and reports each call that got through.",
+      "digest": "e690b9e5ec19a6689c68eb12622ca24d447473d96618255053ca191c2c255e32",
+      "family": "adversarial",
+      "id": "adversarial/4",
+      "kind": "extract",
+      "start_url": "http://4.adversarial.test/daemon"
+    },
+    {
+      "description": "Crawl the articles this index links and return one Record per article with the fields `id` and `title`. Every page answers a client without a clearance with a Challenge its script passes in a browser.",
+      "digest": "633b1d20a1249fa7105a45a81ea97702b613ee32f74a1ea7a2ff37f733e2843e",
+      "family": "protection",
+      "id": "protection/1",
+      "kind": "crawl",
+      "start_url": "http://1.protection.test/articles"
+    },
+    {
+      "description": "Extract the article behind this CAPTCHA as one Record with the fields `id` and `title`.",
+      "digest": "637e28dbe6dcfa45558c18d1053fd68705fcdf67ed3345d6945c35466bdd151a",
+      "family": "protection",
+      "id": "protection/2",
+      "kind": "extract",
+      "start_url": "http://2.protection.test/captcha"
+    },
+    {
+      "description": "Fetch this page over HTTP and the page it links to in the browser, in one Session, and return each page's Record with the fields `id` and `code`. The server compares the fingerprints of the two requests.",
+      "digest": "fb1c0711dc528505f95876402dcd4236542438cb09ef60c0162afe68ab430b70",
+      "family": "access",
+      "id": "access/1",
+      "kind": "extract",
+      "start_url": "http://1.access.test/consistency/1"
+    },
+    {
+      "description": "Open this page in the browser and extract its Record with the fields `id` and `code`. Its script reports the signals a bot detector reads.",
+      "digest": "75461efc11faf857cc87b443f12a8d50ecd35a8a915f61e5ce1a42b1e96bb5a1",
+      "family": "access",
+      "id": "access/2",
+      "kind": "extract",
+      "start_url": "http://2.access.test/probe"
+    },
+    {
+      "description": "Open this page in the browser and extract its Record with the fields `id` and `code`. Its script reports the side effects of driving the browser over its debugging protocol.",
+      "digest": "53fe58845026b50e319b8597ca56079565f417e22c9b2e339cbbce659fc53800",
+      "family": "access",
+      "id": "access/3",
+      "kind": "extract",
+      "start_url": "http://3.access.test/cdp-probe"
+    },
+    {
+      "description": "Open this page and return one Record with the fields `id` (`version-check`), `major` (the Chrome major the browser claims) and `level` (`current`, `info`, `notice` or `warning`, the version check's level as of the page's date). The expected Record is graded from the version the request to this page claims.",
+      "digest": "5753af1397e62a9058227124e21d0a05420eb45adc55cc12d5f6d4debac0779f",
+      "family": "access",
+      "id": "access/4",
+      "kind": "extract",
+      "start_url": "http://4.access.test/version"
+    },
+    {
+      "description": "Fetch each page this index links and return one Record per page with the fields `id` (the page's path) and `cause` (its Block cause: `challenge`, `captcha`, `rate_limit`, `ip_block`, `decoy`, `payment_required`, or `none` when the page is no block).",
+      "digest": "629e9c47b58a2522667e066e640421ece9cfbd960c0b99b037099a5008621779",
+      "family": "access",
+      "id": "access/5",
+      "kind": "crawl",
+      "start_url": "http://5.access.test/corpus"
+    },
+    {
+      "description": "Wait until this page's network is idle (no request in flight for 500 ms, its WebSocket and server-sent events left out), then extract its board as one Record with the fields `id` (the board's `data-id`), `state`, `updates` and `reading`. The page holds a WebSocket and a server-sent events stream open for as long as it is open, and makes periodic requests, one after another, until it settles.",
+      "digest": "b5d17655b883d37c095ecd86a51d5a6982d3a6c9202432e9932871f01f195a66",
+      "family": "live",
+      "id": "live/1",
+      "kind": "extract",
+      "start_url": "http://1.live.test/board"
+    },
+    {
+      "description": "Wait until this page's network is idle (no request in flight for 500 ms, its WebSocket and server-sent events left out), then extract its board as one Record with the fields `id` (the board's `data-id`), `state`, `updates` and `reading`. The page holds a WebSocket and a server-sent events stream open for as long as it is open, and makes periodic requests, one after another, that never stop: its network never becomes idle, so the only right result is a failure.",
+      "digest": "3ce797eb334134f88bdd3ba23872b9ed598fc20eb7733ad4f862b5c703e08c95",
+      "family": "live",
+      "id": "live/2",
+      "kind": "extract",
+      "start_url": "http://2.live.test/board"
+    },
+    {
+      "description": "Click, once, the button this page's canvas asks for: the canvas draws two buttons and, above them, the label of the one to press. Both are pixels on the canvas, with no element, role or text a DOM selector could reach, and a click anywhere on the canvas but on that button is a miss.",
+      "digest": "a2530fcb12b65debc55ccf5ce63bf23fff1cb82f6228994fdb6a2a4d3342b515",
+      "family": "canvas",
+      "id": "canvas/1",
+      "kind": "act",
+      "start_url": "http://1.canvas.test/button"
+    },
+    {
+      "description": "Draw with the mouse the one stroke this page asks for on its drawing surface, between the two points it names, then read the surface back through `evaluate` and return one Record with the fields `id` (`stroke`), `start` and `end`: the colour of the canvas's pixel at each of the two points, as `#rrggbb`.",
+      "digest": "66874b5be1fb4e472d697d20c02030bee47d607ee288f2d70ead280d1c4af2e2",
+      "family": "canvas",
+      "id": "canvas/2",
+      "kind": "act",
+      "start_url": "http://2.canvas.test/surface"
+    },
+    {
+      "description": "Save this page as it prints (print media, as a PDF of it holds it) and return one Record for each entry the saved page shows, with the fields `id` (the entry's `data-id`) and `title`.",
+      "digest": "4dacc3314c350ce173cecf8b2234278090bab5f1b22ef3ffc9f29746e3287928",
+      "family": "print",
+      "id": "print/1",
+      "kind": "extract",
+      "start_url": "http://1.print.test/report"
+    },
+    {
+      "description": "Save this page as the screen shows it (screen media) and return one Record for each entry the saved page shows, with the fields `id` (the entry's `data-id`) and `title`.",
+      "digest": "029e16c46846b313884b3f09dee68f33bd753d1bed2ca4482272dc1af3314d35",
+      "family": "print",
+      "id": "print/2",
+      "kind": "extract",
+      "start_url": "http://2.print.test/report"
+    },
+    {
+      "description": "Save this page as one MHTML file and return one Record for each part the file holds, with the field `id`: the path of the part's `Content-Location`, without its scheme, host and port.",
+      "digest": "2dd5012360dc8b28ca7b2e16e2efc3038b7f52f67abce119f8ee62c51d3637f4",
+      "family": "print",
+      "id": "print/3",
+      "kind": "extract",
+      "start_url": "http://3.print.test/report"
+    },
+    {
+      "description": "Open this page in a viewport 390 CSS pixels wide and 844 high at a device pixel ratio of 3, as a phone shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "71fe176345395f3d73acc0d8146c7d48004e2c70fde87124c81d087a3f1b1a69",
+      "family": "responsive",
+      "id": "responsive/1",
+      "kind": "extract",
+      "start_url": "http://1.responsive.test/layout"
+    },
+    {
+      "description": "Open this page in a viewport 820 CSS pixels wide and 1,180 high at a device pixel ratio of 2, as a tablet shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "d4bcbd9b89c4a87cd409c091f2a5a5910bee08d9bc0257dad1b813892acd80a3",
+      "family": "responsive",
+      "id": "responsive/2",
+      "kind": "extract",
+      "start_url": "http://2.responsive.test/layout"
+    },
+    {
+      "description": "Open this page in a viewport 1,440 CSS pixels wide and 900 high at a device pixel ratio of 1, as a desktop shows it, and extract its layout as one Record with the fields `id` (`layout`), `breakpoint` (the shown plan's `data-breakpoint`), `plan` and `density`, as the page shows them.",
+      "digest": "6efcca407c7f5cdb7113b1cd968b794fc7c25a2fa3ae0774eb6dd1265f193e9b",
+      "family": "responsive",
+      "id": "responsive/3",
+      "kind": "extract",
+      "start_url": "http://3.responsive.test/layout"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for, one key press per character, as a US QWERTY keyboard sends it.",
+      "digest": "52c8f3f64ff0fa4541272b67063ae791a68dc5eb886d7a30829c18de0c96da04",
+      "family": "keys",
+      "id": "keys/1",
+      "kind": "act",
+      "start_url": "http://1.keys.test/type"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for, one key press per character, as a French AZERTY keyboard sends it: each key press's `code` names the physical key that types the character on that layout.",
+      "digest": "12b2abdc74f2e03f980deffca917cb84c5d9eb531ea6c9befd613c129d279e63",
+      "family": "keys",
+      "id": "keys/2",
+      "kind": "act",
+      "start_url": "http://2.keys.test/type"
+    },
+    {
+      "description": "Type into this page's text field the text the page asks for through an input method: one composition that commits the whole text.",
+      "digest": "f18c3be956eb44801baf689a7738b1546267aa54ff82c08962953d791045bcd4",
+      "family": "keys",
+      "id": "keys/3",
+      "kind": "act",
+      "start_url": "http://3.keys.test/type"
+    },
+    {
+      "description": "Crawl the articles from the index and return one Record per article, with the fields `id` and `title`. Some links answer an HTTP error, some answer a page saying the article does not exist, some redirect once or through a chain, and three redirect in a loop; a crawl may make at most 100 requests to the loops.",
+      "digest": "b422f1d1dd2aeefe876f3cc82e93a97e569b7ef793e5a3e9f59898c30881b7b0",
+      "family": "statuses",
+      "id": "statuses/1",
+      "kind": "crawl",
+      "start_url": "http://1.statuses.test/"
+    },
+    {
+      "description": "Crawl the shop from its start page and return one Record per item, with the fields `id` and `name`. Items are linked at several URLs of one page, the events calendar and the archive page on without end, and some links are hidden from people. A crawl must fetch each page once, may make at most 30 requests to the calendar and the archive together, and must never follow a hidden link.",
+      "digest": "3b00fbf49e49ccfad484121ce48f73e67ee0c1420de7b5e3ff303c76db49a24f",
+      "family": "traps",
+      "id": "traps/1",
+      "kind": "crawl",
+      "start_url": "http://1.traps.test/"
+    },
+    {
+      "description": "Crawl the products from the first listing page, following each page's Next link, and return one Record per distinct product page, with the fields `id`, `name` and `price`. Each listing links every product in three colours; a product page shows the product's first colour for a colour it lacks.",
+      "digest": "d02026c1436083cf1dda250ad6639bef8621d176735576e14a5ea40801fb64e0",
+      "family": "parameters",
+      "id": "parameters/1",
+      "kind": "crawl",
+      "start_url": "http://1.parameters.test/products?page=1"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. Each address may make 10 requests, then gets `429 Too Many Requests` with `Retry-After`; a request before that time has passed is ignored advice, and an address that ignores it three times is flagged and refused from then on.",
+      "digest": "09395b5143e11a09350d020c65ab9d9264c41640d810a0a26ff2c350262399c2",
+      "family": "limits",
+      "id": "limits/1",
+      "kind": "crawl",
+      "start_url": "http://1.limits.test/"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. Each address may fetch 10 pages; the site flags an address that asks for more and refuses it with `403 Forbidden` from then on, so the crawl needs more than one address.",
+      "digest": "e84c8c036ba68b4923ecfc543f114600969e9fc432952525297ac95819f381a5",
+      "family": "limits",
+      "id": "limits/2",
+      "kind": "crawl",
+      "start_url": "http://2.limits.test/"
+    },
+    {
+      "description": "Crawl the items from the list and return one Record per item, with the fields `id` and `name`. The site takes 50 milliseconds to answer each page and allows 2 requests in flight at once; one more is answered `503 Service Unavailable` with `Retry-After`.",
+      "digest": "6e16686c03a6be23e791bfd2dc0119011adc176e21a2e4fdae8fb93e5bfbda6c",
+      "family": "limits",
+      "id": "limits/3",
+      "kind": "crawl",
+      "start_url": "http://3.limits.test/"
+    },
+    {
+      "description": "Crawl the items this section page links and return one Record per item, with the fields `id` and `name`. The section is one of 16,384 of the site's 4,194,304 items; crawl this section only.",
+      "digest": "d31b93d8f715c12cd315e1b4f110b845168fe3e8149fcfc83d89b8815ce82a1d",
+      "family": "scale",
+      "id": "scale/1",
+      "kind": "crawl",
+      "start_url": "http://1.scale.test/sections/8569"
+    },
+    {
+      "description": "Crawl the items this sitemap index lists, through its sitemaps, and return one Record per item, with the fields `id` and `name`. The section is one of 16,384 of the site's 4,194,304 items; crawl this section only.",
+      "digest": "4c0cf9a7acfb05afccaf6095a30ccb9cf09ee88087c843af88694424c80696e2",
+      "family": "scale",
+      "id": "scale/2",
+      "kind": "crawl",
+      "start_url": "http://2.scale.test/sections/12160/sitemap.xml"
+    },
+    {
+      "description": "Crawl the books this shelf links and return one Record per book, with the fields `id` and `title`. The shelf's links are relative to its `<base href>`.",
+      "digest": "69e6a4f592a84e5ff0d41389c3bfad4480a046ac1b571696178367d27887f3b8",
+      "family": "links",
+      "id": "links/1",
+      "kind": "crawl",
+      "start_url": "http://1.links.test/guide/"
+    },
+    {
+      "description": "Crawl the books this shelf links and return one Record per book, with the fields `id` and `title`. The shelf has moved; its links are relative to the URL it moved to.",
+      "digest": "46f1ee35c7c0617a760ff1491c0e8821c3cab3f19dfd141ca1cee8b219fa4e55",
+      "family": "links",
+      "id": "links/2",
+      "kind": "crawl",
+      "start_url": "http://2.links.test/old/shelf"
+    },
+    {
+      "description": "Crawl the rooms this page links and return one Record per room, with the fields `id` and `title`. Some rooms are linked only from the page's scripts: a button that navigates, one that opens a popup and one that pushes a history entry.",
+      "digest": "1d17b685e9780e0e5e6973fb6f043faa03349d86be583fdffae4033ce95a04b5",
+      "family": "links",
+      "id": "links/3",
+      "kind": "crawl",
+      "start_url": "http://3.links.test/"
+    },
+    {
+      "description": "Crawl the articles this page links and return one Record per article, with the fields `id` and `title`, while the Proving ground's time step goes from 0 to the last of the task's time steps. The site answers more slowly at each step.",
+      "digest": "2f16265de73907859978c81e1e2cbdb27feb7890676be82d277769d2b9aa2089",
+      "family": "pacing",
+      "id": "pacing/1",
+      "kind": "crawl",
+      "start_url": "http://1.pacing.test/",
+      "time_steps": 6
+    },
+    {
+      "description": "Crawl the products this shop lists and return one Record per product, with the fields `id` and `name`. Its listing links every combination of its facets (`colour`, `size`, `material` and `sort`), which list no product `/shop` does not; request at most 24 faceted listings (`/shop` with a query), bounding them with a path budget or an exclude pattern.",
+      "digest": "b7b5f6070f0b2bcc150ddd252d0e269a8eb1e9d54f98c39390d0dbf7a659a677",
+      "family": "facets",
+      "id": "facets/1",
+      "kind": "crawl",
+      "start_url": "http://1.facets.test/shop"
+    },
+    {
+      "description": "Crawl the listings from the first page, following each page's link to newer listings, and return one Record per listing, with the field `id` and every field its page shows. Newer listings show fields older ones lack.",
+      "digest": "0ccbc8834a18e21a332591eef95a8680d6b3b9fa69630c61342a6cee054f915d",
+      "family": "fields",
+      "id": "fields/1",
+      "kind": "crawl",
+      "start_url": "http://1.fields.test/listings?page=1"
+    },
+    {
+      "description": "Crawl the items the sitemaps of this sitemap index list and return one Record per item, with the fields `id` and `name`. The index lists more sitemaps than the protocol's 50,000; most of them are empty.",
+      "digest": "17be4e403c777210cf24b4b77aacec57dc6e1dd53035359d7026ab0d4340654f",
+      "family": "sitemaps",
+      "id": "sitemaps/1",
+      "kind": "crawl",
+      "start_url": "http://1.sitemaps.test/sitemap-index.xml"
+    },
+    {
+      "description": "Crawl the items the sitemaps of this sitemap index list and return one Record per item, with the fields `id` and `name`. The index lists more sitemaps than the protocol's 50,000; most of them are empty.",
+      "digest": "8f41d83538226f424503757af025c12ecb50b7bba50caf4c6716e0a36edb6a1e",
+      "family": "sitemaps",
+      "id": "sitemaps/2",
+      "kind": "crawl",
+      "start_url": "http://2.sitemaps.test/sitemap-index.xml.gz"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page first answers `429` with `Retry-After: 1`.",
+      "digest": "2919457b7789cf47a475af1ec3232ee6aaa472ce0e7acbd28bf79d7a79bde2aa",
+      "family": "incidents",
+      "id": "incidents/1",
+      "kind": "crawl",
+      "start_url": "https://1.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page first answers `503`.",
+      "digest": "b093625c3c28f727f4776f41d1fcf9d16d97346fdbb5e920a997a0773cd12f84",
+      "family": "incidents",
+      "id": "incidents/2",
+      "kind": "crawl",
+      "start_url": "https://2.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page's body always ends before its `Content-Length`; report the failure.",
+      "digest": "3b01eb360e8a3ac2113e81593d0f944f3bc198163edc318399404807bdda1776",
+      "family": "incidents",
+      "id": "incidents/3",
+      "kind": "crawl",
+      "start_url": "https://3.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page's connection always drops mid-body, before the chunked body's last chunk; report the failure.",
+      "digest": "c601493bda3ce855cb4ddb2765fc145424a875b2c8b2653155a2de599fe73e02",
+      "family": "incidents",
+      "id": "incidents/4",
+      "kind": "crawl",
+      "start_url": "https://4.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`. Its second page always redirects to itself; report the failure.",
+      "digest": "20fd0279a3c5eef217e51b803d49c39469a0a397fbb4446c4face8a5d3e84fe7",
+      "family": "incidents",
+      "id": "incidents/5",
+      "kind": "crawl",
+      "start_url": "https://5.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links and return every Record with its `id` and `price`, within 5 seconds per page. Its second page answers only after 8 seconds; report the failure.",
+      "digest": "ee2c4330913a145460ac02f98c27a53bf7b0db15565772fd8e343c0a3c29372c",
+      "family": "incidents",
+      "id": "incidents/6",
+      "kind": "crawl",
+      "start_url": "https://6.incidents.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links, obeying the site's robots.txt, and return every Record with its `id` and `price` that it lets you reach.",
+      "digest": "be47457de3a8f835ae8693e2adb159f4b30daf89dfe10435c1cdc88613e3b8ca",
+      "family": "access-policy",
+      "id": "access-policy/1",
+      "kind": "crawl",
+      "start_url": "https://1.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. The site's robots.txt answers `503`, which disallows the whole site (RFC 9309); report the failure.",
+      "digest": "3dcb9cd4f147f2b7e7a0a96229a73e936ebb9859f14befd8f8c65e9fbe9640de",
+      "family": "access-policy",
+      "id": "access-policy/2",
+      "kind": "crawl",
+      "start_url": "https://2.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page to train an AI model, and return every Record with its `id` and `price`. The site's robots.txt says `Content-Signal: ai-train=no`; report the failure.",
+      "digest": "0519c61ded77d98b3631594db9e3ef91b52a1c01e15eaf07bcb7076501824dd0",
+      "family": "access-policy",
+      "id": "access-policy/3",
+      "kind": "crawl",
+      "start_url": "https://3.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page for text and data mining, and return every Record with its `id` and `price`. The site's `/.well-known/tdmrep.json` reserves its catalog; report the failure.",
+      "digest": "d1bfb40d17a6988405c3b78234fa6688f039a3b879e6da79b2c50821e92c51d9",
+      "family": "access-policy",
+      "id": "access-policy/4",
+      "kind": "crawl",
+      "start_url": "https://4.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page as input to an AI model, and return every Record with its `id` and `price`. Its second page answers with `tdm-reservation: 1`; report the failure.",
+      "digest": "1e47d269e08a1054d6df1cedd3f3f90a333d19ad041502a92004a191c7547575",
+      "family": "access-policy",
+      "id": "access-policy/5",
+      "kind": "crawl",
+      "start_url": "https://5.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page to train an AI model, and return every Record with its `id` and `price`. Its second page carries `<meta name=\"robots\" content=\"noai, noimageai\">`; report the failure.",
+      "digest": "0255ca48c0021976cf6357c4b046fcb2cd4c5a1b93d45e472b4cc3c1b5d65830",
+      "family": "access-policy",
+      "id": "access-policy/6",
+      "kind": "crawl",
+      "start_url": "https://6.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page answers `402`; report the failure.",
+      "digest": "6f9f1c893782da74cc21cd0bdca63dff9ee24cd2daf73af09b21444a3081faaa",
+      "family": "access-policy",
+      "id": "access-policy/7",
+      "kind": "crawl",
+      "start_url": "https://7.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page answers `403`; report the failure.",
+      "digest": "9bfad2a56c9aa63314aa9c85d8256c4150a874d446f38d447eb8803ee8beaac3",
+      "family": "access-policy",
+      "id": "access-policy/8",
+      "kind": "crawl",
+      "start_url": "https://8.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page and return every Record with its `id` and `price`. Its second page is a challenge served with `200`; report the failure.",
+      "digest": "223cbe43a913415143e3df3aae79f2c4f9942e7e2ed4075dd5435df775b78867",
+      "family": "access-policy",
+      "id": "access-policy/9",
+      "kind": "crawl",
+      "start_url": "https://9.access-policy.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links as an identified agent, signing every request with Web Bot Auth (HTTP Message Signatures, RFC 9421, with a `Signature-Agent` naming your key directory), and return every Record with its `id` and `price`.",
+      "digest": "c5ecbfd5ac48a4f633f0e916d9deb20c3ad9217024d533ac616dadd64c55b09f",
+      "family": "identity",
+      "id": "identity/1",
+      "kind": "crawl",
+      "start_url": "https://1.identity.test/catalog/1"
+    },
+    {
+      "description": "Crawl this shelf from its first page through its `rel=\"next\"` links as a standard browser, signing no request, and return every Record with its `id` and `price`.",
+      "digest": "407088a9351d2aaf33d2e856427e70331d16cdd62d6fe33fffdff17c5ff3e611",
+      "family": "identity",
+      "id": "identity/2",
+      "kind": "crawl",
+      "start_url": "https://2.identity.test/catalog/1"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip` but plain, so a browser fails to decode it; report the failure.",
+      "digest": "a67c6c32539988338e45ab124b6465b05547b12d2915cf77dcfa746e8ab09849",
+      "family": "content-coding",
+      "id": "content-coding/1",
+      "kind": "extract",
+      "start_url": "https://1.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. Its gzip header is invalid, so a browser fails to decode it; report the failure.",
+      "digest": "764d801d45d4cbb1c7c75feb51fde67818571c20384a7b8402def1eb1d591d65",
+      "family": "content-coding",
+      "id": "content-coding/2",
+      "kind": "extract",
+      "start_url": "https://2.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip, br`.",
+      "digest": "141029f75cd5aa8f13408043d6fd194a966a3cbd991e10435ff853619bcb09fc",
+      "family": "content-coding",
+      "id": "content-coding/3",
+      "kind": "extract",
+      "start_url": "https://3.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is raw deflate, with no zlib wrapper, labelled `Content-Encoding: deflate`.",
+      "digest": "e26e83ddf8f2f8dd693cf8a7ec95baa7f506ad9bc9669dc2a80c6cb58dfaf6c6",
+      "family": "content-coding",
+      "id": "content-coding/4",
+      "kind": "extract",
+      "start_url": "https://4.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled with the unknown coding `utf-8`.",
+      "digest": "64f376ec54f66c5175ab54e080f5d97b08cac96a2cfac6ac917171048d236dbe",
+      "family": "content-coding",
+      "id": "content-coding/5",
+      "kind": "extract",
+      "start_url": "https://5.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is compressed twice with gzip but labelled once, so a browser fails to decode it; report the failure.",
+      "digest": "e7c05f2a1f5fea01ecb23666d593b53600d163fe7174379dd59ce997a1cca6f9",
+      "family": "content-coding",
+      "id": "content-coding/6",
+      "kind": "extract",
+      "start_url": "https://6.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is compressed twice with zstd but labelled once, so a browser fails to decode it; report the failure.",
+      "digest": "da2e81f545846f0abbc05988d81dd4c5417124b13552825fefb3daffbf8e97d7",
+      "family": "content-coding",
+      "id": "content-coding/7",
+      "kind": "extract",
+      "start_url": "https://7.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip`.",
+      "digest": "7eaca2e9d5e8d3181abeba74246fa0a18c3ac40142159cf94470ef1a193d25ad",
+      "family": "content-coding",
+      "id": "content-coding/8",
+      "kind": "extract",
+      "start_url": "https://8.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is deflate with its zlib wrapper, labelled `Content-Encoding: deflate`.",
+      "digest": "dafa60acd8986f5c93a6600962f41bd8e61410ac1a416672161ef06f607c6c40",
+      "family": "content-coding",
+      "id": "content-coding/9",
+      "kind": "extract",
+      "start_url": "https://9.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: br`.",
+      "digest": "e93caa20a5acbcd03252006988b61340b93a2d5d3515d447b5b369e49a13fb8c",
+      "family": "content-coding",
+      "id": "content-coding/10",
+      "kind": "extract",
+      "start_url": "https://10.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: zstd`.",
+      "digest": "3705ad0eb125017bd04eb6bdf7f41d544d0e1624738535e8554076513a0198a5",
+      "family": "content-coding",
+      "id": "content-coding/11",
+      "kind": "extract",
+      "start_url": "https://11.content-coding.test/page"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is one byte past 64 MiB, the engine's `network.max_body_size`, and says so in its `Content-Length`. A correct tool refuses it at the limit rather than reading it whole.",
+      "digest": "f340cbd83470884ee81f0b152f850e438bb8da64a5e057e3764d82a18b22a5bc",
+      "family": "body-limits",
+      "id": "body-limits/1",
+      "kind": "extract",
+      "start_url": "https://1.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is chunked and never sends its last chunk. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "08d89c95755a4b8e2086afda439416cc4222837371df032e64b059b645d331db",
+      "family": "body-limits",
+      "id": "body-limits/2",
+      "kind": "extract",
+      "start_url": "https://2.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body has no length and never closes. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "a67d9cb5a7e903045c11cb2b96abb409143eb423e57bb7ad8e8b4130486ae1e9",
+      "family": "body-limits",
+      "id": "body-limits/3",
+      "kind": "extract",
+      "start_url": "https://3.body-limits.test/"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`. Its JSON nests arrays 129 deep, past the engine's `network.max_json_depth`. A correct tool refuses it before it parses it.",
+      "digest": "8606df3ef4dd5da0ee333bdd8e4fcbb3e3824b925ba99d65798dddeb5015671d",
+      "family": "body-limits",
+      "id": "body-limits/4",
+      "kind": "extract",
+      "start_url": "https://4.body-limits.test/api"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`: the object nested 128 deep, as deep as the engine's `network.max_json_depth` keeps. A correct tool keeps it.",
+      "digest": "247590e210551a9bfc8f65f55a78e91312444c5e0194b1267d1d541c508f0498",
+      "family": "body-limits",
+      "id": "body-limits/5",
+      "kind": "extract",
+      "start_url": "https://5.body-limits.test/api"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is gzip within the engine's decompression ratio and decodes to 272 MiB, past its `network.max_body_size` and past the 256 MiB a browser's pipe frames in one message. A correct tool stops it at the limit rather than decoding it whole.",
+      "digest": "61982033298e9251e0ee5baa069487a0c715f75ca5f19dda730553e5a3ca2a14",
+      "family": "body-limits",
+      "id": "body-limits/6",
+      "kind": "extract",
+      "start_url": "https://6.body-limits.test/"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "d77a650e322771a5dfe83170c39214c1374134c7ba3567d3fed43cdd314795e3",
+      "family": "redirects",
+      "id": "redirects/1",
+      "kind": "extract",
+      "start_url": "http://1.redirects.test/moved_permanently"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "154534c08ce4f82316856c1162c22d7346b8f2b640ae5e75e98a6e4512cbaf68",
+      "family": "redirects",
+      "id": "redirects/2",
+      "kind": "extract",
+      "start_url": "http://2.redirects.test/found"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "62f260cff0352127eea3b5e3e80239a7c7077cd40ff0fd36df232abf0037c288",
+      "family": "redirects",
+      "id": "redirects/3",
+      "kind": "extract",
+      "start_url": "http://3.redirects.test/see_other"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "4193e32f91097683fa01621259135dfac46f5ca603488bbfc427c20a58d0507c",
+      "family": "redirects",
+      "id": "redirects/4",
+      "kind": "extract",
+      "start_url": "http://4.redirects.test/temporary_redirect"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "4010a9937da8a0d064ab34a8be4848f981f46937a6636794929fcedd4ef3d419",
+      "family": "redirects",
+      "id": "redirects/5",
+      "kind": "extract",
+      "start_url": "http://5.redirects.test/permanent_redirect"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "7056f9c1e925fd9ba37e65391b77b17409378964fe5a34fc5071e175158511d4",
+      "family": "redirects",
+      "id": "redirects/6",
+      "kind": "extract",
+      "start_url": "http://6.redirects.test/refresh_header"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "1d5350f17e9b2be56f3499a42faa7ff22125c8053f14bf56fcd801d178ecf55e",
+      "family": "redirects",
+      "id": "redirects/7",
+      "kind": "extract",
+      "start_url": "http://7.redirects.test/meta_refresh"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "844bb2fa824eeac28ac94a68b58c5ccb7b662d070410248542a0c7223772077f",
+      "family": "redirects",
+      "id": "redirects/8",
+      "kind": "extract",
+      "start_url": "http://8.redirects.test/script_location"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "e58d8c3dceb189a331405af7807796a48815a8b47d68304442801f74408d8d13",
+      "family": "redirects",
+      "id": "redirects/9",
+      "kind": "extract",
+      "start_url": "http://9.redirects.test/to_a_private_name"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "da15b4bf130aad3c73592eb5aa819d8581002723a0a1cc3628e6a62eb4cd33a1",
+      "family": "redirects",
+      "id": "redirects/10",
+      "kind": "extract",
+      "start_url": "http://10.redirects.test/to_an_encoded_address"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "a099372c43f03e411d48bf575ca86e859ce19957469e53825fb4335309faac06",
+      "family": "redirects",
+      "id": "redirects/11",
+      "kind": "extract",
+      "start_url": "http://11.redirects.test/to_file"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "6a98319fd59d0e9dd6b1234dd5c927835dd02d5aa1bf8655946c6a29ca5157cb",
+      "family": "redirects",
+      "id": "redirects/12",
+      "kind": "extract",
+      "start_url": "http://12.redirects.test/meta_refresh_to_file"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "fb6a2fd6c2a4db66293c6a4c1cd1978eb54062d4b806cc55a04dd1d15ae25c4e",
+      "family": "redirects",
+      "id": "redirects/13",
+      "kind": "extract",
+      "start_url": "http://13.redirects.test/to_data"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "709628b9fe27a0f3494d5a01db0f9ffc16111e44e025ca75a8f5a8597a911715",
+      "family": "redirects",
+      "id": "redirects/14",
+      "kind": "extract",
+      "start_url": "http://14.redirects.test/to_javascript"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
+      "digest": "e158f8f6f439299477889804ff08a0289ec60823247da5e80dd068ba4c5119a6",
+      "family": "redirects",
+      "id": "redirects/15",
+      "kind": "extract",
+      "start_url": "http://15.redirects.test/to_gopher"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects to the Proving ground's own loopback address, a private address: a correct tool refuses it, and a tool that follows it is recorded reaching the landing.",
+      "digest": "8f9c88e38fa393f4b4fa518305565233a096ba8a40def81e622785164be86ece",
+      "family": "redirects",
+      "id": "redirects/16",
+      "kind": "extract",
+      "start_url": "http://16.redirects.test/to_own_loopback"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 19 redirects, as many as a fetch follows (ADR 0118).",
+      "digest": "6a6e337ec37dd5abc6b278998707c46ce619f8547abef1d4fb701a8adbf4d7e5",
+      "family": "redirects",
+      "id": "redirects/17",
+      "kind": "extract",
+      "start_url": "http://17.redirects.test/hops/19"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`, through a chain of 20 redirects, one more than a fetch follows: a correct tool refuses it with `too_many_redirects` (ADR 0118).",
+      "digest": "adf880e482d7a397e717f49995b0d21ecd49ee4e78e1d05b5e9c807a9a56f8e0",
+      "family": "redirects",
+      "id": "redirects/18",
+      "kind": "extract",
+      "start_url": "http://18.redirects.test/hops/20"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects in a loop of two pages: a correct tool refuses it with `too_many_redirects` at its 20th request, after 19 redirects (ADR 0118).",
+      "digest": "f8ec8a4e7e4ce0f4520c502f7468393fe6391aedeac7ff686b4ca8f0fde9e7cc",
+      "family": "redirects",
+      "id": "redirects/19",
+      "kind": "extract",
+      "start_url": "http://19.redirects.test/loop/a"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. Its head holds one header of 300 KiB, more than the browser reads: a correct tool refuses it.",
+      "digest": "0a166910b7cd8f66ab4661422dba78201a261a7e31406367e5e69499c3968bd8",
+      "family": "headers",
+      "id": "headers/1",
+      "kind": "extract",
+      "start_url": "http://1.headers.test/oversized"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. Its head holds two `Content-Length` fields with different values, so its framing is invalid (RFC 9112, section 6.3): a correct tool refuses it.",
+      "digest": "311ebfe4e27ee6d04c712f76b03ca6cfd39b6d43c8085c54e1dc2635f55ba64b",
+      "family": "headers",
+      "id": "headers/2",
+      "kind": "extract",
+      "start_url": "http://2.headers.test/conflicting-length"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. Its redirect holds two `Location` fields naming different pages: a correct tool refuses it, as the browser does.",
+      "digest": "d87993ad43dbba2e786974937facd945e4a1a47c0106e68ff63a8bcbc3737418",
+      "family": "headers",
+      "id": "headers/3",
+      "kind": "extract",
+      "start_url": "http://3.headers.test/two-locations"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. Its head repeats `Content-Length` with one value, which the browser keeps (RFC 9110, section 8.6).",
+      "digest": "2991e1bc88dbf8035c0aae9a1340cc968946d15ad00f713e2e107fe8082132ef",
+      "family": "headers",
+      "id": "headers/4",
+      "kind": "extract",
+      "start_url": "http://4.headers.test/repeated-length"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. A header value of its head holds a NUL: a correct tool refuses it.",
+      "digest": "6124dd70fc889a57b6b02081400319490be1a922eaca4103e0bd3032b6878fc6",
+      "family": "headers",
+      "id": "headers/5",
+      "kind": "extract",
+      "start_url": "http://5.headers.test/nul"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. A header value of its head holds a bare CR followed by a `Set-Cookie` line: a correct tool refuses it and sets no cookie.",
+      "digest": "5668301dd8386cb2f6416e02dd1fd8906a3b613b5b1fb1f1d7c130edf899d590",
+      "family": "headers",
+      "id": "headers/6",
+      "kind": "extract",
+      "start_url": "http://6.headers.test/bare-cr"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. A line of its head has no colon: a correct tool refuses it.",
+      "digest": "a2715af7bef98e235f51f31f7bcecc9f69ff7ddde63d6f2f5a1e7281afcc70a6",
+      "family": "headers",
+      "id": "headers/7",
+      "kind": "extract",
+      "start_url": "http://7.headers.test/no-colon"
+    },
+    {
+      "description": "Extract the start page as one Record with `id` and `word`. A header of its head is folded onto a second line, which a user agent reads as a space (RFC 9112, section 5.2): a correct tool keeps it.",
+      "digest": "8605a19042b5bb623599c372572c793f77da52a9edd2dfbafc38901577529626",
+      "family": "headers",
+      "id": "headers/8",
+      "kind": "extract",
+      "start_url": "http://8.headers.test/folded"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page sets a cookie whose value holds a percent-encoded CRLF and a header: a correct tool sends it back as set, never decoded into a header of its own.",
+      "digest": "b4d5902ec91255160feb7ec351054b56e0f13068f8a2d625b0abfad2273b7cf5",
+      "family": "headers",
+      "id": "headers/9",
+      "kind": "extract",
+      "start_url": "http://9.headers.test/cookie-injection"
+    },
+    {
+      "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects to a path holding a percent-encoded CRLF and a header: a correct tool follows it with the encoding untouched.",
+      "digest": "2f545731dcfe8264cfbd1bd96f1789e10469a957e919b44a9366a82ff468cf4e",
+      "family": "headers",
+      "id": "headers/10",
+      "kind": "extract",
+      "start_url": "http://10.headers.test/location-injection"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "5db9e4a852f401c7933822cae4e4666dfc7363b698579db63fc41adec31a4f02",
+      "family": "downloads",
+      "id": "downloads/1",
+      "kind": "download",
+      "start_url": "http://1.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "8b44088ae2b205b54719d05c8aabd64da5f4ab737310240f824889825d9a04b3",
+      "family": "downloads",
+      "id": "downloads/2",
+      "kind": "download",
+      "start_url": "http://2.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "c473e8e6bbb751579c53d489f816cb63f2218afa5ce9d2b98ef3f50aa2a89201",
+      "family": "downloads",
+      "id": "downloads/3",
+      "kind": "download",
+      "start_url": "http://3.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "ebfd65af8a3b4c27ffc8d847bd1f3a5ae4b2b1707a037e066f22e772ebf1f0be",
+      "family": "downloads",
+      "id": "downloads/4",
+      "kind": "download",
+      "start_url": "http://4.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "608f6502dde336e086f6ce3600b57053f3fef154888215645bc89987c14939b5",
+      "family": "downloads",
+      "id": "downloads/5",
+      "kind": "download",
+      "start_url": "http://5.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "80daa8424571e2de23f76046b7b32175e7c4f98098c634210c8cc7271f49a011",
+      "family": "downloads",
+      "id": "downloads/6",
+      "kind": "download",
+      "start_url": "http://6.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "09570061186bca7d66fd01ac876e2163b79d3f67ca418752fcad10a7e95fcbee",
+      "family": "downloads",
+      "id": "downloads/7",
+      "kind": "download",
+      "start_url": "http://7.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "f02464f783fd8b3fec22f564b14016ef2ee9a8e4326bcb694ef52a7baa17c1a1",
+      "family": "downloads",
+      "id": "downloads/8",
+      "kind": "download",
+      "start_url": "http://8.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "5a3908a831c3be6ed9e7074c3d4c3f142d16300047f6725011ae4459c89a4681",
+      "family": "downloads",
+      "id": "downloads/9",
+      "kind": "download",
+      "start_url": "http://9.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "cbd75e4c695713faa6f977e1292b5ce92417c312285cb3e9925f226d49bccbb4",
+      "family": "downloads",
+      "id": "downloads/10",
+      "kind": "download",
+      "start_url": "http://10.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "216adad4afa161e33f3067244f8a0f877c071708407d521b9188e9e543cac436",
+      "family": "downloads",
+      "id": "downloads/11",
+      "kind": "download",
+      "start_url": "http://11.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "a2bb9dde53233e6b40fc10061ee60bc1e939ec22a1247574b435284777e54f9c",
+      "family": "downloads",
+      "id": "downloads/12",
+      "kind": "download",
+      "start_url": "http://12.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "fdbb85e4ed129edc52ab2ef33f8cc1e5fd19269e448861bebd76ef5347842e17",
+      "family": "downloads",
+      "id": "downloads/13",
+      "kind": "download",
+      "start_url": "http://13.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "ad96ac6d15af75dd1f209652aa148d05c81f4e80b62150228fc43ca29f46f682",
+      "family": "downloads",
+      "id": "downloads/14",
+      "kind": "download",
+      "start_url": "http://14.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "34eee5e1a90277116b3a76e7febac1c361ecfa8d1aade684bacfaabca9b214a3",
+      "family": "downloads",
+      "id": "downloads/15",
+      "kind": "download",
+      "start_url": "http://15.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "ae72808b54523a67623a6e8c35db3a2b699e05c6046005290392d8420e2ef56d",
+      "family": "downloads",
+      "id": "downloads/16",
+      "kind": "download",
+      "start_url": "http://16.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "c233add1d6cf972c74460e8086aa4123d4145c4833703a62f62fde1bfbdfc741",
+      "family": "downloads",
+      "id": "downloads/17",
+      "kind": "download",
+      "start_url": "http://17.downloads.test/download"
+    },
+    {
+      "description": "Download the file the start URL serves and return it under the name it is saved as. Its `Content-Disposition` suggests a name that may try to leave the download folder: a correct tool keeps the bytes under one safe file name, and keeps a harmless name exactly.",
+      "digest": "ec63746ca4b933ce5de82e89d7414fe3a0e8c77ec660f81d2eccbb67db7f73bf",
+      "family": "downloads",
+      "id": "downloads/18",
+      "kind": "download",
+      "start_url": "http://18.downloads.test/download"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a gzip decompression bomb: a few kilobytes that decode to far more, past the engine's decompression-ratio limit. A correct tool refuses it at the limit rather than reading it to the end.",
+      "digest": "e902bbfbe38479b475b50e9247d3cb07353718bdc9553e0990a1dc8da8020517",
+      "family": "bombs",
+      "id": "bombs/1",
+      "kind": "extract",
+      "start_url": "http://1.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a raw deflate decompression bomb, labelled `Content-Encoding: deflate`, that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "52cb429feedeeebe67c522cb7649978f06e40cea434ab9f916b89bc82e452335",
+      "family": "bombs",
+      "id": "bombs/2",
+      "kind": "extract",
+      "start_url": "http://2.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a Brotli decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "c98fffff10d642037d11403516df2690991265e34198ad36e8410f097e958226",
+      "family": "bombs",
+      "id": "bombs/3",
+      "kind": "extract",
+      "start_url": "https://3.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a zstd decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "13c8425a7c53c8d1f37dd5f218bfad1f53162cefe37c7c251e0011034ca57818",
+      "family": "bombs",
+      "id": "bombs/4",
+      "kind": "extract",
+      "start_url": "https://4.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is gzip applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both codings to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "21814453b973d348173faa8ee886e9d37f53ef6a232f11f741f804ad7b50e2d2",
+      "family": "bombs",
+      "id": "bombs/5",
+      "kind": "extract",
+      "start_url": "http://5.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is legitimately compressed with gzip, well within the engine's decompression-ratio limit: a correct tool keeps it.",
+      "digest": "94a8a4a538e241247b0ee1604c8e096f3b2a6fc96381f25ea324091bdb3ec417",
+      "family": "bombs",
+      "id": "bombs/6",
+      "kind": "extract",
+      "start_url": "http://6.bombs.test/"
+    },
+    {
+      "description": "Plant a typed password canary with `POST /canaries` (`{\"kind\": \"typed_password\"}`), log in as the account its answer names, and return the account page's Record with `id` and `word`. The password is a Secret canary: it goes only in the login form.",
+      "digest": "2122e724d296683d49346b69be0eadb48d922bee47f02882d248c7e206e5e9fd",
+      "family": "canaries",
+      "id": "canaries/1",
+      "kind": "crawl",
+      "start_url": "http://1.canaries.test/login"
+    },
+    {
+      "description": "Plant a TOTP seed canary with `POST /canaries` (`{\"kind\": \"totp_seed\"}`), log in as the account its answer names with its password and then a TOTP code of its secret (RFC 6238), and return the account page's Record with `id` and `word`. The seed is a Secret canary: it is never sent.",
+      "digest": "17905f725d5535520dea52e487b6675e338e2a9033053fc377b681076171f3c0",
+      "family": "canaries",
+      "id": "canaries/2",
+      "kind": "crawl",
+      "start_url": "http://2.canaries.test/login"
+    },
+    {
+      "description": "Plant a Session cookie canary with `POST /canaries` (`{\"kind\": \"session_cookie\"}`), log in as the account its answer names, and return the account page's Record with `id` and `word`. The Session cookie the login sets is a Secret canary: it goes only back to its host.",
+      "digest": "49411f396dc3d838b50fa818456d6573f35039a9a5a37a772091b263de989136",
+      "family": "canaries",
+      "id": "canaries/3",
+      "kind": "crawl",
+      "start_url": "http://3.canaries.test/login"
+    },
+    {
+      "description": "Plant an endpoint token canary with `POST /canaries` (`{\"kind\": \"endpoint_token\"}`), and return the Record the start URL answers, with `id` and `word`, sending the token as `Authorization: Bearer`. The token is a Secret canary: it goes only in that header.",
+      "digest": "c375777b48432de7cf3e552d38609e1f8f3d333c1fcd5d437a390b2253ea72f8",
+      "family": "canaries",
+      "id": "canaries/4",
+      "kind": "crawl",
+      "start_url": "http://4.canaries.test/api/record"
+    }
+  ]
+}

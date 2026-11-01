@@ -5,14 +5,16 @@
 //! unknown coding passed through), and `navigation_failed` with
 //! `net::ERR_CONTENT_DECODING_FAILED` where it cannot (a plain body labelled
 //! gzip, an invalid gzip header, and a body compressed twice but labelled
-//! once). Brotli and zstd bodies are written here as their formats' stored
+//! once). Four more pages carry one coding each, decoded: `gzip`, `deflate`
+//! with its zlib wrapper, `br` and `zstd`, the transport conformance gate's
+//! codings (pitfall H13). Brotli and zstd bodies are written here as their formats' stored
 //! blocks (RFC 7932's uncompressed meta-blocks, RFC 8878's raw blocks), so no
 //! encoder's update can change a page.
 
 use std::io::Write as _;
 
 use flate2::Compression;
-use flate2::write::{DeflateEncoder, GzEncoder};
+use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
 
 use crate::raw::{Answer, Page, Request};
 use crate::task::{Expected, ExpectedError, Kind, Record, Task};
@@ -27,6 +29,7 @@ const DECODING_FAILED: ExpectedError = ExpectedError {
     code: "navigation_failed",
     network_error: Some("net::ERR_CONTENT_DECODING_FAILED"),
     rule: None,
+    setting: None,
 };
 
 #[derive(Clone, Copy)]
@@ -45,9 +48,17 @@ enum Coding {
     GzipTwice,
     /// Compressed twice with zstd, labelled `zstd` once.
     ZstdTwice,
+    /// `gzip`, labelled `gzip`.
+    Gzip,
+    /// Deflate with its zlib wrapper, labelled `deflate`.
+    ZlibDeflate,
+    /// `br`, labelled `br`.
+    Brotli,
+    /// `zstd`, labelled `zstd`.
+    Zstd,
 }
 
-const CODINGS: [(Coding, &str); 7] = [
+const CODINGS: [(Coding, &str); 11] = [
     (
         Coding::PlainLabelledGzip,
         "Read this page's text, with the `id` and `text` fields. It is labelled \
@@ -84,6 +95,26 @@ const CODINGS: [(Coding, &str); 7] = [
         "Read this page's text, with the `id` and `text` fields. It is compressed twice with \
          zstd but labelled once, so a browser fails to decode it; report the failure.",
     ),
+    (
+        Coding::Gzip,
+        "Read this page's text, with the `id` and `text` fields. It is labelled \
+         `Content-Encoding: gzip`.",
+    ),
+    (
+        Coding::ZlibDeflate,
+        "Read this page's text, with the `id` and `text` fields. It is deflate with its zlib \
+         wrapper, labelled `Content-Encoding: deflate`.",
+    ),
+    (
+        Coding::Brotli,
+        "Read this page's text, with the `id` and `text` fields. It is labelled \
+         `Content-Encoding: br`.",
+    ),
+    (
+        Coding::Zstd,
+        "Read this page's text, with the `id` and `text` fields. It is labelled \
+         `Content-Encoding: zstd`.",
+    ),
 ];
 
 /// The page's text, the same for every seed.
@@ -103,9 +134,12 @@ pub(super) fn tasks(port: Option<u16>) -> Vec<Task> {
     (1..)
         .zip(CODINGS)
         .map(|(ordinal, (coding, description))| {
-            let decodable = matches!(
+            let decodable = !matches!(
                 coding,
-                Coding::GzipThenBrotli | Coding::RawDeflate | Coding::Unknown
+                Coding::PlainLabelledGzip
+                    | Coding::InvalidGzipHeader
+                    | Coding::GzipTwice
+                    | Coding::ZstdTwice
             );
             let expected = if decodable {
                 Expected::records(vec![Record::from([
@@ -154,12 +188,26 @@ pub(super) fn answer(host: &str, request: &Request) -> Answer {
         Coding::Unknown => ("utf-8", plain),
         Coding::GzipTwice => ("gzip", gzip(&gzip(&plain))),
         Coding::ZstdTwice => ("zstd", zstd(&zstd(&plain))),
+        Coding::Gzip => ("gzip", gzip(&plain)),
+        Coding::ZlibDeflate => ("deflate", zlib(&plain)),
+        Coding::Brotli => ("br", brotli(&plain)),
+        Coding::Zstd => ("zstd", zstd(&plain)),
     };
     Answer::Page(Page::html(200, body).with("content-encoding", label))
 }
 
 fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(bytes)
+        .expect("invariant: writing to a Vec succeeds");
+    encoder
+        .finish()
+        .expect("invariant: writing to a Vec succeeds")
+}
+
+fn zlib(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(bytes)
         .expect("invariant: writing to a Vec succeeds");

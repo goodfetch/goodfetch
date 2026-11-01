@@ -9,30 +9,52 @@
 //! user configuration and the Operator policy, which
 //! `GOODFETCH_DAEMON_ADDRESS` and `GOODFETCH_DAEMON_DRAIN_GRACE` override
 //! unless the policy locks them; and its logs are JSON lines on stdout,
-//! which `main` set up. It listens for `SIGTERM` and `SIGINT` (Ctrl-C on
+//! which `main` set up; under `--json` its `DaemonStatus` comes first,
+//! once it listens. It listens for `SIGTERM` and `SIGINT` (Ctrl-C on
 //! Windows) before it listens for Clients, and on either it drains: it
 //! takes no run, checkpoints each live run as resumable and exits within
 //! `daemon.drain_grace`. On Linux it runs under its own reaper (the
 //! `reaper` module), which reaps every browser descendant.
+//!
+//! With `ops.address` set, or `GOODFETCH_OPS_ADDRESS` unless the policy
+//! locks it, it serves its ops listener there (ADR 0050): the probes,
+//! ready while the pinned browser is in the Browser cache, and `/metrics`
+//! behind the ops token of the major's `ops.token`; with
+//! `otlp.metrics_endpoint` set, it exports its metrics there.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_cli::output;
+use goodfetch_engine::browser_cache::{
+    BrowserChoice, BrowserSource, CacheLocation, Pins, Platform, browser_source, entry_present,
+};
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::rpc::Authorities;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
-use goodfetch_engine::transport::Network;
-use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, DaemonEndpoint, IDLE_TIMEOUT};
-use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SettingsLayer};
+use goodfetch_engine::transport::{Network, listen_ops};
+use goodfetch_engine::{Dependencies, Engine, Identity};
+use goodfetch_protocol::browser_cache::PinnedBy;
+use goodfetch_protocol::daemon::{
+    ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT,
+};
+use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingLimit, SettingsLayer};
 use tokio_util::sync::CancellationToken;
 
-use super::{Machine, multi_thread_runtime};
+use super::{Failure, Machine, Reach, multi_thread_runtime};
 use crate::executable::browsers;
+use crate::executable::metrics::Export;
+use crate::executable::otlp::ToCollector;
 
 /// The deployment variable that overrides `daemon.address` for `daemon run`.
 const ADDRESS_VARIABLE: &str = "GOODFETCH_DAEMON_ADDRESS";
@@ -41,28 +63,66 @@ const ADDRESS_VARIABLE: &str = "GOODFETCH_DAEMON_ADDRESS";
 /// `daemon run`, in milliseconds.
 const DRAIN_GRACE_VARIABLE: &str = "GOODFETCH_DAEMON_DRAIN_GRACE";
 
+/// The deployment variable that overrides `ops.address` for `daemon run`.
+const OPS_ADDRESS_VARIABLE: &str = "GOODFETCH_OPS_ADDRESS";
+
 /// What the foreground Daemon runs with, from the machine's settings and
 /// its environment.
 struct Configured {
     address: SocketAddr,
     drain_grace: Duration,
     idle_timeout: Duration,
+    /// Where its ops listener listens, if anywhere.
+    ops: Option<SocketAddr>,
+    /// Where its metrics are exported over OTLP, if anywhere.
+    otlp_metrics: Option<String>,
     /// The machine's settings, which choose the run-state layout.
     settings: Resolved,
 }
 
-/// Why the foreground Daemon did not start: an Error code and its message.
-struct Refused {
-    code: &'static str,
-    message: String,
-}
+/// Why the foreground Daemon did not start: a setting, or a deployment
+/// variable, it cannot take.
+struct Refused(SettingsError);
 
 impl From<SettingsError> for Refused {
     fn from(error: SettingsError) -> Self {
+        Self(error)
+    }
+}
+
+/// Where a value the foreground Daemon reads came from: a setting's key
+/// and the layer that set it, or a deployment variable, of no layer.
+struct Source {
+    key: String,
+    layer: Option<SettingsLayer>,
+}
+
+impl Source {
+    fn variable(variable: &str) -> Self {
         Self {
-            code: error.code(),
-            message: error.to_string(),
+            key: variable.to_owned(),
+            layer: None,
         }
+    }
+
+    fn setting(settings: &Resolved, key: &str) -> Self {
+        Self {
+            key: key.to_owned(),
+            layer: Some(
+                settings
+                    .get(key)
+                    .map_or(SettingsLayer::Default, |effective| effective.layer),
+            ),
+        }
+    }
+
+    /// Its value is not valid: `reason`.
+    fn invalid(&self, reason: String) -> Refused {
+        Refused(SettingsError::Invalid {
+            key: self.key.clone(),
+            layer: self.layer,
+            reason,
+        })
     }
 }
 
@@ -71,12 +131,13 @@ pub(in crate::executable) fn run(
     engine: &Engine,
     dependencies: Dependencies,
     machine: &Machine<'_>,
+    json: bool,
 ) -> ExitCode {
     let identity = engine.identity();
     let configured = match configured(machine) {
         Ok(configured) => configured,
-        Err(refused) => {
-            tracing::error!(code = refused.code, "{}", refused.message);
+        Err(Refused(error)) => {
+            tracing::error!(code = error.code(), "{error}");
             return ExitCode::FAILURE;
         }
     };
@@ -87,13 +148,16 @@ pub(in crate::executable) fn run(
             Err(failure) => return failure.report(),
         };
     let files = machine.files();
-    let token = match files.persistent_token() {
-        Ok(token) => token,
-        Err(error) => {
-            tracing::error!(%error, "the Daemon's persistent token cannot be read or made");
-            return ExitCode::FAILURE;
-        }
+    let Tokens { token, ops_token } = match tokens(&configured, &files) {
+        Ok(tokens) => tokens,
+        Err(exit) => return exit,
     };
+    let export = match export(&configured, identity, dependencies.clock) {
+        Ok(export) => export,
+        Err(exit) => return exit,
+    };
+    let engine = engine.clone().with_metrics(export.metrics());
+    let browsers = Arc::new(PinnedBrowser::of(identity, machine));
     let pid = std::process::id();
     let runtime = multi_thread_runtime();
     let ended = runtime.block_on(async {
@@ -113,6 +177,7 @@ pub(in crate::executable) fn run(
                 return Err(ExitCode::FAILURE);
             }
         };
+        let ops = ops_listener(configured.ops, ops_token, &export, &files).await?;
         let asked = CancellationToken::new();
         let options = DaemonOptions {
             token,
@@ -128,11 +193,16 @@ pub(in crate::executable) fn run(
                 grace: configured.drain_grace,
             }),
             install,
+            ops: Ops {
+                listener: ops,
+                browsers: Some(browsers),
+            },
             websocket: match &endpoint {
                 DaemonEndpoint::Tcp(bound) => Some(Authorities::loopback(*bound)),
                 DaemonEndpoint::Unix(_) => None,
             },
         };
+        announce(json, machine, identity, pid, &endpoint);
         tracing::info!(
             %endpoint,
             pid,
@@ -157,6 +227,8 @@ pub(in crate::executable) fn run(
         }
     });
     runtime.shutdown_background();
+    // Its last export, before the process exits.
+    drop(export);
     match ended {
         Ok(Some(DaemonEnd::ListenerFailed)) => ExitCode::FAILURE,
         Ok(Some(_)) => ExitCode::SUCCESS,
@@ -166,6 +238,100 @@ pub(in crate::executable) fn run(
         }
         Err(exit) => exit,
     }
+}
+
+/// Under `--json`, prints the Daemon's `DaemonStatus` once it listens at
+/// `endpoint`, before its first log line, as a container's tooling reads
+/// it: no Console, and no service, which a foreground Daemon never has.
+fn announce(
+    json: bool,
+    machine: &Machine<'_>,
+    identity: &Identity,
+    pid: u32,
+    endpoint: &DaemonEndpoint,
+) {
+    if !json {
+        return;
+    }
+    output::json(&DaemonStatus {
+        pid: Some(pid),
+        major: machine.major(),
+        product: Some(identity.product),
+        version: Some(identity.product_version.clone()),
+        address: Some(endpoint.to_string()),
+        console_url: None,
+        console_error: None,
+        service: None,
+    });
+}
+
+/// The tokens the foreground Daemon takes: its Clients' persistent token,
+/// and the ops token when it opens an ops listener.
+struct Tokens {
+    token: String,
+    ops_token: Option<String>,
+}
+
+/// The foreground Daemon's tokens, read or made in `files`.
+fn tokens(configured: &Configured, files: &DaemonFiles) -> Result<Tokens, ExitCode> {
+    let token = files.persistent_token().map_err(|error| {
+        tracing::error!(%error, "the Daemon's persistent token cannot be read or made");
+        ExitCode::FAILURE
+    })?;
+    let ops_token = configured
+        .ops
+        .map(|_| files.ops_token())
+        .transpose()
+        .map_err(|error| {
+            tracing::error!(%error, "the ops token cannot be read or made");
+            ExitCode::FAILURE
+        })?;
+    Ok(Tokens { token, ops_token })
+}
+
+/// The metrics' export `configured` asks for.
+fn export(configured: &Configured, identity: &Identity, clock: Clock) -> Result<Export, ExitCode> {
+    Export::start(
+        configured.ops.is_some(),
+        configured
+            .otlp_metrics
+            .as_deref()
+            .map(|endpoint| (endpoint, ToCollector::new(&configured.settings, clock))),
+        identity.product,
+    )
+    .map_err(|error| {
+        tracing::error!(code = SETTING_INVALID.name, %error, "the metrics' export cannot start");
+        ExitCode::FAILURE
+    })
+}
+
+/// The ops listener at `address`, if any, serving `/metrics` to
+/// `ops_token` from `export`.
+async fn ops_listener(
+    address: Option<SocketAddr>,
+    ops_token: Option<String>,
+    export: &Export,
+    files: &DaemonFiles,
+) -> Result<Option<OpsOptions>, ExitCode> {
+    let Some(address) = address else {
+        return Ok(None);
+    };
+    let listener = listen_ops(address).await.map_err(|error| {
+        tracing::error!(%address, %error, "the Daemon cannot listen at `ops.address`");
+        ExitCode::FAILURE
+    })?;
+    tracing::info!(
+        address = %listener.local_address().map_or_else(|_| String::new(), |address| address.to_string()),
+        token_file = %files.ops_token_file().display(),
+        "the ops listener serves"
+    );
+    Ok(ops_token
+        .zip(export.scrape())
+        .map(|(token, scrape)| OpsOptions {
+            listener,
+            token,
+            scrape: Arc::new(scrape),
+        }))
 }
 
 /// `daemon.address`, `daemon.drain_grace` and `daemon.idle_timeout` from
@@ -178,20 +344,23 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         machine.identity.product,
         &machine.identity.product_version,
     )?;
-    let address = overridden(
+    let (address, source) = match overridden(
         &settings,
         machine.environment,
         ADDRESS_VARIABLE,
         ADDRESS.name,
-    )?
-    .unwrap_or_else(|| {
-        settings
-            .value(ADDRESS.name)
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
-    });
-    let address = parse_address(&address)?;
+    )? {
+        Some(address) => (address, Source::variable(ADDRESS_VARIABLE)),
+        None => (
+            settings
+                .value(ADDRESS.name)
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            Source::setting(&settings, ADDRESS.name),
+        ),
+    };
+    let address = parse_address(&address, &source)?;
     let drain_grace = match overridden(
         &settings,
         machine.environment,
@@ -201,11 +370,10 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         Some(milliseconds) => milliseconds
             .parse::<u64>()
             .map(Duration::from_millis)
-            .map_err(|_| Refused {
-                code: SETTING_INVALID.name,
-                message: format!(
-                    "`{DRAIN_GRACE_VARIABLE}` is `{milliseconds}`, which is no whole number of milliseconds."
-                ),
+            .map_err(|_| {
+                Source::variable(DRAIN_GRACE_VARIABLE).invalid(format!(
+                    "`{milliseconds}` is no whole number of milliseconds"
+                ))
             })?,
         None => settings
             .duration(DRAIN_GRACE.name)
@@ -214,12 +382,116 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
     let idle_timeout = settings
         .duration(IDLE_TIMEOUT.name)
         .unwrap_or(Duration::from_secs(600));
+    let ops = match overridden(
+        &settings,
+        machine.environment,
+        OPS_ADDRESS_VARIABLE,
+        OPS_ADDRESS.name,
+    )? {
+        Some(address) => Some((address, Source::variable(OPS_ADDRESS_VARIABLE))),
+        None => settings.value(OPS_ADDRESS.name).as_str().map(|address| {
+            (
+                address.to_owned(),
+                Source::setting(&settings, OPS_ADDRESS.name),
+            )
+        }),
+    }
+    .map(|(address, source)| parse_ops_address(&address, &source))
+    .transpose()?;
+    let otlp_metrics = settings
+        .value(OTLP_METRICS_ENDPOINT.name)
+        .as_str()
+        .map(str::to_owned);
     Ok(Configured {
         address,
         drain_grace,
         idle_timeout,
+        ops,
+        otlp_metrics,
         settings,
     })
+}
+
+/// Where the foreground Daemon of the machine's settings is reached, and
+/// the persistent token its Clients open with; `None` when no persistent
+/// token was ever made, so none ever ran.
+///
+/// # Errors
+///
+/// When `daemon.address` is invalid, or the token cannot be read.
+pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
+    let configured = configured(machine).map_err(|Refused(error)| Failure::Refused {
+        error: local_settings_error(&error, machine.identity).to_error_object(),
+        operation: None,
+    })?;
+    let token = machine.files().read_token().map_err(|error| {
+        Failure::Unavailable(format!(
+            "the Daemon's persistent token cannot be read: {error}"
+        ))
+    })?;
+    Ok(token.map(|token| Reach {
+        endpoint: DaemonEndpoint::Tcp(configured.address),
+        token: DaemonToken::new(token),
+        service: false,
+    }))
+}
+
+/// `address` as the ops listener listens at it: any `host:port`, so a
+/// cluster's probes and scrapers reach it.
+fn parse_ops_address(address: &str, source: &Source) -> Result<SocketAddr, Refused> {
+    address.parse::<SocketAddr>().map_err(|_| {
+        source.invalid(format!(
+            "`{address}` is no `host:port`; set an address and port such as `0.0.0.0:9464`"
+        ))
+    })
+}
+
+/// The browser `daemon run` launches, as a Run's page does: the build the
+/// Product version pins for this platform, in the Browser cache, or the
+/// distribution's Chromium where no build is made.
+struct PinnedBrowser {
+    pins: Pins,
+    cache: PathBuf,
+    environment: BTreeMap<OsString, OsString>,
+}
+
+impl PinnedBrowser {
+    fn of(identity: &Identity, machine: &Machine<'_>) -> Self {
+        Self {
+            pins: Pins {
+                pinned_by: PinnedBy {
+                    product: identity.product,
+                    product_version: identity.product_version.clone(),
+                },
+                artifacts: crate::pinned_artifacts(),
+            },
+            cache: CacheLocation::new(
+                machine.home.root(),
+                machine.home.browsers_path().map(Path::to_path_buf),
+            )
+            .root()
+            .to_owned(),
+            environment: machine.environment.clone(),
+        }
+    }
+}
+
+impl ConfiguredBrowsers for PinnedBrowser {
+    fn installed(&self) -> bool {
+        match browser_source(
+            Platform::current(),
+            &BrowserChoice::Default,
+            &self.environment,
+        ) {
+            BrowserSource::Pinned { name, platform, .. } => self
+                .pins
+                .browser(name, platform)
+                .is_some_and(|artifact| entry_present(&self.cache, &artifact.id)),
+            BrowserSource::Installed { candidates, .. } => {
+                candidates.iter().any(|candidate| candidate.is_file())
+            }
+        }
+    }
 }
 
 /// The value of the deployment variable `variable`, which overrides the
@@ -233,16 +505,22 @@ fn overridden(
     let Some(value) = goodfetch_engine::settings::deployment_variable(environment, variable) else {
         return Ok(None);
     };
-    if settings
+    if let Some(effective) = settings
         .get(key)
-        .is_some_and(|effective| effective.locked_by == Some(SettingsLayer::OperatorPolicy))
+        .filter(|effective| effective.locked_by == Some(SettingsLayer::OperatorPolicy))
     {
-        return Err(Refused {
-            code: SETTING_LOCKED.name,
-            message: format!(
-                "`{variable}` sets `{key}`, which the Operator policy locks: unset `{variable}`, or change the Operator policy."
-            ),
-        });
+        // The variable stands in for the machine's settings, the user
+        // configuration, whose value the lock refuses.
+        return Err(Refused(SettingsError::Locked {
+            key: key.to_owned(),
+            layer: SettingsLayer::UserConfiguration,
+            limit: SettingLimit {
+                key: key.to_owned(),
+                value: effective.value.clone(),
+                layer: SettingsLayer::OperatorPolicy,
+            },
+            fix: format!("`{variable}` sets it: unset `{variable}`, or change the Operator policy"),
+        }));
     }
     Ok(Some(text(value)))
 }
@@ -253,20 +531,16 @@ fn text(value: &OsStr) -> String {
 
 /// `address` as the foreground Daemon listens at it: a loopback `host:port`,
 /// until the Daemon terminates TLS (area 4).
-fn parse_address(address: &str) -> Result<SocketAddr, Refused> {
-    let parsed = address.parse::<SocketAddr>().map_err(|_| Refused {
-        code: SETTING_INVALID.name,
-        message: format!(
-            "`daemon.address` is `{address}`, which is no `host:port`; set an address and port such as `127.0.0.1:7900`."
-        ),
+fn parse_address(address: &str, source: &Source) -> Result<SocketAddr, Refused> {
+    let parsed = address.parse::<SocketAddr>().map_err(|_| {
+        source.invalid(format!(
+            "`{address}` is no `host:port`; set an address and port such as `127.0.0.1:7900`"
+        ))
     })?;
     if !parsed.ip().is_loopback() {
-        return Err(Refused {
-            code: SETTING_INVALID.name,
-            message: format!(
-                "`daemon.address` is `{address}`, which is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address."
-            ),
-        });
+        return Err(source.invalid(format!(
+            "`{address}` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address"
+        )));
     }
     Ok(parsed)
 }
@@ -305,6 +579,10 @@ impl Signals {
     }
 
     #[cfg(not(unix))]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "listening for Unix signals can fail, for Ctrl-C never: one signature serves both"
+    )]
     fn listen() -> std::io::Result<Self> {
         Ok(Self {})
     }
@@ -327,10 +605,11 @@ impl Signals {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_address;
+    use super::{Source, parse_address};
 
     #[test]
     fn a_loopback_address_is_taken_and_any_other_refused() {
+        let source = Source::variable("GOODFETCH_DAEMON_ADDRESS");
         let codes = [
             "127.0.0.1:0",
             "[::1]:7900",
@@ -338,7 +617,9 @@ mod tests {
             "192.0.2.1:7900",
             "nowhere",
         ]
-        .map(|address| parse_address(address).map_or_else(|refused| refused.code, |_| "ok"));
+        .map(|address| {
+            parse_address(address, &source).map_or_else(|refused| refused.0.code(), |_| "ok")
+        });
 
         assert_eq!(
             codes,

@@ -49,6 +49,35 @@ test("fails when the OIDC provider refuses the person's password", async ({ page
   await expect(signedIn).rejects.toMatchObject({ code: "sign_in_failed" });
 });
 
+test("fails at once when the OIDC provider answers anything but its login page", async ({
+  page,
+  signIn,
+  oidcProvider,
+  failOnErrors,
+}) => {
+  test.setTimeout(30_000);
+  await page.route(
+    (url) => url.href.startsWith(oidcProvider.issuer),
+    (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ status: 400, contentType: "text/plain", body: "no such sign-in" })
+        : route.fallback(),
+  );
+
+  const signedIn = signIn.withOidc(page);
+
+  await expect(signedIn).rejects.toMatchObject({
+    code: "sign_in_failed",
+    message: expect.stringContaining("no such sign-in"),
+  });
+  // The provider's own page made the refused request on purpose, which the
+  // browser also logs.
+  const taken = await failOnErrors.take();
+  expect(taken.map(({ kind }) => kind).toSorted()).toEqual(["console", "request_failed"]);
+  // The routed plain-text answer is no page of the Console's for the axe pass.
+  await page.close();
+});
+
 test.describe("on a Console whose sign-in link has expired", () => {
   test.use({ consoleServer: standInConsole({ expiredLinks: true }) });
 

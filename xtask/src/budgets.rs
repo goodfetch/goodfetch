@@ -28,6 +28,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result};
 use jiff::Timestamp;
 
+use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::issues::{Issues, Label};
 use crate::results::JobRun;
@@ -203,10 +204,11 @@ fn measure(
     runs: &[(&results::RunAttempt, &[JobRun])],
 ) -> Vec<Measured> {
     let missing = |what: &str| {
-        output::line(&format!(
-            "error[missing-budget] {}, {}: {TESTING}'s Time budgets has {what}",
-            tier.suite, tier.place
-        ));
+        check::note(&[Finding::new(
+            "missing-budget",
+            format!("{}, {}", tier.suite, tier.place),
+            format!("{TESTING}'s Time budgets has {what}"),
+        )]);
     };
     let Some(row) = table.row(tier.suite, tier.place) else {
         missing("no row for it");
@@ -301,6 +303,16 @@ fn whole_runs(
                     jobs.iter().filter_map(|job| job.completed_at).max()?
                 }
             };
+            // Counting such a run as 0 s would pull the median under its
+            // budget, so it is left out, and said so.
+            let Ok(seconds) = u64::try_from(first.duration_until(end).as_secs()) else {
+                check::note(&[Finding::new(
+                    "negative-span",
+                    format!("{}, run {}", tier.suite, run.run),
+                    "its last job ends before its first starts; left out of the median",
+                )]);
+                return None;
+            };
             let mut runners: Vec<String> = jobs.iter().map(|job| job.labels.join(", ")).collect();
             runners.sort();
             runners.dedup();
@@ -308,7 +320,7 @@ fn whole_runs(
                 run: run.run,
                 attempt: run.attempt,
                 started_at: first,
-                seconds: u64::try_from(first.duration_until(end).as_secs()).unwrap_or(0),
+                seconds,
                 runner: runners.join("; "),
             })
         })

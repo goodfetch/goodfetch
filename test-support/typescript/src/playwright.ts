@@ -12,6 +12,9 @@
 //   `document.cookie`.
 // - `failOnErrors`, on in every test: fails it when a page logged a
 //   `console` error, threw, broke the CSP or had a same-origin request fail.
+//   A test tool's known issue, which `known-issues.ts` tolerates around the
+//   one action that raises it, fails nothing and is attached as
+//   `known-issues`.
 // - `coversKnownFeatures`, on in every test: fails it when a `covers`
 //   annotation names a Feature the inventory does not list (ADR 0072).
 // - `translationEmulation`, an option off by default: adds the
@@ -24,7 +27,8 @@
 //   (by default the one the Daemon serves from its executable's Console
 //   build), and the Proving ground
 //   of `provingGroundSeed` when set. All of it stops at teardown, leaving no
-//   runtime file and no process.
+//   runtime file and no process, once the test's pages are audited and
+//   closed, so no Console reaches for a Daemon the harness stopped.
 // - `signIn`: the ways a person signs in to the test's Console (the
 //   executable's single-user link, single sign-on through the worker's
 //   local OIDC provider), with Playwright's virtual authenticator installed
@@ -39,11 +43,13 @@
 // `playwright.config.ts`.
 import {
   test as base,
+  type BrowserContext,
   type Page,
   type PlaywrightTestArgs,
   type PlaywrightTestOptions,
   type PlaywrightWorkerArgs,
   type PlaywrightWorkerOptions,
+  type TestInfo,
   type TestType,
 } from "@playwright/test";
 import { auditAccessibility } from "./accessibility.ts";
@@ -51,6 +57,7 @@ import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
 import { refuseUnknownCovers } from "./features.ts";
 import { startOidcProvider, type OidcClient } from "./oidc-provider.ts";
+import { reserveNamedPort } from "./named-port.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import {
@@ -78,15 +85,18 @@ export {
   type AxeException,
 } from "./axe-exceptions.ts";
 export { refuseBypassCSP, type CspOptions } from "./bypass-csp.ts";
+export { reserveNamedPort, type NamedPort } from "./named-port.ts";
 export { refuseStorageState, type StorageStateOptions } from "./storage-state.ts";
 export { noRunningAnimations } from "./reduced-motion.ts";
 export { reflow } from "./reflow.ts";
 export { emulateTranslation } from "./translation.ts";
 export {
   watchPageErrors,
+  type KnownIssue,
   type PageError,
   type PageErrorKind,
   type PageErrorWatch,
+  type ToleratedError,
 } from "./page-errors.ts";
 export { focusChecks, keyboardWalk, type FocusStop } from "./focus.ts";
 export {
@@ -100,6 +110,7 @@ export {
   executableConsole,
   startServedDaemon,
   type ConsoleServer,
+  type GatewayAccess,
   type ConsoleStart,
   type ServedConsole,
   type ServedDaemon,
@@ -107,6 +118,7 @@ export {
   type StartedServedDaemon,
 } from "./served-daemon.ts";
 export { signInTo, type SignIn } from "./sign-in.ts";
+export { FOXHOUND_CONSOLE_BUILD, stubGatewayConsole } from "./stub-gateway.ts";
 
 /** The options of test support's Playwright `test`, which a project or `test.use` sets. */
 export interface ServedOptions {
@@ -118,14 +130,28 @@ export interface ServedOptions {
   translationEmulation: boolean;
   /** The Product whose executable runs the test's Daemon and serves its Console build: Collie's unless the screen is Foxhound's (ADR 0094). */
   product: Product;
-  /** The seed of the Proving ground `daemon` starts beside the Daemon; none when unset. */
-  provingGroundSeed: number | undefined;
+  /**
+   * The seed of the Proving ground `daemon` starts beside the Daemon; none
+   * when unset or `null`. `null` is "none" even where the project sets one:
+   * `test.use` with `undefined` falls back to the project's value.
+   */
+  provingGroundSeed: number | null | undefined;
   /** What serves the test's Console: the Daemon itself by default (`executableConsole`), or a stand-in for what its executable cannot serve yet (area 12). */
   consoleServer: ConsoleServer | undefined;
   /** The test tool manifest's path: `GOODFETCH_TEST_TOOLS`, which `just test` sets. */
   toolManifest: string | undefined;
   /** The executable that runs the test's Daemon in place of the manifest's of `product`, for a skew run (ADR 0066); the manifest's when unset. */
   engine: string | undefined;
+  /** The size in bytes of a filesystem of its own the test's folder is on, a tmpfs on Linux (ADR 0122); the machine's disk when unset. */
+  sizeCapped: number | undefined;
+  /**
+   * Whether the test's Console keeps one port across its Daemon's restarts,
+   * for a test with a page or an address that outlives one: a named port
+   * no other program can take while the Daemon is down (#2035). Unset, the
+   * OS chooses a port at each start. Never restart a Daemon on a port the OS
+   * chose: another program can take it in between.
+   */
+  namedConsolePort: boolean;
 }
 
 /** What a served test's worker shares between its tests. */
@@ -163,6 +189,8 @@ export const test: TestType<
   consoleServer: [executableConsole, { option: true }],
   toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
   engine: [undefined, { option: true }],
+  sizeCapped: [undefined, { option: true }],
+  namedConsolePort: [false, { option: true }],
   oidcProvider: [
     // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.
     async ({}, use) => {
@@ -173,11 +201,22 @@ export const test: TestType<
     { scope: "worker" },
   ],
   daemon: async (
-    { product, provingGroundSeed, consoleServer, toolManifest, engine, oidcProvider },
+    {
+      context,
+      product,
+      provingGroundSeed,
+      consoleServer,
+      toolManifest,
+      engine,
+      oidcProvider,
+      sizeCapped,
+      namedConsolePort,
+    },
     use,
     testInfo,
   ) => {
     const processes = new ProcessRecord();
+    const named = namedConsolePort ? await reserveNamedPort() : undefined;
     try {
       const started = await startServedDaemon({
         processes,
@@ -192,14 +231,25 @@ export const test: TestType<
                 testInfo.outputPath("test-tools.json"),
               ),
         product,
-        provingGroundSeed,
+        provingGroundSeed: provingGroundSeed ?? undefined,
         consoleServer,
         oidc: oidcProvider,
+        sizeCapped,
+        consolePort: named?.port,
       });
       await use(started.daemon);
-      await started.close();
+      try {
+        // The pages are audited, then closed, before their Daemon stops, so
+        // no Console tries to reach a Daemon the harness stopped; a failed
+        // audit still stops it.
+        await auditOnce(context, testInfo);
+      } finally {
+        await Promise.all(context.pages().map(async (page) => page.close()));
+        await started.close();
+      }
     } finally {
       await processes.close();
+      await named?.release();
     }
   },
   signIn: async ({ context, daemon, oidcProvider }, use) => {
@@ -222,10 +272,20 @@ export const test: TestType<
     await use(request);
   },
   failOnErrors: [
-    async ({ context }, use) => {
+    async ({ context }, use, testInfo) => {
       const watch = await watchPageErrors(context);
       await use(watch);
-      await watch.check();
+      try {
+        await watch.check();
+      } finally {
+        // A known issue's errors fail nothing, but stay in the report.
+        if (watch.tolerated.length > 0) {
+          await testInfo.attach("known-issues", {
+            body: JSON.stringify(watch.tolerated, null, 2),
+            contentType: "application/json",
+          });
+        }
+      }
     },
     { auto: true },
   ],
@@ -234,13 +294,7 @@ export const test: TestType<
     async ({}, use, testInfo) => {
       await use();
       // Checked after the body, so an annotation the test added is checked too.
-      const features: unknown = testInfo.config.metadata["features"];
-      if (Array.isArray(features)) {
-        refuseUnknownCovers(
-          testInfo.annotations,
-          features.filter((feature): feature is string => typeof feature === "string"),
-        );
-      }
+      refuseUnknownCovers(testInfo.annotations, testInfo.config.metadata);
     },
     { auto: true },
   ],
@@ -248,21 +302,34 @@ export const test: TestType<
     // Taking `failOnErrors` sets it up first, so it judges the pages after the audit.
     async ({ context, failOnErrors }, use, testInfo) => {
       await use();
-      if (testInfo.status !== "passed") {
-        return;
-      }
-      const exceptions = await readAxeExceptions();
-      for (const page of context.pages()) {
-        if (page.url() !== "about:blank") {
-          await resumeInstalledClock(page);
-          await auditAccessibility(page, { exceptions, testInfo });
-        }
-      }
+      await auditOnce(context, testInfo);
       void failOnErrors;
     },
     { auto: true },
   ],
 });
+
+/** The tests whose pages were audited already. */
+const audited = new WeakSet<TestInfo>();
+
+/**
+ * Audits each open page of `context` once its test has passed, once per
+ * test: at the `daemon` fixture's teardown, before it closes the pages, or
+ * else at the `axe` fixture's.
+ */
+async function auditOnce(context: BrowserContext, testInfo: TestInfo): Promise<void> {
+  if (testInfo.status !== "passed" || audited.has(testInfo)) {
+    return;
+  }
+  audited.add(testInfo);
+  const exceptions = await readAxeExceptions();
+  for (const page of context.pages()) {
+    if (page.url() !== "about:blank") {
+      await resumeInstalledClock(page);
+      await auditAccessibility(page, { exceptions, testInfo });
+    }
+  }
+}
 
 /**
  * Lets time flow again on a page whose test installed `page.clock`, which

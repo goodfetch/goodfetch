@@ -88,6 +88,32 @@ pub(crate) fn job(labels: &[&str], seconds: u64, started_at: &str) -> Value {
     })
 }
 
+/// Each cell of the Release suite's private-period matrix (ADR 0108), as
+/// its JUnit artifact names its OS, architecture and runtime
+/// (`junit-release-dispatch-<cell>-1`, `macos-x64-rosetta` for the
+/// translated cell).
+pub(crate) const RELEASE_CELLS: [(&str, &str, Option<&str>); 7] = [
+    ("linux", "x64", Some("gnu")),
+    ("linux", "x64", Some("musl")),
+    ("linux", "arm64", Some("gnu")),
+    ("linux", "arm64", Some("musl")),
+    ("windows", "x64", None),
+    ("macos", "arm64", None),
+    ("macos", "x64", Some("rosetta")),
+];
+
+/// `run` once in each Release cell.
+pub(crate) fn in_every_release_cell(run: &Value) -> Vec<Value> {
+    RELEASE_CELLS
+        .iter()
+        .map(|(os, arch, runtime)| {
+            let run = with(run.clone(), "os", json!(os));
+            let run = with(run, "arch", json!(arch));
+            with(run, "runtime", json!(runtime))
+        })
+        .collect()
+}
+
 /// `value` with `field` replaced.
 pub(crate) fn with(mut value: Value, field: &str, replacement: Value) -> Value {
     value[field] = replacement;

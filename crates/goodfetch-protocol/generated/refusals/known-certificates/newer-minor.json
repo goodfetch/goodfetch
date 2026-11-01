@@ -1,0 +1,7 @@
+{
+  "format": "known-certificates",
+  "rule": "frozen_major",
+  "reader": "0.1",
+  "found": "0.2",
+  "compatibility": "compatible"
+}

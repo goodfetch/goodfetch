@@ -10,16 +10,12 @@
     reason = "the tests start processes, signal them, and read the Daemon's files and logs themselves"
 )]
 #![expect(
-    clippy::disallowed_types,
-    reason = "a test finds a free port for the Daemon outside the engine (ADR 0060)"
-)]
-#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::io::{BufRead as _, BufReader};
-use std::net::SocketAddr;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -39,13 +35,20 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// a measure.
 const LOG_DEADLINE: Duration = Duration::from_secs(60);
 
-/// A free port on the loopback address, for the Daemon's configured
-/// address.
-pub(crate) fn free_address() -> SocketAddr {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
+/// The `daemon.address` a test configures: loopback on port 0, so the
+/// Daemon takes a free port itself and names it in its log (TESTING.md: no
+/// fixed ports). A port the test found free and released could be taken by
+/// another process before the Daemon binds it (FQ49).
+pub(crate) const ANY_PORT: &str = "127.0.0.1:0";
+
+/// Whether `endpoint` is where a Daemon configured with [`ANY_PORT`] serves:
+/// loopback, on a port it took, which is not its default one.
+pub(crate) fn took_a_free_port(endpoint: &DaemonEndpoint) -> bool {
+    let default = (goodfetch_protocol::daemon::ADDRESS.default)();
+    matches!(endpoint, DaemonEndpoint::Tcp(bound)
+        if bound.ip() == Ipv4Addr::LOCALHOST
+            && bound.port() != 0
+            && default.as_str() != Some(bound.to_string().as_str()))
 }
 
 /// A foreground Daemon the test started, with its stdout's lines read on a
@@ -90,6 +93,16 @@ impl Foreground {
             lines,
             logged: Vec::new(),
         }
+    }
+
+    /// Its next line on stdout, which must be one JSON document.
+    pub(crate) fn first_line(&mut self) -> Value {
+        let line = self
+            .lines
+            .recv_timeout(LOG_DEADLINE)
+            .unwrap_or_else(|_| panic!("no line on its stdout: {:#?}", self.logged));
+        self.logged.push(line.clone());
+        serde_json::from_str(&line).unwrap()
     }
 
     /// The fields of the first log record from here on whose message is
@@ -194,9 +207,8 @@ fn run_row(env: &TestEnv, run_id: &str) -> Value {
 #[test]
 fn daemon_run_listens_on_the_configured_address_logs_json_to_stdout_and_never_stops_idle() {
     let env = TestEnv::new();
-    let address = free_address();
     env.user_configuration(&format!(
-        "daemon.address = \"{address}\"\ndaemon.idle_timeout = 100\n"
+        "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 100\n"
     ));
 
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
@@ -214,19 +226,13 @@ fn daemon_run_listens_on_the_configured_address_logs_json_to_stdout_and_never_st
         .collect();
     assert_eq!(
         (
-            endpoint,
+            took_a_free_port(&endpoint),
             status["result"]["kept_alive"].clone(),
             RuntimeFile::path(env.home(), VERSION).exists(),
             not_json,
             exited,
         ),
-        (
-            DaemonEndpoint::Tcp(address),
-            json!(true),
-            false,
-            Vec::<&String>::new(),
-            true,
-        )
+        (true, json!(true), false, Vec::<&String>::new(), true,)
     );
 }
 
@@ -240,7 +246,7 @@ fn daemon_run_refuses_an_address_that_is_not_loopback() {
     env.user_configuration("daemon.address = \"0.0.0.0:7900\"\n");
 
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
-    let refusal = daemon.record("`daemon.address` is `0.0.0.0:7900`, which is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address.");
+    let refusal = daemon.record("`daemon.address` is not valid in user_configuration: `0.0.0.0:7900` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address");
 
     let exited = daemon.process.child().wait().unwrap();
     assert_eq!(
@@ -258,7 +264,7 @@ fn daemon_run_refuses_an_address_that_is_not_loopback() {
 #[test]
 fn on_sigterm_daemon_run_checkpoints_each_run_and_its_next_start_resumes_them() {
     let env = TestEnv::new();
-    env.user_configuration(&format!("daemon.address = \"{}\"\n", free_address()));
+    env.user_configuration(&format!("daemon.address = \"{ANY_PORT}\"\n"));
     let grace = [("GOODFETCH_DAEMON_DRAIN_GRACE", "5000")];
 
     let mut first = Foreground::start(&env, COLLIE, &grace);
@@ -317,7 +323,7 @@ mod pid_one {
 
     use goodfetch_test_support::TestEnv;
 
-    use super::{COLLIE, Foreground, free_address};
+    use super::{ANY_PORT, COLLIE, Foreground};
 
     /// The test-only copy of util-linux's `unshare` that `ci/os-services.sh
     /// setup` installs, root-owned, with an AppArmor profile that gives it
@@ -411,7 +417,7 @@ mod pid_one {
     #[test]
     fn as_pid_one_of_a_container_daemon_run_reaps_every_orphan() {
         let env = TestEnv::new();
-        env.user_configuration(&format!("daemon.address = \"{}\"\n", free_address()));
+        env.user_configuration(&format!("daemon.address = \"{ANY_PORT}\"\n"));
         let mut command = unshare(&env);
         command
             .args([

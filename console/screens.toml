@@ -1,12 +1,64 @@
 # How each Console screen's keyboard walk opens it (ADR 0073; TESTING.md,
 # Accessibility). `screens.spec.ts` gives every `screen:` Feature of the
-# inventory one served case; area 12 gives each screen here its route and
-# sign-in state, as one `[[screen]]` entry:
+# inventory one served case; area 12 gives each screen here its route,
+# sign-in state, walk and ready element, as one `[[screen]]` entry:
 #
 #   [[screen]]
 #   feature = "screen:/runs/$run"   # the screen's Feature
 #   route = "/runs/r-1"             # where it opens, every parameter filled
 #   sign_in = "signed-in"           # or "signed-out"
+#   walk = ["link Runs", "button Start a run"]  # each stop's role and name, in Tab order
+#   ready = "table Runs"            # what the screen shows once it read what it
+#                                   # shows, which the walk waits for: its role
+#                                   # and name, or `text <its whole text>` when it
+#                                   # has no role with a name ("text Nothing needs you now.")
 #
-# A screen with no route or no sign-in state here fails its case with
-# `screen_setup_missing`, naming it; it is never skipped.
+# Every screen needs its ready element: the Console renders only once its
+# sign-in and offline cache are open, then reads from the engine, and until
+# it has, Sign out and a screen's actions are disabled, so a walk that starts
+# at the page's load event walks an empty or half-ready page (fix-queue 119).
+# A screen with no route, sign-in state, walk or ready element here fails its
+# case with `screen_setup_missing`, naming it; it is never skipped. A walk that moves
+# fails with `keyboard_walk_changed`: fix the screen, or record the new one.
+
+[[screen]]
+feature = "screen:/needs-you"
+route = "/needs-you"
+sign_in = "signed-in"
+ready = "text Nothing needs you now."
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out"]
+
+[[screen]]
+feature = "screen:/settings"
+route = "/settings"
+sign_in = "signed-in"
+ready = "grid Effective settings"
+walk = [
+  "link Overview",
+  "link Needs you",
+  "link Runs",
+  "link Engine & settings",
+  "button Sign out",
+  "button Project configuration",
+  "textbox Run values",
+  "button Explain",
+  "columnheader Setting",
+  "combobox Table",
+  "textbox Setting",
+  "textbox Value",
+  "button Write",
+]
+
+[[screen]]
+feature = "screen:/runs"
+route = "/runs"
+sign_in = "signed-in"
+ready = "text No run matches this filter."
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out", "searchbox Search", "combobox Lifecycle", "combobox Verdict", "combobox Completeness", "textbox Tags", "combobox Sort by", "combobox Order", "button More filters", "button Apply"]
+
+[[screen]]
+feature = "screen:/runs/$run"
+route = "/runs/no-such-run"
+sign_in = "signed-in"
+ready = "text No run has the Run ID no-such-run: the Run index does not list it."
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out", "link All runs"]

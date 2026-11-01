@@ -1,0 +1,36 @@
+{
+  "description": "Foxhound's CLI built from this commit finds the Daemon and says hello with its token, needing Foxhound, and the Daemon, a busy Collie that cannot hand over, refuses it with not_in_product before any other message.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "This Client needs Foxhound, and this engine is Collie 0.0.0.",
+          "data": {
+            "code": "not_in_product",
+            "retryable": false,
+            "product": "collie",
+            "product_version": "0.0.0",
+            "needs": "foxhound",
+            "fix": "Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does."
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

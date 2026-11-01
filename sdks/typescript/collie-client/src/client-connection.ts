@@ -3,12 +3,14 @@
 // its version, and holds the engine's answer; it starts Runs and closes them
 // before itself; and once closed, every call fails with `closed`. The only
 // check of the engine's answers is the protocol version's (STYLE.md).
+import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
 import {
   CallCancelledError,
   ClosedError,
   CollieOperations,
+  DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
   PROTOCOL_VERSION,
@@ -24,7 +26,6 @@ import {
   type RunStartParams,
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
-import type { Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { Channel, type Transport, type TransportEnd } from "./rpc.ts";
@@ -67,8 +68,6 @@ export interface ClientConnectionOptions {
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
   readonly errorClasses: ErrorClasses;
-  /** The host's logger. */
-  readonly logger?: Logger | undefined;
 }
 
 /** The common Connection under each Product's Connection type. */
@@ -105,6 +104,25 @@ export class ClientConnection implements AsyncDisposable {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
           const stored = value as KeyValueStoreSetParams["value"];
           await this.#operations.keyValueStoreSet({ run_id: runId, key, value: stored });
+        },
+        getBytes: async (runId, key) => {
+          const { bytes } = await this.#operations.keyValueStoreGetBytes({ run_id: runId, key });
+          return bytes
+            ? {
+                content: new Uint8Array(Buffer.from(bytes.content, "base64")),
+                contentType: bytes.content_type,
+              }
+            : null;
+        },
+        setBytes: async (runId, key, content, contentType) => {
+          await this.#operations.keyValueStoreSetBytes({
+            run_id: runId,
+            key,
+            content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
+              "base64",
+            ),
+            content_type: contentType,
+          });
         },
         delete: async (runId, key) =>
           (await this.#operations.keyValueStoreDelete({ run_id: runId, key })).existed,
@@ -195,20 +213,27 @@ export class ClientConnection implements AsyncDisposable {
       needs,
       product_version: PRODUCT_VERSION,
     };
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, next (STYLE.md).
-    const result = (await this.#channel.call("hello", params)) as HelloResult;
-    if (!speaks(result.protocol_version)) {
+    const answer = await this.#channel.call("hello", params);
+    const spoken = protocolVersionOf(answer);
+    if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
-        `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine answered with ${result.protocol_version}`,
+        spoken === undefined
+          ? `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine's answer names no protocol version`
+          : `this Client speaks protocol ${PROTOCOL_VERSION}, and the engine answered with ${spoken}`,
         {
-          fix: `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}, and the engine ${result.product_version} speaks ${result.protocol_version}.`,
+          fix:
+            spoken === undefined
+              ? `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}.`
+              : `Use the engine and the SDK of one Product version: this SDK ${PRODUCT_VERSION} speaks protocol ${PROTOCOL_VERSION}, and the engine ${productVersionOf(answer)} speaks ${spoken}.`,
           details: {
             client_protocol_version: PROTOCOL_VERSION,
-            engine_protocol_version: result.protocol_version,
+            engine_protocol_version: spoken ?? null,
           },
         },
       );
     }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
+    const result = answer as HelloResult;
     this.#info = {
       kind: "attached",
       product: result.product,
@@ -218,7 +243,42 @@ export class ClientConnection implements AsyncDisposable {
     };
   }
 
+  /**
+   * Closes the Runs, cancels the calls in flight and ends the engine, all
+   * within `timeout.close`. Past it, whatever is still waiting is cancelled,
+   * an Attached engine is killed, and the close fails with
+   * `deadline_exceeded`.
+   */
   async #close(): Promise<void> {
+    const startedAt = Date.now();
+    const closed = await within(this.#closeInOrder(), CLOSE_TIMEOUT);
+    if (closed === "late") {
+      this.#channel.cancelAll(cancelledByClose());
+      this.#engine?.kill();
+      await this.#channel.close();
+      await this.#engine?.exited;
+      throw new DeadlineExceededError(
+        `the Connection did not close within timeout.close (${CLOSE_TIMEOUT} ms), so its engine was stopped`,
+        {
+          code: "deadline_exceeded",
+          group: "deadline_exceeded",
+          retryable: true,
+          fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+          details: {
+            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
+            elapsed: Date.now() - startedAt,
+            waited_for: "close",
+          },
+        },
+      );
+    }
+    if (closed.failure !== undefined) {
+      throw closed.failure;
+    }
+  }
+
+  /** Closes each Run, then cancels the calls in flight and ends the engine; answers the first Run's failure. */
+  async #closeInOrder(): Promise<{ readonly failure: unknown }> {
     let failure: unknown;
     for (const run of this.#runs) {
       try {
@@ -227,15 +287,12 @@ export class ClientConnection implements AsyncDisposable {
         failure ??= error;
       }
     }
-    this.#channel.cancelAll(
-      new CallCancelledError("the call's Connection was closed", {
-        details: { closed: "connection" },
-      }),
-    );
-    await this.#end();
-    if (failure !== undefined) {
-      throw failure;
-    }
+    this.#channel.cancelAll(cancelledByClose());
+    await this.#channel.close();
+    // An Attached engine stops at the end of its input.
+    await this.#engine?.exited;
+    await this.#channel.ended;
+    return { failure };
   }
 
   /** Ends the Client's side and waits for the engine to stop. */
@@ -278,16 +335,47 @@ export class ClientConnection implements AsyncDisposable {
     if (this.#engine === undefined) {
       return unknown;
     }
-    let timer: NodeJS.Timeout | undefined;
-    const late = new Promise<EngineExit>((resolve) => {
-      timer = setTimeout(() => resolve(unknown), EXIT_GRACE);
-    });
-    try {
-      return await Promise.race([this.#engine.exited, late]);
-    } finally {
-      clearTimeout(timer);
-    }
+    const exit = await within(this.#engine.exited, EXIT_GRACE);
+    return exit === "late" ? unknown : exit;
   }
+}
+
+/** What `promise` settles to, or `"late"` when it has not within `timeout` milliseconds. */
+async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "late"> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), timeout);
+  });
+  try {
+    return await Promise.race([promise, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The error a call in flight fails with when its Connection closes: cancelled by its Client. */
+function cancelledByClose(): CallCancelledError {
+  return new CallCancelledError("the call's Connection was closed", {
+    details: { by: "client" },
+  });
+}
+
+/** The protocol version a `hello` answer names, when it names one. */
+function protocolVersionOf(answer: unknown): string | undefined {
+  const version: unknown =
+    typeof answer === "object" && answer !== null && "protocol_version" in answer
+      ? answer.protocol_version
+      : undefined;
+  return typeof version === "string" ? version : undefined;
+}
+
+/** The Product version a `hello` answer names, for a message. */
+function productVersionOf(answer: unknown): string {
+  const version: unknown =
+    typeof answer === "object" && answer !== null && "product_version" in answer
+      ? answer.product_version
+      : undefined;
+  return typeof version === "string" ? version : "of an unknown version";
 }
 
 /** Whether an engine of `version` takes this Client: the same major, the same or a newer minor (ADR 0030). */

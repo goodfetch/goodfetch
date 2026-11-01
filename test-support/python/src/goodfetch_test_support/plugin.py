@@ -14,7 +14,7 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 
 import json
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from pathlib import Path
 from typing import cast
 
@@ -23,6 +23,21 @@ import pytest
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import Product, TestEnv
 from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
+
+_FAILED = pytest.StashKey[bool]()
+"""Set on a test's item when its call failed, so its setup keeps the folder."""
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Records whether a test's call failed, for its `test_env` teardown."""
+    del call
+    report = yield
+    if report.when == "call" and report.failed:
+        item.stash[_FAILED] = True
+    return report
 
 
 @pytest.fixture
@@ -49,7 +64,8 @@ def test_env(
     It starts a Proving ground when `proving_ground_seed` names a seed, and
     the Daemon of `product`'s executable in the test's home when
     `with_daemon` is `True`. The teardown stops the Daemon and fails the
-    test when a process it started is still alive.
+    test when a process it started is still alive; a failed test's folder
+    stays for its evidence, as a Rust test's does.
     """
     # pytest leaves `FixtureRequest.node` unannotated.
     item = cast("pytest.Item", request.node)  # pyright: ignore[reportUnknownMemberType]
@@ -60,7 +76,7 @@ def test_env(
         daemon=product if with_daemon else None,
     )
     yield env
-    env.close()
+    env.close(failed=item.stash.get(_FAILED, False))
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@
 //! It speaks HTTP/1.1 and HTTP/2 (RFC 9112 and RFC 9113) only as far as the
 //! clients of the Proving ground need: every answer body fits HTTP/2's
 //! default initial window (65,535 bytes), so it never waits for a
-//! `WINDOW_UPDATE`.
+//! `WINDOW_UPDATE`, but a filler body, which HTTP/1.1 alone sends.
 
 mod http1;
 mod http2;
@@ -88,6 +88,17 @@ impl Page {
         }
     }
 
+    /// A page of `status` with no `Content-Type`, whose type a client
+    /// sniffs from `body` (ADR 0119).
+    pub(crate) fn untyped(status: u16, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body: body.into(),
+            framing: Framing::Length,
+        }
+    }
+
     /// An HTML page of `status`.
     pub(crate) fn html(status: u16, body: impl Into<Vec<u8>>) -> Self {
         Self::new(status, "text/html; charset=utf-8", body)
@@ -134,15 +145,36 @@ pub(crate) enum Answer {
     Cut { page: Page, sent: usize, cut: Cut },
     /// Answers nothing and refuses the request as `refusal` says.
     Refuse(Refusal),
+    /// Sends the page's head, then [`FILLER`] bytes as its body, `length`
+    /// of them or, with none, without end until the client goes, so no page
+    /// holds the body it sends (ADR 0067's endless and oversized bodies).
+    /// Only HTTP/1.1 sends it; over HTTP/2, whose window the raw server
+    /// never waits past, the stream is reset.
+    Filler { page: Page, length: Option<u64> },
+    /// Sends the page's head, its body's length declared, and the first
+    /// `sent` bytes of its body, then nothing until the client goes, so a
+    /// client reading the whole body waits on it for good. Only HTTP/1.1
+    /// sends it; over HTTP/2 the stream is reset.
+    Stalled { page: Page, sent: usize },
     /// Waits, then answers.
     Later(Duration, Box<Self>),
 }
+
+/// The byte a [`Answer::Filler`] body repeats.
+pub(crate) const FILLER: u8 = b'a';
+
+/// How long a [`Cut::Late`] connection stays open after the bytes it sent.
+pub(crate) const LATE: Duration = Duration::from_millis(75);
 
 /// How a body is broken off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Cut {
     /// The connection is closed with no TLS `close_notify`.
     Connection,
+    /// The connection is closed so, but [`LATE`] after the bytes sent, as a
+    /// site that stalls mid-body and then drops it: a client reading the
+    /// body as it arrives has read them before the body's end (#1732).
+    Late,
     /// Over HTTP/2, the stream is reset with `RST_STREAM` (`INTERNAL_ERROR`);
     /// over HTTP/1.1, the connection is closed.
     Stream,

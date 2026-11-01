@@ -18,9 +18,17 @@ crate = "goodfetch-scripted-model"
 reason = "test-only adapter (ADR 0125)"
 
 [[bans.deny]]
+crate = "goodfetch-recording-gate"
+reason = "test-only adapter of the page's value and response observer (ADR 0125)"
+
+[[bans.deny]]
 crate = "goodfetch-scripted-engine"
 reason = "test-only executable (ADR 0069)"
 
 [[bans.deny]]
 crate = "goodfetch-test-env"
 reason = "test-only executable (ADR 0062)"
+
+[[bans.deny]]
+crate = "goodfetch-stub-gateway"
+reason = "test-only adapter: the Stub gateway, a stand-in of Goodfetch Cloud's gateway (ADRs 0096 and 0125)"

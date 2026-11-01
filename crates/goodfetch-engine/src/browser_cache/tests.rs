@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, NotCleaned, PinnedBy,
+    ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -84,6 +84,7 @@ fn pin(id: ArtifactId) -> PinnedArtifact {
         platform: None,
         url: "https://builds.goodfetch.test/chrome.zip".to_owned(),
         archive_digest: Some(Digest::of(b"no archive is downloaded here")),
+        application_settings: std::collections::BTreeMap::new(),
         digest: BUILD_DIGEST.parse().unwrap(),
     }
 }
@@ -92,7 +93,7 @@ fn cache_in(env: &TestEnv) -> BrowserCache {
     BrowserCache::new(&CacheLocation::new(env.home(), None))
 }
 
-/// Lays out `id`'s entry as `browsers install` leaves it, used at `used_at`.
+/// Lays out `id`'s entry as `browser install` leaves it, used at `used_at`.
 fn lay_out(cache: &BrowserCache, id: &ArtifactId, used_at: jiff::Timestamp) -> PathBuf {
     let folder = cache
         .root()
@@ -242,7 +243,7 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     assert_eq!(details.limit.layer, SettingsLayer::UserConfiguration);
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+        "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
     );
 }
 
@@ -256,6 +257,7 @@ fn a_missing_build_whose_pin_names_no_archive_digest_is_not_installed() {
     let id = browser("156.0.8078.4");
     let pinned = PinnedArtifact {
         archive_digest: None,
+        application_settings: std::collections::BTreeMap::new(),
         ..pin(id.clone())
     };
 
@@ -325,7 +327,7 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
     );
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
+        "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
     );
 }
 
@@ -636,10 +638,53 @@ fn a_dry_run_lists_what_it_would_delete_and_deletes_nothing() {
     assert!(entry_exists(&cache, &old));
 }
 
+/// Each entry the clean-up deletes, or would delete, comes with the bytes
+/// its folder takes, which `browser clean` reports as freed (spec #608).
+///
+/// Covers: story:11-296
+#[rstest]
+#[case::deleting(false)]
+#[case::dry_run(true)]
+fn the_clean_up_reports_the_bytes_each_entry_it_deletes_takes(#[case] dry_run: bool) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let old = browser("unpinned-and-unused");
+    let folder = lay_out(&cache, &old, days_before(&env, 31));
+    let bytes = folder_bytes(&folder);
+
+    let report = goodfetch_test_support::runtime()
+        .block_on(cache.clean_up(&clean_up_at(&env, BTreeSet::new(), dry_run)))
+        .unwrap();
+
+    assert_eq!(
+        (report.deleted.clone(), report.bytes_of(&old)),
+        (vec![old.clone()], Some(bytes))
+    );
+    assert!(bytes > 0);
+}
+
+/// The bytes of every file under `folder`.
+fn folder_bytes(folder: &Path) -> u64 {
+    fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                folder_bytes(&entry.path())
+            } else {
+                entry.metadata().unwrap().len()
+            }
+        })
+        .sum()
+}
+
 /// Covers: story:3-140
 #[cfg(unix)]
 #[test]
 fn a_cache_the_engine_cannot_write_is_never_cleaned() {
+    use goodfetch_protocol::browser_cache::NotCleaned;
+
     let env = TestEnv::new();
     let root = env.folder().join("read-only cache");
     let cache = BrowserCache::new(&CacheLocation::new(env.home(), Some(root.clone())));
@@ -733,4 +778,34 @@ fn browsers_install_fetches_the_builds_of_the_platform_a_host_runs(
     let platform = Platform { os, arch };
 
     assert_eq!(platform.build_platform(), expected);
+}
+
+/// Each platform Chrome for Testing builds has its name, which reads back as
+/// it, and its executable's place in the folder its archive unpacks to;
+/// Linux on arm64, which it builds nothing for, has neither.
+#[rstest]
+#[case::linux(BuildPlatform::LinuxX64, Some(("linux64", "chrome-linux64/chrome")))]
+#[case::mac_arm(
+    BuildPlatform::MacArm64,
+    Some(("mac-arm64", "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+)]
+#[case::mac_intel(
+    BuildPlatform::MacX64,
+    Some(("mac-x64", "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"))
+)]
+#[case::windows(BuildPlatform::WindowsX64, Some(("win64", "chrome-win64/chrome.exe")))]
+#[case::linux_arm(BuildPlatform::LinuxArm64, None)]
+fn each_chrome_for_testing_platform_has_its_name_and_its_executable(
+    #[case] platform: BuildPlatform,
+    #[case] expected: Option<(&str, &str)>,
+) {
+    let named = platform.chrome_for_testing_name();
+
+    assert_eq!(
+        (
+            named.zip(platform.chrome_for_testing_executable()),
+            named.and_then(BuildPlatform::of_chrome_for_testing_name),
+        ),
+        (expected, expected.map(|_| platform))
+    );
 }

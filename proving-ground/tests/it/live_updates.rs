@@ -13,6 +13,7 @@
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::TcpStream;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -156,6 +157,38 @@ fn the_websocket_answers_its_handshake_sends_messages_and_is_observed_as_one() {
         kinds(&proving_ground.observations(), "live/1", "/socket"),
         [json!("websocket")]
     );
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test measures how long the Proving ground holds a request, outside any engine's Clock (ADR 0059)"
+)]
+fn the_late_board_starts_its_one_request_at_its_load_and_is_held_past_the_quiet() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let late = |ordinal: u32| {
+        proving_ground.get(&proving_ground.url(&format!("{ordinal}.live.test"), "/late"))
+    };
+    let (settling, never) = (late(1), late(2));
+    let asked = Instant::now();
+    let update = proving_ground.get(&proving_ground.url("1.live.test", "/late/updates/1"));
+    let held = asked.elapsed();
+
+    assert_eq!(settling.status, 200, "{}", settling.body);
+    assert!(
+        settling
+            .body
+            .contains("data-updates=\"1\" data-at-load data-requests=\"/late/updates/\""),
+        "{}",
+        settling.body
+    );
+    assert_eq!(settling.body, never.body);
+    assert_eq!(
+        (update.status, update.json()["update"].clone()),
+        (200, json!(1))
+    );
+    assert!(held >= Duration::from_millis(800), "{held:?}");
 }
 
 #[test]

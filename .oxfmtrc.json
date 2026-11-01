@@ -2,6 +2,7 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "ignorePatterns": [
     "rnd/**",
+    "vendor/**",
     "**/generated/**",
     "crates/goodfetch-cdp/protocol.json",
     "**/features/inventory.json",
@@ -11,6 +12,9 @@
     "proving-ground/fixtures/archive/**",
     "crates/goodfetch-collie/src/block_detection/fixtures/**",
     "crates/goodfetch-extractor/src/formats/fixtures/**",
+    "crates/foxhound/goodfetch-foxhound/benches/fixtures/**",
+    "crates/goodfetch-clean-up-rules/stand-ins/**",
+    "crates/goodfetch-clean-up-rules/consent/autoconsent/**",
     "**/fuzz/*/seeds/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",

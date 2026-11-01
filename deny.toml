@@ -1,6 +1,6 @@
 # cargo-deny's workspace-wide configuration (STYLE.md, Dependencies; ADRs
 # 0018, 0062 and 0087). `just lint` checks the licenses, bans and sources
-# offline; `just audit` checks the advisories, which need RustSec's database.
+# offline; `just audit` checks the advisories against RustSec's pinned commit.
 # What each Product's executable ships is checked against `ci/deny/`'s own
 # configurations (`ci/deny/products.sh`).
 #
@@ -42,11 +42,47 @@ allow = [
 # fails, and so does a yanked version or an unmaintained crate anywhere in the
 # graph (STYLE.md: maintained, or deliberately stable). An advisory is ignored
 # only with its ID, a reason and the issue that removes it.
+#
+# ci/audit.sh names the database's folder: the gate's reads the commit
+# ci/advisories.toml pins, offline, and the live audit cargo-deny's own clone
+# (ADR 0064). By hand, from the repository root, the pinned one. The age
+# cargo-deny measures offline is that of the local checkout, not of the
+# data, so a pinned commit never goes stale here; the daily live audit reads
+# the newest.
 [advisories]
+db-path = "${GOODFETCH_ADVISORY_DBS:-target/advisories/rustsec}"
+maximum-db-staleness = "P36500D"
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"
-ignore = []
+# `.cargo/audit.toml` lists the same IDs for cargo-audit.
+ignore = [
+  # basic-toml, unmaintained: only age's localization macro reads it, at build
+  # time (i18n-embed-fl through i18n-config), for the encrypted local file
+  # (spec #564). cargo-i18n replaced it with toml in
+  # https://github.com/kellpossible/cargo-i18n/pull/176 (merged 2026-09-26,
+  # unreleased); removed with the release that carries it. Agent decision of
+  # #616, pending owner review.
+  { id = "RUSTSEC-2026-0374", reason = "build-time only, through age's i18n-embed-fl; removed by cargo-i18n#176's release" },
+  # proc-macro-error2, unmaintained with no successor release (no patched
+  # version): a proc-macro that runs only at build time, in age 0.11's
+  # localization macro (i18n-embed-fl 0.9). age stays on its 0.11 line
+  # because 0.12's p256 0.13 brings crypto-bigint 0.5's RUSTSEC-2026-0387,
+  # which no age release fixes yet (#1785, Cargo.toml); i18n-embed-fl 0.10,
+  # which age 0.12 takes, has no proc-macro-error2. Its `pub use
+  # proc_macro` draws a future-incompatibility warning (E0365) from Cargo,
+  # not an error. Removed when age moves to a release that takes p256 0.14
+  # (age's main has it). Agent decision of #1785, pending owner review.
+  { id = "RUSTSEC-2026-0173", reason = "build-time proc-macro only, through age 0.11's i18n-embed-fl 0.9; removed when age moves to a release that takes p256 0.14" },
+  # atomic-polyfill, unmaintained: heapless 0.7's `cas` feature, which
+  # postcard 1.1's default `heapless-cas` turns on, and postcard is how the
+  # phonenumber crate stores libphonenumber's metadata (#787, the page
+  # formats' E.164). On every target the Products build for, which all have
+  # native atomics, atomic-polyfill only re-exports `core`'s atomics. Removed
+  # when phonenumber's postcard leaves heapless 0.7 or its `cas` feature.
+  # Agent decision of #787, pending owner review.
+  { id = "RUSTSEC-2023-0089", reason = "re-exports core atomics on every Product target; through phonenumber's postcard default heapless-cas; removed when that drops heapless 0.7's cas" },
+]
 
 # Only crates.io; a git or other registry source fails until it is listed
 # here with its reason (STYLE.md, Dependencies).
@@ -81,27 +117,42 @@ reason = "mocks owned code (ADR 0062)"
 # xtask codegen: begin, the crates under crates/foxhound/ (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
 crate = "goodfetch-crawl"
-wrappers = ["goodfetch-crawl", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-dataset"
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-fetch-tier"
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-foxhound"
-wrappers = ["goodfetch-crawl", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-frontier"
-wrappers = ["goodfetch-crawl", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-session-pool"
-wrappers = ["goodfetch-crawl", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-sink"
-wrappers = ["goodfetch-crawl", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-sql-tab"
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 # xtask codegen: end

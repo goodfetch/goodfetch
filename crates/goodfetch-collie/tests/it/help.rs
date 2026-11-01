@@ -30,7 +30,7 @@ fn rendered(path: &[&str]) -> String {
 #[case::engine_info(&["engine", "info"])]
 #[case::sample_echo(&["sample", "echo"])]
 #[case::config_explain(&["config", "explain"])]
-#[case::browsers_clean(&["browsers", "clean"])]
+#[case::browser_clean(&["browser", "clean"])]
 fn the_executable_prints_the_help_its_command_line_renders(#[case] path: &[&str]) {
     let env = TestEnv::new();
 

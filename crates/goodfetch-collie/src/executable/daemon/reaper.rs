@@ -33,8 +33,9 @@ use tokio::signal::unix::{SignalKind, signal};
 pub(in crate::executable) fn reap_around(
     executable: &Path,
     environment: &BTreeMap<OsString, OsString>,
+    json: bool,
 ) -> ExitCode {
-    match reap(executable, environment) {
+    match reap(executable, environment, json) {
         Ok(exit) => exit,
         Err(error) => {
             tracing::error!(%error, "the foreground Daemon's reaper failed");
@@ -43,7 +44,11 @@ pub(in crate::executable) fn reap_around(
     }
 }
 
-fn reap(executable: &Path, environment: &BTreeMap<OsString, OsString>) -> io::Result<ExitCode> {
+fn reap(
+    executable: &Path,
+    environment: &BTreeMap<OsString, OsString>,
+    json: bool,
+) -> io::Result<ExitCode> {
     // SAFETY: `prctl` with integer arguments only.
     if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
@@ -60,6 +65,7 @@ fn reap(executable: &Path, environment: &BTreeMap<OsString, OsString>) -> io::Re
         let mut command = std::process::Command::new(executable);
         command
             .args(["daemon", "run", "--reaped"])
+            .args(json.then_some("--json"))
             .env_clear()
             .envs(environment);
         {

@@ -1,6 +1,7 @@
-//! The major's per-user service, from both Products' executables (ADRs
-//! 0024, 0031 and 0098): `daemon install`, `daemon uninstall` and `daemon
-//! rotate-token`. The definitions and commands are the engine's pure
+//! The major's per-user service and the Daemon's tokens, from both
+//! Products' executables (ADRs 0024, 0031 and 0098): `daemon install`,
+//! `daemon uninstall`, `daemon rotate-token` and `daemon
+//! http-listener-token`. The definitions and commands are the engine's pure
 //! [`service::plan`]; this module writes the files, runs the service
 //! manager's commands, and keeps the records: the service's, in the major's
 //! folder, the persistent token of a socket-activated Daemon, and the
@@ -9,58 +10,67 @@
 //! keeps it until `daemon uninstall` forgets it.
 //!
 //! A Daemon running when the service is installed or removed stops first,
-//! since the service's socket takes its place.
+//! since the service's socket takes its place. `daemon rotate-token`
+//! replaces the persistent token, which a socket-activated Daemon and the
+//! foreground Daemon take, and the HTTP listener's token (spec #608); an
+//! installed service's Daemon and a running foreground Daemon stop with it,
+//! so the old persistent token stops working at once, and any other Daemon
+//! refuses the old tokens from its next start. `daemon http-listener-token` prints
+//! the HTTP listener's token on stdout, the one command that prints a
+//! credential, and logs nothing of it.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI writes the service's files and runs its service manager before and outside any async worker (ADR 0060)"
 )]
 
-use std::ffi::OsStr;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
 use goodfetch_engine::browser_cache;
 use goodfetch_engine::daemon::service::{
-    self, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
+    self, ConsoleSocket, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
 };
 use goodfetch_engine::installed::fingerprint;
+use goodfetch_protocol::console::{ADDRESS as CONSOLE_ADDRESS, default_address};
 use goodfetch_protocol::daemon::{
-    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonUninstallOutput, InstalledService,
-    ServiceManager,
+    DaemonStopping, DaemonToken, DaemonUninstallOutput, HttpListenerToken, InstalledService,
+    ServiceManager, TokenRotated,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
+use super::browsers;
 use super::daemon::{Failure, Machine};
-use goodfetch_cli::output;
+use goodfetch_cli::output::{self, Human};
 
 fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))
 }
 
 /// `daemon install`.
-pub(super) fn install(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match installed(machine) {
-        Ok(installed) => {
+        Ok((service, stopped)) => {
             if json {
-                output::json(&installed);
+                output::json(&machine.status_of(None));
             } else {
-                if let Some(stopped) = &installed.stopped {
+                if let Some(stopped) = &stopped {
                     output::line(&format!(
                         "The Daemon of major {} stopped for its service, and its {} live Runs with it",
                         machine.major(),
                         stopped.live_runs
                     ));
                 }
-                output::line(&describe(&installed.service));
+                output::line(&describe(&service));
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// `daemon uninstall`.
-pub(super) fn uninstall(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn uninstall(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match uninstalled(machine) {
         Ok(uninstalled) => {
             if json {
@@ -80,26 +90,49 @@ pub(super) fn uninstall(machine: &Machine<'_>, json: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// `daemon rotate-token`.
-pub(super) fn rotate_token(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn rotate_token(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match rotated(machine) {
         Ok(rotated) => {
             if json {
                 output::json(&rotated);
             } else {
                 output::line(&format!(
-                    "A new persistent token is in {}; the next connection starts a Daemon that takes it",
-                    rotated.token_file
+                    "New tokens are in {} and {}; the next Daemon takes them and refuses the old ones",
+                    machine.files().token_file().display(),
+                    machine.files().http_listener_token_file().display()
                 ));
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
+}
+
+/// `daemon http-listener-token`: the token alone on stdout, or as
+/// `HttpListenerToken` under `--json`; nothing of it anywhere else.
+pub(super) fn http_listener_token(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
+    let token = match machine.files().http_listener_token() {
+        Ok(token) => token,
+        Err(error) => {
+            return Failure::Unavailable(format!(
+                "the HTTP listener's token cannot be read or made: {error}"
+            ))
+            .print(json, human);
+        }
+    };
+    if json {
+        output::json(&HttpListenerToken {
+            token: DaemonToken::new(token),
+        });
+    } else {
+        output::line(&token);
+    }
+    ExitCode::SUCCESS
 }
 
 /// What `daemon status` says of `service`.
@@ -122,7 +155,7 @@ pub(super) fn describe(service: &InstalledService) -> String {
     }
 }
 
-fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
+fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonStopping>), Failure> {
     let manager = manager_of_this_os().ok_or_else(|| {
         Failure::Unavailable("this OS has no service manager Goodfetch registers with".to_owned())
     })?;
@@ -149,7 +182,7 @@ fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
     record_copy(machine, &copy.executable, &copy.id)?;
     let socket = if activates_sockets(manager) {
         let socket = files
-            .service_socket()
+            .service_socket(manager)
             .map_err(unavailable("the service's socket has no folder"))?;
         remove_file(&socket)?;
         files.persistent_token().map_err(unavailable(
@@ -159,6 +192,12 @@ fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
     } else {
         None
     };
+    // Held until the service manager listens on it, so no other program
+    // takes a port chosen for port 0 in between (#1821).
+    let console = match &socket {
+        Some(_) => console_socket(machine, manager),
+        None => None,
+    };
     let domain = launchd_domain(machine, manager)?;
     let plan = service::plan(&ServiceRequest {
         manager,
@@ -167,6 +206,7 @@ fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
         executable: &copy.executable,
         build: &copy.id.build,
         socket: socket.as_deref(),
+        console: console.as_ref(),
         environment: machine.environment,
         launchd_domain: domain.as_deref(),
     })
@@ -188,10 +228,41 @@ fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
         }
         return Err(failure);
     }
-    Ok(DaemonInstallOutput {
-        service: plan.service,
-        stopped,
-    })
+    drop(console);
+    Ok((plan.service, stopped))
+}
+
+/// What the service manager listens on for the Console for the Daemon it
+/// starts (ADR 0031): `console.address` from the machine's layers, else its
+/// default, as [`ConsoleSocket::of`] says; none, and the Console's address
+/// left to the Daemon, when it is no `host:port` or no port can be held.
+fn console_socket(machine: &Machine<'_>, manager: ServiceManager) -> Option<ConsoleSocket> {
+    let identity = machine.identity;
+    let configured =
+        browsers::machine_settings(machine.home, identity.product, &identity.product_version)
+            .ok()
+            .and_then(|settings| {
+                settings
+                    .value(CONSOLE_ADDRESS.name)
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| default_address(&identity.product_version).to_string());
+    let Ok(address) = configured.parse::<SocketAddr>() else {
+        tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");
+        return None;
+    };
+    match ConsoleSocket::of(manager, address) {
+        Ok(None) => {
+            tracing::warn!(%address, "this service manager listens on no port chosen for port 0, so the first visit to the Console does not start the Daemon");
+            None
+        }
+        Ok(console) => console,
+        Err(error) => {
+            tracing::warn!(%error, %address, "no port can be held for the Console, so the first visit to the Console does not start the Daemon");
+            None
+        }
+    }
 }
 
 fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> {
@@ -209,27 +280,38 @@ fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> 
     })
 }
 
-fn rotated(machine: &Machine<'_>) -> Result<DaemonRotateTokenOutput, Failure> {
+fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
     let files = machine.files();
     let activated = files
         .service()
         .map_err(unavailable("the installed service's record cannot be read"))?
         .is_some_and(|service| service.socket.is_some());
-    if !activated {
-        return Err(Failure::Unavailable(format!(
-            "no service with socket activation is installed for major {}: the Daemon's token is new at each launch, and `daemon restart` gives it another",
-            machine.major()
-        )));
-    }
+    // The foreground Daemon at `daemon.address` takes the persistent token
+    // too: reached with the old token before it is replaced, it stops once
+    // it is, so the old token stops working at once (ADR 0031's #221 note).
+    // One that refuses this Client takes no token of this major.
+    let foreground = match machine.foreground() {
+        Ok(foreground) => foreground,
+        Err(Failure::Refused { .. } | Failure::DaemonRefused(_)) => None,
+        Err(failure) => return Err(failure),
+    };
     files
         .rotate_token()
         .map_err(unavailable("the persistent token cannot be replaced"))?;
-    // Connections that opened with the old token close with their Daemon.
-    let stopped = machine.stop()?;
-    Ok(DaemonRotateTokenOutput {
-        token_file: files.token_file().display().to_string(),
-        stopped,
-    })
+    files
+        .rotate_http_listener_token()
+        .map_err(unavailable("the HTTP listener's token cannot be replaced"))?;
+    let rotated_at = now();
+    if let Some(mut foreground) = foreground {
+        let _: DaemonStopping = foreground.call("daemon.stop", &serde_json::json!({}))?;
+        foreground.close();
+    }
+    if activated {
+        // Connections that opened with the old token close with their
+        // Daemon; the next connection starts one that takes the new token.
+        machine.stop()?;
+    }
+    Ok(TokenRotated { rotated_at })
 }
 
 /// Removes `service`: stops and unregisters it, removes its files and
@@ -249,6 +331,15 @@ fn remove(
     run(machine, &unregistering.after_removal)?;
     if let Some(socket) = &service.socket {
         remove_file(socket)?;
+        // A socket outside the per-major folder had a folder of its own in
+        // `/tmp`, which goes with it once empty.
+        let own = machine.files().socket();
+        if let Some(folder) = socket
+            .parent()
+            .filter(|&folder| Some(folder) != own.parent())
+        {
+            let _ = std::fs::remove_dir(folder);
+        }
     }
     let list = machine.list();
     let entries = list.read().map_err(unavailable(
@@ -323,7 +414,7 @@ fn launchd_domain(
         .uid();
     let gui = format!("gui/{uid}");
     let answered = std::process::Command::new(program(machine, "launchctl"))
-        .args([OsStr::new("print"), OsStr::new(&gui)])
+        .args(["print", gui.as_str()])
         .env_clear()
         .envs(machine.environment)
         .stdin(Stdio::null())
@@ -335,6 +426,10 @@ fn launchd_domain(
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "reading the domain can fail on Unix, never here: one signature serves both"
+)]
 fn launchd_domain(
     _machine: &Machine<'_>,
     _manager: ServiceManager,

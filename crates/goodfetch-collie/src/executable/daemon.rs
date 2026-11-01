@@ -1,7 +1,10 @@
 //! The Daemon from both Products' executables (ADRs 0024, 0030 and 0098):
-//! `daemon start|stop|restart|status`, the hidden `daemon launched` that a
-//! start runs from the pick's versioned copy, and the Client side every
-//! command that reaches the Daemon shares.
+//! `daemon start|stop|restart|status|health`, the hidden `daemon launched`
+//! that a start runs from the pick's versioned copy, and the Client side
+//! every command that reaches the Daemon shares. `daemon health` asks the
+//! running Daemon of the major, or else the foreground Daemon at
+//! `daemon.address` with the persistent token, what its ops listener's
+//! probes check (ADR 0050), for `exec` probes and systemd.
 //!
 //! Each executable records itself in the list of installed executables
 //! when it runs. Whatever starts the Daemon, under the start lock so two
@@ -25,6 +28,10 @@
 //! The `daemon` commands need Collie, which carries `daemon.*`, so either
 //! executable stops or asks a Daemon of either Product; a command that
 //! runs the engine needs its executable's own Product (spec #213).
+//!
+//! Size: one concern, the executables' side of the Daemon: the `daemon`
+//! commands and the start every Client shares, kept whole so finding,
+//! starting and handing over a Daemon follow one start lock.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI reads the machine's files, starts the Daemon's process and builds its runtime before and outside any async worker (ADR 0060)"
@@ -47,13 +54,14 @@ use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
-use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{HelloParams, Surface};
-use goodfetch_protocol::console::ConsoleState;
+use goodfetch_protocol::connection::{
+    HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
+};
+use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
-    DaemonEndpoint, DaemonRuntimeFile, DaemonStartOutput, DaemonStatus, DaemonStatusOutput,
-    DaemonStopOutput, DaemonStopping,
+    DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
+    DaemonStopping, DaemonToken, HealthProbe, Unready,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
@@ -63,17 +71,20 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use goodfetch_cli::{exit_codes, generated, output};
+use goodfetch_cli::engine_choice::unreachable;
+use goodfetch_cli::exit_codes;
+use goodfetch_cli::output::{self, Human};
 
 use super::browsers;
 
+mod engine_choice;
 mod foreground;
 mod launched;
 #[cfg(target_os = "linux")]
 mod reaper;
 
 use launched::launch;
-pub(super) use launched::launched;
+pub(super) use launched::{launched, start_console};
 
 /// `daemon run`, the foreground Daemon (ADR 0049); on Linux, under its
 /// reaper unless `reaped` says it runs under it already.
@@ -82,6 +93,7 @@ pub(super) fn run(
     dependencies: goodfetch_engine::Dependencies,
     machine: &Machine<'_>,
     reaped: bool,
+    json: bool,
 ) -> ExitCode {
     #[cfg(target_os = "linux")]
     if !reaped {
@@ -91,11 +103,11 @@ pub(super) fn run(
             );
             return ExitCode::FAILURE;
         };
-        return reaper::reap_around(executable, machine.environment);
+        return reaper::reap_around(executable, machine.environment, json);
     }
     #[cfg(not(target_os = "linux"))]
     let _ = reaped;
-    foreground::run(engine, dependencies, machine)
+    foreground::run(engine, dependencies, machine, json)
 }
 
 /// Whether the machine's `settings` choose the per-install layout
@@ -109,6 +121,15 @@ pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
 /// How many times a Client looks for the Daemon again when the one it
 /// found went away, or handed over, before it gives up.
 const ATTEMPTS: usize = 3;
+
+/// How long a Client waits for a Daemon that went away to stop before it
+/// looks again: a stop checkpoints the Daemon's Runs, each within
+/// `timeout.close`'s 30 seconds.
+const STOPPING: Duration = Duration::from_secs(30);
+
+/// How often a Client that waits for a stopping Daemon looks at its
+/// runtime file.
+const LOOK_AGAIN: Duration = Duration::from_millis(50);
 
 /// What every `daemon` command and every Client of the Daemon works with.
 pub(super) struct Machine<'a> {
@@ -124,34 +145,91 @@ pub(super) struct Machine<'a> {
 
 /// Why reaching the Daemon failed.
 pub(super) enum Failure {
-    /// The Daemon refused this Client, with an Error code.
+    /// The Daemon, or this executable before it, refused or failed the
+    /// call `operation` with an Error code; `None` when it failed before
+    /// any call.
     Refused {
-        code: String,
-        group: ErrorGroup,
-        message: String,
-        fix: String,
+        error: ErrorObject,
+        operation: Option<String>,
     },
-    /// The Daemon cannot be started or reached.
+    /// The Daemon refused this Client's `hello` by Product or by protocol
+    /// version and cannot hand over, its `fix` naming this executable's
+    /// `daemon restart`.
+    DaemonRefused(ErrorObject),
+    /// The Daemon cannot be started or reached: `daemon_unreachable`.
     Unavailable(String),
 }
 
+/// The `fix` of a Daemon that cannot be started or reached.
+const UNAVAILABLE_FIX: &str = "Check that Goodfetch home can be read and written and `daemon status`, then run the command again.";
+
 impl Failure {
-    /// Logs it and answers its exit code.
+    /// A failure with the Error code of `error`, before any call.
+    pub(super) fn of(error: ErrorObject) -> Self {
+        Self::Refused {
+            error,
+            operation: None,
+        }
+    }
+
+    /// Logs it and answers its exit code, as `daemon launched` does, whose
+    /// output is the Daemon's log.
     pub(super) fn report(&self) -> ExitCode {
         match self {
-            Self::Refused {
-                code,
-                group,
-                message,
-                fix,
-            } => {
-                tracing::error!(code = code.as_str(), "{message} {fix}");
-                ExitCode::from(exit_codes::of_error(code, *group))
+            Self::Refused { error, .. } => {
+                tracing::error!(code = error.data.code.as_str(), "{}", self.text());
+                ExitCode::from(exit_codes::of_error(
+                    &error.data.code,
+                    exit_codes::group(error),
+                ))
+            }
+            Self::DaemonRefused(error) => {
+                tracing::error!(code = error.data.code.as_str(), "{}", self.text());
+                ExitCode::from(exit_codes::DAEMON_REFUSED)
             }
             Self::Unavailable(problem) => {
                 tracing::error!("{problem}");
                 ExitCode::FAILURE
             }
+        }
+    }
+
+    /// Prints it as every command's failure prints (ADR 0069): under
+    /// `json` the `CommandFailed` on stdout, else its message, `code`,
+    /// `retryable` and `fix` on stderr; answers its exit code, its Error
+    /// code's row, or `11` for a refusal of `hello` by Product or version.
+    pub(super) fn print(self, json: bool, human: &Human) -> ExitCode {
+        match self {
+            Self::Refused { error, operation } => {
+                output::fail(error, operation.as_deref(), json, human)
+            }
+            Self::DaemonRefused(error) => {
+                output::fail_exiting(error, None, exit_codes::DAEMON_REFUSED, json, human)
+            }
+            Self::Unavailable(problem) => {
+                output::fail(unreachable(problem, UNAVAILABLE_FIX), None, json, human)
+            }
+        }
+    }
+
+    /// Its error object, with its Error code.
+    fn into_error(self) -> ErrorObject {
+        match self {
+            Self::Refused { error, .. } | Self::DaemonRefused(error) => error,
+            Self::Unavailable(problem) => unreachable(problem, UNAVAILABLE_FIX),
+        }
+    }
+
+    /// What it says, for people: its message and its `fix`.
+    fn text(&self) -> String {
+        match self {
+            Self::Refused { error, .. } | Self::DaemonRefused(error) => {
+                let fix = error.data.details.get("fix").and_then(Value::as_str);
+                format!("{} {}", error.message, fix.unwrap_or_default())
+                    .trim()
+                    .to_owned()
+            }
+            Self::Unavailable(problem) => problem.clone(),
         }
     }
 }
@@ -274,7 +352,7 @@ impl Machine<'_> {
             })?;
         Ok(Some(Reach {
             endpoint: DaemonEndpoint::Unix(socket),
-            token,
+            token: DaemonToken::new(token),
             service: true,
         }))
     }
@@ -303,6 +381,7 @@ impl Machine<'_> {
 
     /// The pick when it is not this executable, which a service's
     /// `daemon launched` gives its place to.
+    #[cfg(unix)]
     pub(super) fn other_pick(&self) -> Option<InstalledExecutable> {
         self.pick().filter(|picked| {
             picked.product != self.identity.product
@@ -410,9 +489,9 @@ impl Machine<'_> {
                         .start_lock()
                         .map_err(unavailable("the Daemon's start lock cannot be taken"))?,
                 ),
-                // It went away in between: look again.
-                Err(Opening::Gone | Opening::Unreachable) => {}
-                Err(Opening::Refused(error)) => return Err(self.refused(&error)),
+                // It went away in between: once it stopped, look again.
+                Err(Opening::Gone | Opening::Unreachable) => self.stopped(&found.endpoint)?,
+                Err(Opening::Refused(error)) => return Err(self.refused(error)),
             }
         }
         Err(Failure::Unavailable(format!(
@@ -429,10 +508,12 @@ impl Machine<'_> {
         let hello = HelloParams {
             protocol_version: PROTOCOL_VERSION,
             surface: Surface::Cli,
-            token: Some(found.token.clone()),
+            form: None,
+            token: Some(found.token.expose().to_owned()),
             needs: Some(needs),
             product_version: self.identity.product_version.clone(),
             log_level: None,
+            client_surface: None,
         };
         match opened.call(0, "hello", &hello).await {
             Ok(_) => Ok(opened),
@@ -455,12 +536,47 @@ impl Machine<'_> {
 
     /// The refusal of this Client, its `fix` adding this executable's
     /// `daemon restart` (ADR 0098).
-    fn refused(&self, error: &ErrorObject) -> Failure {
-        let details = &error.data.details;
-        let given = details
+    fn refused(&self, mut error: ErrorObject) -> Failure {
+        let given = error
+            .data
+            .details
             .get("fix")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        let fix = self.fix_of(given);
+        error
+            .data
+            .details
+            .insert("fix".to_owned(), Value::from(fix));
+        if [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name]
+            .contains(&error.data.code.as_str())
+        {
+            Failure::DaemonRefused(error)
+        } else {
+            Failure::Refused {
+                error,
+                operation: None,
+            }
+        }
+    }
+
+    /// Waits, at most [`STOPPING`], until the Daemon of the major that
+    /// listened at `endpoint` and went away has stopped: a stopping Daemon
+    /// drops its listener first, then stops its Runs, and only then lets
+    /// its runtime file and serving lock go (608-4).
+    pub(super) fn stopped(&self, endpoint: &DaemonEndpoint) -> Result<(), Failure> {
+        for _ in 0..STOPPING.as_millis() / LOOK_AGAIN.as_millis() {
+            match self.running()? {
+                Some(found) if &found.endpoint == endpoint => std::thread::sleep(LOOK_AGAIN),
+                _ => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+
+    /// The `fix` of a refusal whose own is `given`, adding this
+    /// executable's `daemon restart` by its path (ADR 0098).
+    fn fix_of(&self, given: &str) -> String {
         let executable = self.executable.clone().unwrap_or_default();
         let ours = refusal_fix(&RefusedClient {
             product: self.identity.product,
@@ -469,12 +585,7 @@ impl Machine<'_> {
             channel: self.identity.channel,
             would_be_pick: self.is_the_pick(),
         });
-        Failure::Refused {
-            code: error.data.code.clone(),
-            group: generated::group(error),
-            message: error.message.clone(),
-            fix: format!("{given} {ours}").trim().to_owned(),
-        }
+        format!("{given} {ours}").trim().to_owned()
     }
 
     /// Records this executable in the list of installed executables.
@@ -523,27 +634,118 @@ impl Machine<'_> {
     /// Where the running Daemon is reached and the token its `hello`
     /// takes, starting the pick when none runs: what an Attached engine in
     /// the per-install layout relays its Client to (ADR 0002).
-    pub(super) fn reach_for_relay(&self) -> Result<(DaemonEndpoint, String), Failure> {
+    pub(super) fn reach_for_relay(&self) -> Result<(DaemonEndpoint, DaemonToken), Failure> {
         let (found, _) = self.running_or_started(false)?;
         Ok((found.endpoint, found.token))
     }
 
-    /// Starts the Daemon unless it runs, and answers its status.
-    fn start(&self, keep_alive: bool) -> Result<DaemonStartOutput, Failure> {
+    /// The Console's sign-in link, `<url>#token=<token>`, starting the
+    /// major's pick unless a Daemon runs: its Console's URL, with the token
+    /// in the fragment, which never reaches a server (ADR 0024).
+    pub(super) fn console_link(&self) -> Result<String, Failure> {
+        let (found, _) = self.running_or_started(false)?;
+        let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
+            Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
+        })?;
+        let status: DaemonState = connected.call("daemon.status", &serde_json::json!({}))?;
+        connected.close();
+        match status.console {
+            ConsoleState::Serving(url) => Ok(format!("{url}#token={}", found.token.expose())),
+            ConsoleState::Failed(failure) => Err(Failure::of(console_failed(failure))),
+            ConsoleState::Absent => Err(Failure::Unavailable(format!(
+                "the Daemon of major {} serves no Console: its executable carries no Console build",
+                self.major()
+            ))),
+        }
+    }
+
+    /// What the running Daemon of the major, or else the foreground Daemon
+    /// at `daemon.address`, answers `daemon.health`; `None` when neither
+    /// answers.
+    fn health(&self) -> Result<Option<DaemonHealth>, Failure> {
+        if let Some(mut connected) = self.connect(false, Product::Collie)? {
+            let health = connected.call::<DaemonHealth>("daemon.health", &serde_json::json!({}));
+            connected.close();
+            return health.map(Some);
+        }
+        let Some(found) = foreground::reach(self)? else {
+            return Ok(None);
+        };
+        let Some(mut connected) = self.open_foreground(found)? else {
+            return Ok(None);
+        };
+        let health = connected.call::<DaemonHealth>("daemon.health", &serde_json::json!({}));
+        connected.close();
+        health.map(Some)
+    }
+
+    /// A Connection to the foreground Daemon `found` names, opened with
+    /// the persistent token; `None` when nothing answers there.
+    fn open_foreground(&self, found: Reach) -> Result<Option<Connected>, Failure> {
+        let runtime = runtime();
+        let connection = match runtime.block_on(self.open(&found, Product::Collie)) {
+            Ok(connection) => connection,
+            Err(Opening::Refused(error)) => return Err(self.refused(error)),
+            Err(Opening::HandOver | Opening::Gone | Opening::Unreachable) => return Ok(None),
+        };
+        Ok(Some(Connected {
+            runtime,
+            connection,
+            endpoint: found.endpoint,
+            next: 1,
+        }))
+    }
+
+    /// A Connection to the foreground Daemon at `daemon.address`, which
+    /// takes the persistent token, opened with that token as it is now;
+    /// `None` when none answers there, or when `daemon.address` is one no
+    /// Daemon can listen at.
+    pub(super) fn foreground(&self) -> Result<Option<Connected>, Failure> {
+        match foreground::reach(self) {
+            Ok(Some(found)) => self.open_foreground(found),
+            Ok(None) | Err(Failure::Refused { .. }) => Ok(None),
+            Err(failure) => Err(failure),
+        }
+    }
+
+    /// Starts the Daemon unless it runs, and answers whether this call
+    /// started it and its state.
+    fn start(&self, keep_alive: bool) -> Result<(bool, DaemonState), Failure> {
         let (_, started) = self.running_or_started(keep_alive)?;
         let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
             Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
         })?;
-        let daemon: DaemonStatus = connected.call("daemon.status", &serde_json::json!({}))?;
+        let daemon: DaemonState = connected.call("daemon.status", &serde_json::json!({}))?;
         connected.close();
-        Ok(DaemonStartOutput { started, daemon })
+        Ok((started, daemon))
+    }
+
+    /// The major's Daemon as `--json` prints it: `daemon`, or none, and the
+    /// installed service.
+    pub(super) fn status_of(&self, daemon: Option<&DaemonState>) -> DaemonStatus {
+        DaemonStatus {
+            pid: daemon.map(|daemon| daemon.pid),
+            major: self.major(),
+            product: daemon.map(|daemon| daemon.product),
+            version: daemon.map(|daemon| daemon.product_version.clone()),
+            address: daemon.map(|daemon| daemon.endpoint.to_string()),
+            console_url: daemon.and_then(|daemon| match &daemon.console {
+                ConsoleState::Serving(url) => Some(url.clone()),
+                ConsoleState::Failed(_) | ConsoleState::Absent => None,
+            }),
+            console_error: daemon.and_then(|daemon| match &daemon.console {
+                ConsoleState::Failed(failure) => Some(failure.clone()),
+                ConsoleState::Serving(_) | ConsoleState::Absent => None,
+            }),
+            service: self.files().service().ok().flatten(),
+        }
     }
 }
 
 /// Where a Client reaches the Daemon, and the token its `hello` carries.
 pub(super) struct Reach {
     endpoint: DaemonEndpoint,
-    token: String,
+    token: DaemonToken,
     /// Whether it is the installed service's socket, which starts the
     /// Daemon at its first connection.
     service: bool,
@@ -591,28 +793,21 @@ impl Connected {
         let answered = self
             .runtime
             .block_on(self.connection.call(id, method, params));
+        let failed = |error| Failure::Refused {
+            error,
+            operation: Some(method.to_owned()),
+        };
         match answered {
             Ok(result) => serde_json::from_value(result).map_err(|error| {
-                Failure::Unavailable(format!(
-                    "the Daemon answered `{method}` with no result of it: {error}"
-                ))
+                failed(exit_codes::internal(format!(
+                    "The Daemon answered `{method}` with no result of it: {error}."
+                )))
             }),
-            Err(None) => Err(Failure::Unavailable(format!(
-                "the Daemon at {} closed the Connection before it answered `{method}`",
-                self.endpoint
+            Err(None) => Err(failed(goodfetch_cli::engine_choice::connection_lost(
+                &self.endpoint,
+                method,
             ))),
-            Err(Some(error)) => Err(Failure::Refused {
-                code: error.data.code.clone(),
-                group: generated::group(&error),
-                message: error.message,
-                fix: error
-                    .data
-                    .details
-                    .get("fix")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            }),
+            Err(Some(error)) => Err(failed(error)),
         }
     }
 
@@ -675,61 +870,83 @@ impl Opened {
 }
 
 /// `daemon start`.
-pub(super) fn start(machine: &Machine<'_>, keep_alive: bool, json: bool) -> ExitCode {
+pub(super) fn start(
+    machine: &Machine<'_>,
+    keep_alive: bool,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
     match machine.start(keep_alive) {
-        Ok(started) => {
+        Ok((started, daemon)) => {
             if json {
-                output::json(&started);
+                output::json(&machine.status_of(Some(&daemon)));
             } else {
-                let verb = if started.started {
-                    "started"
-                } else {
-                    "already ran"
-                };
+                let verb = if started { "started" } else { "already ran" };
                 output::line(&format!(
                     "The Daemon of major {} {verb}: {}",
                     machine.major(),
-                    describe(&started.daemon)
+                    describe(&daemon)
                 ));
             }
-            console_exit(&started.daemon.console)
+            console_exit(&daemon.console, json, human)
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// The exit code of a started Daemon whose Console is `console`: its Error
 /// code's when the Console did not start, which the Daemon's protocol
-/// outlives, else success.
-fn console_exit(console: &ConsoleState) -> ExitCode {
+/// outlives, else success. Under `json` the status printed carries that
+/// failure as `console_error`; otherwise it prints as a failure does.
+fn console_exit(console: &ConsoleState, json: bool, human: &Human) -> ExitCode {
     let ConsoleState::Failed(failure) = console else {
         return ExitCode::SUCCESS;
     };
-    tracing::error!(
-        code = failure.code.as_str(),
-        "{} {}",
-        failure.message,
-        failure.fix
-    );
-    ExitCode::from(exit_codes::of_code(&failure.code))
+    let exit = exit_codes::of_code(&failure.code);
+    if !json {
+        output::failed(
+            &output::command_failed(console_failed(failure.clone()), None),
+            false,
+            human,
+        );
+    }
+    ExitCode::from(exit)
+}
+
+/// The failure of a Daemon's Console that did not start, `failure`, with
+/// its Error code's group.
+fn console_failed(failure: ConsoleFailure) -> ErrorObject {
+    let definition = goodfetch_protocol::entries::error_code(&failure.code);
+    let mut details = serde_json::Map::new();
+    details.insert("fix".to_owned(), Value::from(failure.fix));
+    ErrorObject {
+        code: definition.map_or(
+            goodfetch_protocol::catalog::ErrorGroup::Unavailable.json_rpc_class(),
+            |definition| definition.group.json_rpc_class(),
+        ),
+        message: failure.message,
+        data: goodfetch_protocol::jsonrpc::ErrorData {
+            code: failure.code,
+            retryable: definition.is_some_and(|definition| definition.retryable),
+            details,
+        },
+    }
 }
 
 /// `daemon stop`.
-pub(super) fn stop(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn stop(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match machine.stop() {
         Ok(stopped) => {
             report_stop(machine, json, stopped.as_ref());
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 fn report_stop(machine: &Machine<'_>, json: bool, stopped: Option<&DaemonStopping>) {
     if json {
-        output::json(&DaemonStopOutput {
-            stopped: stopped.cloned(),
-        });
+        output::json(&machine.status_of(None));
         return;
     }
     match stopped {
@@ -743,34 +960,35 @@ fn report_stop(machine: &Machine<'_>, json: bool, stopped: Option<&DaemonStoppin
 }
 
 /// `daemon restart`: stops the running Daemon, then starts the pick.
-pub(super) fn restart(machine: &Machine<'_>, keep_alive: bool, json: bool) -> ExitCode {
+pub(super) fn restart(
+    machine: &Machine<'_>,
+    keep_alive: bool,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
     if let Err(failure) = machine.stop() {
-        return failure.report();
+        return failure.print(json, human);
     }
-    start(machine, keep_alive, json)
+    start(machine, keep_alive, json, human)
 }
 
 /// `daemon status`.
-pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn status(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     let daemon = match machine.connect(false, Product::Collie) {
         Ok(Some(mut connected)) => {
-            let status = connected.call::<DaemonStatus>("daemon.status", &serde_json::json!({}));
+            let status = connected.call::<DaemonState>("daemon.status", &serde_json::json!({}));
             connected.close();
             match status {
                 Ok(status) => Some(status),
-                Err(failure) => return failure.report(),
+                Err(failure) => return failure.print(json, human),
             }
         }
         Ok(None) => None,
-        Err(failure) => return failure.report(),
+        Err(failure) => return failure.print(json, human),
     };
     let service = machine.files().service().ok().flatten();
     if json {
-        output::json(&DaemonStatusOutput {
-            runtime_file: machine.files().runtime_file().display().to_string(),
-            daemon,
-            service,
-        });
+        output::json(&machine.status_of(daemon.as_ref()));
     } else {
         match &daemon {
             Some(status) => output::line(&format!(
@@ -787,7 +1005,67 @@ pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn describe(status: &DaemonStatus) -> String {
+/// `daemon health`: whether the Daemon is ready, or live when `live`.
+pub(super) fn health(machine: &Machine<'_>, live: bool, json: bool, human: &Human) -> ExitCode {
+    let daemon = match machine.health() {
+        Ok(daemon) => daemon,
+        Err(failure) => return failure.print(json, human),
+    };
+    let probe = if live {
+        HealthProbe::Live
+    } else {
+        HealthProbe::Ready
+    };
+    let healthy = daemon.as_ref().is_some_and(|daemon| match probe {
+        HealthProbe::Live => daemon.live,
+        HealthProbe::Ready => daemon.ready,
+    });
+    if json {
+        output::json(&DaemonHealthOutput {
+            probe,
+            healthy,
+            daemon,
+        });
+    } else {
+        let major = machine.major();
+        output::line(&match (&daemon, probe) {
+            (None, _) => format!("No Daemon of major {major} answers"),
+            (Some(_), HealthProbe::Live) if healthy => {
+                format!("The Daemon of major {major} is live")
+            }
+            (Some(_), HealthProbe::Live) => format!("The Daemon of major {major} is not live"),
+            (Some(_), HealthProbe::Ready) if healthy => {
+                format!("The Daemon of major {major} is ready to take a run")
+            }
+            (Some(daemon), HealthProbe::Ready) => format!(
+                "The Daemon of major {major} is not ready to take a run: {}",
+                daemon
+                    .unready
+                    .iter()
+                    .map(|reason| match reason {
+                        Unready::Draining => "it drains",
+                        Unready::RunStateNotWritable => "its run state cannot be written",
+                        Unready::BrowsersMissing => "a browser it uses is not installed",
+                        Unready::GovernorLastResort => {
+                            "its memory stayed critical at the governor's floor"
+                        }
+                        Unready::StorageCritical => {
+                            "the filesystem holding its run state is at the critical storage level"
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+    if healthy {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn describe(status: &DaemonState) -> String {
     let idle = if status.kept_alive {
         "kept alive".to_owned()
     } else {

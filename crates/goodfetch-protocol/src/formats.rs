@@ -14,11 +14,14 @@ use serde_json::{Map, Value, json};
 use crate::audit::AuditEntry;
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
+use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::people::SignInRow;
 use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
+use crate::tls::CertificatePin;
 use crate::usage::Limit;
 
 /// How a format's files are stored in its corpus sets (ADR 0066).
@@ -47,8 +50,8 @@ impl Storage {
 }
 
 /// A rule of ADR 0030 by which a reader treats another version of its
-/// format. Each later rule (the Response cache's, the Clean-up rules') joins
-/// with the first format that follows it.
+/// format. Each later rule (the Response cache's) joins with the first
+/// format that follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Rule {
@@ -68,6 +71,11 @@ pub enum Rule {
     /// Browser host's with its engine (ADR 0096): only another major is
     /// refused.
     LowerMinor,
+    /// The Clean-up rules' manifest (ADRs 0030 and 0047): a reader reads a
+    /// version of its own major up to its own minor, as the default rule
+    /// does, but a version it cannot read is skipped, never refused, for the
+    /// newest one it can read.
+    NewestReadable,
 }
 
 impl Rule {
@@ -78,6 +86,7 @@ impl Rule {
             Self::FrozenMajor => "frozen_major",
             Self::SharedStore => "shared_store",
             Self::LowerMinor => "lower_minor",
+            Self::NewestReadable => "newest_readable",
         }
     }
 
@@ -95,10 +104,14 @@ impl Rule {
             Ordering::Less => Compatibility::OlderMajor,
             Ordering::Greater => Compatibility::NewerMajor,
             Ordering::Equal => match self {
-                Self::Default if found_minor > reader_minor => Compatibility::NewerMinor,
-                Self::Default | Self::FrozenMajor | Self::SharedStore | Self::LowerMinor => {
-                    Compatibility::Compatible
+                Self::Default | Self::NewestReadable if found_minor > reader_minor => {
+                    Compatibility::NewerMinor
                 }
+                Self::Default
+                | Self::FrozenMajor
+                | Self::SharedStore
+                | Self::LowerMinor
+                | Self::NewestReadable => Compatibility::Compatible,
             },
         }
     }
@@ -128,7 +141,9 @@ impl Rule {
     fn line(self, version: ProtocolVersion) -> ((u16, u16), u16) {
         match self {
             Self::FrozenMajor => ((version.major, 0), version.minor),
-            Self::Default | Self::SharedStore | Self::LowerMinor => preview_line(version),
+            Self::Default | Self::SharedStore | Self::LowerMinor | Self::NewestReadable => {
+                preview_line(version)
+            }
         }
     }
 }
@@ -227,6 +242,19 @@ pub const BROWSER_CACHE: Format = Format {
     rule: Rule::Default,
     hello_from: &[],
     schema: schema_of::<BrowserCacheEntry>,
+};
+
+/// The Clean-up rules' manifest (ADRs 0047 and 0066), one `manifest.json`
+/// per version of the Clean-up rules beside its Filter lists: an engine
+/// reads its own major up to its own minor, and skips any other version for
+/// the newest one it can read.
+pub const CLEAN_UP_RULES: Format = Format {
+    name: "clean-up-rules",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::NewestReadable,
+    hello_from: &[],
+    schema: schema_of::<CleanUpRulesManifest>,
 };
 
 /// A Run's own SQLite file (ADRs 0002 and 0031): its metadata row, its
@@ -331,18 +359,65 @@ pub const AUDIT_LOG: Format = Format {
     schema: schema_of::<AuditEntry>,
 };
 
+/// The per-user known-certificates store in Goodfetch home (ADR 0042),
+/// beside the Usage ledger, outside the per-major folders: the pins of the
+/// certificates each person's trust-on-first-use exceptions accepted, one
+/// partition per person on a shared Daemon. Engines of every major read
+/// it, so it is of the Usage ledger's family; its schema is one pin's.
+pub const KNOWN_CERTIFICATES: Format = Format {
+    name: "known-certificates",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<CertificatePin>,
+};
+
+/// The per-major accounts store in Goodfetch home (spec #592), beside the
+/// Operator policy: the Console's sign-ins and their wrapping keys, and
+/// later its accounts, passkeys and named tokens. Only the Daemon of its
+/// major opens it, so it keeps the default version rule; its schema is one
+/// sign-in's.
+pub const ACCOUNTS_STORE: Format = Format {
+    name: "accounts-store",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<SignInRow>,
+};
+
+/// A Dataset's Export file (ADRs 0066, 0103 and 0119), the profile every
+/// format of it keeps: UTF-8 with no BOM, each Record's value as
+/// committed, in number order; `json` one array of the values, `jsonl` one
+/// value per line. A consumer reads it, never an engine, so it keeps the
+/// default version rule; its schema is a `json` Export's document, an
+/// array of values.
+pub const EXPORT: Format = Format {
+    name: "export",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<Vec<Value>>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
     &BROWSER_CACHE,
+    &CLEAN_UP_RULES,
     &RUN_INDEX,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,
     &POLITENESS_FILE,
     &AUDIT_LOG,
+    &KNOWN_CERTIFICATES,
+    &ACCOUNTS_STORE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
+    &EXPORT,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table
@@ -438,7 +513,10 @@ fn any_key(_: &Setting) -> bool {
 
 /// A key a cap bounds: a count or a duration.
 fn bounded_key(setting: &Setting) -> bool {
-    matches!(setting.kind, ValueKind::Count | ValueKind::Duration)
+    matches!(
+        setting.kind,
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration
+    )
 }
 
 /// Every key of either Product that `holds`, nested by its segments, its

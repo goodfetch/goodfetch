@@ -16,6 +16,15 @@ pub(crate) fn origin(host: &str, port: Option<u16>) -> String {
     }
 }
 
+/// [`origin`] over TLS, which the same address serves: `https://<host>:<port>`,
+/// or `https://<host>` binding no port.
+pub(crate) fn secure_origin(host: &str, port: Option<u16>) -> String {
+    match port {
+        Some(port) => format!("https://{host}:{port}"),
+        None => format!("https://{host}"),
+    }
+}
+
 /// One task of a family: what a tool is asked to do, and what the oracle
 /// expects back.
 pub(crate) struct Task {
@@ -114,10 +123,34 @@ pub(crate) struct Expected {
     /// (`false`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) signed: Option<bool>,
-    /// The site of a task whose Records' `markdown` fields are Markdown,
-    /// judged by structure, each link on it by its path (ADR 0007).
+    /// The site of a task whose Records hold a page's formats (ADR 0007;
+    /// spec #580): its `markdown` and `markdown_*` fields are Markdown,
+    /// judged by structure, each link on it by its path; its `html_*` fields
+    /// HTML, judged by the text of its blocks; its `text` field text, judged
+    /// white space aside.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) markdown_site: Option<&'static str>,
+    /// A decompression bomb's declared sizes, present on a `bombs` task:
+    /// the codings its body carries and the bytes it sends compressed
+    /// against the bytes it would decode to, held in the task's expected
+    /// result, which its digest hashes, so a refusal at the ratio limit, not
+    /// the decoded content, is the only right result (ADR 0067).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) bomb: Option<Bomb>,
+}
+
+/// A decompression bomb's declared sizes (ADR 0067): a small compressed body
+/// that decodes to far more, which a correct tool refuses at the engine's
+/// decompression-ratio limit rather than reading to its end.
+#[derive(Clone, Serialize)]
+pub(crate) struct Bomb {
+    /// The `Content-Encoding` codings the body carries, in the order they
+    /// were applied (`["gzip"]`, or `["gzip", "gzip"]` for a double coding).
+    pub(crate) content_encodings: Vec<&'static str>,
+    /// The bytes the page sends, compressed.
+    pub(crate) compressed_bytes: u64,
+    /// The bytes the body decodes to if fully decompressed.
+    pub(crate) expanded_bytes: u64,
 }
 
 /// The error a refusal must report: its Error code and, for a navigation
@@ -130,6 +163,11 @@ pub(crate) struct ExpectedError {
     pub(crate) network_error: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) rule: Option<&'static str>,
+    /// The engine setting whose limit a `response_limit_exceeded` names, such
+    /// as `network.max_decompression_ratio` for a decompression bomb
+    /// (ADR 0067).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) setting: Option<&'static str>,
 }
 
 impl Expected {

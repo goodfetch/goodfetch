@@ -7,6 +7,12 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# On Windows, a bare `bash` resolves to WSL's `bash.exe` in System32, which
+# Windows searches before PATH, so recipes run in Git for Windows' Bash, as
+# GitHub's `shell: bash` steps do. Shebang recipes reach it through Git
+# Bash's `cygpath` and `/usr/bin/env`.
+set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-euo", "pipefail", "-c"]
+
 # nextest starts each test straight from the runner, not through a stub copy
 # of `cargo-nextest` that then executes the test (its double-spawn): on macOS
 # under load, a test that starts no process at all kept its output pipes open
@@ -59,9 +65,12 @@ lint: fmt-check
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
     ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
+    # Spider's side of `just compare-spider`, no workspace member, which no
+    # gate builds: its lock's licenses, read without a build (ADR 0134).
+    ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
@@ -75,6 +84,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- telemetry
     cargo run --quiet -p xtask -- no-retry
+    cargo run --quiet -p xtask -- received-requests
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
@@ -209,7 +219,17 @@ journeys *arguments:
       rm -rf "$scratch"
     }
     trap cleanup EXIT
-    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} > "$scratch/selection"
+    # The working tree's listings name each chosen variant no test carries,
+    # and fail a choice none of whose variants has one; a tag's tests are
+    # its own, so a `--tag` run lists none.
+    listings=()
+    if [[ -z "$tag" ]]; then
+      cargo run --quiet -p xtask -- journeys listings --out "$scratch/listings" \
+        --cargo-profile {{ test_profile }}
+      listings=(--listings "$scratch/listings")
+    fi
+    cargo run --quiet -p xtask -- journeys select ${select[@]+"${select[@]}"} \
+      ${listings[@]+"${listings[@]}"} > "$scratch/selection"
     if [[ ! -s "$scratch/selection" ]]; then
       echo "No chosen variant has a runner yet."
       exit 0
@@ -232,12 +252,14 @@ journeys *arguments:
       "$just" test pre-merge
     fi
 
-# What the changed packages declare, then the Feature check's verdict (ADR
-# 0072): the Features each crate `xtask affected` selects declares, one
-# `<feature> <level> <source> <test>` line each, and the check's findings over
-# the workspace, which are the Features missing a test, an exception or an
-# area. It reads no runner listing, so it notes rather than fails a generated
-# Feature only a Vitest, Playwright or pytest test might declare; `just
+# What the changed packages declare and miss (ADR 0072): the Features each
+# crate, npm package and Python package `xtask affected` selects declares,
+# one `<feature> <level> <source> <test>` line each, then the Feature check's
+# findings for those packages: the Features their tests declare that the
+# inventory lacks, and the generated Features their sources define with no
+# test, exception or area, with any finding on the `features/` files. It
+# reads no runner listing, so it notes rather than fails a generated Feature
+# only a Vitest, Playwright or pytest test might declare; `just
 # features-tests` reads those too. Takes `xtask affected`'s change, `--local`
 # by default.
 features *change:
@@ -246,15 +268,19 @@ features *change:
     change=({{ change }})
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
-    read -ra crates <<< "$(sed -n 's/^crates=//p' <<< "$selection")"
-    if [[ ${#crates[@]} -gt 0 ]]; then
-      echo "Declared by ${crates[*]}:"
-      cargo run --quiet -p xtask -- features scan "${crates[@]/#/--package=}"
-    else
-      echo "The change reaches no crate."
+    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
+    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "The change reaches no package."
+      exit 0
     fi
+    echo "Declared by ${packages[*]}:"
+    cargo run --quiet -p xtask -- features scan "${packages[@]/#/--package=}"
     echo "Missing:"
-    cargo run --quiet -p xtask -- features check && echo "nothing"
+    status=0
+    missing=$(cargo run --quiet -p xtask -- features check "${packages[@]/#/--package=}") || status=$?
+    if [[ -n "$missing" ]]; then echo "$missing"; else echo "nothing"; fi
+    exit "$status"
 
 # ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
 # Pre-merge suite's tests of what changed, or of the whole workspace with
@@ -287,9 +313,11 @@ mutants base="":
 # Makes every download the pull-request tier needs, before the egress deny.
 fetch:
     cargo fetch --locked
+    cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
+    ci/lightpanda-fetch.sh
 
 # Collie's Console build, which Collie's executable embeds (ADR 0057):
 # brotli files only, in crates/goodfetch-collie/console-build/; nothing runs
@@ -317,20 +345,40 @@ build profile="dev":
 test suite *packages:
     #!/usr/bin/env bash
     set -euo pipefail
-    packages=() vitest=() pytest=()
+    packages=() vitest=() pytest=() vitest_files=() playwright_files=()
+    # `--shuffled-all` (the incremental gate, ADR 0135): Vitest, Playwright
+    # and pytest run every test, as over the whole workspace, so their order
+    # is the full run's; the crates given narrow nextest alone.
+    shuffled_all=false
     for package in {{ packages }}; do
-      if [[ -f "$package/package.json" ]]; then vitest+=("$package/")
+      if [[ "$package" == --shuffled-all ]]; then shuffled_all=true
+      elif [[ -f "$package/package.json" ]]; then vitest+=("$package/")
       elif [[ -f "$package/pyproject.toml" ]]; then pytest+=("$package")
+      # A test file that no package owns, as the incremental gate passes
+      # them (ADR 0135), runs in its own runner only.
+      elif [[ -f "$package" && "$package" == *.spec.ts ]]; then playwright_files+=("$package")
+      elif [[ -f "$package" && "$package" == *.py ]]; then pytest+=("$package")
+      elif [[ -f "$package" ]]; then vitest_files+=("$package")
       else packages+=(-p "$package"); fi
     done
-    rust=true typescript=true python=true
+    rust=true typescript=true python=true vitest_given=true playwright_given=true
     if [[ -n "{{ packages }}" ]]; then
       [[ ${#packages[@]} -gt 0 ]] || rust=false
-      [[ ${#vitest[@]} -gt 0 ]] || typescript=false
+      [[ ${#vitest[@]} -gt 0 || ${#vitest_files[@]} -gt 0 ]] || vitest_given=false
+      [[ ${#vitest[@]} -gt 0 || ${#playwright_files[@]} -gt 0 ]] || playwright_given=false
+      $vitest_given || $playwright_given || typescript=false
       [[ ${#pytest[@]} -gt 0 ]] || python=false
     else
       packages=(--workspace)
     fi
+    if $shuffled_all; then
+      vitest=() pytest=() vitest_files=() playwright_files=()
+      typescript=true python=true vitest_given=true playwright_given=true
+    fi
+    # Vitest takes the package folders and its own files; Playwright the
+    # folders and its own files.
+    vitest_folders=(${vitest[@]+"${vitest[@]}"})
+    vitest+=(${vitest_files[@]+"${vitest_files[@]}"})
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
     # 0094): those the workspace has, built here with the tests' profile.
@@ -346,7 +394,8 @@ test suite *packages:
       echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
     fi
     select_nextest=() select_vitest=() select_playwright=() select_pytest=()
-    vitest_runs=$typescript playwright_runs=$typescript
+    vitest_runs=$vitest_given playwright_runs=$playwright_given
+    $typescript || vitest_runs=false playwright_runs=false
     if [[ -n "${GOODFETCH_TEST_SELECTION:-}" ]]; then
       if [[ "{{ suite }}" == quick ]]; then
         echo "error: a selection runs in the pre-merge or release suite, where Journey tests run" >&2
@@ -371,6 +420,11 @@ test suite *packages:
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # Each runner skips the tests on the test quarantine list through its own
     # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
     # nextest's arguments, which also skip the tests of an OS service a local
@@ -399,12 +453,12 @@ test suite *packages:
             --test-runner nextest --nextest-profile quick --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi
-        if $typescript; then
-          pnpm exec vitest run --project unit --slowTestThreshold=1000 ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+        if $vitest_runs; then
+          pnpm exec vitest run --project unit --slowTestThreshold=1000 "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -422,16 +476,22 @@ test suite *packages:
           unreferenced=warn
           echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
         fi
+        # A red nextest run still runs the doctests: the suite then fails
+        # with 100, nextest's status for failed tests, when they passed, so
+        # the incremental gate can judge each crate by the run's JUnit file
+        # (ADR 0135; the test-gate audit's option 4b). Vitest, Playwright and
+        # pytest do not run after it.
+        nextest=0
         if $rust && [[ ${#select_nextest[@]} -gt 0 ]]; then
           # `cargo insta test` hands nextest no filterset, so a selection runs
           # nextest itself: the selected tests' snapshots are still checked,
           # never written, and unreferenced ones are judged when all run.
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo nextest run "${packages[@]}" --profile ci \
-            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"}
+            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"} || nextest=$?
         elif $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
-            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
+            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"} || nextest=$?
           # nextest runs no doctests; cargo-insta's own doctest pass would take
           # nextest's profile flag, which `cargo test` refuses. `cargo test
           # --doc` also refuses a selection with no library target ("no
@@ -452,14 +512,22 @@ test suite *packages:
             echo "Doctests: no selected package has a library target"
           fi
         fi
+        if [[ $nextest -ne 0 ]]; then
+          echo "nextest failed with status $nextest; Vitest, Playwright and pytest do not run after it" >&2
+          exit 100
+        fi
         if $vitest_runs; then
-          pnpm exec vitest run ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
         fi
         if $playwright_runs; then
-          pnpm exec playwright test --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" ${vitest[@]+"${vitest[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          # The harness reads each `conformance` document the run wrote (ADR 0068).
+          written=$(mktemp)
+          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          ci/read-conformance-documents.sh "$written"
+          rm -f "$written"
         fi
         if $python; then
-          uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       *)
@@ -545,42 +613,68 @@ repeat count *selection:
     # suite's unless GOODFETCH_TEST_SUITE names another), with the test tool
     # manifest, and in the order seeded from the tree under test.
     export GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-pre-merge}"
+    # `--until-red`, first (the stress run's): the run stops at the end of
+    # its first red iteration (ADR 0064's amendment of 2026-10-28). nextest
+    # runs its iterations one a command, each of its batches once, and after
+    # a red one no other iteration or runner runs.
+    iterations=1
+    if [[ "${1:-}" == --until-red ]]; then iterations={{ count }}; fi
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
     echo "Test order seed: $GOODFETCH_ORDER_SEED (set GOODFETCH_ORDER_SEED to repeat an order)"
+    # The arguments that order each runner's tests by that seed, one source
+    # for every recipe (ci/order-arguments.sh, which xtask's stress tests run).
+    mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
+    mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
+    mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # `<runner>\t<batch>\t<argument>` lines, each runner's batches from 1.
     arguments=$(cargo run --quiet -p xtask -- repeat --count "{{ count }}" "$@")
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
     for runner in nextest vitest playwright pytest; do
+      if (( iterations > 1 && status != 0 )); then
+        echo "Repeat run: $runner does not run after a red iteration"
+        continue
+      fi
       batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
-      for (( batch = 1; batch <= batches; batch++ )); do
-        selected=()
-        while IFS=$'\t' read -r line_runner line_batch argument; do
-          if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
-        done <<< "$arguments"
-        case "$runner" in
-          nextest)
-            cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
-            report=target/nextest/ci/junit.xml name=nextest-ci ;;
-          vitest)
-            pnpm exec vitest run "${selected[@]}" || status=$?
-            report=target/junit/vitest.xml name=vitest ;;
-          playwright)
-            pnpm exec playwright test --shuffle="$GOODFETCH_ORDER_SEED" "${selected[@]}" || status=$?
-            report=target/junit/playwright.xml name=playwright ;;
-          pytest)
-            uv run pytest -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" "${selected[@]}" || status=$?
-            report=target/junit/pytest.xml name=pytest ;;
-        esac
-        if (( batches > 1 )) && [[ -f "$report" ]]; then
-          mkdir -p target/junit
-          mv "$report" "target/junit/$name.$batch.xml"
-        fi
+      commands=1
+      [[ "$runner" != nextest ]] || commands=$iterations
+      # Each iteration after the first runs only while the run is green.
+      for (( iteration = 1; iteration <= commands && (iteration == 1 || status == 0); iteration++ )); do
+        for (( batch = 1; batch <= batches; batch++ )); do
+          selected=()
+          while IFS=$'\t' read -r line_runner line_batch argument; do
+            if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
+          done <<< "$arguments"
+          case "$runner" in
+            nextest)
+              cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
+              report=target/nextest/ci/junit.xml name=nextest-ci ;;
+            vitest)
+              pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/vitest.xml name=vitest ;;
+            playwright)
+              pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/playwright.xml name=playwright ;;
+            pytest)
+              uv run pytest "${pytest_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/pytest.xml name=pytest ;;
+          esac
+          if (( commands > 1 )) && [[ -f "$report" ]]; then
+            mkdir -p target/junit
+            mv "$report" "target/junit/$name.$batch.$iteration.xml"
+          elif (( batches > 1 )) && [[ -f "$report" ]]; then
+            mkdir -p target/junit
+            mv "$report" "target/junit/$name.$batch.xml"
+          fi
+        done
       done
+      if (( commands > 1 && status != 0 )); then
+        echo "Repeat run: stopped at the end of red iteration $(( iteration - 1 )) of $commands"
+      fi
     done
     exit "$status"
 
@@ -592,12 +686,24 @@ repeat count *selection:
 # else listed from a checkout of the base. Each count's JUnit files go to
 # target/junit/repeat-<count>/, which the results store's ingest reads as run
 # that many times. Nothing skips it and no count is lowered; it counts
-# against the Pre-merge budget.
-stress base="":
+# against the Pre-merge budget. A red run stops at the end of its first red
+# iteration (`just repeat --until-red`): one failure has failed it already.
+#
+# The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
+# by name, pnpm and uv packages by folder), only their new and changed
+# tests run, plus each test whose file changed `since` the earlier gate
+# run's head.
+# Stresses new and changed tests: `just stress [base] [since] [within…]`.
+[positional-arguments]
+stress base="" since="" *within:
     #!/usr/bin/env bash
     set -euo pipefail
+    shift 2
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
+    narrowing=()
+    for member in "$@"; do narrowing+=(--within "$member"); done
+    [[ -z "{{ since }}" ]] || narrowing+=(--since "{{ since }}")
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     # Vitest lists a file's tests by loading it, as a run does, so the
     # listings get the variables `just repeat` runs the tests with.
@@ -605,11 +711,14 @@ stress base="":
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     selection=$(cargo run --quiet -p xtask -- stress select --base "$base" \
-      --saved "$target/stress-listings" --cargo-profile {{ test_profile }})
+      --saved "$target/stress-listings" --cargo-profile {{ test_profile }} \
+      ${narrowing[@]+"${narrowing[@]}"})
     echo "Stressed tests (<count>, <runner>, <test ID>):"
     echo "$selection"
     # The JUnit files an earlier step of the job wrote stay where they are.
     mkdir -p target/junit
+    # What a red run's crates are judged by in the gate's record (ADR 0135).
+    printf '%s\n' "$selection" > target/stress-selection.tsv
     earlier=$(mktemp -d)
     find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$earlier/" \;
     status=0
@@ -617,13 +726,18 @@ stress base="":
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
     for count in 20 200; do
+      # A red run stops at the end of its first red iteration: no later count runs.
+      if (( status != 0 )); then
+        echo "Stress run: the $count count does not run after a red iteration"
+        continue
+      fi
       while IFS=$'\t' read -r runs runner test; do
         if [[ "$runs" == "$count" ]]; then printf '%s=%s\n' "$runner" "$test"; fi
       done <<< "$selection" > "$tests"
       echo "Stress run: $(wc -l < "$tests" | tr -d ' ') test(s), $count times each"
       [[ -s "$tests" ]] || continue
       rm -f target/nextest/*/junit.xml
-      {{ just_executable() }} repeat "$count" --tests-file "$tests" || status=$?
+      {{ just_executable() }} repeat "$count" --until-red --tests-file "$tests" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
@@ -678,7 +792,10 @@ quick *all:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
-# checks every change needs, for a change no test reads (ADR 0135).
+# checks every change needs, for a change no test reads (ADR 0135). `all`
+# on a head descending from a head whose gate ran reruns only the steps and
+# members' tests the change since then reaches, with every whole-change
+# check, and reuses the other green results (ADR 0135, `xtask gate`).
 pre-merge *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/pre-merge.sh {{ all }}
 
@@ -709,8 +826,9 @@ release:
 # linux-arm64-gnu, linux-arm64-musl, windows-x64, macos-arm64, macos-x64. On
 # `main`, `commit` is a commit of `main` to test, its head by default, and the
 # macOS cells run on the owner's machine; off `main` the run tests the
-# branch's pushed head with the hosted cells alone. On `main`, the commit's
-# verdict across all its dispatches follows the run's.
+# branch's pushed head with the hosted cells alone. The commit's verdict
+# across all its dispatches follows the run's, naming each cell not green on
+# it, the skipped ones included.
 release-ci cells="all" commit="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -747,18 +865,20 @@ release-ci cells="all" commit="":
     fi
     status=0
     gh run watch "$run" --exit-status || status=$?
-    if [[ "$branch" == main ]]; then
-      [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
-      echo "Commit $commit across its dispatches:"
-      GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
-        --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
-    fi
+    # A green run may hold skipped cells (the macOS ones off `main`, those not
+    # asked for): the verdict names every cell not green on the commit, so
+    # none passes unnoticed.
+    [[ -n "$commit" ]] || commit=$(gh run view "$run" --json headSha --jq .headSha)
+    echo "Commit $commit across its dispatches:"
+    GITHUB_TOKEN=$(gh auth token) cargo run --quiet -p xtask -- release-suite verdict \
+      --repository "$repository" --commit "$commit" && echo "Every cell is green on $commit." || true
     exit "$status"
 
 # The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
 # executables with the `ci` profile the Release suite's cells build, runs the
-# scenario (every scenario when none is named: idle-attached-engine) on each
-# executable it runs on, then holds each peak to its ceiling in
+# scenario (every scenario when none is named: idle-attached-engine,
+# idle-daemon and crawl, the last on Foxhound against a Proving ground it
+# serves) on each executable it runs on, then holds each peak to its ceiling in
 # ci/rss-ceilings.toml and shows it against its Performance target. With no
 # ceilings file it reports and gates nothing. The JUnit file and the figures
 # the results store keeps go to target/junit/.
@@ -781,12 +901,56 @@ rss-propose *scenarios:
     cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
+# Spider's comparison (ADR 0134), a one-off on the owner's machine: Foxhound's
+# and Spider 2.53.9's crawls (its HTTP mode, xtask/compare-spider) of the
+# Proving ground's 1,000-page site, both built with the release profile
+# (`profile` changes it for a quicker try), 10 trials of each in random
+# order, each tool in a fresh process against a fresh Proving ground at 16
+# requests at once. Once every trial fetched the same pages and was served
+# the same bytes, it writes each tool's median pages per second and peak RSS
+# to target/compare-spider/report.md and report.json, `local-controlled` and
+# never published (ADR 0076); otherwise it fails naming the trial. It gates
+# nothing and is no Live check. Spider's crate is downloaded once, free.
+# Compares Foxhound's crawl with Spider's on this machine.
+compare-spider profile="release":
+    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
+    cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+
+# The Performance targets report (ADR 0134), on the owner's machine before
+# each owner test: each Product's release build, its startup to `hello`
+# with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
+# engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
+# of 5 runs each), with the pages per second of the latest
+# `just compare-spider` report. Writes target/targets/report.md: each
+# target, its figure, met or missed with its gap and the optimization
+# pass's write-up from ci/performance-target-gaps.toml. Labelled
+# `local-controlled`, never published (ADR 0076); it fails on no miss.
+# Writes the Performance targets report on this machine.
+targets:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile release --out "$PWD/target/targets/test-tools.json"
+    rm -f target/targets/peaks.jsonl target/targets/startup-*.json
+    cargo run --quiet -p xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
+    cargo run --quiet -p xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet -p xtask -- targets report --measured target/targets
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman
 # elsewhere, and listed as skipped without either (ci/perf.sh).
 perf base="":
     ci/perf.sh {{ base }}
+
+# The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
+# Lighthouse 13 against each Product's Console, served by its `ci`-profile
+# executable, Collie's then Foxhound's, the median of 5 runs each, appended
+# to target/perf-series/console-lighthouse.jsonl with the Product and the
+# machine it ran on. On the owner's machine, set
+# GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
+console-lighthouse:
+    {{ just_executable() }} console-build
+    cargo run --quiet -p xtask -- test-tools --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
+    GOODFETCH_TEST_TOOLS="$PWD/target/perf-series/test-tools.json" pnpm exec playwright test --config console/collie/perf/playwright.config.ts
 
 # The Pre-merge suite's tests that only Linux decides (`tc netem`, the
 # Secret Service, the IPv6 Happy Eyeballs check, the extra loopback
@@ -860,7 +1024,7 @@ lazyfs-test:
     {{ just_executable() }} console-build
     GOODFETCH_LAZYFS=$(cargo run --quiet -p xtask -- lazyfs build)
     export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
-    cargo nextest run -p goodfetch-test-support -p goodfetch-collie --profile ci \
+    cargo nextest run -p goodfetch-test-support -p goodfetch-engine -p goodfetch-collie --profile ci \
       --cargo-profile {{ test_profile }} --ignore-default-filter \
       -E 'kind(test) & test(/^lazyfs::/)'
 
@@ -912,9 +1076,9 @@ screenshots-fetch run:
 # the advisories of every lockfile, the MSRV build, cargo-hack over each
 # Product's SDK crate, Miri and the notice inventory's license check, and the
 # security parts it carries (ADR 0067): `gitleaks` over the change's commits
-# and `cargo fuzz check`. The audits read public advisory databases, so CI
-# runs this before any egress deny. `pre-merge` runs the same parts,
-# cheapest first.
+# and `cargo fuzz check`. The audit downloads its pinned advisory snapshot
+# on its first run, so CI runs this before any egress deny. `pre-merge` runs
+# the same parts, cheapest first.
 supply-chain: audit commit-leaks fuzz-check msrv feature-combinations miri notices
 
 # Scans paths a job uploads (its logs, test reports, snapshots and
@@ -973,12 +1137,69 @@ zap phase="scan":
 notices *arguments:
     cargo run --quiet -p xtask -- notices {{ arguments }}
 
-# The security advisories of the Cargo, pnpm and uv lockfiles: cargo-deny's
-# and cargo-audit's (RustSec), pnpm audit's and pip-audit's (ci/audit.sh).
+# The security advisories of the Cargo, pnpm and uv lockfiles (the Cargo
+# ones the workspace's and Spider's side's, xtask/compare-spider), against the
+# advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
+# cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
+# over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
+# downloads the snapshot into target/advisories/; a fail is always the
+# commit's.
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
-    ci/audit.sh npm
-    ci/audit.sh python
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
+    ci/tool.sh osv-scanner ci/audit.sh npm
+    ci/tool.sh osv-scanner ci/audit.sh python
+
+# The live advisory audit, a Live check (ADR 0064) that runs daily on
+# `main`'s head (from the server's cron while the hosted workflows are off):
+# the same lockfiles against the newest RustSec, npm registry and PyPI
+# advisories, through cargo-deny, cargo-audit, pnpm audit and pip-audit
+# (ci/audit.sh live), then the proofs that pnpm audit and pip-audit still
+# refuse a published advisory (ci/proofs/live.sh). A fail is answered by a
+# pull request that fixes the dependency and refreshes the snapshot.
+audit-live:
+    ci/tool.sh cargo-audit ci/audit.sh live rust
+    ci/audit.sh live npm
+    ci/audit.sh live python
+    ci/proofs/live.sh
+
+# The daily Feature and Journey reports (ADRs 0063 and 0072), from the
+# server's cron on `main`'s head while the hosted workflows are off (ADR
+# 0135): every runner's listings on this build, then `xtask features report`
+# at the gate of `milestone`, the milestone whose owner test comes next, and
+# `xtask journeys report` with that owner test's "Journeys to try", both from
+# `main`'s latest Release run in the results store checked out at `store`.
+# Each day's reports are scanned for secrets, then committed into the store
+# under `reports/<date>/` and pushed, so the reports keep a history (ADR
+# 0072, Reports). The store's checkout keeps the credential that pushes.
+reports store milestone="M1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store=$(cd "{{ store }}" && pwd)
+    git -C "$store" pull --quiet --ff-only
+    day=$(date -u +%F)
+    out="$store/reports/$day"
+    rm -rf "$out"
+    mkdir -p "$out"
+    {{ just_executable() }} console-build
+    cargo run --quiet --locked -p xtask -- journeys listings --out target/journey-listings \
+      --cargo-profile {{ test_profile }}
+    cargo run --quiet --locked -p xtask -- features report --milestone "{{ milestone }}" \
+      --store "$store" --listings target/journey-listings --out "$out/features" >"$out/features.txt"
+    cargo run --quiet --locked -p xtask -- journeys report --store "$store" \
+      --listings target/journey-listings --out "$out/journeys" >"$out/journeys.md"
+    cargo run --quiet --locked -p xtask -- journeys report --owner-test "{{ milestone }}" \
+      >"$out/journeys/journeys-to-try.md"
+    {{ just_executable() }} leaks "$out"
+    cat "$out/features.txt"
+    git -C "$store" add "reports/$day"
+    if git -C "$store" diff --cached --quiet; then
+      echo "The store already holds the reports of $day."
+      exit 0
+    fi
+    git -C "$store" commit --quiet --message "Reports of $day"
+    git -C "$store" push --quiet origin HEAD
+    echo "Reports of $day written into $out and pushed."
 
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
@@ -993,7 +1214,7 @@ feature-combinations:
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
-# (STYLE.md, `unsafe`); none does yet, so it runs nothing.
+# (STYLE.md, `unsafe`).
 miri:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1124,6 +1345,52 @@ _tlc all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# The incremental gate's plan for HEAD (ADR 0135), from the results earlier
+# gate runs recorded in target/gate-runs/, which `just merge` keeps between
+# gates; GOODFETCH_GATE_FULL=1 reuses nothing.
+# Vitest's and Playwright's listings since a recorded head, the evidence of
+# what the TypeScript tests read, load each test file, which reads only the
+# keys of the test tool manifest: an empty one serves.
+_gate-plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/gate-runs
+    echo '{}' >target/gate-runs/listing-tools.json
+    # The variables that change what the steps run or how join the host
+    # fingerprint, so a result counts only for a run in the same environment.
+    variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
+    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
+      cargo run --quiet -p xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
+      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
+
+# Records a gate step's result (`pass` or `fail`) for the head the plan was
+# made for, which must still be checked out on a clean tree (ADR 0135); a
+# failed step run per member's `evidence` (`--junit`, `--selection`) records
+# each crate that passed in full green.
+_gate-record head step status *evidence:
+    cargo run --quiet -p xtask -- gate record --records target/gate-runs --head {{ head }} \
+      --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
+
+# The incremental gate's backstop (ADR 0135), daily from the gate host's
+# cron on `main`'s head: in a gate worktree of its own, `just pre-merge all`
+# in full (`GOODFETCH_GATE_FULL=1`), then each result an incremental run of
+# `just merge` on the same tree reused and the full run found red, a
+# selection miss to fix (ci/gate-backstop.sh). Its log and results go to
+# ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
+gate-backstop ref="origin/main":
+    ci/gate-backstop.sh {{ ref }}
+
+# The backstop's comparison (ADR 0135): each result an incremental run in
+# `runs` on the full run's tree reused and the full run on `full` found red.
+_gate-compare full runs="target/gate-runs":
+    cargo run --quiet --locked -p xtask -- gate compare --records target/gate-runs \
+      --runs "{{ runs }}" --full {{ full }}
+
+# Starts and checks the real OS services the tests use (ci/os-services.sh),
+# which `just pre-merge` runs first on a Linux host.
+_os-services:
+    ci/os-services.sh setup
 
 _skips-report:
     #!/usr/bin/env bash

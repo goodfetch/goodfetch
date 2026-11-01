@@ -178,3 +178,6 @@ fn event(
         commands: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -19,25 +19,23 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// A home that holds no older major's files has nothing to upgrade, and
 /// `--json` prints so as one document of its type.
 ///
-/// Covers: story:3-96, command:upgrade-files
+/// Covers: story:3-96, story:11-214, command:upgrade-files
 #[test]
 fn upgrade_files_json_with_no_older_major_has_nothing_to_upgrade() {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
         .args(["upgrade-files", "--json"])
-        .json("UpgradeFilesOutput")
+        .json("FilesUpgraded")
         .unwrap();
 
     assert_cli_snapshot!(checked.output, @r#"
     exit: 0
     ----- stdout -----
     {
-      "copied": [],
-      "from": null,
-      "kept": [],
-      "to": "0.0",
-      "unchanged": []
+      "refused": [],
+      "unchanged": [],
+      "upgraded": []
     }
     ----- stderr -----
     "#);
@@ -64,4 +62,40 @@ fn upgrade_files_refuses_a_newer_major() {
 
     assert_eq!(std::fs::read(&own).ok(), before);
     assert_cli_snapshot!(output);
+}
+
+/// A `--from` that names no major is a usage error, `2`, as clap's own
+/// refusal of a flag's value is; under `--json`, a major it does not
+/// upgrade from prints `{ "error" }` with `upgrade_source_unsupported` and
+/// exits its row, `4`, as every command's failure does (ADR 0069).
+///
+/// Covers: story:3-96, command:upgrade-files, error:upgrade_source_unsupported, exit:usage, exit:refused
+#[test]
+fn upgrade_files_fails_a_bad_from_by_its_row() {
+    let env = TestEnv::new();
+    let newer = env.home().join("0.1");
+    std::fs::create_dir_all(&newer).unwrap();
+    std::fs::write(newer.join("configuration.toml"), "version = \"0.1\"\n").unwrap();
+
+    let no_major = cli(&env, COLLIE)
+        .args(["upgrade-files", "--from", "abc", "--json"])
+        .run()
+        .unwrap();
+    let refused = cli(&env, COLLIE)
+        .args(["upgrade-files", "--from", "0.1", "--json"])
+        .run()
+        .unwrap();
+    let printed: serde_json::Value =
+        serde_json::from_str(&refused.stdout).unwrap_or(serde_json::Value::Null);
+
+    assert_eq!(
+        (
+            no_major.exit,
+            no_major.stdout.as_str(),
+            refused.exit,
+            printed["error"]["code"].as_str(),
+        ),
+        (Some(2), "", Some(4), Some("upgrade_source_unsupported")),
+        "{no_major}\n{refused}"
+    );
 }

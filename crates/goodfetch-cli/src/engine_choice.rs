@@ -1,30 +1,65 @@
-//! Where a command's call runs (ADR 0024): today an Attached engine in the
-//! CLI's own process, which it reaches over the in-memory transport pair,
-//! opens with `hello` as the form `cli` (ADRs 0095, 0099), serves this one
-//! command's call and stops with it, stopping the Runs it started. The
-//! Daemon joins here with the choice between the two.
+//! Where a command's call runs (ADRs 0024, 0088, 0098 and 0099): an
+//! Attached engine in the CLI's own process, which it reaches over the
+//! in-memory transport pair, serves this one command's call and stops with
+//! it, stopping the Runs it started; or the Daemon of the executable's
+//! major, which outlives the command. Either is opened with `hello` as the
+//! form `cli`, needing the executable's Product (ADRs 0095 and 0099).
+//!
+//! A command whose value outlives it, a value-bound command or an opener,
+//! needs a long-lived engine, so it reaches the Daemon, which the
+//! executable starts when none runs, unless `--attached` is given; any
+//! other runs on an Attached engine unless a Daemon runs, or one is
+//! configured through `GOODFETCH_URL`, or `--daemon` is given. A Daemon
+//! that refuses the command's `hello` by Product or protocol version and
+//! cannot hand over ends it under `--daemon` with the refusal, whose `fix`
+//! names this executable's `daemon restart`, and exit `11` whichever of the
+//! two refused it (ticket #1183), and so does a command whose value
+//! outlives it, which an Attached engine would stop with the command;
+//! otherwise the command warns of the refusal and runs on an Attached
+//! engine, as `engine: "auto"` does (ADR 0098). A Daemon that hands over
+//! is waited for, and so is one that went away while it still stops. A
+//! Daemon that cannot be reached fails the command with
+//! `daemon_unreachable`, and a Connection to it that drops before the call
+//! is answered with `connection_lost`. The token the Daemon takes never
+//! leaves its `hello`.
 //!
 //! A followed call is granted credits as what it sends is printed (ADR
 //! 0024). An interrupt (`SIGINT`, Ctrl-C, or `CTRL_BREAK_EVENT` on Windows)
 //! or `SIGTERM` sends a cancellable call's `$/cancel` and waits for the
-//! engine to stop its work; a second one, or one during a call that cannot
-//! be cancelled, ends the command at once (ADRs 0069, 0080 and 0093).
+//! engine to stop its work, or, for a command that stops what it started,
+//! such as a followed crawl, makes the call that stops it and waits for its
+//! answer; a second one, or one during a call that cannot be cancelled,
+//! ends the command at once (ADRs 0069, 0080 and 0093).
+//!
+//! Size: one concern, a command's Link to its engine: the choice of
+//! engine, `hello`, and the one call loop that interleaves the call's
+//! answers, its credits, the stream it sends and the interrupts, kept
+//! whole so a change to one of them is checked against the others.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"
 )]
 
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, Surface};
+use goodfetch_protocol::connection::{
+    CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
+    PROTOCOL_VERSION_UNSUPPORTED, Surface,
+};
+use goodfetch_protocol::daemon::{
+    DAEMON_UNREACHABLE, DaemonEndpoint, DaemonToken, DaemonUnreachableDetails,
+};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Message, Notification, Request, RequestId, Version,
+    ErrorData, ErrorObject, Message, Notification, Request, RequestId, Version,
 };
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
+use tokio::sync::mpsc;
 
 use crate::exit_codes;
 
@@ -37,11 +72,253 @@ const CALL_ID: i64 = 1;
 /// How many events or chunks a followed call may send beyond those printed.
 const CREDITS: u32 = 64;
 
-/// Receives each notification a followed call sends, by its method and
-/// params, and answers how many credits printing it used.
-pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> u32;
+/// How many times a command looks for the Daemon again when the one it
+/// found went away, or handed over, before it gives up.
+const ATTEMPTS: usize = 3;
 
-/// The one call a command makes.
+/// Which engine the command line asks for (ADR 0024).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Choice {
+    /// Neither flag: the Daemon when the command's value outlives it, or
+    /// when one runs or is configured; an Attached engine otherwise, or
+    /// when the Daemon refuses the command.
+    #[default]
+    Auto,
+    /// `--attached`: an Attached engine in this process, whatever runs.
+    Attached,
+    /// `--daemon`: the Daemon, started when none runs; its refusal ends the
+    /// command.
+    Daemon,
+}
+
+// A hand-written command's `--attached` and `--daemon`, as every generated
+// command takes them. Plain comments: a doc comment would become the help
+// of every command that flattens it.
+#[derive(Clone, Copy, Debug, Default, clap::Args)]
+pub struct EngineFlags {
+    /// Runs the call on an Attached engine in this process, even when a
+    /// Daemon runs.
+    #[arg(long, conflicts_with = "daemon")]
+    pub attached: bool,
+    /// Runs the call on the Daemon of the major, starting it if none runs;
+    /// its refusal ends the command.
+    #[arg(long)]
+    pub daemon: bool,
+}
+
+impl EngineFlags {
+    /// The engine they ask for.
+    pub fn choice(self) -> Choice {
+        if self.attached {
+            Choice::Attached
+        } else if self.daemon {
+            Choice::Daemon
+        } else {
+            Choice::Auto
+        }
+    }
+}
+
+/// What the command's call needs of its engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lifetime {
+    /// Its value outlives the command, as a value-bound command's or an
+    /// opener's does: a long-lived engine, the Daemon.
+    Lasting,
+    /// Nothing outlives the command.
+    Passing,
+}
+
+/// Where a Client reaches a Daemon and the token its `hello` carries.
+pub struct Reached {
+    /// The Daemon's endpoint.
+    pub endpoint: DaemonEndpoint,
+    /// The token its `hello` carries, which nothing prints.
+    pub token: DaemonToken,
+    /// Whether it is a remote Daemon `GOODFETCH_URL` names, which no
+    /// command starts, waits for or falls back from.
+    pub remote: bool,
+}
+
+/// The executable's side of its major's Daemon, which this crate cannot
+/// know (ADRs 0024 and 0098): where it runs, which executable starts as
+/// it, and how this executable restarts it.
+pub trait Daemons {
+    /// The Daemon a command reaches: the remote one `GOODFETCH_URL` names;
+    /// else the running Daemon of the major, or, when `start` and none
+    /// runs, its major's pick, which this starts; `None` when none runs
+    /// and `start` is false.
+    ///
+    /// # Errors
+    ///
+    /// What kept it from finding or starting one, with its Error code: a
+    /// `GOODFETCH_URL` or `GOODFETCH_TOKEN` it cannot take is
+    /// `setting_invalid`, and a Daemon it cannot read or start
+    /// `daemon_unreachable`.
+    fn find(&self, start: bool) -> Result<Option<Reached>, ErrorObject>;
+
+    /// Waits until a Daemon that refused the command and hands over has
+    /// started its major's pick.
+    ///
+    /// # Errors
+    ///
+    /// What kept it from waiting, with its Error code.
+    fn handed_over(&self) -> Result<(), ErrorObject>;
+
+    /// Waits, at most as long as a Daemon's stop takes, until the Daemon
+    /// `found` of the major, which went away while the command connected,
+    /// has stopped: a stopping Daemon closes its listener first and stops
+    /// its Runs before it lets its runtime file go.
+    ///
+    /// # Errors
+    ///
+    /// What kept it from waiting, with its Error code.
+    fn went_away(&self, found: &Reached) -> Result<(), ErrorObject>;
+
+    /// The `fix` of a refusal by Product or protocol version, whose own
+    /// `fix` is `given`: ADR 0098's, naming this executable's `daemon
+    /// restart` by its path.
+    fn refusal_fix(&self, given: &str) -> String;
+}
+
+/// The engine a command runs on: what its command line chose, and the
+/// executable's Daemon.
+pub struct EngineChoice<'a> {
+    /// The command line's choice.
+    pub choice: Choice,
+    /// What its call needs.
+    pub lifetime: Lifetime,
+    /// The executable's Daemon.
+    pub daemons: &'a dyn Daemons,
+    /// Prints a warning, such as the refusal a command falls back from.
+    pub warn: &'a dyn Fn(&str),
+}
+
+/// Receives each notification a followed call sends, by its method and
+/// params, and answers how many credits printing it used; `None` once the
+/// command can print nothing more, as when stdout takes no more bytes: the
+/// call is then cancelled, and the command ends once the engine answered.
+pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> Option<u32>;
+
+/// Receives each answer of a command's calls, and answers the call the
+/// command makes next on the same Connection, such as the next page of a
+/// call that answers page by page, or `None` when the answer is the last.
+pub type Pager<'a> = &'a mut dyn FnMut(&Value) -> Option<Next>;
+
+/// Answers, at the command's first interrupt, the call that stops what it
+/// started in place of `$/cancel`, such as a crawl's `run.stop`, which
+/// checkpoints its Run; `None` to cancel as any call is.
+pub type Stopper<'a> = &'a mut dyn FnMut() -> Option<Next>;
+
+/// A call a command makes after another on the same Connection.
+pub struct Next {
+    /// The operation.
+    pub method: &'static str,
+    /// Its params.
+    pub params: Value,
+    /// Whether `$/cancel` stops it.
+    pub cancellable: bool,
+    /// Whether it is a sequence whose notifications the command's follower
+    /// receives, granted credits as it uses them.
+    pub followed: bool,
+}
+
+/// The stream of values a call takes from the Client (ADR 0024): the
+/// credits the engine grants the call with `$/credit` are spent on
+/// notifications `method`, each listing in `field` the values ready, never
+/// more than the credits left, `end` set with the last. The command keeps
+/// listening for an interrupt and for the engine while it waits for one.
+pub struct Input<'a> {
+    /// The notification that carries the values, such as `$/seeds`.
+    pub method: &'a str,
+    /// The field of it that lists them.
+    pub field: &'a str,
+    /// Where they come from.
+    pub values: Values<'a>,
+}
+
+/// Where the values of a call that takes a stream come from.
+pub enum Values<'a> {
+    /// Values the command holds already, sent in order.
+    Held(&'a mut dyn Iterator<Item = Value>),
+    /// Values read as they come, such as stdin's lines.
+    Read(&'a mut ReadValues),
+}
+
+/// Values a reader that blocks, such as one of stdin, sends as it reads
+/// them, on a tracked blocking thread the call starts (STYLE.md), into a
+/// bounded channel: they end once the reader returns.
+pub struct ReadValues {
+    reader: Option<Reader>,
+    receiver: Option<mpsc::Receiver<Value>>,
+}
+
+/// A reader of values: it sends each into the channel it is given, and
+/// returns at their end, or once the channel's receiver is gone.
+type Reader = Box<dyn FnOnce(mpsc::Sender<Value>) + Send>;
+
+/// How many values read ahead a [`ReadValues`] holds before its reader
+/// waits: a `$/seeds` batch's worth (`run.add_seeds`' credits).
+const READ_AHEAD: usize = 256;
+
+impl ReadValues {
+    /// The values `reader` sends, read once the call starts.
+    pub fn new(reader: impl FnOnce(mpsc::Sender<Value>) + Send + 'static) -> Self {
+        Self {
+            reader: Some(Box::new(reader)),
+            receiver: None,
+        }
+    }
+
+    /// Starts the reader on a blocking thread of `owner`, once.
+    fn start(&mut self, owner: &TaskOwner) {
+        let Some(reader) = self.reader.take() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel(READ_AHEAD);
+        self.receiver = Some(receiver);
+        let reading = owner.child();
+        owner.spawn(async move { reading.blocking(move || reader(sender)).await });
+    }
+}
+
+impl Values<'_> {
+    /// The values ready, at least one and at most `most`, waiting for the
+    /// first; and whether they are the last.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no value.
+    async fn ready(&mut self, most: usize) -> (Vec<Value>, bool) {
+        match self {
+            Self::Held(values) => {
+                let taken: Vec<Value> = (&mut **values).take(most).collect();
+                let end = taken.len() < most;
+                (taken, end)
+            }
+            Self::Read(read) => {
+                let Some(receiver) = read.receiver.as_mut() else {
+                    return (Vec::new(), true);
+                };
+                let Some(first) = receiver.recv().await else {
+                    return (Vec::new(), true);
+                };
+                let mut taken = vec![first];
+                while taken.len() < most {
+                    match receiver.try_recv() {
+                        Ok(value) => taken.push(value),
+                        Err(mpsc::error::TryRecvError::Empty) => return (taken, false),
+                        Err(mpsc::error::TryRecvError::Disconnected) => return (taken, true),
+                    }
+                }
+                (taken, false)
+            }
+        }
+    }
+}
+
+/// The one call a command makes, or, for a call that answers page by page,
+/// the calls of its pages, on one Connection.
 pub struct CommandCall<'a> {
     /// The operation.
     pub method: &'a str,
@@ -49,8 +326,17 @@ pub struct CommandCall<'a> {
     pub params: Value,
     /// Whether `$/cancel` stops it.
     pub cancellable: bool,
-    /// For a sequence run with `--follow`, what prints what it sends.
+    /// For a sequence, what receives what it sends, granted credits as it
+    /// uses them.
     pub follower: Option<Follower<'a>>,
+    /// For a command that makes more than one call, such as one that asks
+    /// for page after page under `--follow`, what asks for the next.
+    pub pager: Option<Pager<'a>>,
+    /// For a call that takes a stream of values, where they come from.
+    pub input: Option<Input<'a>>,
+    /// For a command that stops what it started at its first interrupt,
+    /// the call that stops it.
+    pub stopper: Option<Stopper<'a>>,
 }
 
 /// How a call ended.
@@ -59,9 +345,16 @@ pub enum Answer {
     Result(Value),
     /// The engine's error, or its refusal of `hello`.
     Error(ErrorObject),
-    /// No answer: the engine could not be reached, or the Connection ended
-    /// first.
-    Unanswered(String),
+    /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
+    /// protocol version, its `fix` naming this executable's `daemon
+    /// restart`: the command exits [`exit_codes::DAEMON_REFUSED`].
+    Refused(ErrorObject),
+    /// No call was made, for the reason its Error code says: no Daemon
+    /// could be reached (`daemon_unreachable`), a `GOODFETCH_URL` or
+    /// `GOODFETCH_TOKEN` it cannot take (`setting_invalid`), or an Attached
+    /// engine that took no Connection, a bug (`internal_error`). It prints
+    /// as an error does, naming no operation.
+    Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`, and its call
     /// cancelled when it could be.
     Interrupted(Interrupt),
@@ -87,6 +380,146 @@ impl Interrupt {
     }
 }
 
+/// Calls `call` on the engine `reach` chooses: the Daemon, or an Attached
+/// engine in this process, `engine` on `dependencies`; either opened by a
+/// Client that needs `needs`.
+///
+/// # Panics
+///
+/// If Tokio cannot build its runtime.
+pub fn call(
+    engine: &Engine,
+    dependencies: Dependencies,
+    needs: Product,
+    reach: &EngineChoice<'_>,
+    call: CommandCall<'_>,
+) -> Answer {
+    let start = match (reach.choice, reach.lifetime) {
+        (Choice::Attached, _) => return call_attached(engine, dependencies, needs, call),
+        (Choice::Daemon, _) | (Choice::Auto, Lifetime::Lasting) => true,
+        (Choice::Auto, Lifetime::Passing) => false,
+    };
+    let reads = call.reads();
+    let runtime = runtime();
+    for _ in 0..ATTEMPTS {
+        // The executable finds and starts the Daemon outside the runtime,
+        // which its own blocking work would stall.
+        let found = match reach.daemons.find(start) {
+            Ok(Some(found)) => found,
+            Ok(None) => return call_attached(engine, dependencies, needs, call),
+            Err(problem) => return Answer::Unanswered(problem),
+        };
+        let hello = HelloParams {
+            token: Some(found.token.expose().to_owned()),
+            ..hello(engine, needs)
+        };
+        match runtime.block_on(Link::open(&found.endpoint, &hello)) {
+            Ok(mut link) => {
+                let answer = runtime.block_on(async {
+                    let answer = link.call(call).await;
+                    let _ = link.writer.shutdown().await;
+                    answer
+                });
+                end(runtime, reads);
+                return match answer {
+                    // The call in flight, the command's own or a later one
+                    // on the same Connection, is the one whose answer is
+                    // lost.
+                    Answer::Unanswered(_) => {
+                        Answer::Error(connection_lost(&found.endpoint, &link.method))
+                    }
+                    answer => answer,
+                };
+            }
+            Err(Opening::Interrupted(interrupt)) => return Answer::Interrupted(interrupt),
+            Err(Opening::Refused(mut refusal)) => {
+                let by_product_or_version =
+                    [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name]
+                        .contains(&refusal.data.code.as_str());
+                if found.remote || !by_product_or_version {
+                    return Answer::Error(refusal);
+                }
+                let given = refusal.data.details.get("fix").and_then(Value::as_str);
+                let fix = reach.daemons.refusal_fix(given.unwrap_or_default());
+                refusal
+                    .data
+                    .details
+                    .insert("fix".to_owned(), Value::from(fix));
+                // An Attached engine stops with the command, so a value
+                // that outlives it cannot run on one.
+                if reach.choice == Choice::Daemon || reach.lifetime == Lifetime::Lasting {
+                    return Answer::Refused(refusal);
+                }
+                (reach.warn)(&format!(
+                    "the Daemon refused this command, which runs on an Attached engine instead: {} {}",
+                    refusal.message,
+                    refusal.data.details["fix"].as_str().unwrap_or_default()
+                ));
+                drop(runtime);
+                return call_attached(engine, dependencies, needs, call);
+            }
+            // It hands over: once the pick runs, look again.
+            Err(Opening::HandOver(refusal)) => {
+                if found.remote {
+                    return Answer::Error(refusal);
+                }
+                if let Err(problem) = reach.daemons.handed_over() {
+                    return Answer::Unanswered(problem);
+                }
+            }
+            Err(Opening::Gone) if found.remote => {
+                return Answer::Unanswered(unreachable(
+                    format!(
+                        "The Daemon at {} closed the Connection before it answered `hello`, as it does for a token it does not take.",
+                        found.endpoint
+                    ),
+                    "Set `GOODFETCH_TOKEN` to the token the Daemon `GOODFETCH_URL` names takes, then run the command again.",
+                ));
+            }
+            Err(Opening::Unreachable) if found.remote => {
+                return Answer::Unanswered(unreachable(
+                    format!(
+                        "Nothing answers at {}, the Daemon `GOODFETCH_URL` names.",
+                        found.endpoint
+                    ),
+                    "Start the Daemon `GOODFETCH_URL` names, or unset `GOODFETCH_URL` to use this machine's, then run the command again.",
+                ));
+            }
+            // It went away in between: once it stopped, look again.
+            Err(Opening::Gone | Opening::Unreachable) => {
+                if let Err(problem) = reach.daemons.went_away(&found) {
+                    return Answer::Unanswered(problem);
+                }
+            }
+        }
+    }
+    Answer::Unanswered(unreachable(
+        format!("The Daemon went away {ATTEMPTS} times while this command connected."),
+        "Run the command again; `daemon status` shows whether a Daemon runs.",
+    ))
+}
+
+/// The failure of a command that reached no Daemon, as `message` says,
+/// and what to do, `fix`: `daemon_unreachable`, which exits its group's
+/// row, `8`.
+pub fn unreachable(message: String, fix: &str) -> ErrorObject {
+    let details = serde_json::to_value(DaemonUnreachableDetails {
+        fix: fix.to_owned(),
+    });
+    ErrorObject {
+        code: DAEMON_UNREACHABLE.group.json_rpc_class(),
+        message,
+        data: ErrorData {
+            code: DAEMON_UNREACHABLE.name.to_owned(),
+            retryable: DAEMON_UNREACHABLE.retryable,
+            details: match details {
+                Ok(Value::Object(details)) => details,
+                _ => Map::new(),
+            },
+        },
+    }
+}
+
 /// Calls `call` on an Attached engine in this process, `engine` on
 /// `dependencies`, opened by a Client that needs `needs`.
 ///
@@ -99,24 +532,17 @@ pub fn call_attached(
     needs: Product,
     call: CommandCall<'_>,
 ) -> Answer {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("invariant: the OS gives the runtime its threads");
-    let hello = HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Cli,
-        token: None,
-        needs: Some(needs),
-        product_version: engine.identity().product_version.clone(),
-        log_level: None,
-    };
+    let reads = call.reads();
+    let runtime = runtime();
+    let hello = hello(engine, needs);
     let (network, dialer) = transport::in_memory();
-    runtime.block_on(async {
+    let answer = runtime.block_on(async {
         let client = async {
             match dialer.connect().await {
                 Ok(connection) => exchange(connection, &hello, call).await,
-                Err(error) => Answer::Unanswered(format!("the engine took no Connection: {error}")),
+                Err(error) => Answer::Unanswered(exit_codes::internal(format!(
+                    "The Attached engine took no Connection: {error}."
+                ))),
             }
         };
         let (served, answer) = tokio::join!(
@@ -124,97 +550,345 @@ pub fn call_attached(
             client
         );
         match (served, answer) {
-            (Err(error), Answer::Unanswered(_)) => {
-                Answer::Unanswered(format!("the Attached engine got no Connection: {error}"))
-            }
+            (Err(error), Answer::Unanswered(_)) => Answer::Unanswered(exit_codes::internal(
+                format!("The Attached engine got no Connection: {error}."),
+            )),
             (_, answer) => answer,
         }
-    })
+    });
+    end(runtime, reads);
+    answer
+}
+
+/// The runtime a command's Connection runs on, with the signals an
+/// interrupt arrives by.
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the OS gives the runtime its threads")
+}
+
+/// Ends the runtime of a command's call once the call ended: waiting for
+/// its blocking work, unless the call `reads` values on a blocking thread
+/// that only new input wakes, such as stdin's, which an ended call no
+/// longer waits for.
+fn end(runtime: tokio::runtime::Runtime, reads: bool) {
+    if reads {
+        runtime.shutdown_background();
+    } else {
+        drop(runtime);
+    }
+}
+
+impl CommandCall<'_> {
+    /// Whether its values are read as they come, on a blocking thread.
+    fn reads(&self) -> bool {
+        matches!(
+            self.input,
+            Some(Input {
+                values: Values::Read(_),
+                ..
+            })
+        )
+    }
+}
+
+/// The `hello` of a command of `engine`'s executable that needs `needs`,
+/// with no token.
+fn hello(engine: &Engine, needs: Product) -> HelloParams {
+    HelloParams {
+        protocol_version: PROTOCOL_VERSION,
+        surface: Surface::Cli,
+        form: None,
+        token: None,
+        needs: Some(needs),
+        product_version: engine.identity().product_version.clone(),
+        log_level: None,
+        client_surface: None,
+    }
+}
+
+/// The failure of a call whose Connection to the Daemon at `endpoint`
+/// dropped before `method` was answered: `connection_lost`, which exits
+/// its group's row, `8`.
+pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
+    let mut details = Map::new();
+    details.insert(
+        "fix".to_owned(),
+        Value::from(
+            "Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.",
+        ),
+    );
+    ErrorObject {
+        code: ErrorGroup::Unavailable.json_rpc_class(),
+        message: format!(
+            "The Connection to the Daemon at {endpoint} dropped before it answered `{method}`, so whether the call took effect is unknown."
+        ),
+        data: ErrorData {
+            code: CONNECTION_LOST.name.to_owned(),
+            retryable: CONNECTION_LOST.retryable,
+            details,
+        },
+    }
 }
 
 /// Opens `connection` with `hello`, then makes the one call, and closes
 /// the Connection once it is answered, which stops the Attached engine.
 async fn exchange(connection: Connection, hello: &HelloParams, call: CommandCall<'_>) -> Answer {
-    let (reader, writer) = connection.split();
-    let mut link = Link {
-        lines: BufReader::new(reader).lines(),
-        writer,
+    let mut link = Link::of(connection);
+    let answer = match link.hello(hello).await {
+        Ok(()) => link.call(call).await,
+        Err(Opening::Interrupted(interrupt)) => Answer::Interrupted(interrupt),
+        Err(Opening::Refused(error) | Opening::HandOver(error)) => Answer::Error(error),
+        Err(Opening::Gone | Opening::Unreachable) => closed(HELLO),
     };
-    let answer = link.converse(hello, call).await;
     let _ = link.writer.shutdown().await;
-    answer
+    // The call was made: an Attached engine that ended it unanswered fails
+    // it, as a bug does.
+    match answer {
+        Answer::Unanswered(error) => Answer::Error(error),
+        answer => answer,
+    }
+}
+
+/// Why opening a Connection with `hello` failed.
+enum Opening {
+    /// Nothing answered at the endpoint.
+    Unreachable,
+    /// The engine closed the Connection before it answered.
+    Gone,
+    /// The engine refused this Client.
+    Refused(ErrorObject),
+    /// The Daemon refused this Client and hands over to its major's pick.
+    HandOver(ErrorObject),
+    /// The command was interrupted first.
+    Interrupted(Interrupt),
 }
 
 /// The Client's end of the Connection.
 struct Link {
     lines: Lines<BufReader<ConnectionReader>>,
     writer: ConnectionWriter,
+    /// The operation of the call in flight, or last made.
+    method: String,
+    /// The signals that interrupt the command, listened for from the
+    /// Connection's opening to its end.
+    interrupts: Interrupts,
 }
 
 impl Link {
-    async fn converse(&mut self, hello: &HelloParams, mut call: CommandCall<'_>) -> Answer {
-        let interrupt = interrupted();
-        tokio::pin!(interrupt);
+    /// The Client's end of `connection`; called on the command's runtime,
+    /// where it starts listening for interrupts.
+    fn of(connection: Connection) -> Self {
+        let (reader, writer) = connection.split();
+        Self {
+            lines: BufReader::new(reader).lines(),
+            writer,
+            method: HELLO.to_owned(),
+            interrupts: Interrupts::new(),
+        }
+    }
+
+    /// A Connection to the Daemon at `endpoint`, opened with `hello`.
+    async fn open(endpoint: &DaemonEndpoint, hello: &HelloParams) -> Result<Self, Opening> {
+        let connection = transport::connect_daemon(endpoint)
+            .await
+            .map_err(|_| Opening::Unreachable)?;
+        let mut link = Self::of(connection);
+        match link.hello(hello).await {
+            Ok(()) => Ok(link),
+            Err(failure) => {
+                let _ = link.writer.shutdown().await;
+                Err(failure)
+            }
+        }
+    }
+
+    /// Says `hello` and reads its answer.
+    async fn hello(&mut self, hello: &HelloParams) -> Result<(), Opening> {
         let hello = serde_json::to_value(hello).expect("invariant: hello encodes");
         if !self.send(&request(HELLO_ID, HELLO, hello)).await {
-            return Answer::Unanswered(
-                "the engine closed the Connection before `hello`".to_owned(),
-            );
+            return Err(Opening::Gone);
         }
         loop {
             tokio::select! {
-                interrupt = &mut interrupt => return Answer::Interrupted(interrupt),
-                message = self.next() => match message {
-                    None => return closed(HELLO),
-                    Some(Message::Response(response)) if response.id == RequestId::Number(HELLO_ID) => break,
-                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(HELLO_ID)) => {
-                        return Answer::Error(failure.error);
+                interrupt = self.interrupts.next() => return Err(Opening::Interrupted(interrupt)),
+                message = next(&mut self.lines) => match message {
+                    None => return Err(Opening::Gone),
+                    Some(Message::Response(response)) if response.id == RequestId::Number(HELLO_ID) => return Ok(()),
+                    // An error whose id is null answers a message the
+                    // engine could not read, which can only be `hello`.
+                    Some(Message::Error(failure)) if failure.id.is_none() || failure.id == Some(RequestId::Number(HELLO_ID)) => {
+                        let handover = failure.error.data.details.get("handover").and_then(Value::as_bool);
+                        return Err(if handover == Some(true) {
+                            Opening::HandOver(failure.error)
+                        } else {
+                            Opening::Refused(failure.error)
+                        });
                     }
                     Some(_) => {}
                 },
             }
         }
+    }
+
+    /// Makes the call on the opened Connection and reads its answer; for a
+    /// command that makes more than one call, makes each next call the
+    /// pager asks for, and answers the last one's answer. At its first
+    /// interrupt, a command whose stopper gives a call makes it and ends
+    /// once it is answered; any other cancels its call when it can. A
+    /// follower that can print nothing more has its call cancelled, and the
+    /// command then ends with whatever the engine answers. An error whose
+    /// id is null, the engine's answer to a message it could not read, such
+    /// as one past its size limit, ends the command with that error: no
+    /// answer to the call in flight follows it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one loop reads every message of the command's calls; splitting it would pass its state between functions"
+    )]
+    async fn call(&mut self, mut call: CommandCall<'_>) -> Answer {
+        let mut id = CALL_ID;
+        let mut method = call.method;
+        call.method.clone_into(&mut self.method);
+        let mut cancellable = call.cancellable;
         let params = std::mem::take(&mut call.params);
-        if !self.send(&request(CALL_ID, call.method, params)).await {
-            return Answer::Unanswered(format!(
-                "the engine closed the Connection before `{}`",
-                call.method
-            ));
+        if !self.send(&request(id, method, params)).await {
+            return closed(method);
         }
-        if call.follower.is_some() && !self.credit(CREDITS).await {
-            return closed(call.method);
+        // Once the follower printed nothing more, what the call sends is
+        // no longer given it.
+        let mut abandoned = false;
+        // A call that takes a stream grants the credits itself, and a
+        // command that makes more than one call credits only those its
+        // pager says are followed.
+        let mut credited = call.follower.is_some() && call.input.is_none() && call.pager.is_none();
+        if credited && !self.credit(id, CREDITS).await {
+            return closed(method);
         }
         let mut cancelled = None;
+        // The stopping call, once the first interrupt made one.
+        let mut stopping: Option<(i64, Interrupt)> = None;
+        // The credits the stream's call granted that its values have not
+        // spent yet, and whether its last values were sent.
+        let mut owed: usize = 0;
+        let mut input_ended = false;
+        let readers = TaskOwner::root(BlockingPolicy::Threads);
+        if let Some(Input {
+            values: Values::Read(read),
+            ..
+        }) = call.input.as_mut()
+        {
+            read.start(&readers);
+        }
         loop {
+            let wants_values =
+                owed > 0 && !input_ended && cancelled.is_none() && stopping.is_none();
             tokio::select! {
-                interrupt_now = &mut interrupt => {
-                    if !call.cancellable || cancelled.is_some() {
+                interrupt_now = self.interrupts.next() => {
+                    if cancelled.is_some() || stopping.is_some() {
                         return Answer::Interrupted(interrupt_now);
                     }
-                    let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(CALL_ID) });
+                    if let Some(stop) = call.stopper.as_mut().and_then(|stopper| stopper()) {
+                        let stop_id = id + 1;
+                        if !self.send(&request(stop_id, stop.method, stop.params)).await {
+                            return Answer::Interrupted(interrupt_now);
+                        }
+                        stopping = Some((stop_id, interrupt_now));
+                        continue;
+                    }
+                    if !cancellable {
+                        return Answer::Interrupted(interrupt_now);
+                    }
+                    let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(id) });
                     if !self.send(&cancel).await {
                         return Answer::Interrupted(interrupt_now);
                     }
                     cancelled = Some(interrupt_now);
-                    interrupt.set(interrupted());
                 }
-                message = self.next() => match message {
-                    None => return closed(call.method),
-                    Some(Message::Response(response)) if response.id == RequestId::Number(CALL_ID) => {
-                        return cancelled.map_or(Answer::Result(response.result), Answer::Interrupted);
+                ready = ready_values(call.input.as_mut(), owed), if wants_values => {
+                    let (values, end) = ready;
+                    owed = owed.saturating_sub(values.len());
+                    input_ended = end;
+                    let Some(input) = call.input.as_ref() else { continue };
+                    let mut batch = Map::new();
+                    batch.insert("id".to_owned(), Value::from(id));
+                    batch.insert(input.field.to_owned(), Value::Array(values));
+                    batch.insert("end".to_owned(), Value::Bool(end));
+                    if !self.send(&notification(input.method, &batch)).await {
+                        return closed(method);
                     }
-                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(CALL_ID)) => {
+                }
+                message = next(&mut self.lines) => match message {
+                    None => return closed(method),
+                    // The engine could not read a message the command
+                    // sent, so the call it belongs to is never answered.
+                    Some(Message::Error(failure)) if failure.id.is_none() => {
+                        return match stopping.map(|(_, interrupt)| interrupt).or(cancelled) {
+                            Some(interrupt) => Answer::Interrupted(interrupt),
+                            None => Answer::Error(failure.error),
+                        };
+                    }
+                    // The stopping call's answer, whatever it is, ends the
+                    // command as interrupted.
+                    Some(Message::Response(response)) if stopping.is_some_and(|(stop_id, _)| response.id == RequestId::Number(stop_id)) => {
+                        return Answer::Interrupted(stopping.map_or(Interrupt::Interrupted, |(_, interrupt)| interrupt));
+                    }
+                    Some(Message::Error(failure)) if stopping.is_some_and(|(stop_id, _)| failure.id == Some(RequestId::Number(stop_id))) => {
+                        return Answer::Interrupted(stopping.map_or(Interrupt::Interrupted, |(_, interrupt)| interrupt));
+                    }
+                    // While it stops, the command's own calls are no longer
+                    // read.
+                    Some(_) if stopping.is_some() => {}
+                    Some(Message::Response(response)) if response.id == RequestId::Number(id) => {
+                        if let Some(interrupt) = cancelled {
+                            return Answer::Interrupted(interrupt);
+                        }
+                        let next = call.pager.as_mut().and_then(|pager| pager(&response.result));
+                        let Some(next) = next else {
+                            return Answer::Result(response.result);
+                        };
+                        id += 1;
+                        method = next.method;
+                        next.method.clone_into(&mut self.method);
+                        cancellable = next.cancellable;
+                        if !self.send(&request(id, method, next.params)).await {
+                            return closed(method);
+                        }
+                        credited = next.followed && call.follower.is_some();
+                        if credited && !self.credit(id, CREDITS).await {
+                            return closed(method);
+                        }
+                    }
+                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(id)) => {
                         return cancelled.map_or(Answer::Error(failure.error), Answer::Interrupted);
                     }
                     Some(Message::Notification(sent)) => {
-                        let Some(follower) = call.follower.as_mut() else { continue };
                         let params = sent.params.unwrap_or(Value::Null);
-                        if params["id"] != CALL_ID {
+                        if params["id"] != id {
                             continue;
                         }
-                        let used = follower(&sent.method, &params);
-                        if used > 0 && !self.credit(used).await {
-                            return closed(call.method);
+                        if call.input.is_some() && sent.method == CREDIT {
+                            let credits = params["credits"].as_u64().unwrap_or(0);
+                            owed = owed.saturating_add(usize::try_from(credits).unwrap_or(usize::MAX));
+                            continue;
+                        }
+                        if abandoned {
+                            continue;
+                        }
+                        let Some(follower) = call.follower.as_mut() else { continue };
+                        if let Some(used) = follower(&sent.method, &params) {
+                            if credited && used > 0 && !self.credit(id, used).await {
+                                return closed(method);
+                            }
+                        } else {
+                            // It prints nothing more: the call stops, and
+                            // its answer ends the command.
+                            abandoned = true;
+                            let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(id) });
+                            if !cancellable || !self.send(&cancel).await {
+                                return closed(method);
+                            }
                         }
                     }
                     Some(_) => {}
@@ -223,9 +897,9 @@ impl Link {
         }
     }
 
-    /// Grants the call `credits` more events or chunks.
-    async fn credit(&mut self, credits: u32) -> bool {
-        let id = RequestId::Number(CALL_ID);
+    /// Grants the call `id` `credits` more events or chunks.
+    async fn credit(&mut self, id: i64, credits: u32) -> bool {
+        let id = RequestId::Number(id);
         self.send(&notification(CREDIT, &CreditParams { id, credits }))
             .await
     }
@@ -233,61 +907,150 @@ impl Link {
     /// Writes `message` as one line; `false` when the engine is gone.
     async fn send(&mut self, message: &impl Serialize) -> bool {
         let mut line = serde_json::to_vec(message).expect("invariant: a message encodes");
+        record_wire(SENT, &line);
         line.push(b'\n');
         self.writer.write_all(&line).await.is_ok() && self.writer.flush().await.is_ok()
     }
+}
 
-    /// The next message the engine sends, or `None` once it closed the
-    /// Connection; a line that is no message is passed over.
-    async fn next(&mut self) -> Option<Message> {
-        loop {
-            let line = self.lines.next_line().await.ok()??;
-            if let Ok(message) = serde_json::from_str(&line) {
-                return Some(message);
-            }
+/// The next message the engine sends on `lines`, or `None` once it closed
+/// the Connection; a line that is no message is passed over.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses no message: `Lines::next_line` keeps a line
+/// it read part of.
+async fn next(lines: &mut Lines<BufReader<ConnectionReader>>) -> Option<Message> {
+    loop {
+        let line = lines.next_line().await.ok()??;
+        if let Ok(message) = serde_json::from_str(&line) {
+            record_wire(RECEIVED, line.as_bytes());
+            return Some(message);
         }
     }
 }
 
-/// Resolves when the command is interrupted (`SIGINT`, or Ctrl-C and
-/// `CTRL_BREAK_EVENT` on Windows) or sent `SIGTERM`; never for a signal the
-/// CLI cannot listen for.
-async fn interrupted() -> Interrupt {
-    tokio::select! {
-        () = signalled(tokio::signal::ctrl_c()) => Interrupt::Interrupted,
-        interrupt = other_signals() => interrupt,
+/// The values of `input` ready to send, at most `most`, and whether they
+/// are the last; never for a call that takes none.
+async fn ready_values(input: Option<&mut Input<'_>>, most: usize) -> (Vec<Value>, bool) {
+    match input {
+        Some(input) => input.values.ready(most).await,
+        None => std::future::pending().await,
     }
 }
 
-/// `SIGTERM`, the other signal that ends a command on Unix.
-#[cfg(unix)]
-async fn other_signals() -> Interrupt {
-    use tokio::signal::unix::{SignalKind, signal};
-    match signal(SignalKind::terminate()) {
-        Ok(mut terminate) => {
-            terminate.recv().await;
-            Interrupt::Terminated
+/// The `tracing` target of the records of the messages a command's
+/// Connection carries, from which a test counts them (ADR 0071's protocol
+/// counts).
+pub const WIRE_TARGET: &str = "goodfetch::cli::wire";
+
+/// The direction of a message the command sent.
+const SENT: &str = "sent";
+
+/// The direction of a message the command received.
+const RECEIVED: &str = "received";
+
+/// Records one message of the Connection, at `trace`: its direction, its
+/// kind (`request`, `notification`, `response` or `error`), its method
+/// when it has one, and its bytes. It never records the message's content,
+/// which may hold the Daemon's token.
+fn record_wire(direction: &str, line: &[u8]) {
+    if !tracing::enabled!(target: WIRE_TARGET, tracing::Level::TRACE) {
+        return;
+    }
+    let Ok(message) = serde_json::from_slice::<Value>(line) else {
+        return;
+    };
+    let method = message["method"].as_str().unwrap_or_default();
+    let kind = match (method.is_empty(), message.get("id").is_some()) {
+        (false, true) => "request",
+        (false, false) => "notification",
+        (true, _) if message.get("error").is_some() => "error",
+        (true, _) => "response",
+    };
+    tracing::trace!(
+        target: WIRE_TARGET,
+        direction,
+        kind,
+        method,
+        bytes = line.len(),
+        "message"
+    );
+}
+
+/// The signals that interrupt a command (`SIGINT`, or Ctrl-C and
+/// `CTRL_BREAK_EVENT` on Windows) or end it (`SIGTERM`), each listened for
+/// from its creation on, so one that arrives while the command handles the
+/// last, such as a second interrupt while a stop is sent, waits for the
+/// next look; a signal the CLI cannot listen for never arrives.
+struct Interrupts {
+    #[cfg(unix)]
+    interrupt: Option<tokio::signal::unix::Signal>,
+    #[cfg(unix)]
+    terminate: Option<tokio::signal::unix::Signal>,
+    #[cfg(windows)]
+    ctrl_c: Option<tokio::signal::windows::CtrlC>,
+    /// `CTRL_BREAK_EVENT`, which a process group gets where Unix sends
+    /// `SIGINT` (ADR 0093).
+    #[cfg(windows)]
+    ctrl_break: Option<tokio::signal::windows::CtrlBreak>,
+}
+
+impl Interrupts {
+    /// Listens for them; called on the command's runtime.
+    #[cfg(unix)]
+    fn new() -> Self {
+        use tokio::signal::unix::{SignalKind, signal};
+        Self {
+            interrupt: signal(SignalKind::interrupt()).ok(),
+            terminate: signal(SignalKind::terminate()).ok(),
         }
-        Err(_) => std::future::pending().await,
     }
-}
 
-/// `CTRL_BREAK_EVENT`, which a process group gets where Unix sends
-/// `SIGINT` (ADR 0093).
-#[cfg(windows)]
-async fn other_signals() -> Interrupt {
-    match tokio::signal::windows::ctrl_break() {
-        Ok(mut ctrl_break) => {
-            ctrl_break.recv().await;
-            Interrupt::Interrupted
+    /// Listens for them; called on the command's runtime.
+    #[cfg(windows)]
+    fn new() -> Self {
+        Self {
+            ctrl_c: tokio::signal::windows::ctrl_c().ok(),
+            ctrl_break: tokio::signal::windows::ctrl_break().ok(),
         }
-        Err(_) => std::future::pending().await,
+    }
+
+    /// The next one, once it arrives.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no signal.
+    #[cfg(unix)]
+    async fn next(&mut self) -> Interrupt {
+        tokio::select! {
+            () = received(self.interrupt.as_mut().map(tokio::signal::unix::Signal::recv)) => Interrupt::Interrupted,
+            () = received(self.terminate.as_mut().map(tokio::signal::unix::Signal::recv)) => Interrupt::Terminated,
+        }
+    }
+
+    /// The next one, once it arrives.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no signal.
+    #[cfg(windows)]
+    async fn next(&mut self) -> Interrupt {
+        tokio::select! {
+            () = received(self.ctrl_c.as_mut().map(tokio::signal::windows::CtrlC::recv)) => Interrupt::Interrupted,
+            () = received(self.ctrl_break.as_mut().map(tokio::signal::windows::CtrlBreak::recv)) => Interrupt::Interrupted,
+        }
     }
 }
 
-/// Resolves once `signal` arrives; never when it cannot be listened for.
-async fn signalled(signal: impl Future<Output = std::io::Result<()>>) {
-    if signal.await.is_err() {
+/// Resolves once the signal `listening` waits for arrives; never when the
+/// CLI cannot listen for it.
+async fn received(listening: Option<impl Future<Output = Option<()>>>) {
+    let arrived = match listening {
+        Some(listening) => listening.await.is_some(),
+        None => false,
+    };
+    if !arrived {
         std::future::pending::<()>().await;
     }
 }
@@ -309,8 +1072,11 @@ fn notification(method: &str, params: &impl Serialize) -> Notification {
     }
 }
 
+/// The answer of a call whose Connection ended before `method` was
+/// answered: a Daemon's call fails with `connection_lost`; an Attached
+/// engine never ends it first but by a bug.
 fn closed(method: &str) -> Answer {
-    Answer::Unanswered(format!(
-        "the engine closed the Connection before it answered `{method}`"
-    ))
+    Answer::Unanswered(exit_codes::internal(format!(
+        "The engine closed the Connection before it answered `{method}`."
+    )))
 }

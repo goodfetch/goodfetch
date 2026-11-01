@@ -7,8 +7,15 @@
 //! binds its side before connecting, so the relay is recorded before the
 //! connection it opens is accepted.
 //!
-//! At most [`ENTRY_LIMIT`] connections and as many relays are kept; later
-//! ones are counted in `unrecorded_connections` and `unrecorded_relays`.
+//! It also holds every query the DNS fixture received, with the address it
+//! came from, so a test sees which local address a resolver asked from,
+//! and every datagram the UDP fixture received, so a test sees that no UDP
+//! left from another address than a Session's (ADR 0044).
+//!
+//! At most [`ENTRY_LIMIT`] connections, as many relays, queries and
+//! datagrams are kept; later ones are counted in `unrecorded_connections`,
+//! `unrecorded_relays`, `unrecorded_dns_queries` and
+//! `unrecorded_udp_datagrams`.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -44,6 +51,10 @@ struct State {
     unrecorded_connections: u64,
     relays: Vec<Relay>,
     unrecorded_relays: u64,
+    dns_queries: Vec<DnsQuery>,
+    unrecorded_dns_queries: u64,
+    udp_datagrams: Vec<UdpDatagram>,
+    unrecorded_udp_datagrams: u64,
     /// The latest relay whose connection left from each proxy-side address.
     relay_sources: BTreeMap<SocketAddr, usize>,
 }
@@ -59,6 +70,32 @@ struct Accepted {
     destination: SocketAddr,
     /// The relay that opened it, when a forward proxy did.
     relay: Option<usize>,
+}
+
+/// A query the DNS fixture received.
+#[derive(Serialize)]
+struct DnsQuery {
+    #[serde(flatten)]
+    stamp: Stamp,
+    /// The address and port it came from.
+    source: SocketAddr,
+    /// The name asked for, in lowercase, without its trailing dot.
+    name: String,
+    /// Its record type: `A`, `AAAA`, or the type's number.
+    record_type: String,
+}
+
+/// A datagram the UDP fixture received.
+#[derive(Serialize)]
+struct UdpDatagram {
+    #[serde(flatten)]
+    stamp: Stamp,
+    /// The address and port it came from.
+    source: SocketAddr,
+    /// The fixture's address it reached.
+    destination: SocketAddr,
+    /// Its length in bytes.
+    length: usize,
 }
 
 /// What a forward proxy did with one request.
@@ -136,6 +173,8 @@ pub(crate) enum Outcome {
     DestinationProhibited,
     /// Nothing accepted the connection (`502`).
     ConnectionRefused,
+    /// The proxy relayed another request already, past its plan (`429`).
+    TooManyRequests,
 }
 
 /// A relay's place in the record.
@@ -149,6 +188,10 @@ pub(crate) struct Document<'a> {
     unrecorded_connections: u64,
     relays: &'a [Relay],
     unrecorded_relays: u64,
+    dns_queries: &'a [DnsQuery],
+    unrecorded_dns_queries: u64,
+    udp_datagrams: &'a [UdpDatagram],
+    unrecorded_udp_datagrams: u64,
 }
 
 impl ConnectionRecord {
@@ -221,6 +264,49 @@ impl ConnectionRecord {
         }
     }
 
+    /// Records a query the DNS fixture received from `source`.
+    pub(crate) fn dns_query(
+        &self,
+        stamp: Stamp,
+        source: SocketAddr,
+        name: &str,
+        record_type: &str,
+    ) {
+        let mut state = self.state.lock();
+        if state.dns_queries.len() >= ENTRY_LIMIT {
+            state.unrecorded_dns_queries += 1;
+            return;
+        }
+        state.dns_queries.push(DnsQuery {
+            stamp,
+            source,
+            name: name.to_owned(),
+            record_type: record_type.to_owned(),
+        });
+    }
+
+    /// Records a datagram of `length` bytes the UDP fixture at `destination`
+    /// received from `source`.
+    pub(crate) fn udp_datagram(
+        &self,
+        stamp: Stamp,
+        source: SocketAddr,
+        destination: SocketAddr,
+        length: usize,
+    ) {
+        let mut state = self.state.lock();
+        if state.udp_datagrams.len() >= ENTRY_LIMIT {
+            state.unrecorded_udp_datagrams += 1;
+            return;
+        }
+        state.udp_datagrams.push(UdpDatagram {
+            stamp,
+            source,
+            destination,
+            length,
+        });
+    }
+
     /// Serializes the record into `GET /observations`'s document.
     pub(crate) fn with_document<T>(&self, write: impl FnOnce(&Document<'_>) -> T) -> T {
         let state = self.state.lock();
@@ -229,6 +315,10 @@ impl ConnectionRecord {
             unrecorded_connections: state.unrecorded_connections,
             relays: &state.relays,
             unrecorded_relays: state.unrecorded_relays,
+            dns_queries: &state.dns_queries,
+            unrecorded_dns_queries: state.unrecorded_dns_queries,
+            udp_datagrams: &state.udp_datagrams,
+            unrecorded_udp_datagrams: state.unrecorded_udp_datagrams,
         })
     }
 }

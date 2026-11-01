@@ -1,0 +1,8 @@
+[[vendor]]
+name = "Cloudflare"
+listed_as = ["Cloudflare Bot Management"]
+rules = ["cloudflare_challenge"]
+
+[[vendor]]
+name = "reCAPTCHA"
+rules = ["captcha_widget"]

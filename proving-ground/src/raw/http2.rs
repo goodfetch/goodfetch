@@ -8,7 +8,9 @@ use std::sync::Arc;
 use loona_hpack::{Decoder, Encoder};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
-use super::{Answer, Context, Cut, ErrorCode, Page, Pages, READ_LIMIT, Refusal, Request, settle};
+use super::{
+    Answer, Context, Cut, ErrorCode, LATE, Page, Pages, READ_LIMIT, Refusal, Request, settle,
+};
 use crate::observation::{End, Protocol};
 
 const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -224,7 +226,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         };
         let request = arrived.request(stream, self.requests, context);
         self.requests += 1;
-        match settle(pages.answer(&request).await).await {
+        // A filler body is past the window the server never waits beyond,
+        // and a stalled one is HTTP/1.1's alone.
+        let answer = match settle(pages.answer(&request).await).await {
+            Answer::Filler { .. } | Answer::Stalled { .. } => {
+                Answer::Refuse(Refusal::Reset(ErrorCode::InternalError))
+            }
+            answer => answer,
+        };
+        match answer {
             Answer::Page(page) => {
                 self.page(stream, &page, page.body.len()).await?;
                 self.last_processed = stream;
@@ -255,7 +265,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                         );
                         Ok(false)
                     }
-                    Cut::Connection => {
+                    Cut::Connection | Cut::Late => {
+                        if cut == Cut::Late {
+                            tokio::time::sleep(LATE).await;
+                        }
                         context.delivered(
                             request.recorded,
                             Some(page.body.len()),
@@ -301,7 +314,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                 context.delivered(request.recorded, None, 0, End::ConnectionClosed);
                 Ok(true)
             }
-            Answer::Later(..) => unreachable!("invariant: `settle` resolves every wait"),
+            Answer::Filler { .. } | Answer::Stalled { .. } | Answer::Later(..) => {
+                unreachable!(
+                    "invariant: a filler or stalled body is reset above, and `settle` resolves every wait"
+                )
+            }
         }
     }
 

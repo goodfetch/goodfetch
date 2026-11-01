@@ -20,10 +20,14 @@ mod framing;
     reason = "generated from the protocol file, whose names and shapes are Chromium's"
 )]
 pub mod generated;
+mod net_error;
 
-pub use connection::{Connection, Driver, Ended, Event as RawEvent, SessionId, Subscription};
+pub use connection::{
+    Connection, Driver, Ended, Event as RawEvent, SessionId, Subscription, SubscriptionEnd,
+};
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};
+pub use net_error::NetError;
 
 /// A command of the protocol: its params, tied to its method's name and to
 /// what it returns.

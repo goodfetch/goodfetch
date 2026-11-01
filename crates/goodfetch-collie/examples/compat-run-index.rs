@@ -2,8 +2,10 @@
 //! fixed scenario against Collie's engine over the in-memory network, on the
 //! test `Clock` and a fixed `Entropy` seed, in a home of its own (a Run that
 //! finishes with a progress message and one that is aborted, both tagged,
-//! on an Attached engine, then a Run a Daemon owns while the Daemon is
-//! killed, whose row names the Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
+//! on an Attached engine, the first meeting a consent wall, with a "Needs
+//! you" item a person dismisses, then a
+//! Run a Daemon owns while the Daemon is killed, whose row names the
+//! Daemon's endpoint), and writes the Run index it leaves, as SQL text, into
 //! the folder given as the only argument, as `run-index.sql`. `xtask compat
 //! write` runs it.
 #![expect(
@@ -19,13 +21,23 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::needs_you::{
+    Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError,
+};
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_engine::{
+    CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
+};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+};
 use goodfetch_protocol::connection::ProductVersion;
-use serde_json::{Value, json};
+use goodfetch_protocol::needs_you::NeedsYouItem;
+use goodfetch_protocol::run::{PointInTime, RunId};
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 /// What the Client asks, in order; each call waits for its reply.
@@ -47,14 +59,137 @@ fn scenario() -> Vec<Value> {
             "run.set_progress_message",
             json!({ "run_id": "finished-run", "message": "Read 3 of 3 pages" }),
         ),
+        call(
+            30,
+            "compat.consent_wall",
+            json!({ "run_id": "finished-run", "domain": "walled.example" }),
+        ),
+        call(
+            31,
+            "compat.refetch_stopped",
+            json!({ "run_id": "finished-run", "domain": "walled.example", "cause": "challenge" }),
+        ),
         call(3, "run.finish", json!({ "run_id": "finished-run" })),
         call(
             4,
             "run.start",
-            json!({ "run_id": "aborted-run", "tags": ["manual"] }),
+            json!({
+                "run_id": "aborted-run",
+                "tags": ["manual"],
+                "project": {
+                    "path": "/corpus/project/goodfetch.toml",
+                    "settings": { "wall": { "domains": ["walled.example"], "refetch_domains": ["walled.example"] } },
+                },
+            }),
+        ),
+        call(
+            32,
+            "compat.refetch_stopped",
+            json!({ "run_id": "aborted-run", "domain": "walled.example", "cause": "status_403" }),
         ),
         call(5, "run.abort", json!({ "run_id": "aborted-run" })),
+        call(6, "needs_you.dismiss", json!({ "item": WAITING })),
     ]
+}
+
+/// Records that a Run met a consent wall on a domain, as the page crate
+/// does when its Consent prompt runner leaves one.
+const CONSENT_WALL: Operation = Operation {
+    name: "compat.consent_wall",
+    description: "Records that a Run met a consent wall on a domain.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn consent_wall(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+        .expect("invariant: the scenario names a valid Run ID");
+    let run = context
+        .runs()
+        .live(run_id)
+        .await
+        .expect("invariant: the scenario's Run is live");
+    run.record_consent_wall(params["domain"].as_str().unwrap_or_default().to_owned())
+        .await
+        .expect("invariant: the corpus's Run index is written");
+    Ok(json!({}))
+}
+
+/// Records that a Run's refetch without the site's stored data stopped on
+/// a domain, as the Wall allowance does when the site refuses it.
+const REFETCH_STOPPED: Operation = Operation {
+    name: "compat.refetch_stopped",
+    description: "Records that a Run's refetch stopped on a domain.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn refetch_stopped(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+        .expect("invariant: the scenario names a valid Run ID");
+    let run = context
+        .runs()
+        .live(run_id)
+        .await
+        .expect("invariant: the scenario's Run is live");
+    run.record_refetch_stop(
+        params["domain"].as_str().unwrap_or_default().to_owned(),
+        params["cause"].as_str().unwrap_or_default().to_owned(),
+    )
+    .await
+    .expect("invariant: the corpus's Run index is written");
+    Ok(json!({}))
+}
+
+/// The ID of the corpus's "Needs you" item, which a person dismisses.
+const WAITING: &str = "corpus_waiting:1";
+
+/// A source of one "Needs you" item a person may dismiss, which never
+/// changes: the Run index keeps its dismissal.
+struct Waiting;
+
+impl Primitives for Waiting {
+    fn dismissable(&self) -> bool {
+        true
+    }
+
+    fn items<'a>(
+        &'a self,
+        _: &'a SourceContext,
+    ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
+        Box::pin(async {
+            Ok(vec![NeedsYouItem {
+                id: WAITING.to_owned(),
+                kind: "corpus_waiting".to_owned(),
+                since: PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+                run: None,
+                schedule: None,
+                summary: "The corpus waits for a person.".to_owned(),
+                actions: Vec::new(),
+                details: Map::new(),
+            }])
+        })
+    }
+
+    fn changes(&self, _: &SourceContext) -> Changes {
+        Changes::none()
+    }
 }
 
 /// The Daemon's token, which its Client's `hello` carries.
@@ -117,6 +252,7 @@ async fn play(
 fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(home.to_owned()),
         // 2026-01-05T09:00:00Z, test support's `START_TIME`.
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),
@@ -139,7 +275,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: ProductVersion::parse("0.0.0")?,
         channel: Channel::CratesIo,
     };
-    let engine = Engine::new(identity, &goodfetch_collie::composition())?;
+    let engine = Engine::new(
+        identity,
+        &goodfetch_collie::composition().with(
+            Contribution::new("compat-run-index")
+                .with_handler(Handler::new(&CONSENT_WALL, consent_wall))
+                .with_handler(Handler::new(&REFETCH_STOPPED, refetch_stopped))
+                .with_needs_you_source(NeedsYouSource::new(Waiting)),
+        ),
+    )?;
     let home = tempfile::tempdir()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -180,6 +324,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             console: DaemonConsole::Absent,
             drain: None,
             install: None,
+            ops: Ops::default(),
             websocket: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);

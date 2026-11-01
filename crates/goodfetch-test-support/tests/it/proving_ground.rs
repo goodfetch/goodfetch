@@ -8,45 +8,13 @@
     reason = "these tests reach the Proving ground over a plain socket, as any client of it does"
 )]
 
-use std::io::{Read as _, Write as _};
 use std::net::TcpStream;
-use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_test_support::{ProvingGround, ProvingGroundError, ReportedAddressError, TestEnv};
 use serde_json::Value;
 
-/// An HTTP/1.1 answer: its status and body.
-struct Answer {
-    status: u16,
-    body: String,
-}
-
-impl Answer {
-    fn json(&self) -> Value {
-        serde_json::from_str(&self.body).unwrap()
-    }
-}
-
-/// Sends `GET <target>` with `Host: <host>` to `address`, and reads the whole
-/// answer, which `Connection: close` ends.
-fn get(address: &str, host: &str, target: &str) -> Answer {
-    let mut stream = TcpStream::connect(address).unwrap();
-    write!(
-        stream,
-        "GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-    )
-    .unwrap();
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).unwrap();
-    let response = String::from_utf8(response).unwrap();
-    let (head, body) = response.split_once("\r\n\r\n").unwrap();
-    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
-    Answer {
-        status,
-        body: body.to_owned(),
-    }
-}
+use crate::{get, make_executable};
 
 /// The Proving ground's own task list, which names the seed it serves.
 fn tasks(proving_ground: &ProvingGround) -> Value {
@@ -93,6 +61,20 @@ fn a_dropped_proving_ground_is_gone() {
     );
 }
 
+/// Stopped, it is interrupted as Ctrl-C does, so it ends its connections
+/// and undoes any network shaping before it exits, where a kill would
+/// leave the shaping in place.
+#[cfg(unix)]
+#[test]
+fn a_stopped_proving_ground_exits_of_its_own_once_interrupted() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, 341).unwrap();
+
+    let status = proving_ground.stop().unwrap();
+
+    assert!(status.success(), "{status}");
+}
+
 #[test]
 fn a_program_that_never_prints_its_line_fails_at_the_deadline() {
     let env = TestEnv::new();
@@ -124,15 +106,6 @@ fn silent_program(env: &TestEnv) -> std::path::PathBuf {
         path
     }
 }
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}
 
 #[test]
 fn the_resolve_mapping_reaches_catalog_test() {

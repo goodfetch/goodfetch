@@ -634,6 +634,30 @@
       "start_url": "http://7.extraction.test/markdown"
     },
     {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the page's path); `markdown`, the page's main content as Markdown; `markdown_full`, the whole body as Markdown; `markdown_fit`, the main content as Markdown without its link-dense blocks (more than half their text in links), its image-only blocks and the navigation lists the page repeats; `html_raw`, the page's HTML as it stands; `html_cleaned`, its HTML with what ad and annoyance filter lists hide taken out; `html_main`, the main content's HTML; and `text`, the main content's text. Markdown is judged by its structure, HTML by the text of its blocks and text white space aside, whatever syntax writes each.",
+      "digest": "1802a0bcbb56232b569cff7db57e4581a14d6b8cd5273ecd8c5e2d87b548ded4",
+      "family": "extraction",
+      "id": "extraction/8",
+      "kind": "crawl",
+      "start_url": "http://8.extraction.test/content-modes"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links, before any redirect) and, as JSON arrays in document order: `links`, each `<a href>` and `<area href>` as `{ \"url\", \"href\", \"text\", \"rel\" }`; `images`, each `<img src>` as `{ \"url\", \"src\", \"alt\" }`; `media`, each `<video>` and `<audio>` source as `{ \"url\", \"src\", \"kind\" (\"video\" or \"audio\"), \"type\" }`; and `tables`, each table as `{ \"caption\", \"header_rows\", \"body_rows\" }`, a row a list of its cells' text, a row's header its first cell. `href` and `src` are as the page writes them, character references decoded; `url` is that value resolved against the document's base URL (its `<base href>`, else its URL after redirects) by the WHATWG URL Standard, `null` when it does not parse; `alt`, `type` and `caption` are `null` when absent; text has its white space collapsed. Each field is judged as a JSON value.",
+      "digest": "48a582c4ee0519e0432cc5bb8455ac36ddc876467f61781eeaaa44356cbd1d55",
+      "family": "extraction",
+      "id": "extraction/9",
+      "kind": "crawl",
+      "start_url": "http://9.extraction.test/references"
+    },
+    {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links) and, as JSON objects: `metadata`, `{ \"title\", \"description\", \"canonical\", \"lang\", \"open_graph\", \"twitter\", \"json_ld\", \"microdata\", \"meta\" }`, the first `<title>`'s text, the `description` meta tag, the canonical link resolved, the root's `lang` (each `null` when absent), the Open Graph and Twitter meta tags as `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the HTML Standard's JSON conversion, and every named meta tag neither Open Graph's nor Twitter's, by its name in lower case; and `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the text it was read from (its link's text, else the value as written): e-mail addresses from `mailto:` links and text, telephone numbers from `tel:` links and text with `e164` only when the number carries its country code or the page's language tag has a region (a national number in text with neither is no number), and social profiles with their `network`. Each field is judged as a JSON value.",
+      "digest": "9ac28bbd4dd87b30b9346ef1a65d20327884c7018685a7369d2d6c93e882e83d",
+      "family": "extraction",
+      "id": "extraction/10",
+      "kind": "crawl",
+      "start_url": "http://10.extraction.test/structured"
+    },
+    {
       "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
       "digest": "7162740e2f6ccb275a69b7a65fc86bbe2032c6024b8565e61c8ce977e7c4af72",
       "family": "encodings",
@@ -1203,6 +1227,86 @@
       "start_url": "https://7.content-coding.test/page"
     },
     {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: gzip`.",
+      "digest": "7eaca2e9d5e8d3181abeba74246fa0a18c3ac40142159cf94470ef1a193d25ad",
+      "family": "content-coding",
+      "id": "content-coding/8",
+      "kind": "extract",
+      "start_url": "https://8.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is deflate with its zlib wrapper, labelled `Content-Encoding: deflate`.",
+      "digest": "dafa60acd8986f5c93a6600962f41bd8e61410ac1a416672161ef06f607c6c40",
+      "family": "content-coding",
+      "id": "content-coding/9",
+      "kind": "extract",
+      "start_url": "https://9.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: br`.",
+      "digest": "e93caa20a5acbcd03252006988b61340b93a2d5d3515d447b5b369e49a13fb8c",
+      "family": "content-coding",
+      "id": "content-coding/10",
+      "kind": "extract",
+      "start_url": "https://10.content-coding.test/page"
+    },
+    {
+      "description": "Read this page's text, with the `id` and `text` fields. It is labelled `Content-Encoding: zstd`.",
+      "digest": "3705ad0eb125017bd04eb6bdf7f41d544d0e1624738535e8554076513a0198a5",
+      "family": "content-coding",
+      "id": "content-coding/11",
+      "kind": "extract",
+      "start_url": "https://11.content-coding.test/page"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is one byte past 64 MiB, the engine's `network.max_body_size`, and says so in its `Content-Length`. A correct tool refuses it at the limit rather than reading it whole.",
+      "digest": "f340cbd83470884ee81f0b152f850e438bb8da64a5e057e3764d82a18b22a5bc",
+      "family": "body-limits",
+      "id": "body-limits/1",
+      "kind": "extract",
+      "start_url": "https://1.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is chunked and never sends its last chunk. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "08d89c95755a4b8e2086afda439416cc4222837371df032e64b059b645d331db",
+      "family": "body-limits",
+      "id": "body-limits/2",
+      "kind": "extract",
+      "start_url": "https://2.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body has no length and never closes. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "a67d9cb5a7e903045c11cb2b96abb409143eb423e57bb7ad8e8b4130486ae1e9",
+      "family": "body-limits",
+      "id": "body-limits/3",
+      "kind": "extract",
+      "start_url": "https://3.body-limits.test/"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`. Its JSON nests arrays 129 deep, past the engine's `network.max_json_depth`. A correct tool refuses it before it parses it.",
+      "digest": "8606df3ef4dd5da0ee333bdd8e4fcbb3e3824b925ba99d65798dddeb5015671d",
+      "family": "body-limits",
+      "id": "body-limits/4",
+      "kind": "extract",
+      "start_url": "https://4.body-limits.test/api"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`: the object nested 128 deep, as deep as the engine's `network.max_json_depth` keeps. A correct tool keeps it.",
+      "digest": "247590e210551a9bfc8f65f55a78e91312444c5e0194b1267d1d541c508f0498",
+      "family": "body-limits",
+      "id": "body-limits/5",
+      "kind": "extract",
+      "start_url": "https://5.body-limits.test/api"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is gzip within the engine's decompression ratio and decodes to 272 MiB, past its `network.max_body_size` and past the 256 MiB a browser's pipe frames in one message. A correct tool stops it at the limit rather than decoding it whole.",
+      "digest": "61982033298e9251e0ee5baa069487a0c715f75ca5f19dda730553e5a3ca2a14",
+      "family": "body-limits",
+      "id": "body-limits/6",
+      "kind": "extract",
+      "start_url": "https://6.body-limits.test/"
+    },
+    {
       "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
       "digest": "d77a650e322771a5dfe83170c39214c1374134c7ba3567d3fed43cdd314795e3",
       "family": "redirects",
@@ -1577,6 +1681,54 @@
       "id": "downloads/18",
       "kind": "download",
       "start_url": "http://18.downloads.test/download"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a gzip decompression bomb: a few kilobytes that decode to far more, past the engine's decompression-ratio limit. A correct tool refuses it at the limit rather than reading it to the end.",
+      "digest": "e902bbfbe38479b475b50e9247d3cb07353718bdc9553e0990a1dc8da8020517",
+      "family": "bombs",
+      "id": "bombs/1",
+      "kind": "extract",
+      "start_url": "http://1.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a raw deflate decompression bomb, labelled `Content-Encoding: deflate`, that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "52cb429feedeeebe67c522cb7649978f06e40cea434ab9f916b89bc82e452335",
+      "family": "bombs",
+      "id": "bombs/2",
+      "kind": "extract",
+      "start_url": "http://2.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a Brotli decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "c98fffff10d642037d11403516df2690991265e34198ad36e8410f097e958226",
+      "family": "bombs",
+      "id": "bombs/3",
+      "kind": "extract",
+      "start_url": "https://3.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is a zstd decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "13c8425a7c53c8d1f37dd5f218bfad1f53162cefe37c7c251e0011034ca57818",
+      "family": "bombs",
+      "id": "bombs/4",
+      "kind": "extract",
+      "start_url": "https://4.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is gzip applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both codings to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
+      "digest": "21814453b973d348173faa8ee886e9d37f53ef6a232f11f741f804ad7b50e2d2",
+      "family": "bombs",
+      "id": "bombs/5",
+      "kind": "extract",
+      "start_url": "http://5.bombs.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `word`. Its body is legitimately compressed with gzip, well within the engine's decompression-ratio limit: a correct tool keeps it.",
+      "digest": "a470c6e75669df08e9c99013d75fcbae46d14a82c5e2b86bb4edb77d22167377",
+      "family": "bombs",
+      "id": "bombs/6",
+      "kind": "extract",
+      "start_url": "http://6.bombs.test/"
     },
     {
       "description": "Plant a typed password canary with `POST /canaries` (`{\"kind\": \"typed_password\"}`), log in as the account its answer names, and return the account page's Record with `id` and `word`. The password is a Secret canary: it goes only in the login form.",

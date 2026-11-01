@@ -13,7 +13,7 @@ product = "foxhound"
 
 [suite]
 name = "delivery"
-version = "1"
+version = "3"
 
 [[capability]]
 name = "connection.hello"

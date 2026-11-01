@@ -13,16 +13,30 @@
 //! its key from the Politeness the Run shares with the other runs of its
 //! user, and gives it back once it ended: a key the Politeness refuses is
 //! held, until the moment it names or until a wake says a Permit came back
-//! (ADR 0053).
+//! (ADR 0053), and a key whose take the Politeness file could not answer is
+//! held for that, until the Run tries it again. A key its Run refuses
+//! until a moment, its site having asked for a time further away than the
+//! Run waits (ADR 0118), comes with each of its requests refused until
+//! then, unsent, whatever the Politeness says meanwhile.
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
 //! here is a pure function of a monotonic reading the caller gives
 //! (ADR 0059).
+//!
+//! A request already admitted may send a second copy beside its first,
+//! such as a hedge (ADRs 0040 and 0086): [`SecondCopies`] gives the copy
+//! room of its own, a Permit of its key under the same shared rule and a
+//! share of the rate cap, so a key that admits one request at a time never
+//! sends one, and one whose delay has not passed holds it until it has.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the rate cap is read and changed in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::settings::ADMISSION_MAX_REQUESTS_PER_MINUTE;
@@ -31,7 +45,8 @@ use tokio::sync::broadcast;
 use tokio::time::Instant;
 
 use crate::clock::Clock;
-use crate::politeness::{Ending, Holder, Permit, PermitRule, Politeness, Taken, Wake};
+use crate::entropy::Entropy;
+use crate::politeness::{Ending, Hold, Holder, Permit, PermitRule, Politeness, Taken, Wake};
 use crate::settings::Resolved;
 
 /// How long a key the Politeness holds for want of room waits for a wake
@@ -67,6 +82,10 @@ pub struct Admitted {
     /// Whether its key's queue holds nothing more, so the Run may give it
     /// the next requests of that key it keeps.
     pub drained: bool,
+    /// The time its key's site asked for, when that is further away than
+    /// its Run waits: it is not sent, and ends (ADR 0118). Always `None`
+    /// from a gate; the Politeness its Run shares sets it.
+    pub refused_until: Option<SystemTime>,
 }
 
 /// How an admitted request ended, for its key's readiness.
@@ -74,15 +93,54 @@ pub struct Admitted {
 pub enum Ended {
     /// Its key may go again at once.
     Done,
-    /// Its response asked its key to back off.
-    BackOff,
+    /// Its response asked its key to back off, and to wait until the
+    /// moment its `Retry-After` names, if any, when that is later.
+    BackOff(Option<Instant>),
     /// Its response asked its key to wait until this moment, such as a
-    /// `Retry-After`.
+    /// redirect's `Retry-After`.
     Until(Instant),
     /// The site answered that too many requests came, a 429: its key's
     /// concurrency is halved and it backs off, until the moment its
     /// `Retry-After` names when it names one.
     TooManyRequests(Option<Instant>),
+}
+
+/// Why a gate holds a key's requests (ADR 0102's wait reasons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// As many of its requests are in flight as it admits: until one ends.
+    Concurrency,
+    /// Its last request started less than the delay between starts ago.
+    Delay,
+    /// It backs off, or waits for the time a site asked for.
+    BackOff,
+    /// The shared Politeness file refused its take, such as one busy past
+    /// its timeout: until its Run tries it again.
+    PolitenessFile,
+}
+
+impl From<Hold> for Held {
+    fn from(hold: Hold) -> Self {
+        match hold {
+            Hold::Delay => Self::Delay,
+            Hold::BackOff => Self::BackOff,
+        }
+    }
+}
+
+/// The keys whose requests wait in a gate for one reason, as
+/// [`Gate::queued`] answers them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedGroup {
+    /// Why the gate holds them; `None` for the keys that are ready.
+    pub held: Option<Held>,
+    /// How many of their requests wait in the gate.
+    pub requests: usize,
+    /// How many keys.
+    pub keys: usize,
+    /// The first keys, as many as were asked for at most, each with until
+    /// when the gate holds it, when it knows.
+    pub sample: Vec<(String, Option<Instant>)>,
 }
 
 /// What a gate writes into the run file, in one of its writer's commits.
@@ -112,9 +170,28 @@ pub trait Gate: Send {
     /// The key of the request [`Gate::admit`] would admit at `now`.
     fn next_key(&self, now: Instant) -> Option<String>;
 
-    /// Holds `key`: none of its requests is ready before `until`, unless
-    /// [`Gate::wake`] wakes it first. A held key keeps its place.
-    fn hold(&mut self, key: &str, until: Instant);
+    /// Holds `key` for the reason `held`: none of its requests is ready
+    /// before `until`, unless [`Gate::wake`] wakes it first. A held key
+    /// keeps its place.
+    fn hold(&mut self, key: &str, until: Instant, held: Held);
+
+    /// The keys whose requests wait in it at `now`, one group per reason it
+    /// holds them for, the ready ones in a group of their own, each with at
+    /// most `sample` of its keys: what a Run's progress says of its waits
+    /// (ADR 0102). A gate keeps the groups as its holds, wakes, admissions
+    /// and ends change them, so the answer costs the changes since the last
+    /// one and the sample, never a walk of every key. None by default.
+    fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
+        let _ = (now, sample);
+        Vec::new()
+    }
+
+    /// How many requests wait in it, of every key, those of a key at its
+    /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
+    /// 0050), kept as they come and go. None by default.
+    fn waiting(&self) -> usize {
+        0
+    }
 
     /// Ends the hold on `key`.
     fn wake(&mut self, key: &str);
@@ -129,6 +206,13 @@ pub trait Gate: Send {
     /// A request of `key` it admitted ended at `now`, as `ended` says.
     fn ended(&mut self, key: &str, now: Instant, ended: Ended);
 
+    /// Takes the waiting request `id` of `key` out of its queue, never to
+    /// be admitted: its Run ended it before it was sent, such as a crawl
+    /// request a learned rule merged. Nothing by default.
+    fn withdraw(&mut self, key: &str, id: &str) {
+        let _ = (key, id);
+    }
+
     /// What changed since its last journal, to write into the run file, its
     /// moments as wall time read at `wall` when the monotonic clock read
     /// `now`.
@@ -139,7 +223,8 @@ pub trait Gate: Send {
 pub trait Gates: Send + Sync {
     /// The gate of a Run with the settings `settings`, from what its run
     /// file `journal` holds, read at `wall` when the monotonic clock read
-    /// `now`.
+    /// `now`, drawing its random choices, such as a backoff's jitter, from
+    /// `entropy`.
     ///
     /// # Errors
     ///
@@ -150,6 +235,7 @@ pub trait Gates: Send + Sync {
         journal: &Connection,
         wall: SystemTime,
         now: Instant,
+        entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>>;
 }
 
@@ -157,8 +243,21 @@ pub trait Gates: Send + Sync {
 /// which a request passes all of to go.
 pub struct Admission {
     gate: Box<dyn Gate>,
-    rate: Option<RateCap>,
+    /// Shared with its second copies, which each take a share of it too.
+    rate: SharedRate,
     shared: Option<Shared>,
+    /// The keys whose site asked for a time further away than the Run
+    /// waits, judged when it asked: until when their requests are refused,
+    /// and that time ([`Admission::refuse`]).
+    refused: BTreeMap<String, (Instant, SystemTime)>,
+}
+
+/// A Run's rate cap, which its admission and its second copies share.
+type SharedRate = Arc<Mutex<Option<RateCap>>>;
+
+/// Locks `rate`, whose holders never panic while they hold it.
+fn lock(rate: &SharedRate) -> MutexGuard<'_, Option<RateCap>> {
+    rate.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The Politeness a Run shares, and the Permits its requests in flight
@@ -178,7 +277,7 @@ impl fmt::Debug for Admission {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Admission")
-            .field("rate", &self.rate)
+            .field("rate", &*lock(&self.rate))
             .field("shared", &self.shared.is_some())
             .finish_non_exhaustive()
     }
@@ -216,8 +315,9 @@ impl Admission {
     pub(crate) fn new(gate: Box<dyn Gate>, settings: &Resolved) -> Self {
         Self {
             gate,
-            rate: rate_cap_of(settings).map(RateCap::per_minute),
+            rate: Arc::new(Mutex::new(rate_cap_of(settings).map(RateCap::per_minute))),
             shared: None,
+            refused: BTreeMap::new(),
         }
     }
 
@@ -256,11 +356,14 @@ impl Admission {
     /// Politeness, as a Run does at each admission point, keeping when it
     /// last admitted.
     pub fn update(&mut self, settings: &Resolved) {
-        self.rate = match (self.rate, rate_cap_of(settings)) {
-            (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
-            (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
-            (_, None) => None,
-        };
+        {
+            let mut rate = lock(&self.rate);
+            *rate = match (*rate, rate_cap_of(settings)) {
+                (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
+                (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
+                (_, None) => None,
+            };
+        }
         if let Some(shared) = &mut self.shared
             && let Some(rule) = self.gate.rule(settings)
         {
@@ -293,6 +396,17 @@ impl Admission {
         }
     }
 
+    /// The keys whose requests wait in its gate at `now`, by reason, each
+    /// group with at most `sample` keys, as [`Gate::queued`] says.
+    pub fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
+        self.gate.queued(now, sample)
+    }
+
+    /// How many requests wait in its gate, as [`Gate::waiting`] says.
+    pub fn waiting(&self) -> usize {
+        self.gate.waiting()
+    }
+
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
@@ -309,11 +423,17 @@ impl Admission {
         self.gate.enqueue(request)
     }
 
+    /// Takes the waiting request `id` of `key` out of the gate, never to be
+    /// admitted (see [`Gate::withdraw`]).
+    pub fn withdraw(&mut self, key: &str, id: &str) {
+        self.gate.withdraw(key, id);
+    }
+
     /// When it next admits a request: at or before `now` when one may go
     /// now, `None` when none is waiting or the rate cap admits nothing.
     pub fn ready_at(&self, now: Instant) -> Option<Instant> {
         let gate = self.gate.ready_at(now)?;
-        match &self.rate {
+        match *lock(&self.rate) {
             Some(rate) => Some(rate.ready_at(now)?.max(gate)),
             None => Some(gate),
         }
@@ -321,7 +441,10 @@ impl Admission {
 
     /// The request it admits at `now`, if one may go: when it shares
     /// Politeness, holding a Permit of its key, and each key the
-    /// Politeness refuses held meanwhile.
+    /// Politeness refuses held meanwhile. A request of a key whose site
+    /// asked for a time further away than the Run waits comes with
+    /// [`Admitted::refused_until`] and no Permit: it is not sent, takes no
+    /// share of the rate cap, and its Run ends it.
     ///
     /// # Cancel safety
     ///
@@ -331,6 +454,14 @@ impl Admission {
         loop {
             if self.ready_at(now)? > now {
                 return None;
+            }
+            if !self.refused.is_empty()
+                && let Some(key) = self.gate.next_key(now)
+                && let Some(asked) = self.refused_at(&key, now)
+            {
+                let mut admitted = self.gate.admit(now)?;
+                admitted.refused_until = Some(asked);
+                return Some(admitted);
             }
             let Some(shared) = &mut self.shared else {
                 return self.admit_from_gate(now);
@@ -352,17 +483,23 @@ impl Admission {
                     }
                     return Some(admitted);
                 }
-                Ok(Taken::Wait(Some(until))) => {
+                Ok(Taken::Wait(Some((until, hold)))) => {
                     let until = now + until.duration_since(wall).unwrap_or_default();
-                    self.gate.hold(&key, until);
+                    self.gate.hold(&key, until, hold.into());
+                }
+                Ok(Taken::Refused(until)) => {
+                    let mut admitted = self.gate.admit(now)?;
+                    admitted.refused_until = Some(until);
+                    return Some(admitted);
                 }
                 Ok(Taken::Wait(None)) => {
                     shared.waiting.insert(key.clone());
-                    self.gate.hold(&key, now + RECLAIM_CHECK);
+                    self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
                 }
                 Err(error) => {
                     tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a take; its key waits");
-                    self.gate.hold(&key, now + RECLAIM_CHECK);
+                    self.gate
+                        .hold(&key, now + RECLAIM_CHECK, Held::PolitenessFile);
                 }
             }
         }
@@ -370,33 +507,62 @@ impl Admission {
 
     fn admit_from_gate(&mut self, now: Instant) -> Option<Admitted> {
         let admitted = self.gate.admit(now)?;
-        if let Some(rate) = &mut self.rate {
+        if let Some(rate) = lock(&self.rate).as_mut() {
             let _ = rate.admit(now);
         }
         Some(admitted)
     }
 
+    /// Refuses the requests of `key` it admits before `until`: each comes
+    /// with `asked`, the time its site asked for, as
+    /// [`Admitted::refused_until`], unsent, however late it is admitted.
+    /// Its Run judged that time further away than it waits at the moment
+    /// the site asked (ADR 0118), so the time its Run took to learn of it
+    /// never turns the refusal into a wait. Its gate holds the key for no
+    /// ending meanwhile, so its waiting requests end at once.
+    pub fn refuse(&mut self, key: &str, until: Instant, asked: SystemTime) {
+        self.refused.insert(key.to_owned(), (until, asked));
+    }
+
+    /// The time `key`'s site asked for, while [`Admission::refuse`] refuses
+    /// its requests at `now`.
+    fn refused_at(&mut self, key: &str, now: Instant) -> Option<SystemTime> {
+        match self.refused.get(key) {
+            Some((until, asked)) if *until > now => Some(*asked),
+            Some(_) => {
+                self.refused.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
     /// A request it admitted, `id` of `key`, ended at `now`, as `ended`
     /// says: its Permit goes back to the Politeness it shares, whose rule
     /// says when its key may go again, for this Run and every other
-    /// sharing it.
+    /// sharing it. A key it refuses ([`Admission::refuse`]) is not held
+    /// for it.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave its Permit held until its Run ends.
     pub async fn ended(&mut self, id: &str, key: &str, now: Instant, ended: Ended) {
+        let refused = self.refused_at(key, now).is_some();
         let permit = self
             .shared
             .as_mut()
             .and_then(|shared| shared.permits.remove(id));
         let Some(permit) = permit else {
-            self.gate.ended(key, now, ended);
+            self.gate
+                .ended(key, now, if refused { Ended::Done } else { ended });
             return;
         };
         let wall = self.wall();
         let ending = match ended {
             Ended::Done => Ending::Done,
-            Ended::BackOff => Ending::BackOff,
+            Ended::BackOff(until) => {
+                Ending::BackOff(until.map(|until| wall + until.saturating_duration_since(now)))
+            }
             Ended::Until(until) => Ending::Until(wall + until.saturating_duration_since(now)),
             Ended::TooManyRequests(until) => Ending::TooManyRequests(
                 until.map(|until| wall + until.saturating_duration_since(now)),
@@ -404,7 +570,7 @@ impl Admission {
         };
         let ready_at = self.give_back(permit, ending).await;
         let local = match ready_at.map(|ready_at| ready_at.duration_since(wall)) {
-            Some(Ok(wait)) if !wait.is_zero() => Ended::Until(now + wait),
+            Some(Ok(wait)) if !wait.is_zero() && !refused => Ended::Until(now + wait),
             _ => Ended::Done,
         };
         self.gate.ended(key, now, local);
@@ -459,6 +625,146 @@ impl Admission {
     /// file, read at `wall` when the monotonic clock read `now`.
     pub fn journal(&mut self, wall: SystemTime, now: Instant) -> Option<Journal> {
         self.gate.journal(wall, now)
+    }
+}
+
+impl Admission {
+    /// Room for second copies of the requests it admitted, under the rule
+    /// of its shared Politeness and its rate cap as they stand now.
+    pub fn second_copies(&self) -> SecondCopies {
+        SecondCopies {
+            shared: self.shared.as_ref().map(|shared| BesideShared {
+                politeness: shared.politeness.clone(),
+                holder: shared.holder.clone(),
+                rule: Arc::clone(&shared.rule),
+                clock: shared.clock,
+            }),
+            rate: Arc::clone(&self.rate),
+        }
+    }
+}
+
+/// Room for a second copy of a request a Run already admitted, such as a
+/// hedge's (ADRs 0040 and 0086): the copy is governed as a request of its
+/// own, so it takes a Permit of its key from the Politeness the Run shares,
+/// beside its first's, and a share of the Run's rate cap. Cheap to clone;
+/// every clone shares the rate cap.
+#[derive(Clone)]
+pub struct SecondCopies {
+    shared: Option<BesideShared>,
+    rate: SharedRate,
+}
+
+impl fmt::Debug for SecondCopies {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SecondCopies")
+            .field("rate", &*lock(&self.rate))
+            .field("shared", &self.shared.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The Politeness a second copy takes its Permit from.
+#[derive(Clone)]
+struct BesideShared {
+    politeness: Politeness,
+    holder: Holder,
+    rule: Arc<dyn PermitRule>,
+    clock: Clock,
+}
+
+/// What a second copy's take answered.
+#[derive(Debug)]
+pub enum Room {
+    /// The copy may go, holding this room until it ends.
+    Taken(SecondCopy),
+    /// Not before this moment, such as the end of its key's delay or of the
+    /// rate cap's interval: try again then.
+    Until(Instant),
+    /// Not while the requests in flight under its key stay, nor at all
+    /// when its key's site asked for a time further away than the Run
+    /// waits: the copy is not sent.
+    Full,
+}
+
+/// The room a second copy holds while it is in flight.
+#[derive(Debug)]
+pub struct SecondCopy {
+    permit: Option<Permit>,
+}
+
+impl SecondCopies {
+    /// Takes room for a second copy of a request of `key` at `now`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Permit taken for no copy, which its
+    /// Run's end or another engine's reclaim gives back.
+    pub async fn take(&self, key: &str, now: Instant) -> Room {
+        let rate_ready = match *lock(&self.rate) {
+            Some(rate) => match rate.ready_at(now) {
+                Some(ready_at) if ready_at > now => return Room::Until(ready_at),
+                Some(_) => true,
+                None => return Room::Full,
+            },
+            None => false,
+        };
+        let permit = match &self.shared {
+            None => None,
+            Some(shared) => {
+                let wall = shared.clock.wall();
+                let taken = shared
+                    .politeness
+                    .take_beside(key, &shared.holder, Arc::clone(&shared.rule), wall)
+                    .await;
+                match taken {
+                    Ok(Taken::Granted(permit)) => Some(permit),
+                    Ok(Taken::Wait(Some((until, _)))) => {
+                        return Room::Until(now + until.duration_since(wall).unwrap_or_default());
+                    }
+                    Ok(Taken::Wait(None) | Taken::Refused(_)) => return Room::Full,
+                    Err(error) => {
+                        tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a second copy's take; it is not sent");
+                        return Room::Full;
+                    }
+                }
+            }
+        };
+        let copy = SecondCopy { permit };
+        let admitted = if rate_ready {
+            lock(&self.rate)
+                .as_mut()
+                .map_or(Ok(()), |rate| rate.admit(now))
+        } else {
+            Ok(())
+        };
+        if let Err(ready_at) = admitted {
+            // The Run admitted a request of its own meanwhile.
+            self.give_back(copy).await;
+            return ready_at.map_or(Room::Full, Room::Until);
+        }
+        Room::Taken(copy)
+    }
+
+    /// Gives back the room `copy` held, once it ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave its Permit held until its Run ends,
+    /// or another engine's reclaim.
+    pub async fn give_back(&self, copy: SecondCopy) {
+        let (Some(shared), Some(permit)) = (&self.shared, copy.permit) else {
+            return;
+        };
+        let wall = shared.clock.wall();
+        if let Err(error) = shared
+            .politeness
+            .give_back(permit, Arc::clone(&shared.rule), Ending::Done, wall)
+            .await
+        {
+            tracing::warn!(%error, run_id = %shared.holder.run_id, "a second copy's Permit was not given back; another engine reclaims it once its Run is gone");
+        }
     }
 }
 

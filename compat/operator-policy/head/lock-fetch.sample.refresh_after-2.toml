@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.fetch.sample]
+refresh_after = { after = 3600000, requests = 100 }

@@ -7,6 +7,9 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::foxhound::crawl::CRAWL_DOMAIN_KEYS;
+
 /// How a crawl keys its requests' domains.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DomainKeys {
@@ -23,6 +26,18 @@ impl DomainKeys {
                 .map(|(host, key)| (normalized(&host), key))
                 .collect(),
         }
+    }
+
+    /// Keys under the Public Suffix List, with the overrides
+    /// `crawl.domain_keys` sets in `settings`.
+    pub fn of(settings: &Resolved) -> Self {
+        let overrides = settings
+            .value(CRAWL_DOMAIN_KEYS.name)
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(host, key)| Some((host.clone(), key.as_str()?.to_owned())));
+        Self::new(overrides)
     }
 
     /// The domain key of a request to `url`.

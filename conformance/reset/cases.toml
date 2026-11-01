@@ -1,0 +1,31 @@
+# The reset gate's case list (spec #213, #224): ADR 0001's permanent gate,
+# which every target that keeps Runs must pass in either layout of run state
+# (ADR 0002): a Run discarded with `run.discard` leaves none of its state
+# behind and none of its secrets, so that one Run's cookies never reach
+# another. Its planted cookies, tokens and secret values are Secret canaries
+# the Proving ground plants (ADR 0067), searched in every file of the
+# target's Goodfetch home, raw and in Goodfetch's encodings, and found there
+# before the discard. A Profile directory a Run uses in place and a Borrowed
+# browser are outside the home and never scanned (ADR 0056). Every Product
+# keeps Runs, so the suite announces Collie and runs on Collie's executable
+# (ADR 0094). `goodfetch-conformance` runs it as it runs the protocol suite
+# (`conformance/protocol/cases.toml`): every case in order over one
+# Connection it opens with `hello`. Bump the version whenever a case
+# changes.
+
+product = "collie"
+
+[suite]
+name = "reset"
+version = "2"
+
+[[capability]]
+name = "run.discard"
+
+[[capability.case]]
+id = "a-discarded-run-leaves-none-of-its-secret-values-in-the-home"
+covers = ["story:3-39", "operation:run.discard"]
+
+[[capability.case]]
+id = "a-discarded-runs-session-cookie-reaches-no-later-run"
+covers = ["story:3-39", "operation:run.discard"]

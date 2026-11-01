@@ -49,6 +49,33 @@ fn a_process_is_killed_at_the_seeded_moment() {
     );
 }
 
+/// The kill lands at the moment: the process sends no event after it, so
+/// an implementation that read the whole output before killing would show
+/// the later events in the probe's own record.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the probe's record of what it sent"
+)]
+fn no_event_after_the_moment_is_sent() {
+    let env = TestEnv::new();
+    let process = env
+        .spawn(&mut probe(
+            &env,
+            "probe::sends_protocol_events_slowly_then_hangs",
+        ))
+        .unwrap();
+    let mut log = ObservationLog::<()>::new();
+
+    kill_at(&process, &Moment::new("delivery.begin", 2), &mut log).unwrap();
+
+    let sent = std::fs::read_to_string(env.folder().join(crate::probe::SENT)).unwrap();
+    assert_eq!(
+        sent.lines().collect::<Vec<_>>(),
+        ["delivery.begin 1", "delivery.commit 1", "delivery.begin 2"]
+    );
+}
+
 #[test]
 fn the_same_seed_kills_at_the_same_moment() {
     let env = TestEnv::new();

@@ -1,0 +1,68 @@
+{
+  "description": "A document whose Proving ground ran on another seed than its Journey's is refused: a Journey's seed is its own, never GOODFETCH_TEST_SEED (ADR 0063)",
+  "journey": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page"
+      },
+      {
+        "text": "Wait for the crawl to end"
+      },
+      {
+        "text": "Export the crawl's Records to a file"
+      }
+    ],
+    "expect": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2"
+      }
+    ],
+    "tasks": ["catalog/1", "catalog/2"]
+  },
+  "document": {
+    "steps": [
+      {
+        "text": "Start a crawl of the catalog's first listing page",
+        "outcome": "passed"
+      },
+      {
+        "text": "Wait for the crawl to end",
+        "outcome": "passed"
+      },
+      {
+        "text": "Export the crawl's Records to a file",
+        "outcome": "passed"
+      }
+    ],
+    "checks": [
+      {
+        "text": "The crawl's Records are the first listing's products",
+        "task": "catalog/1",
+        "outcome": "passed"
+      },
+      {
+        "text": "The crawl's Records include the second listing's products",
+        "task": "catalog/2",
+        "outcome": "passed"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "catalog/1",
+        "answer": "verified"
+      },
+      {
+        "id": "catalog/2",
+        "answer": "verified"
+      }
+    ],
+    "outcome": "proved",
+    "seed": 4242
+  },
+  "read": "other_seed"
+}

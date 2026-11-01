@@ -1,8 +1,9 @@
 //! The axe exception file (ADR 0073; TESTING.md, Accessibility):
 //! `console/axe-exceptions.toml`, one `[[exception]]` entry per known false
-//! positive of axe, with the rule, the selector it is excepted on, the reason
-//! and its open issue. `@goodfetch/test-support`'s axe fixture reads the file
-//! and fails a page where an entry's selector matches nothing; this check
+//! positive of axe, with the rule, the selector and the pages it is excepted
+//! on, the reason and its open issue. `@goodfetch/test-support`'s axe fixture
+//! reads the file and fails a page the entry names where its selector matches
+//! nothing; this check
 //! refuses an entry missing a field, or whose issue is not an open issue of
 //! the repository, which a test, under ADR 0043's outbound-traffic deny,
 //! cannot read.
@@ -39,6 +40,9 @@ struct ExceptionFile {
 struct RawException {
     rule: Option<String>,
     selector: Option<String>,
+    /// The URL path patterns of the pages it is excepted on; an empty list
+    /// names no page, so it counts as missing.
+    pages: Option<Vec<String>>,
     reason: Option<String>,
     issue: Option<NonZeroU64>,
 }
@@ -52,10 +56,14 @@ fn check(root: &Path, api: &Api<'_>, repository: &str) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for (index, entry) in file.exception.iter().enumerate() {
         let subject = format!("exception {}", index + 1);
+        // A blank string names nothing, as the axe fixture reads it.
+        let blank =
+            |text: &Option<String>| text.as_deref().is_none_or(|text| text.trim().is_empty());
         let missing: Vec<&str> = [
-            ("rule", entry.rule.is_none()),
-            ("selector", entry.selector.is_none()),
-            ("reason", entry.reason.is_none()),
+            ("rule", blank(&entry.rule)),
+            ("selector", blank(&entry.selector)),
+            ("pages", entry.pages.as_ref().is_none_or(Vec::is_empty)),
+            ("reason", blank(&entry.reason)),
             ("issue", entry.issue.is_none()),
         ]
         .into_iter()
@@ -66,7 +74,7 @@ fn check(root: &Path, api: &Api<'_>, repository: &str) -> Result<Vec<Finding>> {
                 "axe-exception-field-missing",
                 subject.clone(),
                 format!(
-                    "it has no {}; an entry names its rule, selector, reason and open issue (ADR 0073)",
+                    "it has no {}; an entry names its rule, selector, pages, reason and open issue (ADR 0073)",
                     missing.join(", ")
                 ),
             ));

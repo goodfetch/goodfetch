@@ -78,6 +78,106 @@
           }
         ]
       },
+      "LimitScope": {
+        "description": "What a Limit is on: a scope kind, a value of a type both Products share\n(`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's\n`partitioned_crawl`), and which one of its kind (ADR 0041). A kind this\nreader does not know is kept as it is.",
+        "properties": {
+          "id": {
+            "arrived_in": "0.1",
+            "description": "Which one of its kind: the major's name for a Daemon, the person's\nname, the token's name or the Client connection's ID; empty for the\ninstall.",
+            "type": "string"
+          },
+          "kind": {
+            "arrived_in": "0.1",
+            "description": "The scope's kind.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "type": "object"
+      },
+      "NotUnderstoodLimit": {
+        "description": "A Limit flagged *must understand* that a Run's engine cannot evaluate,\nas the Run stopped for it names it (ADR 0041): its scope, Usage kind,\ncurrency and period as the ledger holds them.",
+        "properties": {
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps a price in, for a price Limit.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Its period; none for a Limit that never starts again."
+          },
+          "scope": {
+            "$ref": "#/$defs/LimitScope",
+            "arrived_in": "0.1",
+            "description": "The Limit's scope."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "usage_kind"
+        ],
+        "type": "object"
+      },
+      "Period": {
+        "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
+        "properties": {
+          "every": {
+            "$ref": "#/$defs/PeriodLength",
+            "arrived_in": "0.1",
+            "description": "How long it counts."
+          },
+          "time_zone": {
+            "arrived_in": "0.1",
+            "description": "The IANA time zone its midnights are in, such as `Europe/Paris`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "every",
+          "time_zone"
+        ],
+        "type": "object"
+      },
+      "PeriodLength": {
+        "description": "How long a period Limit counts before it starts again (ADR 0041).",
+        "oneOf": [
+          {
+            "const": "day",
+            "description": "From one midnight to the next.",
+            "type": "string"
+          },
+          {
+            "const": "week",
+            "description": "From Monday's midnight to the next Monday's.",
+            "type": "string"
+          },
+          {
+            "const": "month",
+            "description": "From the first day's midnight to the next month's.",
+            "type": "string"
+          }
+        ]
+      },
       "PointInTime": {
         "description": "A point in time in UTC, as RFC 3339.",
         "format": "date-time",
@@ -135,6 +235,73 @@
           {
             "const": "foxhound",
             "description": "Crawling, which contains Collie.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReachedLimit": {
+        "description": "The Limit a Run cannot take more of: what `limit_reached` details, and\nwhat a Run stopped for it names (ADR 0041).",
+        "properties": {
+          "currency": {
+            "arrived_in": "0.1",
+            "description": "The currency it caps a price in, for a price Limit.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Period"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "Its period; none for a Limit that never starts again."
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PointInTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "When its period starts again; none for a Limit without one."
+          },
+          "scope": {
+            "$ref": "#/$defs/LimitScope",
+            "arrived_in": "0.1",
+            "description": "The Limit's scope."
+          },
+          "usage_kind": {
+            "arrived_in": "0.1",
+            "description": "The Usage kind it caps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "usage_kind"
+        ],
+        "type": "object"
+      },
+      "Resource": {
+        "description": "A resource the governor can run out of (ADR 0122).",
+        "oneOf": [
+          {
+            "const": "memory",
+            "description": "The machine's or the container's memory.",
+            "type": "string"
+          },
+          {
+            "const": "storage",
+            "description": "A filesystem the Run writes to.",
             "type": "string"
           }
         ]
@@ -207,6 +374,10 @@
               "null"
             ]
           },
+          "replayed": {
+            "description": "Whether it replayed a Response recording (ADR 0105), which marks\nits row so that no one reads it as a live run.",
+            "type": "boolean"
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."
@@ -214,6 +385,17 @@
           "started_at": {
             "$ref": "#/$defs/PointInTime",
             "description": "When it started."
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/StopReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it stopped, once it stopped: \"Needs you\" lists a Run stopped by\nstorage from it (ADR 0122)."
           },
           "tags": {
             "$ref": "#/$defs/Tags",
@@ -239,7 +421,8 @@
           "tags",
           "lifecycle",
           "started_at",
-          "presence"
+          "presence",
+          "replayed"
         ],
         "type": "object"
       },
@@ -286,6 +469,170 @@
               "attached"
             ],
             "type": "object"
+          }
+        ]
+      },
+      "StopReason": {
+        "description": "Why a Run stopped (ADRs 0029, 0080 and 0102).",
+        "oneOf": [
+          {
+            "description": "Its program, a person or a Client aborted it, a Connection's close\nincluded (ADR 0078).",
+            "properties": {
+              "by": {
+                "$ref": "#/$defs/StoppedBy",
+                "arrived_in": "0.1",
+                "description": "Who stopped it."
+              },
+              "kind": {
+                "const": "abort",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "by"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "It was paused: checkpointed and stopped, to be resumed by its Run ID\n(RT-11).",
+            "properties": {
+              "kind": {
+                "const": "pause",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "It was migrated: checkpointed and stopped, to be resumed from its\nCheckpoint on another machine (ADR 0002).",
+            "properties": {
+              "kind": {
+                "const": "migrate",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Its `timeout.run` passed, and it stopped at its next safe point,\nresumable with a fresh clock (ADR 0080); no Error code of its own.",
+            "properties": {
+              "kind": {
+                "const": "timeout",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Its foreground Daemon drained on `SIGTERM`: checkpointed and\nstopped, to be resumed by its Run ID on the Daemon's next start\n(ADR 0049).",
+            "properties": {
+              "kind": {
+                "const": "drain",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/ReachedLimit",
+            "description": "It could not take another Slice of a Limit, and stopped at its next\nsafe point, resumable once the period starts again or a person\nraises the Limit (ADR 0041).",
+            "properties": {
+              "kind": {
+                "const": "limit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/NotUnderstoodLimit",
+            "description": "A Limit flagged *must understand* that its engine cannot evaluate\ncame to cover it when it charged, and it stopped at its next safe\npoint, resumable by an engine that can (ADR 0041): the stop of the\nError code `limit_not_understood`.",
+            "properties": {
+              "kind": {
+                "const": "limit_not_understood",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Its engine was lost while it ran, and another engine stopped it.",
+            "properties": {
+              "kind": {
+                "const": "engine_lost",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
+            "properties": {
+              "folder": {
+                "arrived_in": "0.1",
+                "description": "For storage, the folder whose filesystem filled.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "const": "resources",
+                "type": "string"
+              },
+              "resource": {
+                "$ref": "#/$defs/Resource",
+                "arrived_in": "0.1",
+                "description": "The resource that ran out."
+              }
+            },
+            "required": [
+              "kind",
+              "resource"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "StoppedBy": {
+        "description": "Who stopped a call (ADR 0113).",
+        "oneOf": [
+          {
+            "const": "client",
+            "description": "A Client, such as through `$/cancel`.",
+            "type": "string"
+          },
+          {
+            "const": "program",
+            "description": "The program, such as through `run.stop` (ADR 0102).",
+            "type": "string"
+          },
+          {
+            "const": "browser",
+            "description": "The browser, outside every Client: a page's window closed there, or\nthe browser quit (ADR 0113).",
+            "type": "string"
           }
         ]
       },

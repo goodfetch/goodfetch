@@ -1,14 +1,42 @@
 //! The exchanges the protocol and page suites' case IDs name, each judged
 //! against what `goodfetch-protocol` says the protocol is: its JSON-RPC
 //! failures, its Error codes and its operations' types. A crawl's delivery
-//! cases are `delivery`'s, and a page's formats cases `formats`'s.
+//! cases are `delivery`'s, a page's formats cases `formats`'s, its route
+//! cases `routes`'s, a Run's Session cases `sessions`', their proxy cases
+//! `proxies`' and `proxy_limits`', its events and bodies cases `events`'s, its `page.request`
+//! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
+//! `popups`', its page function cases `page_functions`', its Page check
+//! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
+//! hostile-input cases `hostile_input`'s and the reset gate's cases
+//! `reset`'s.
 
+mod blocking_off;
+mod blocks;
+mod clean_up;
+mod consent;
 mod delivery;
+mod dialogs;
+mod events;
+mod exchange;
 mod fetch_edge;
+mod fetch_tiers;
 mod formats;
 mod guard;
+mod hostile_input;
 mod launch;
 mod navigation;
+mod page_check;
+mod page_functions;
+mod page_request;
+mod popups;
+mod proxies;
+mod proxy_limits;
+mod reset;
+mod robots_txt;
+mod routes;
+mod service_workers;
+mod sessions;
+mod waits;
 
 use std::collections::BTreeMap;
 
@@ -28,7 +56,7 @@ use serde_json::{Value, json};
 use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::{ProvingGround, TaskList};
+use crate::proving_ground::{ProvingGround, ProxyCredentials, TaskAccount, TaskList};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -51,13 +79,28 @@ pub(crate) enum Case {
     ErrorStatusesAreResponses,
     HistoryAnswersResponsesAcrossSites,
     BackLoadsTheDocumentAgain,
+    WaitsArmedBeforeBackPass,
     UnresolvedNameFailsTheNavigation,
     SupersededNavigationIsInterrupted,
+    NavigationPastItsDeadline,
     /// A fetch edge or response decoding case, Collie's lines.
     FetchEdge(fetch_edge::Case),
     MarkdownMatchesTheOracle,
     FormatNotNamedIsLeftOut,
     NoMainContentIsNone,
+    TextRenderedAfterLoadIsRead,
+    ClosedShadowRootTextIsRead,
+    RulesTouchOnlyTheMainContent,
+    EachFormatsCallIsInTheRunTrace,
+    EveryFormMatchesTheOracle,
+    RawHtmlIsContentBeforeTheRules,
+    FormatsDefaultsAndUnknownOptions,
+    /// A links, images, media and tables case (#786).
+    References(formats::references::Case),
+    /// A metadata and contacts case (#787).
+    Structured(formats::structured::Case),
+    /// A `content.extractor` case (#788).
+    Extractor(formats::extractor::Case),
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -67,6 +110,35 @@ pub(crate) enum Case {
     KeyReachesAField,
     StillAmbiguous,
     NeverActionable,
+    BusyPage,
+    /// A Clean-up case.
+    CleanUp(clean_up::Case),
+    /// A Consent prompt case.
+    Consent(consent::Case),
+    /// A route case.
+    Route(routes::Case),
+    /// A Session case, its proxy and Page check cases among them.
+    Session(sessions::Case),
+    /// A page events or bodies case.
+    Events(events::Case),
+    /// A reset gate case.
+    Reset(reset::Case),
+    /// A service worker case.
+    ServiceWorker(service_workers::Case),
+    /// A `page.request` case, the hostile-input cases among them.
+    PageRequest(page_request::Case),
+    /// A fetch tier case, Foxhound's.
+    FetchTier(fetch_tiers::Case),
+    /// A dialog case.
+    Dialog(dialogs::Case),
+    /// A popup case.
+    Popup(popups::Case),
+    /// A page function case.
+    PageFunction(page_functions::Case),
+    /// An app-state wait case.
+    Wait(waits::Case),
+    /// A robots.txt reading case.
+    RobotsTxt(robots_txt::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -77,15 +149,24 @@ pub(crate) enum Case {
 pub(crate) struct Site {
     page_url: Option<String>,
     start_urls: BTreeMap<String, String>,
+    /// Each task's account, by its ID, for the tasks that log in.
+    accounts: BTreeMap<String, TaskAccount>,
     access_origin: Option<String>,
     port: String,
     resolve: Value,
+    /// Each forward proxy's address, by name, when the Proving ground
+    /// serves them.
+    proxies: BTreeMap<String, String>,
+    /// The credentials its proxies that ask for them take, when it serves
+    /// any.
+    proxy_credentials: Option<ProxyCredentials>,
     proving_ground: ProvingGround,
 }
 
 impl Site {
     /// The site of `task_list`, served by `proving_ground`.
     pub(crate) fn of(task_list: &TaskList, proving_ground: &ProvingGround) -> Self {
+        let fixtures = proving_ground.network_fixtures().ok().flatten();
         let address = proving_ground.address();
         let ip = address
             .rsplit_once(':')
@@ -130,16 +211,97 @@ impl Site {
                 .iter()
                 .map(|task| (task.id.as_str().to_owned(), task.start_url.clone()))
                 .collect(),
+            accounts: task_list
+                .tasks
+                .iter()
+                .filter_map(|task| Some((task.id.as_str().to_owned(), task.account.clone()?)))
+                .collect(),
             access_origin,
             port,
             resolve: Value::Object(resolve),
+            proxies: fixtures
+                .as_ref()
+                .map(|fixtures| fixtures.proxies.clone())
+                .unwrap_or_default(),
+            proxy_credentials: fixtures.and_then(|fixtures| fixtures.proxy_credentials),
             proving_ground: proving_ground.clone(),
         }
+    }
+
+    /// `settings` with the site's `network.resolve` mapping, and, unless
+    /// `for_model` or `settings` list ranges, its hosts listed in
+    /// `egress.private_ranges`: the egress relay judges a mapping's answers
+    /// as any other (spec #563's reading of #325), so a case reaches the
+    /// Proving ground's loopback address by listing its hosts, the
+    /// resolved-address check left on, and `localhost` and literal
+    /// loopback addresses stay refused. A Client acting for a model never
+    /// sets the key; its cases list the hosts in user configuration
+    /// ([`Site::configured_hosts`]).
+    pub(crate) fn mapped(&self, settings: &Value, for_model: bool) -> Value {
+        let mut settings = settings.clone();
+        if !settings.is_object() {
+            settings = json!({});
+        }
+        if !settings["network"].is_object() {
+            settings["network"] = json!({});
+        }
+        settings["network"]["resolve"] = self.resolve.clone();
+        if for_model {
+            return settings;
+        }
+        if !settings["egress"].is_object() {
+            settings["egress"] = json!({});
+        }
+        if settings["egress"].get("private_ranges").is_none() {
+            settings["egress"]["private_ranges"] = json!(self.hosts());
+        }
+        settings
+    }
+
+    /// The hosts the site's mapping names.
+    fn hosts(&self) -> Vec<&String> {
+        self.resolve
+            .as_object()
+            .into_iter()
+            .flat_map(serde_json::Map::keys)
+            .collect()
+    }
+
+    /// The user configuration that lists the site's hosts in
+    /// `egress.private_ranges`, for a Client acting for a model, which
+    /// never sets the key itself.
+    pub(crate) fn configured_hosts(&self) -> String {
+        let hosts: Vec<String> = self
+            .hosts()
+            .iter()
+            .map(|host| format!("\"{host}\""))
+            .collect();
+        format!(
+            "version = \"0.1\"\n\n[settings.egress]\nprivate_ranges = [{}]\n",
+            hosts.join(", ")
+        )
+    }
+
+    /// The credentials the Proving ground's proxies that ask for them
+    /// take, if it serves any.
+    pub(crate) fn proxy_credentials(&self) -> Option<&ProxyCredentials> {
+        self.proxy_credentials.as_ref()
+    }
+
+    /// The address of the Proving ground's forward proxy `name`, such as
+    /// `open`, if it serves one.
+    fn proxy(&self, name: &str) -> Option<&str> {
+        self.proxies.get(name).map(String::as_str)
     }
 
     /// The start URL of the task `id`, such as `statuses/1`.
     fn start_url(&self, id: &str) -> Option<&str> {
         self.start_urls.get(id).map(String::as_str)
+    }
+
+    /// The account the task `id` logs in with, such as `portal/2`'s.
+    fn account(&self, id: &str) -> Option<&TaskAccount> {
+        self.accounts.get(id)
     }
 
     /// The plain HTTP URL of `path` on `host`, one of the Proving ground's
@@ -148,11 +310,35 @@ impl Site {
         let (_, port) = self.proving_ground.address().rsplit_once(':')?;
         Some(format!("http://{host}:{port}{path}"))
     }
+
+    /// [`Site::named_url`] over TLS, which the same port serves.
+    fn named_secure_url(&self, host: &str, path: &str) -> Option<String> {
+        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
+        Some(format!("https://{host}:{port}{path}"))
+    }
 }
 
 /// The Proving ground's host names that belong to no task and that a case
-/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118).
-const NAMED_HOSTS: [&str; 1] = ["fetch-edge.test"];
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
+/// scope family's site and off-site host the route cases load, the
+/// Clean-up pages' two hosts and the payment script's (ADR 0047), the
+/// consent pages' two hosts (ADR 0048), the `body-limits` family's host
+/// whose robots.txt is past the size limit, the `access-policy` family's
+/// host whose robots.txt answers late, and the `bombs` family's own
+/// host, whose zstd frame asks for a window past 8 MB (ADR 0067).
+const NAMED_HOSTS: [&str; 11] = [
+    "fetch-edge.test",
+    "scope.test",
+    "elsewhere.test",
+    clean_up::HOST,
+    clean_up::FRAME_HOST,
+    clean_up::PAYMENT_HOST,
+    consent::HOST,
+    consent::FRAME_HOST,
+    robots_txt::PAST_THE_SIZE_HOST,
+    robots_txt::SLOW_ROBOTS_HOST,
+    hostile_input::BOMBS_HOST,
+];
 
 /// The host name of an `http` URL.
 fn host_of(url: &str) -> Option<&str> {
@@ -206,16 +392,41 @@ impl Case {
                 Self::HistoryAnswersResponsesAcrossSites
             }
             "going-back-loads-the-document-again" => Self::BackLoadsTheDocumentAgain,
+            "a-wait-armed-before-going-back-passes" => Self::WaitsArmedBeforeBackPass,
             "a-name-that-does-not-resolve-fails-apart-from-a-refused-connection" => {
                 Self::UnresolvedNameFailsTheNavigation
             }
             "a-navigation-superseded-before-it-committed-is-interrupted" => {
                 Self::SupersededNavigationIsInterrupted
             }
+            "a-navigation-whose-document-does-not-load-in-time-raises-deadline-exceeded" => {
+                Self::NavigationPastItsDeadline
+            }
             "markdown-matches-the-oracle-on-the-markdown-pages" => Self::MarkdownMatchesTheOracle,
             "a-format-the-request-does-not-name-is-left-out" => Self::FormatNotNamedIsLeftOut,
             "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
                 Self::NoMainContentIsNone
+            }
+            "text-a-script-renders-after-load-and-an-open-shadow-roots-text-are-in-the-markdown" => {
+                Self::TextRenderedAfterLoadIsRead
+            }
+            "a-closed-shadow-roots-text-is-in-the-markdown-on-chromium" => {
+                Self::ClosedShadowRootTextIsRead
+            }
+            "an-ad-a-cosmetic-rule-hides-stays-in-the-document-and-a-locator-finds-it-but-not-in-the-markdown" => {
+                Self::RulesTouchOnlyTheMainContent
+            }
+            "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed" => {
+                Self::EachFormatsCallIsInTheRunTrace
+            }
+            "each-markdown-content-html-kind-and-the-text-match-the-oracle-and-fit-is-shorter-than-main" => {
+                Self::EveryFormMatchesTheOracle
+            }
+            "raw-html-is-what-content-returns-and-a-hidden-ad-is-in-it-but-not-in-cleaned-html-or-markdown" => {
+                Self::RawHtmlIsContentBeforeTheRules
+            }
+            "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
+                Self::FormatsDefaultsAndUnknownOptions
             }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
@@ -234,12 +445,37 @@ impl Case {
             "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
                 Self::NeverActionable
             }
-            _ => return fetch_edge::Case::from_id(id).map(Self::FetchEdge),
+            "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline" => Self::BusyPage,
+            _ => {
+                return fetch_edge::Case::from_id(id)
+                    .map(Self::FetchEdge)
+                    .or_else(|| routes::Case::from_id(id).map(Self::Route))
+                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
+                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+                    .or_else(|| events::Case::from_id(id).map(Self::Events))
+                    .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+                    .or_else(|| reset::Case::from_id(id).map(Self::Reset))
+                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
+                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
+                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
+                    .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
+                    .or_else(|| popups::Case::from_id(id).map(Self::Popup))
+                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
+                    .or_else(|| waits::Case::from_id(id).map(Self::Wait))
+                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+                    .or_else(|| formats::references::Case::from_id(id).map(Self::References))
+                    .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
+                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
+            }
         })
     }
 
     /// Runs the case on the open Connection to `target`, whose `hello` the
     /// engine answered with `hello`, against `site`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per case, or per kind of case, of the suites: a dispatch table read as one"
+    )]
     pub(crate) fn run(
         self,
         connection: &mut Connection,
@@ -250,28 +486,12 @@ impl Case {
     ) -> Result<(), Gone> {
         match self {
             Self::Hello => {
-                checks.check(
-                    format!(
-                        "the engine speaks the protocol's major {}",
-                        PROTOCOL_VERSION.major
-                    ),
-                    hello.protocol_version.major == PROTOCOL_VERSION.major,
-                );
+                speaks_the_protocol_major(hello, checks);
                 Ok(())
             }
             Self::EngineInfo => engine_info(connection, hello, checks),
-            Self::UnknownMethod => {
-                let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
-                Ok(())
-            }
-            Self::InvalidParams => {
-                let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
-                let answer = connection.answer(id)?.message;
-                refused_as(&answer, ProtocolFailure::InvalidParams, checks);
-                Ok(())
-            }
+            Self::UnknownMethod => unknown_method(connection, checks),
+            Self::InvalidParams => invalid_params(connection, checks),
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
             Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
@@ -287,20 +507,61 @@ impl Case {
             Self::BackLoadsTheDocumentAgain => {
                 navigation::back_loads_again(connection, site, checks)
             }
+            Self::WaitsArmedBeforeBackPass => {
+                navigation::waits_armed_before_back(connection, site, checks)
+            }
             Self::UnresolvedNameFailsTheNavigation => {
                 navigation::unresolved_name(connection, site, checks)
             }
             Self::SupersededNavigationIsInterrupted => {
                 navigation::superseded(connection, site, checks)
             }
-            Self::FetchEdge(case) => case.run(connection, site, checks),
-            Self::MarkdownMatchesTheOracle => {
-                formats::markdown_matches_the_oracle(connection, site, checks)
+            Self::NavigationPastItsDeadline => {
+                navigation::past_its_deadline(connection, site, checks)
             }
+            Self::FetchEdge(case) => case.run(connection, site, checks),
+            Self::PageRequest(case) => case.run(connection, target, site, checks),
+            Self::Dialog(case) => case.run(connection, site, checks),
+            Self::Popup(case) => case.run(connection, site, checks),
+            Self::PageFunction(case) => case.run(connection, target, site, checks),
+            Self::Wait(case) => case.run(connection, site, checks),
+            Self::RobotsTxt(case) => case.run(connection, target, site, checks),
+            Self::MarkdownMatchesTheOracle => {
+                formats::markdown_matches_the_oracle(connection, site, None, checks)
+            }
+
             Self::FormatNotNamedIsLeftOut => {
                 formats::a_format_not_named_is_left_out(connection, site, checks)
             }
             Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
+            Self::TextRenderedAfterLoadIsRead => {
+                formats::text_rendered_after_load_is_read(connection, site, checks)
+            }
+            Self::ClosedShadowRootTextIsRead => {
+                formats::closed_shadow_root_text_is_read(connection, site, checks)
+            }
+            Self::RulesTouchOnlyTheMainContent => {
+                formats::the_rules_touch_only_the_main_content(connection, site, checks)
+            }
+            Self::EachFormatsCallIsInTheRunTrace => {
+                formats::each_call_is_in_the_run_trace(connection, target, site, checks)
+            }
+            Self::EveryFormMatchesTheOracle => {
+                formats::content_modes::every_form_matches_the_oracle(
+                    connection, site, None, checks,
+                )
+            }
+            Self::Extractor(case) => case.run(connection, site, checks),
+            Self::RawHtmlIsContentBeforeTheRules => {
+                formats::content_modes::raw_html_is_content_before_the_rules(
+                    connection, site, checks,
+                )
+            }
+            Self::FormatsDefaultsAndUnknownOptions => {
+                formats::content_modes::defaults_and_unknown_options(connection, site, checks)
+            }
+            Self::References(case) => case.run(connection, site, checks),
+            Self::Structured(case) => case.run(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(
@@ -345,8 +606,46 @@ impl Case {
             ),
             Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
             Self::NeverActionable => guard::never_actionable(connection, site, checks),
+            Self::BusyPage => guard::busy_page(connection, site, checks),
+            Self::Route(case) => case.run(connection, site, checks),
+            Self::Session(case) => case.run(connection, target, site, checks),
+            Self::CleanUp(case) => case.run(connection, target, site, checks),
+            Self::Events(case) => case.run(connection, site, checks),
+            Self::Reset(case) => case.run(connection, target, site, checks),
+            Self::Consent(case) => case.run(
+                connection,
+                target.environment.get("GOODFETCH_HOME").map(String::as_str),
+                site,
+                checks,
+            ),
+            Self::ServiceWorker(case) => case.run(connection, target, site, checks),
+            Self::FetchTier(case) => case.run(connection, site, checks),
         }
     }
+}
+
+fn speaks_the_protocol_major(hello: &HelloResult, checks: &mut Checks) {
+    checks.check(
+        format!(
+            "the engine speaks the protocol's major {}",
+            PROTOCOL_VERSION.major
+        ),
+        hello.protocol_version.major == PROTOCOL_VERSION.major,
+    );
+}
+
+fn unknown_method(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(UNKNOWN_METHOD, &json!({}))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::MethodNotFound, checks);
+    Ok(())
+}
+
+fn invalid_params(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(ENGINE_INFO.name, &json!({ "unknown": true }))?;
+    let answer = connection.answer(id)?.message;
+    refused_as(&answer, ProtocolFailure::InvalidParams, checks);
+    Ok(())
 }
 
 fn engine_info(
@@ -471,11 +770,13 @@ fn fabricated_hello(
             minor: 0,
         },
         surface: Surface::Rust,
+        form: None,
         token: other.token().map(ToOwned::to_owned),
         needs: Some(hello.product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .expect("invariant: the workspace's version is a Product version"),
         log_level: None,
+        client_surface: None,
     };
     let refused = (|| {
         let id = other.request(
@@ -512,8 +813,7 @@ pub(crate) fn start_run(
     settings: &Value,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let mut settings = settings.clone();
-    settings["network"] = json!({ "resolve": site.resolve });
+    let settings = site.mapped(settings, connection.acts_for_model());
     let id = connection.request(
         RUN_START.name,
         &json!({ "run_id": run_id, "settings": settings }),

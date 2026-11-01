@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # One cell of the Release suite in CI (ADRs 0061, 0094 and 0108), on its
 # runner's own system, after .github/actions/host-tools:
-#   build       before the deny: builds the target's tests once with
-#               `cargo nextest archive`, and both Products' executables with
-#               the thin-LTO `ci` profile, from one invocation (ADR 0094),
-#               the test tool manifest of the executables tests run, and the
-#               one of the `ci` executables the resident-memory check runs;
+#   build       before the deny: builds Collie's Console first (`just
+#               console-build`, ADR 0057), as the local gate does, then the
+#               target's tests once with `cargo nextest archive`, the test
+#               tool manifest of the executables tests run, and the `ci`
+#               executables with the thin-LTO `ci` profile, both Products'
+#               among them, from one invocation (ADR 0094), with the manifest
+#               the resident-memory check runs and the size report reads;
 #   size        writes the target's size report of both Products, keyed by
 #               the tree the cell tested (`xtask size`, ADR 0061);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
@@ -78,9 +80,17 @@ skip() {
 
 case "$part" in
   build)
+    # Collie's executable embeds its Console build (ADR 0057), which the
+    # archive's and the `ci` profile's builds of it read: without it they fail
+    # to compile. It builds from the packages `just fetch` installed.
+    just console-build
     cargo nextest archive --workspace --locked --target "$target" \
       --profile ci --cargo-profile ci-test --archive-file "$archive"
-    cargo build --workspace --locked --target "$target" --profile ci
+    # `test-tools` builds the `ci` executables itself, in one invocation of
+    # their own (ADR 0094's note), so no `cargo build --workspace` of that
+    # profile runs before it: its executables were built again and
+    # overwritten there, and its xtask never ran (6.5 of the 15 minutes the
+    # build took on the server on 2026-10-23).
     cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci-test \
       --target "$target" --out "$GOODFETCH_TEST_TOOLS"
     cargo run --quiet --locked -p xtask -- quarantine exclude >"$exclusions"
@@ -130,15 +140,19 @@ case "$part" in
     skip_vitest=() skip_playwright=()
     while IFS= read -r argument; do skip_vitest+=("$argument"); done < <(skip vitest)
     while IFS= read -r argument; do skip_playwright+=("$argument"); done < <(skip playwright)
+    vitest_order=()
+    while IFS= read -r argument; do vitest_order+=("$argument"); done < <(ci/order-arguments.sh vitest)
+    playwright_order=()
+    while IFS= read -r argument; do playwright_order+=("$argument"); done < <(ci/order-arguments.sh playwright)
     for entry in ${GOODFETCH_NODE_LINES:?host-tools sets GOODFETCH_NODE_LINES}; do
       line=${entry%%=*}
       folder=${entry#*=}
       echo "Node $line ($folder)"
-      PATH="$folder:$PATH" pnpm exec vitest run --shard="$shard" \
+      PATH="$folder:$PATH" pnpm exec vitest run --shard="$shard" "${vitest_order[@]}" \
         --outputFile.junit="target/junit/vitest-node$line.xml" \
         ${skip_vitest[@]+"${skip_vitest[@]}"} || status=$?
       PATH="$folder:$PATH" PLAYWRIGHT_JUNIT_OUTPUT_FILE="target/junit/playwright-node$line.xml" \
-        pnpm exec playwright test --shard="$shard" --pass-with-no-tests --shuffle="$GOODFETCH_ORDER_SEED" \
+        pnpm exec playwright test --shard="$shard" --pass-with-no-tests "${playwright_order[@]}" \
         ${skip_playwright[@]+"${skip_playwright[@]}"} || status=$?
     done
     exit "$status"
@@ -147,11 +161,13 @@ case "$part" in
     status=0
     skip_pytest=()
     while IFS= read -r argument; do skip_pytest+=("$argument"); done < <(skip pytest)
+    pytest_order=()
+    while IFS= read -r argument; do pytest_order+=("$argument"); done < <(ci/order-arguments.sh pytest)
     for python in ${GOODFETCH_PYTHONS:?host-tools sets GOODFETCH_PYTHONS}; do
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto -p randomly --randomly-seed="$GOODFETCH_ORDER_SEED" \
+      uv run --frozen --python "$python" pytest -n auto "${pytest_order[@]}" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done

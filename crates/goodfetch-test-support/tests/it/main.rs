@@ -13,6 +13,8 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod browser_cache;
 mod canaries;
 mod cli;
 mod cli_json;
@@ -45,21 +47,99 @@ mod test_env;
 mod test_env_daemon;
 mod tools;
 
-use std::path::PathBuf;
+use std::io::{Read as _, Write as _};
+use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{Process, TestEnv};
+use serde_json::{Value, json};
 
 /// This commit's `goodfetch-test-env`.
 const TEST_ENV: &str = env!("CARGO_BIN_EXE_goodfetch-test-env");
 
+/// The committed schema of `goodfetch-test-env`'s description, which `xtask
+/// codegen` writes.
+const DESCRIPTION_SCHEMA: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../test-support/fixtures/schemas/test-env-description.schema.json"
+);
+
+/// A description's errors against the committed schema; none when it
+/// matches.
+fn schema_errors(description: &Value) -> Vec<String> {
+    let schema: Value =
+        serde_json::from_str(&std::fs::read_to_string(DESCRIPTION_SCHEMA).unwrap()).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .iter_errors(description)
+        .map(|error| error.to_string())
+        .collect()
+}
+
 /// Writes a test tool manifest listing `goodfetch-test-env` into the test's
 /// folder, and returns its path.
 fn manifest(env: &TestEnv) -> PathBuf {
-    let path = env.folder().join("tools.json");
-    let manifest = serde_json::json!({ "test_env": TEST_ENV });
+    manifest_with(env, &[])
+}
+
+/// Writes a test tool manifest listing `goodfetch-test-env` and `entries`
+/// into the test's folder, and returns its path.
+fn manifest_with(env: &TestEnv, entries: &[(&str, &Path)]) -> PathBuf {
+    let mut manifest = json!({ "test_env": TEST_ENV });
+    for (name, path) in entries {
+        manifest[*name] = json!(path);
+    }
+    let path = env
+        .folder()
+        .join(format!("tools-{}.json", env.unique_name("manifest")));
     std::fs::write(&path, manifest.to_string()).unwrap();
     path
 }
+
+/// An HTTP/1.1 answer: its status and body.
+struct Answer {
+    status: u16,
+    body: String,
+}
+
+impl Answer {
+    fn json(&self) -> Value {
+        serde_json::from_str(&self.body).unwrap()
+    }
+}
+
+/// Sends `GET <target>` with `Host: <host>` to `address`, and reads the whole
+/// answer, which `Connection: close` ends.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the tests reach a Proving ground over a plain socket, as any client of it does"
+)]
+fn get(address: &str, host: &str, target: &str) -> Answer {
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    write!(
+        stream,
+        "GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).unwrap();
+    let response = String::from_utf8(response).unwrap();
+    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+    Answer {
+        status,
+        body: body.to_owned(),
+    }
+}
+
+/// Lets its owner run the file at `path`, a script a test wrote.
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) {}
 
 /// A command that runs one probe of `probe.rs` as a child test, whose
 /// temporary folders land in this test's folder.

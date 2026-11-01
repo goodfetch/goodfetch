@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.session]
+page_check = { expected_page = { kind = "text", text = "Your reports" }, login_page = { kind = "regex", pattern = "/login$" } }

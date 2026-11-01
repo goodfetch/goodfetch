@@ -1,0 +1,135 @@
+# The stand-ins' alias table (ADR 0047): Goodfetch's own, under MIT. Filter
+# lists name a redirect's stand-in by uBlock Origin's resource names (and
+# Adblock Plus's `abp-resource:` ones); each entry maps those names to a
+# file of DuckDuckGo's tracker surrogates in this folder (Apache-2.0, with
+# MPL-2.0 parts, unmodified), or to an inline body for the plain stand-ins
+# (an empty script, text, style sheet, frame or JSON, a transparent image).
+# A redirect whose name no entry lists blocks its request instead, as
+# adblock-rust does.
+
+[[stand_in]]
+file = "noop.js"
+mime = "application/javascript"
+names = ["noopjs", "noop.js", "blank-js", "abp-resource:blank-js"]
+
+[[stand_in]]
+file = "ga.js"
+mime = "application/javascript"
+names = ["google-analytics_ga.js", "google-analytics.com/ga.js"]
+
+[[stand_in]]
+file = "analytics.js"
+mime = "application/javascript"
+names = ["google-analytics_analytics.js", "google-analytics.com/analytics.js"]
+
+[[stand_in]]
+file = "gtm.js"
+mime = "application/javascript"
+names = ["googletagmanager_gtm.js", "googletagmanager.com/gtm.js"]
+
+[[stand_in]]
+file = "inpage_linkid.js"
+mime = "application/javascript"
+names = ["google-analytics_inpage_linkid.js", "google-analytics.com/inpage_linkid.js"]
+
+[[stand_in]]
+file = "api.js"
+mime = "application/javascript"
+names = ["google-analytics_cx_api.js", "google-analytics.com/cx/api.js"]
+
+[[stand_in]]
+file = "adsbygoogle.js"
+mime = "application/javascript"
+names = ["googlesyndication_adsbygoogle.js", "googlesyndication.com/adsbygoogle.js"]
+
+[[stand_in]]
+file = "gpt.js"
+mime = "application/javascript"
+names = ["googletagservices_gpt.js", "googletagservices.com/gpt.js"]
+
+[[stand_in]]
+file = "ad_status.js"
+mime = "application/javascript"
+names = ["doubleclick_instream_ad_status.js", "doubleclick.net/instream/ad_status.js"]
+
+[[stand_in]]
+file = "google-ima.js"
+mime = "application/javascript"
+names = ["google-ima.js", "google-ima3"]
+
+[[stand_in]]
+file = "amzn_apstag.js"
+mime = "application/javascript"
+names = ["amazon_apstag.js", "amazon-adsystem.com/aax2/apstag.js"]
+
+[[stand_in]]
+file = "amzn_ads.js"
+mime = "application/javascript"
+names = ["amazon_ads.js", "amazon-adsystem.com/aax2/amzn_ads.js"]
+
+[[stand_in]]
+file = "chartbeat.js"
+mime = "application/javascript"
+names = ["chartbeat.js", "static.chartbeat.com/chartbeat.js"]
+
+[[stand_in]]
+file = "beacon.js"
+mime = "application/javascript"
+names = ["scorecardresearch_beacon.js", "scorecardresearch.com/beacon.js"]
+
+[[stand_in]]
+file = "outbrain.js"
+mime = "application/javascript"
+names = ["outbrain-widget.js", "widgets.outbrain.com/outbrain.js"]
+
+[[stand_in]]
+file = "criteo.js"
+mime = "application/javascript"
+names = ["criteo_publishertag.js"]
+
+[[stand_in]]
+file = "nielsen.js"
+mime = "application/javascript"
+names = ["nielsen_v60.js"]
+
+[[stand_in]]
+file = "fb-sdk-new.js"
+mime = "application/javascript"
+names = ["fb-sdk.js", "facebook.net/sdk.js"]
+
+[[stand_in]]
+file = "youtube-iframe-api.js"
+mime = "application/javascript"
+names = ["youtube-iframe-api.js"]
+
+[[stand_in]]
+body = ""
+mime = "text/plain"
+names = ["nooptext", "noop.txt", "blank-text", "abp-resource:blank-text"]
+
+[[stand_in]]
+body = "{}"
+mime = "application/json"
+names = ["noopjson", "noop.json"]
+
+[[stand_in]]
+body = ""
+mime = "text/css"
+names = ["noopcss", "noop.css", "blank-css", "abp-resource:blank-css"]
+
+[[stand_in]]
+body = "<!DOCTYPE html><html><head></head><body></body></html>"
+mime = "text/html"
+names = ["noopframe", "noop.html", "blank-html", "abp-resource:blank-html"]
+
+# A transparent 1x1 GIF, in Base64.
+[[stand_in]]
+base64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+mime = "image/gif"
+names = ["1x1.gif", "1x1-transparent.gif", "abp-resource:1x1-transparent-gif"]
+
+# A transparent 2x2 PNG, in Base64.
+[[stand_in]]
+base64 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVQI12NgQAcAABIAAe+JVKQAAAAASUVORK5CYII="
+mime = "image/png"
+names = ["2x2.png", "2x2-transparent.png", "abp-resource:2x2-transparent-png"]

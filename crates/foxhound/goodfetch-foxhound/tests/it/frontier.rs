@@ -84,7 +84,7 @@ pub(crate) fn attributes(html: &str, name: &str) -> Vec<String> {
 /// Crawls `seeds` with one request in flight at a time, answering each
 /// `crawl_request.handle` with `handler`, which may call the engine
 /// itself through the `Inside` it gets; answers `run.finish`'s reply.
-fn crawl(
+pub(crate) fn crawl(
     engine: &mut Attached,
     run_id: &str,
     seeds: &[Value],
@@ -102,11 +102,60 @@ pub(crate) fn crawl_under(
     settings: &Value,
     handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
 ) -> Value {
-    let mut crawl = settings.clone();
-    crawl["handler"] = json!({ "concurrency": 1 });
+    crawl_with(
+        engine,
+        run_id,
+        seeds,
+        &json!({ "crawl": settings }),
+        handler,
+    )
+}
+
+/// [`crawl`] under the Run's settings `settings`, every key and not only
+/// `crawl`'s, beside the handler's concurrency of 1.
+pub(crate) fn crawl_with(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    crawl_from(
+        engine,
+        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+        handler,
+    )
+}
+
+/// [`crawl_with`] for a crawl that declares the Labels `labels`, each with
+/// its settings, as `crawl.start` takes them.
+pub(crate) fn crawl_declaring(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    labels: &Value,
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    crawl_from(
+        engine,
+        &json!({ "run_id": run_id, "seeds": seeds, "labels": labels, "settings": settings }),
+        handler,
+    )
+}
+
+/// [`crawl`] from the `crawl.start` params `params`, its settings beside
+/// the handler's concurrency of 1.
+pub(crate) fn crawl_from(
+    engine: &mut Attached,
+    params: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    let mut params = params.clone();
+    params["settings"]["crawl"]["handler"] = json!({ "concurrency": 1 });
+    let run_id = params["run_id"].clone();
     engine.send(&json!({
-        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds, "settings": { "crawl": crawl } },
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": params,
     }));
     let mut calls = 0;
     loop {
@@ -140,6 +189,12 @@ pub(crate) struct Inside<'a> {
 }
 
 impl Inside<'_> {
+    /// The engine itself, for a handler that sends calls of its own while
+    /// another is in flight.
+    pub(crate) fn engine(&mut self) -> &mut Attached {
+        self.engine
+    }
+
     /// Calls `method` and answers its reply; with one request in flight,
     /// nothing else comes meanwhile.
     pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
@@ -179,15 +234,19 @@ impl Inside<'_> {
     }
 }
 
-fn added(id: &str, url: &str) -> Value {
+pub(crate) fn added(id: &str, url: &str) -> Value {
     json!({ "kind": "added", "id": id, "url": url })
 }
 
-fn not_added(reason: &str, url: &str) -> Value {
+pub(crate) fn not_added(reason: &str, url: &str) -> Value {
     json!({ "kind": "not_added", "reason": reason, "url": url })
 }
 
-/// Covers: story:6-201, story:6-202, story:6-211, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
+/// Only `http` and `https` URLs enter the Frontier: a seed or an enqueue
+/// of `ftp:`, `file:`, `gopher:` or `data:` is `unsupported_scheme`, and one
+/// that does not parse `invalid_url` (ADRs 0118 and 0120, SC-03).
+///
+/// Covers: story:6-201, story:6-202, story:6-211, story:4-100, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
 #[test]
 fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
     let env = TestEnv::new();
@@ -200,6 +259,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
         "/guide/",
         &unfetchable,
         "http://",
+        "file:///etc/passwd",
+        "gopher://1.links.test/1",
+        "data:text/html,hi",
     ]
     .into_iter()
     .map(|url| json!({ "url": url, "label": "shelf" }))
@@ -243,6 +305,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
                 not_added("invalid_url", "/guide/"),
                 not_added("unsupported_scheme", &unfetchable),
                 not_added("invalid_url", "http://"),
+                not_added("unsupported_scheme", "file:///etc/passwd"),
+                not_added("unsupported_scheme", "gopher://1.links.test/1"),
+                not_added("unsupported_scheme", "data:text/html,hi"),
             ]),
             json!([
                 not_added("duplicate", &shelf),
@@ -253,6 +318,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
                 not_added("duplicate", "/guide/"),
                 not_added("unsupported_scheme", &unfetchable),
                 not_added("invalid_url", "http://"),
+                not_added("unsupported_scheme", "file:///etc/passwd"),
+                not_added("unsupported_scheme", "gopher://1.links.test/1"),
+                not_added("unsupported_scheme", "data:text/html,hi"),
             ]),
         )
     );
@@ -285,10 +353,7 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
         &json!({ "run_id": "nothing" }),
         &mut |_| None,
     );
-    let requested = proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .unwrap()
-        .len();
+    let requested = proving_ground.received_requests().unwrap().every().count();
     assert!(engine.finish());
 
     assert_eq!(
@@ -452,10 +517,10 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         &json!({ "run_id": "keys" }),
         &mut |_| None,
     );
-    let received: Vec<Value> = proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    let received: Vec<Value> = proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .map(|request| json!([request["host"], request["target"]]))
         .collect();
     assert!(engine.finish());

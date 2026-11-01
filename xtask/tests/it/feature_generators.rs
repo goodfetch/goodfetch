@@ -3,7 +3,8 @@
 //! each route of the Console's packages and each Block cause of the catalog
 //! is a Feature the moment it exists, with the Products that carry it, and
 //! leaves the inventory when it goes. A kind whose source does not exist yet
-//! generates nothing.
+//! generates nothing. A story is carried by both Products unless its entry
+//! names the one Product that carries it.
 
 use serde_json::{Value, json};
 
@@ -147,7 +148,7 @@ fn a_removed_command_leaves_the_inventory() {
 }
 
 const COLLIE_ROUTES: &str = "console/collie/routes.json";
-const FOXHOUND_ROUTES: &str = "console/foxhound-screens/routes.json";
+const FOXHOUND_ROUTES: &str = "console/foxhound/routes.json";
 
 #[test]
 fn each_console_route_is_a_feature_with_its_products() {
@@ -271,4 +272,24 @@ fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
         ],
         [vec![], vec![], vec![]]
     );
+}
+
+/// A story of Foxhound's part, such as a work item's lease, names its
+/// Product, so Collie's view never lists it (ADR 0094).
+#[test]
+fn a_story_naming_its_product_is_carried_by_that_product_alone() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.append(
+        "features/stories/1.toml",
+        "\n[[story]]\nid = 900\ntitle = \"As a developer, I want a crawl's work item leased.\"\nmilestone = \"M1 Core\"\njourney = false\nnot_journey = \"part\"\nstatus = \"active\"\nproduct = \"foxhound\"\n",
+    );
+
+    codegen(&workspace);
+
+    let stories = features_of_kind(&workspace, "story");
+    assert!(
+        stories.contains(&("story:1-900".to_owned(), foxhound())),
+        "{stories:?}"
+    );
+    assert!(stories.iter().any(|(_, products)| *products == both()));
 }

@@ -22,7 +22,7 @@ use super::{Generated, TypesFile};
 const CLIENT_PACKAGE: &str = "goodfetch_collie_client.generated";
 
 /// How `xtask codegen` runs `datamodel-code-generator`.
-pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 17] = [
+pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "--input-file-type",
     "jsonschema",
     "--output-model-type",
@@ -36,6 +36,10 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 17] = [
     "--use-field-description",
     "--use-annotated",
     "--field-constraints",
+    // An enum-typed field's default is the enum's member, which a type
+    // checker accepts and which dumps as its value, never the bare string.
+    "--deserialize-default-values",
+    "enum",
     // Google docstrings with the summary on the first line (STYLE.md), in
     // the repository's ruff format.
     "--use-single-line-docstring",
@@ -43,6 +47,8 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 17] = [
     "ruff-format",
     "ruff-check",
 ];
+
+pub(super) mod model_defaults;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 

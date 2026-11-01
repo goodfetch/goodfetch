@@ -35,6 +35,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
+use crate::governor::in_flight_whatever_the_machine;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -48,6 +49,11 @@ const VICTIM_SEEDS: u64 = 10;
 
 /// How many seeds each surviving crawl has: together more than the Limit.
 const SEEDS: u64 = 60;
+
+/// Among how many of the killed engine's first `crawl_request.handle`
+/// requests the kill's moment is drawn: its handler answers none, so the
+/// home's governors keep this many in flight whatever the machine.
+const OCCURRENCES: u32 = 5;
 
 fn seeds(site: &str, count: u64) -> Value {
     (1..=count)
@@ -64,11 +70,9 @@ fn line(message: &Value) -> Vec<u8> {
 /// Starts an Attached engine that sets the install Limit and starts a
 /// crawl whose handler never answers, and kills it at `moment`.
 fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
+    env.log_level("trace");
     let mut command = env.process_command(FOXHOUND);
-    command
-        .arg("attached-engine")
-        .env("GOODFETCH_LOG", "trace")
-        .stderr(Stdio::null());
+    command.arg("attached-engine").stderr(Stdio::null());
     let victim = env.spawn(&mut command).unwrap();
     {
         let mut child = victim.child();
@@ -84,7 +88,7 @@ fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
             }),
             json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": "victim", "seeds": seeds("victim", VICTIM_SEEDS) },
+                "params": { "run_id": "victim", "seeds": seeds("victim", VICTIM_SEEDS), "datasets": [{ "name": "pages" }] },
             }),
         ] {
             stdin.write_all(&line(&message)).unwrap();
@@ -106,7 +110,7 @@ fn crawled_attached(mut engine: Attached, site: &str) -> Value {
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS) }),
+        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
         &mut |_| None,
     );
     let report = engine.call(
@@ -198,7 +202,7 @@ fn crawled_on_the_daemon(socket: &str, token: &str, site: &str) -> Value {
     client.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS) }),
+        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
     );
     client.call("finish", "run.finish", &json!({ "run_id": site }))["result"].clone()
 }
@@ -249,12 +253,17 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
     #[case] seed: Option<u64>,
 ) {
     let env = TestEnv::new();
+    env.user_configuration(&in_flight_whatever_the_machine(OCCURRENCES));
     let daemon = Daemon::start_program(&env, Path::new(FOXHOUND), DAEMON_DEADLINE).unwrap();
     let (socket, token) = (
         daemon.description().socket.clone(),
         daemon.description().token.clone(),
     );
-    let moment = Moment::drawn(seed.unwrap_or(env.seed()), &["crawl_request.handle"], 5);
+    let moment = Moment::drawn(
+        seed.unwrap_or(env.seed()),
+        &["crawl_request.handle"],
+        OCCURRENCES,
+    );
     let mut log = ObservationLog::<Value>::for_test(&env);
     killed_at(&env, &moment, &mut log);
 

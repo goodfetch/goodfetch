@@ -24,8 +24,9 @@ use super::daemon::{TOKEN, daemon as served, hello_with, no_handover, options as
 use super::events::{body_bytes, credit, engine as streaming_engine};
 use super::{Client, engine, records_of};
 use crate::daemon::DaemonOptions;
+use crate::endpoint::REFUSAL_TARGET;
 use crate::events::EventsOptions;
-use crate::rpc::{Authorities, REFUSAL_TARGET};
+use crate::rpc::Authorities;
 use crate::transport::{ConnectionReader, ConnectionWriter, InMemoryDialer};
 
 /// The address the Exposed Daemon listens at.

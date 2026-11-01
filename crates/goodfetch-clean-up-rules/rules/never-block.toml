@@ -1,0 +1,459 @@
+# The never-block list (ADR 0047): Goodfetch's own, under MIT. Each entry is
+# one network rule in Adblock Plus syntax whose requests load whatever every
+# Filter list (the user's own included) and `browser.block_resources` say:
+# challenge and CAPTCHA providers, anti-bot sensors and the endpoints they
+# report to, anti-fraud and payment scripts, and Consent prompts' scripts and
+# messages, which Consent prompt rules need to see (ADR 0048). An entry is
+# scoped to what the challenge, the payment or the prompt needs, so a
+# vendor's analytics stay blocked (Stripe's `r.stripe.com` telemetry is no
+# entry; its `m.stripe.com` fraud signals are). `example` is a request the entry must keep loading, which the
+# crate's tests check against the embedded Filter lists.
+#
+# Sources: each vendor's own documentation of the hosts and paths its script
+# loads from; uBlock Origin's unbreak list and Spider's network blocker name
+# the same vendors (ADR 0047). Add a vendor when a run's Provenance flags it.
+
+# Challenge and CAPTCHA providers.
+
+[[entry]]
+vendor = "Cloudflare Turnstile and challenge pages"
+kind = "challenge"
+rule = "||challenges.cloudflare.com^"
+example = "https://challenges.cloudflare.com/turnstile/v0/api.js"
+
+[[entry]]
+vendor = "Cloudflare challenge platform"
+kind = "challenge"
+rule = "/cdn-cgi/challenge-platform/"
+example = "https://shop.example/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"
+
+[[entry]]
+vendor = "Google reCAPTCHA"
+kind = "challenge"
+rule = "||www.google.com/recaptcha/"
+example = "https://www.google.com/recaptcha/api.js"
+
+[[entry]]
+vendor = "Google reCAPTCHA (static files)"
+kind = "challenge"
+rule = "||www.gstatic.com/recaptcha/"
+example = "https://www.gstatic.com/recaptcha/releases/abc/recaptcha__en.js"
+
+[[entry]]
+vendor = "Google reCAPTCHA (recaptcha.net)"
+kind = "challenge"
+rule = "||www.recaptcha.net/recaptcha/"
+example = "https://www.recaptcha.net/recaptcha/api.js"
+
+[[entry]]
+vendor = "hCaptcha"
+kind = "challenge"
+rule = "||hcaptcha.com^"
+example = "https://a.hcaptcha.com/checksiteconfig?v=1"
+
+[[entry]]
+vendor = "Arkose Labs (FunCaptcha)"
+kind = "challenge"
+rule = "||arkoselabs.com^"
+example = "https://client-api.arkoselabs.com/metrics/ui"
+
+[[entry]]
+vendor = "Friendly Captcha"
+kind = "challenge"
+rule = "||friendlycaptcha.com^"
+example = "https://api.friendlycaptcha.com/api/v1/puzzle"
+
+[[entry]]
+vendor = "DataDome CAPTCHA"
+kind = "challenge"
+rule = "||captcha-delivery.com^"
+example = "https://geo.captcha-delivery.com/captcha/?initialCid=1"
+
+# Anti-bot sensors and the endpoints they report to.
+
+[[entry]]
+vendor = "DataDome"
+kind = "anti_bot"
+rule = "||datadome.co^"
+example = "https://js.datadome.co/tags.js"
+
+[[entry]]
+vendor = "Akamai Bot Manager (first-party sensor)"
+kind = "anti_bot"
+rule = "/akam/"
+example = "https://shop.example/akam/13/pixel_5f3c"
+
+[[entry]]
+vendor = "HUMAN (PerimeterX)"
+kind = "anti_bot"
+rule = "||perimeterx.net^"
+example = "https://client.perimeterx.net/PXabcdef/main.min.js"
+
+[[entry]]
+vendor = "HUMAN (PerimeterX) collector"
+kind = "anti_bot"
+rule = "||px-cdn.net^"
+example = "https://collector-pxabcdef.px-cdn.net/api/v2/collector"
+
+[[entry]]
+vendor = "HUMAN (PerimeterX) cloud"
+kind = "anti_bot"
+rule = "||px-cloud.net^"
+example = "https://collector-pxabcdef.px-cloud.net/b/s"
+
+[[entry]]
+vendor = "HUMAN (PerimeterX, first-party)"
+kind = "anti_bot"
+rule = "/perimeterx/"
+example = "https://shop.example/perimeterx/px.js"
+
+[[entry]]
+vendor = "Imperva (Incapsula)"
+kind = "anti_bot"
+rule = "/_Incapsula_Resource"
+example = "https://shop.example/_Incapsula_Resource?SWJIYLWA=1"
+
+[[entry]]
+vendor = "Kasada"
+kind = "anti_bot"
+rule = "/149e9513-01fa-4fb0-aad4-566afd725d1b/"
+example = "https://shop.example/149e9513-01fa-4fb0-aad4-566afd725d1b/2d206a39-8ed7-437e-a3be-862e0f06eea3/ips.js"
+
+[[entry]]
+vendor = "Castle"
+kind = "anti_bot"
+rule = "||castle.io^"
+example = "https://m.castle.io/v1/monitor"
+
+# Anti-fraud.
+
+[[entry]]
+vendor = "iovation (TransUnion)"
+kind = "anti_fraud"
+rule = "||iesnare.com^"
+example = "https://mpsnare.iesnare.com/snare.js"
+
+[[entry]]
+vendor = "iovation (TransUnion)"
+kind = "anti_fraud"
+rule = "||iovation.com^"
+example = "https://ci-mpsnare.iovation.com/snare.js"
+
+[[entry]]
+vendor = "ThreatMetrix (LexisNexis)"
+kind = "anti_fraud"
+rule = "||online-metrix.net^"
+example = "https://h.online-metrix.net/fp/tags.js?org_id=1"
+
+[[entry]]
+vendor = "Forter"
+kind = "anti_fraud"
+rule = "||forter.com^"
+example = "https://cdn0.forter.com/abc/script.js"
+
+[[entry]]
+vendor = "Sift"
+kind = "anti_fraud"
+rule = "||sift.com^"
+example = "https://cdn.sift.com/s.js"
+
+[[entry]]
+vendor = "Sift (siftscience.com)"
+kind = "anti_fraud"
+rule = "||siftscience.com^"
+example = "https://cdn.siftscience.com/s.js"
+
+[[entry]]
+vendor = "Signifyd"
+kind = "anti_fraud"
+rule = "||signifyd.com^"
+example = "https://cdn-scripts.signifyd.com/api/script-tag.js"
+
+[[entry]]
+vendor = "Riskified"
+kind = "anti_fraud"
+rule = "||riskified.com^"
+example = "https://beacon.riskified.com/?shop=shop.example"
+
+[[entry]]
+vendor = "SEON"
+kind = "anti_fraud"
+rule = "||seon.io^"
+example = "https://cdn.seon.io/js/v6/agent.umd.js"
+
+[[entry]]
+vendor = "SEON (first-party agent)"
+kind = "anti_fraud"
+rule = "/seon/agent.js"
+example = "https://shop.example/seon/agent.js"
+
+# Payment scripts.
+
+[[entry]]
+vendor = "Stripe.js"
+kind = "payment"
+rule = "||js.stripe.com^"
+example = "https://js.stripe.com/v3/"
+
+[[entry]]
+vendor = "Stripe fraud signals"
+kind = "payment"
+rule = "||m.stripe.com^"
+example = "https://m.stripe.com/6"
+
+[[entry]]
+vendor = "Stripe (stripe.network)"
+kind = "payment"
+rule = "||m.stripe.network^"
+example = "https://m.stripe.network/inner.html"
+
+[[entry]]
+vendor = "PayPal JavaScript SDK"
+kind = "payment"
+rule = "||www.paypal.com/sdk/js"
+example = "https://www.paypal.com/sdk/js?client-id=sb"
+
+[[entry]]
+vendor = "PayPal checkout"
+kind = "payment"
+rule = "||www.paypalobjects.com/api/checkout"
+example = "https://www.paypalobjects.com/api/checkout.js"
+
+[[entry]]
+vendor = "Braintree"
+kind = "payment"
+rule = "||js.braintreegateway.com^"
+example = "https://js.braintreegateway.com/web/3.97.2/js/client.min.js"
+
+[[entry]]
+vendor = "Adyen Web"
+kind = "payment"
+rule = "||checkoutshopper-live.adyen.com/checkoutshopper/sdk/"
+example = "https://checkoutshopper-live.adyen.com/checkoutshopper/sdk/5.53.2/adyen.js"
+
+[[entry]]
+vendor = "Google Pay"
+kind = "payment"
+rule = "||pay.google.com/gp/p/js/pay.js"
+example = "https://pay.google.com/gp/p/js/pay.js"
+
+[[entry]]
+vendor = "Apple Pay"
+kind = "payment"
+rule = "||applepay.cdn-apple.com^"
+example = "https://applepay.cdn-apple.com/jsapi/v1/apple-pay-sdk.js"
+
+[[entry]]
+vendor = "Square Web Payments"
+kind = "payment"
+rule = "||web.squarecdn.com^"
+example = "https://web.squarecdn.com/v1/square.js"
+
+[[entry]]
+vendor = "Klarna"
+kind = "payment"
+rule = "||x.klarnacdn.net^"
+example = "https://x.klarnacdn.net/kp/lib/v1/api.js"
+
+# Consent prompts' scripts and messages, which Consent prompt rules need to
+# see (ADR 0048): the consent-vendor entries of EasyPrivacy and EasyList,
+# kept loading over them, as written there. A vendor's telemetry stays
+# blocked (EasyPrivacy's `||privacy-analytics-proxy.cookiebot.com^`).
+
+[[entry]]
+vendor = "Sourcepoint's message script"
+kind = "consent"
+rule = "/cmp/messaging.js"
+example = "https://www.example.com/cmp/messaging.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`cmp3.js`)"
+kind = "consent"
+rule = "/cmp3.js"
+example = "https://www.example.com/js/cmp3.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`slot_cmp.js`)"
+kind = "consent"
+rule = "/slot_cmp.js"
+example = "https://www.example.com/js/slot_cmp.js"
+
+[[entry]]
+vendor = "Sourcepoint's loader"
+kind = "consent"
+rule = "/sourcepoint.js"
+example = "https://cdn.example/unified/sourcepoint.js"
+
+[[entry]]
+vendor = "Sourcepoint's message host (`a02342.`)"
+kind = "consent"
+rule = "://a02342."
+example = "https://a02342.example.com/mms/v2/get_site_data"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cb-mms.carbuyer.co.uk`"
+kind = "consent"
+rule = "||cb-mms.carbuyer.co.uk^"
+example = "https://cb-mms.carbuyer.co.uk/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.courrierinternational.com`"
+kind = "consent"
+rule = "||cmp.courrierinternational.com^"
+example = "https://cmp.courrierinternational.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.finn.no`"
+kind = "consent"
+rule = "||cmp.finn.no^"
+example = "https://cmp.finn.no/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.huffingtonpost.fr`"
+kind = "consent"
+rule = "||cmp.huffingtonpost.fr^"
+example = "https://cmp.huffingtonpost.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lavie.fr`"
+kind = "consent"
+rule = "||cmp.lavie.fr^"
+example = "https://cmp.lavie.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lemonde.fr`"
+kind = "consent"
+rule = "||cmp.lemonde.fr^"
+example = "https://cmp.lemonde.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.lepoint.fr`"
+kind = "consent"
+rule = "||cmp.lepoint.fr^"
+example = "https://cmp.lepoint.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.netzwelt.de`"
+kind = "consent"
+rule = "||cmp.netzwelt.de^"
+example = "https://cmp.netzwelt.de/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.nouvelobs.com`"
+kind = "consent"
+rule = "||cmp.nouvelobs.com^"
+example = "https://cmp.nouvelobs.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.tek.no`"
+kind = "consent"
+rule = "||cmp.tek.no^"
+example = "https://cmp.tek.no/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.telerama.fr`"
+kind = "consent"
+rule = "||cmp.telerama.fr^"
+example = "https://cmp.telerama.fr/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `d.sourcepoint.capitalfm.com`"
+kind = "consent"
+rule = "||d.sourcepoint.capitalfm.com^"
+example = "https://d.sourcepoint.capitalfm.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `fuse.forbes.com`"
+kind = "consent"
+rule = "||fuse.forbes.com^"
+example = "https://fuse.forbes.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.aetv.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.aetv.com^"
+example = "https://sourcepoint-mms.aetv.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.history.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.history.com^"
+example = "https://sourcepoint-mms.history.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `sourcepoint-mms.mylifetime.com`"
+kind = "consent"
+rule = "||sourcepoint-mms.mylifetime.com^"
+example = "https://sourcepoint-mms.mylifetime.com/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `trustarc.mgr.consensu.org`"
+kind = "consent"
+rule = "||trustarc.mgr.consensu.org/get?"
+example = "https://trustarc.mgr.consensu.org/get?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's host, `vg247-uk.vg247.com`"
+kind = "consent"
+rule = "||vg247-uk.vg247.com^"
+example = "https://vg247-uk.vg247.com/cmp.js"
+
+[[entry]]
+vendor = "Didomi's SDK"
+kind = "consent"
+rule = "-didomi.js"
+example = "https://sdk.privacy-center.org/loader/sdk-didomi.js"
+
+[[entry]]
+vendor = "Quantcast Choice"
+kind = "consent"
+rule = "/Quantcast/cmp_v2.js"
+example = "https://www.example.com/Quantcast/cmp_v2.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.ghostery.com`"
+kind = "consent"
+rule = "||consent.ghostery.com/v1.js"
+example = "https://consent.ghostery.com/v1.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.trustarc.com`"
+kind = "consent"
+rule = "||consent.trustarc.com/bannermsg?"
+example = "https://consent.trustarc.com/bannermsg?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `consent.trustarc.com`"
+kind = "consent"
+rule = "||consent.trustarc.com/noticemsg?"
+example = "https://consent.trustarc.com/noticemsg?notice=1"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `otg.mblycdn.com`"
+kind = "consent"
+rule = "||otg.mblycdn.com/bundles/cmp.js"
+example = "https://otg.mblycdn.com/bundles/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's endpoint on `tra.scds.pmdstatic.net`"
+kind = "consent"
+rule = "||tra.scds.pmdstatic.net/sourcepoint/"
+example = "https://tra.scds.pmdstatic.net/sourcepoint/"
+
+[[entry]]
+vendor = "A Consent prompt's host, `cmp.dreamlab.pl`"
+kind = "consent"
+rule = "||cmp.dreamlab.pl^"
+example = "https://cmp.dreamlab.pl/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's host, `tags.cmp.tail.digital`"
+kind = "consent"
+rule = "||tags.cmp.tail.digital^"
+example = "https://tags.cmp.tail.digital/cmp.js"
+
+[[entry]]
+vendor = "A Consent prompt's loader (`velvet_stack_cmp.js`)"
+kind = "consent"
+rule = "/velvet_stack_cmp.js"
+example = "https://www.example.com/js/velvet_stack_cmp.js"

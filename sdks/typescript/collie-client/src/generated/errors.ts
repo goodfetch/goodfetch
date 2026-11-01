@@ -104,6 +104,28 @@ export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchErro
   internal: InternalError,
 };
 
+/** The CLI's exit code of a failure with each group's Error codes, unless the code has a row of its own (ADR 0069). */
+export const errorGroupExitCodes: Readonly<Record<ErrorGroup, number>> = {
+  program: 3,
+  refused: 4,
+  page: 5,
+  model: 6,
+  deadline_exceeded: 7,
+  unavailable: 8,
+  internal: 1,
+};
+
+/** The Error codes with an exit code of their own, which wins over their group's (ADR 0069). */
+export const errorCodeExitCodes: Readonly<Record<string, number>> = {
+  browser_host_outdated: 12,
+  file_write_failed: 14,
+  limit_reached: 16,
+  not_in_product: 10,
+  path_not_writable: 13,
+  protocol_version_unsupported: 11,
+  resources_exhausted: 15,
+};
+
 /**
  * The host has addresses only in an IP family the Session holds no local address of, such as IPv6 addresses for a Session bound to an IPv4 address. Add a local address of that family to the run's local addresses, or reach the host another way.
  */
@@ -114,7 +136,7 @@ export class AddressFamilyUnavailableError extends UnavailableError {
 }
 
 /**
- * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
+ * A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.
  */
 export class ArtifactDownloadFailedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -123,11 +145,20 @@ export class ArtifactDownloadFailedError extends UnavailableError {
 }
 
 /**
- * The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
+ * The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.
  */
 export class ArtifactUnavailableOfflineError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "artifact_unavailable_offline", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.
+ */
+export class BlockedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "blocked", group: "page", retryable: false });
   }
 }
 
@@ -137,6 +168,15 @@ export class ArtifactUnavailableOfflineError extends RefusedError {
 export class BodyNotFoundError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "body_not_found", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
+ */
+export class BodyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "body_unavailable", group: "unavailable", retryable: false });
   }
 }
 
@@ -159,11 +199,20 @@ export class BrowserLaunchFailedError extends UnavailableError {
 }
 
 /**
- * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.
+ * The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.
  */
 export class BrowserNotInstalledError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "browser_not_installed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
+ */
+export class BrowserSandboxUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_sandbox_unavailable", group: "unavailable", retryable: false });
   }
 }
 
@@ -177,11 +226,56 @@ export class CallCancelledError extends UnavailableError {
 }
 
 /**
+ * A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.
+ */
+export class CapabilityUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "capability_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.
+ */
+export class CDPURLNotAllowedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "cdp_url_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.
+ */
+export class CertificateChangedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "certificate_changed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.
+ */
+export class CertificateInvalidError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "certificate_invalid", group: "page", retryable: false });
+  }
+}
+
+/**
  * The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
  */
 export class ClosedError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "closed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.
+ */
+export class ConnectionLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "connection_lost", group: "unavailable", retryable: true });
   }
 }
 
@@ -200,6 +294,33 @@ export class ConsolePortInUseError extends UnavailableError {
 export class DaemonDrainingError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "daemon_draining", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.
+ */
+export class DaemonUnreachableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.
+ */
+export class DialogAlreadyHandledError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "dialog_already_handled", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it.
+ */
+export class EgressRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "egress_refused", group: "refused", retryable: false });
   }
 }
 
@@ -258,6 +379,15 @@ export class FormatVersionUnsupportedError extends UnavailableError {
 }
 
 /**
+ * A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.
+ */
+export class HeaderValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "header_value_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
  * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
  */
 export class LimitNotUnderstoodError extends RefusedError {
@@ -272,6 +402,24 @@ export class LimitNotUnderstoodError extends RefusedError {
 export class LimitReachedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "limit_reached", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * `egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.
+ */
+export class LocalAddressUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "local_address_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.
+ */
+export class LoggedOutError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "logged_out", group: "page", retryable: false });
   }
 }
 
@@ -330,6 +478,15 @@ export class NotInProductError extends UnavailableError {
 }
 
 /**
+ * The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.
+ */
+export class PageCheckFailedError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_check_failed", group: "page", retryable: false });
+  }
+}
+
+/**
  * The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
  */
 export class PageCrashedError extends UnavailableError {
@@ -339,11 +496,65 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.
+ */
+export class PageEventsLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_events_lost", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.
+ */
+export class PageFunctionFailedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_function_failed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A handler the program gave a page failed, such as a route's handler that threw: its request was aborted unless it was answered already, never sent half-changed, and its route was removed; a dialog handler's dialog got its default and the handler was removed. Raised by the call that waited on that request, such as the `goto` whose document it was, or by the call the dialog blocked, or else by the next call on its page. The details name the handler, the URL of the request or of the dialog's document, and what the failure said.
+ */
+export class PageHandlerFailedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_handler_failed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * Memory was critical and the page held more than `governor.browser.page_memory_cap`, so the Resource governor ended it once no call on it was in flight. The page is gone: open another and try again, which the governor admits once memory frees up.
+ */
+export class PageMemoryExceededError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_memory_exceeded", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.
+ */
+export class PageValueInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_value_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
  * The path the program chose cannot be written for a reason the path causes: permission denied, a read-only filesystem, a folder at the path, a file where a parent folder should be, a name the filesystem refuses, a file too large for that filesystem, or a path not found once its parents are made. No partial file is left. Change the path.
  */
 export class PathNotWritableError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "path_not_writable", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A name or path from outside input would leave the folder the engine writes it in, or is no safe file name on Linux, macOS or Windows: a `..` or `.` part, an absolute, drive, UNC, verbatim or device path, a name Windows reserves for a device, an alternate data stream, a character Windows forbids or a control character, a trailing dot or space, a part longer than 255 bytes, an empty part or a name that is not in Unicode's composed form. It is refused on every OS alike. The details name it and its hazard.
+ */
+export class PathUnsafeError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "path_unsafe", group: "program", retryable: false });
   }
 }
 
@@ -366,11 +577,56 @@ export class PersonRequiredError extends RefusedError {
 }
 
 /**
+ * The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
+ */
+export class PolicyConflictError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "policy_conflict", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "protocol_version_unsupported", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The Session's proxy answered `407 Proxy Authentication Required`: the Session gave it no credentials, or it refused those of `proxy.username` and `proxy.password`. The details name the proxy and the username, never the password. Fix the credentials; retrying with the same ones fails the same way.
+ */
+export class ProxyAuthFailedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_auth_failed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.
+ */
+export class ProxyProviderUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_provider_unavailable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The engine could not open the loopback relay a Session's proxy goes through, such as when the machine has no free local port: the proxy itself was never tried. The details name the proxy, never its credentials, and the local error. Retry once the machine frees ports or file descriptors.
+ */
+export class ProxyRelayUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_relay_unavailable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
+ */
+export class ProxyUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_unavailable", group: "unavailable", retryable: true });
   }
 }
 
@@ -384,11 +640,29 @@ export class ResourcesExhaustedError extends UnavailableError {
 }
 
 /**
+ * A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.
+ */
+export class ResponseLimitExceededError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_limit_exceeded", group: "page", retryable: false });
+  }
+}
+
+/**
  * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
  */
 export class ResponseTruncatedError extends PageError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "response_truncated", group: "page", retryable: true });
+  }
+}
+
+/**
+ * The route's request was answered already, by an earlier `continue`, `fulfill`, `abort` or `fallback`, or its handler ended: the first answer stands and this one changed nothing.
+ */
+export class RouteAlreadyHandledError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "route_already_handled", group: "program", retryable: false });
   }
 }
 
@@ -411,6 +685,15 @@ export class RunConflictError extends ProgramError {
 }
 
 /**
+ * The Run ended `finished`, so it takes no new work, such as a page or a Session it would open: start a Run under a new Run ID. The details name the Run.
+ */
+export class RunEndedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_ended", group: "program", retryable: false });
+  }
+}
+
+/**
  * The Run ID is not one the engine takes: lowercase letters, digits, `.`, `_` and `-`, at most 128, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  */
 export class RunIdInvalidError extends ProgramError {
@@ -425,6 +708,33 @@ export class RunIdInvalidError extends ProgramError {
 export class RunInUseError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "run_in_use", group: "refused", retryable: true });
+  }
+}
+
+/**
+ * The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run.
+ */
+export class RunInterruptedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_interrupted", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * A resumed Run's data key does not open under the key-encryption key `run_state.key_reference` names, such as a Checkpoint moved to a machine whose own key is another: the key that wrapped it never travels with the Checkpoint. The details name the Run, the setting, the reference resolved and the reference that wrapped the key, never a value. Name the key that wrapped it, in project configuration or configuration, and resume again.
+ */
+export class RunKeyMismatchError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_key_mismatch", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+ */
+export class RunLiveError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "run_live", group: "program", retryable: false });
   }
 }
 
@@ -470,6 +780,15 @@ export class SampleRefusedError extends RefusedError {
 export class SecretDomainNotAllowedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "secret_domain_not_allowed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * A Secret placeholder's value would be typed or sent where other code may read it, or to a host reached through an invalid-certificate exception, so it was not resolved. The details name the placeholder, the reference, the domain and the `reason`, never a value.
+ */
+export class SecretInputRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "secret_input_refused", group: "refused", retryable: false });
   }
 }
 
@@ -537,6 +856,15 @@ export class SettingUnknownError extends ProgramError {
 }
 
 /**
+ * The site's preferences refused the navigation or the request before it left, or refused the document once its response arrived, leaving the page on a blank document: its robots.txt disallows the URL (`robots_txt`), its `Crawl-delay` asks for more than the crawl allows (`crawl_delay`), or a use signal it sends refuses the crawl's Purpose (`use_signals`). Only a crawl handler's page asks a site's preferences; a page a program opens never raises it. The details name the URL and the reason.
+ */
+export class SitePreferencesRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "site_preferences_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The locator still matched several elements when the action's timeout passed, so the action did nothing. The details list every match, each with a locator that reaches it alone, and `limit` names the timeout's setting; a longer timeout would not fix the locator.
  */
 export class TargetNotUniqueError extends PageError {
@@ -564,7 +892,7 @@ export class UpgradeSourceUnsupportedError extends RefusedError {
 }
 
 /**
- * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. The details name the key and say which was refused.
+ * The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.
  */
 export class ValueInvalidError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -577,44 +905,77 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   address_family_unavailable: AddressFamilyUnavailableError,
   artifact_download_failed: ArtifactDownloadFailedError,
   artifact_unavailable_offline: ArtifactUnavailableOfflineError,
+  blocked: BlockedError,
   body_not_found: BodyNotFoundError,
+  body_unavailable: BodyUnavailableError,
   browser_host_outdated: BrowserHostOutdatedError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
+  browser_sandbox_unavailable: BrowserSandboxUnavailableError,
   call_cancelled: CallCancelledError,
+  capability_unavailable: CapabilityUnavailableError,
+  cdp_url_not_allowed: CDPURLNotAllowedError,
+  certificate_changed: CertificateChangedError,
+  certificate_invalid: CertificateInvalidError,
   closed: ClosedError,
+  connection_lost: ConnectionLostError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
+  daemon_unreachable: DaemonUnreachableError,
+  dialog_already_handled: DialogAlreadyHandledError,
+  egress_refused: EgressRefusedError,
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  header_value_invalid: HeaderValueInvalidError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_reached: LimitReachedError,
+  local_address_unavailable: LocalAddressUnavailableError,
+  logged_out: LoggedOutError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,
   navigation_failed: NavigationFailedError,
   navigation_interrupted: NavigationInterruptedError,
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
+  page_check_failed: PageCheckFailedError,
   page_crashed: PageCrashedError,
+  page_events_lost: PageEventsLostError,
+  page_function_failed: PageFunctionFailedError,
+  page_handler_failed: PageHandlerFailedError,
+  page_memory_exceeded: PageMemoryExceededError,
+  page_value_invalid: PageValueInvalidError,
   path_not_writable: PathNotWritableError,
+  path_unsafe: PathUnsafeError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
+  policy_conflict: PolicyConflictError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
+  proxy_auth_failed: ProxyAuthFailedError,
+  proxy_provider_unavailable: ProxyProviderUnavailableError,
+  proxy_relay_unavailable: ProxyRelayUnavailableError,
+  proxy_unavailable: ProxyUnavailableError,
   resources_exhausted: ResourcesExhaustedError,
+  response_limit_exceeded: ResponseLimitExceededError,
   response_truncated: ResponseTruncatedError,
+  route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,
   run_conflict: RunConflictError,
+  run_ended: RunEndedError,
   run_id_invalid: RunIdInvalidError,
   run_in_use: RunInUseError,
+  run_interrupted: RunInterruptedError,
+  run_key_mismatch: RunKeyMismatchError,
+  run_live: RunLiveError,
   run_not_found: RunNotFoundError,
   run_not_owned: RunNotOwnedError,
   run_state_unavailable: RunStateUnavailableError,
   sample_refused: SampleRefusedError,
   secret_domain_not_allowed: SecretDomainNotAllowedError,
+  secret_input_refused: SecretInputRefusedError,
   secret_unavailable: SecretUnavailableError,
   secret_unbound: SecretUnboundError,
   session_bound_to_machine: SessionBoundToMachineError,
@@ -622,6 +983,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_locked: SettingLockedError,
   setting_not_applicable: SettingNotApplicableError,
   setting_unknown: SettingUnknownError,
+  site_preferences_refused: SitePreferencesRefusedError,
   target_not_unique: TargetNotUniqueError,
   too_many_redirects: TooManyRedirectsError,
   upgrade_source_unsupported: UpgradeSourceUnsupportedError,

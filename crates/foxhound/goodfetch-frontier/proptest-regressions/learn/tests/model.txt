@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3d7480794f98480efc2f81ac003080125a4efffb23bfe089e38c25b237a81807 # shrinks to (initial_state, transitions, seen_counter) = (Model { added: [], fetched: {}, pairs: {}, learned: {}, merged: {}, last_answer: None }, [Admit(Asked { n: 0, reference: None }), Admit(Asked { n: 2, reference: None }), Admit(Asked { n: 1, reference: Some(0) }), Admit(Asked { n: 1, reference: Some(1) }), Admit(Asked { n: 1, reference: None }), Admit(Asked { n: 2, reference: Some(0) }), Fetch(Index(12319623961815067872), false), Admit(Asked { n: 0, reference: Some(2) }), Fetch(Index(6990621952963367913), false), Fetch(Index(8477495372090588025), false)], None)
+cc d22984d0225636151a50c4ad20a2233c1d98d3fc97419fa6348ef1611213d7d7 # shrinks to (initial_state, transitions, seen_counter) = (Model { added: [], fetched: {}, pairs: {}, learned: {}, merged: {}, last_answer: None }, [Admit(Asked { n: 0, reference: Some(0) }), Fetch(Index(0), false), Admit(Asked { n: 0, reference: None }), Fetch(Index(9223372036854775808), false), Admit(Asked { n: 1, reference: Some(0) }), Admit(Asked { n: 0, reference: Some(1) }), Admit(Asked { n: 2, reference: None }), Fetch(Index(11068046444225730970), false), Admit(Asked { n: 1, reference: None })], None)

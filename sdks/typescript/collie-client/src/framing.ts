@@ -2,7 +2,8 @@
 // per line of UTF-8, each way. The engine's side is read strictly, as
 // `StrictStdout` reads it in Rust's tests (#361): a line that is not exactly
 // one JSON-RPC message, such as a log line on an Attached engine's stdout,
-// is reported as invalid, never skipped.
+// or that is not UTF-8, is reported as invalid, never skipped. The one
+// difference, a partial line at the end, is `readLines`'s to explain.
 
 /** A JSON-RPC request or reply id. */
 export type MessageId = number | string;
@@ -73,24 +74,43 @@ export function parseLine(line: string): Message | undefined {
   return isError ? { kind: "error", id, error } : undefined;
 }
 
+const LINE_FEED = 0x0a;
+const strict = new TextDecoder("utf-8", { fatal: true });
+const lossy = new TextDecoder("utf-8");
+
+/** The line `bytes` hold, invalid when they are not UTF-8. */
+function lineOf(bytes: Uint8Array): Line {
+  let line: string;
+  try {
+    line = strict.decode(bytes);
+  } catch {
+    return { kind: "invalid", line: lossy.decode(bytes) };
+  }
+  const message = parseLine(line);
+  return message === undefined ? { kind: "invalid", line } : { kind: "message", message };
+}
+
 /**
- * Each whole line the engine's bytes hold, in order, until they end. A
- * partial line at the end is dropped: the engine stopped mid-write, which
- * its end reports.
+ * Each whole line the engine's bytes hold, in order, until they end. Lines
+ * are split on bytes, so a character split across chunks stays whole, and
+ * each is decoded strictly. Unlike `StrictStdout`, a partial line at the
+ * end is dropped rather than reported: the engine stopped mid-write, and
+ * its end, with its exit status, says more than the partial line would.
  */
 export async function* readLines(readable: ReadableStream<Uint8Array>): AsyncGenerator<Line> {
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  let pending = "";
+  let pending = new Uint8Array(0);
   for await (const bytes of readable) {
-    pending += decoder.decode(bytes, { stream: true });
-    let end = pending.indexOf("\n");
+    const joined = new Uint8Array(pending.length + bytes.length);
+    joined.set(pending);
+    joined.set(bytes, pending.length);
+    let start = 0;
+    let end = joined.indexOf(LINE_FEED);
     while (end !== -1) {
-      const line = pending.slice(0, end);
-      pending = pending.slice(end + 1);
-      const message = parseLine(line);
-      yield message === undefined ? { kind: "invalid", line } : { kind: "message", message };
-      end = pending.indexOf("\n");
+      yield lineOf(joined.subarray(start, end));
+      start = end + 1;
+      end = joined.indexOf(LINE_FEED, start);
     }
+    pending = joined.slice(start);
   }
 }
 

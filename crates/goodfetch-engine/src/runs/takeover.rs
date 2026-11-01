@@ -14,12 +14,13 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason, Verdict,
+    Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason,
 };
 
 use super::folder::{Recorded, point_in_time, read_recorded, write_end};
 use super::lifecycle::{self, Next, RunEvent};
-use super::writer::{LockError, RETRIES, backoff, take_lock};
+use super::report::{self, EndFacts, ReportPart};
+use super::writer::{retried, try_lock};
 use super::{Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
@@ -46,6 +47,8 @@ pub(super) struct TakeOver {
     pub(super) events: Events,
     pub(super) forwarder: Arc<dyn Forwarder>,
     pub(super) owner: Arc<TaskOwner>,
+    /// What the composition's areas add to the Run's report.
+    pub(super) parts: Vec<Arc<dyn ReportPart>>,
 }
 
 /// What an abort does to the Run its state holds.
@@ -117,6 +120,8 @@ impl TakeOver {
             owner: None,
             presence: Presence::Present,
             progress_message: recorded.progress_message.clone(),
+            stop_reason: report.stop_reason.clone(),
+            replayed: report.replayed(),
         };
         let index = self.index.clone();
         let version = self.version.clone();
@@ -186,24 +191,19 @@ impl TakeOver {
         if let Some(report) = self.forward().await {
             return Ok(Taken::Forwarded(Box::new(report)));
         }
-        for attempt in 1..=RETRIES {
-            self.clock
-                .sleep(backoff(attempt, self.entropy.next_u64()))
-                .await;
-            if let Some(lock) = self.try_lock().await? {
-                return Ok(Taken::Lock(lock));
-            }
+        let (owner, folder) = (&self.owner, &self.folder);
+        let retried = retried(&self.clock, &mut self.entropy, || try_lock(owner, folder)).await;
+        match retried {
+            Ok(Some(lock)) => Ok(Taken::Lock(lock)),
+            Ok(None) => Ok(Taken::Busy),
+            Err(error) => Err(self.unavailable(&error)),
         }
-        Ok(Taken::Busy)
     }
 
     async fn try_lock(&self) -> Result<Option<File>, RunError> {
-        let folder = self.folder.clone();
-        match self.owner.blocking(move || take_lock(&folder)).await {
-            Ok(lock) => Ok(Some(lock)),
-            Err(LockError::Held) => Ok(None),
-            Err(LockError::Io(error)) => Err(self.unavailable(&error)),
-        }
+        try_lock(&self.owner, &self.folder)
+            .await
+            .map_err(|error| self.unavailable(&error))
     }
 
     /// Asks the owner the Run index names to abort the Run: its report, or
@@ -250,26 +250,31 @@ impl TakeOver {
         let state = RunState::open(file, &self.run_state, self.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| self.unavailable(&error))?;
-        let report = RunReport {
+        let facts = EndFacts {
             run_id: self.run_id.clone(),
             lifecycle,
             stop_reason: Some(StopReason::Abort { by: self.by }),
-            verdict: Verdict::Verified,
-            completeness: Completeness::Incomplete,
             started_at: recorded.started_at.clone(),
             ended_at: point_in_time(&self.clock),
             policy_version: recorded.policy_version.clone(),
-            weakened_by: recorded.weakened_by.clone(),
+            weakened: recorded.weakened.clone(),
+            settings: None,
             checkpoint: None,
-            uncapped: recorded.uncapped,
+            console_url: None,
+            limits: Vec::new(),
+            error: None,
+            finished: Vec::new(),
         };
-        let written = report.clone();
+        let parts = self.parts.clone();
         let ended = state
-            .write(move |connection| write_end(connection, &written))
+            .write(move |connection| {
+                let report = report::assemble(connection, &facts, &parts)?;
+                write_end(connection, &report)?;
+                Ok(report)
+            })
             .await;
         drop(state);
         writer.wait().await;
-        ended.map_err(|error| self.unavailable(&error))?;
-        Ok(report)
+        ended.map_err(|error| self.unavailable(&error))
     }
 }

@@ -9,11 +9,14 @@
 //! from are declared in `block_detection/third-party.toml` for the notice
 //! inventory. It never produces `decoy`, Foxhound's alone (ADR 0095). It
 //! classifies a response as the site's: a proxy's own refusal is told where
-//! an engine module sees the proxy's answer (ADR 0127).
+//! an engine module sees the proxy's answer (ADR 0127). [`Detector`] gives
+//! it to the page crate, whose pages ask it for a document's Block cause.
 
 mod rules;
 
+use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::page::PageResponse;
 
 use rules::{HeaderMarker, RULES, Rule};
 
@@ -56,6 +59,54 @@ pub(crate) struct Evidence {
     pub(crate) markers: Vec<&'static str>,
 }
 
+/// Collie's Block classification, as the page crate asks for it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Detector;
+
+impl BlockClassifier for Detector {
+    fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
+        let headers: Vec<(&str, &str)> = response
+            .headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        let response = Response {
+            status: response.status,
+            headers: &headers,
+        };
+        classify(&response, &Document { markup }).map(|classification| Block {
+            cause: classification.cause,
+            rule: classification.evidence.rule,
+        })
+    }
+
+    fn markers(&self, status: u16) -> Vec<&'static str> {
+        markers(status)
+    }
+}
+
+/// The markers, lowercase, that the rules reading a response with `status`
+/// look for in its document, each once: none when no rule reads the
+/// document of such a response. Since a rule only asks whether the markup
+/// holds each, the markers a document holds, each on a line of its own,
+/// classify as its whole markup does.
+pub(crate) fn markers(status: u16) -> Vec<&'static str> {
+    let mut markers: Vec<&'static str> = RULES
+        .iter()
+        .filter(|rule| rule.statuses.contains(&status))
+        .flat_map(|rule| {
+            rule.markers
+                .iter()
+                .flat_map(|group| group.iter())
+                .chain(rule.unless)
+        })
+        .copied()
+        .collect();
+    markers.sort_unstable();
+    markers.dedup();
+    markers
+}
+
 /// The Block cause of a response with `document`, if a rule decides one.
 pub(crate) fn classify(response: &Response<'_>, document: &Document<'_>) -> Option<Classification> {
     let headers: Vec<(String, String)> = response
@@ -71,15 +122,15 @@ pub(crate) fn classify(response: &Response<'_>, document: &Document<'_>) -> Opti
 
 /// `rule`'s classification of a response with `status`, the lowercased
 /// `headers` and the lowercased `markup`, if every group of its header
-/// markers has one in the headers and every group of its markers has one in
-/// the markup.
+/// markers has one in the headers, every group of its markers has one in
+/// the markup, and the markup holds none of what it is `unless`.
 fn fire(
     rule: &Rule,
     status: u16,
     headers: &[(String, String)],
     markup: &str,
 ) -> Option<Classification> {
-    if !rule.statuses.contains(&status) {
+    if !rule.statuses.contains(&status) || rule.unless.iter().any(|text| markup.contains(text)) {
         return None;
     }
     let matched_headers = rule
@@ -102,8 +153,8 @@ fn fire(
         cause: rule.cause,
         evidence: Evidence {
             rule: rule.name,
-            source: rule.source.name,
-            license: rule.source.license,
+            source: rule.source.name(),
+            license: rule.source.license(),
             status,
             headers: matched_headers,
             markers,

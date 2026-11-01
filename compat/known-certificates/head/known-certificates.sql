@@ -1,0 +1,25 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE changes (
+        person TEXT NOT NULL,
+        host TEXT NOT NULL,
+        spki_sha256 BLOB NOT NULL,
+        seen_at TEXT NOT NULL,
+        run_id TEXT,
+        PRIMARY KEY (person, host)
+    ) STRICT;
+INSERT INTO "changes" VALUES('os_user','expired.certificates.test',X'1154B708A18BC9809B87921E67044A6767DC913F8E15AEC0E90E3D12CF846C96','2026-01-05T09:00:00Z','stopped-by-a-change');
+CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
+INSERT INTO "format" VALUES('known-certificates','0.1');
+CREATE TABLE pins (
+        person TEXT NOT NULL,
+        host TEXT NOT NULL,
+        spki_sha256 BLOB NOT NULL,
+        pinned_at TEXT NOT NULL,
+        run_id TEXT,
+        PRIMARY KEY (person, host)
+    ) STRICT;
+INSERT INTO "pins" VALUES('os_user','expired.certificates.test',X'7A103633A48FBBB44BC6B4B8FB7071E11D9E1EC97C036B415FCED08CBD2F0297','2026-01-05T09:00:00Z','pinned-on-first-use');
+INSERT INTO "pins" VALUES('os_user','intranet.example',X'53351AA14254D40E53DAA6A3F7748233426941E345A734D784EAFA5AFA000592','2026-01-05T09:00:00Z',NULL);
+INSERT INTO "pins" VALUES('grace','intranet.example',X'3942B45A0E6C24B3FF9CD1FB351FE597F8A3CCB065436DDF69160A5D8C6353B6','2026-01-05T09:00:00Z',NULL);
+COMMIT;

@@ -11,7 +11,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -48,6 +48,8 @@ pub enum Surface {
     Console,
     /// Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
     /// takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
+    /// Its `hello` names in `client_surface` the surface of the Client it
+    /// relays, which every other rule of the Connection follows.
     Cloud,
     /// A Browser host, which is never a Client and needs no Product
     /// (ADR 0095).
@@ -56,7 +58,44 @@ pub enum Surface {
     Worker,
 }
 
+/// The form a Client's user writes names in (ADR 0099), which the engine
+/// renders the names and targets of its messages in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Form {
+    /// The TypeScript SDK, and Code mode.
+    Typescript,
+    /// The Python SDK.
+    Python,
+    /// A Rust program.
+    Rust,
+    /// The CLI.
+    Cli,
+    /// The MCP server and the Framework adapters.
+    Tool,
+    /// The catalog's own names: the Console, Integrations and the HTTP
+    /// listener.
+    Catalog,
+}
+
 impl Surface {
+    /// Whether a Client of this surface acts for a model, which sets none of
+    /// the settings that send a Secret reference's value to a destination
+    /// they name (ADR 0092): the MCP server, and a Script sandbox worker
+    /// running Code mode.
+    pub fn acts_for_model(self) -> bool {
+        match self {
+            Self::Mcp | Self::Worker => true,
+            Self::SdkTypescript
+            | Self::SdkPython
+            | Self::Rust
+            | Self::Cli
+            | Self::Console
+            | Self::Cloud
+            | Self::BrowserHost => false,
+        }
+    }
+
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -143,6 +182,20 @@ impl ProductVersion {
     pub fn as_str(&self) -> &str {
         &self.text
     }
+
+    /// A listener's address on loopback that belongs to this version's
+    /// major alone: port `release_base` plus the major, or `preview_base`
+    /// plus the minor during `0.y` previews, where each minor counts as a
+    /// major (ADR 0030).
+    pub(crate) fn loopback_of_its_major(&self, release_base: u16, preview_base: u16) -> SocketAddr {
+        let number = |number: u64| u16::try_from(number).ok();
+        let port = match (number(self.major), number(self.minor)) {
+            (Some(0), Some(minor)) => preview_base.saturating_add(minor),
+            (Some(major), _) => release_base.saturating_add(major),
+            (None, _) => release_base,
+        };
+        SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+    }
 }
 
 impl fmt::Display for ProductVersion {
@@ -188,6 +241,11 @@ pub struct HelloParams {
     /// The surface it comes from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Surface,
+    /// The form its user writes names in (ADR 0099); none until each
+    /// surface names its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: Option<Form>,
     /// The Daemon's token; an Attached engine needs none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -206,6 +264,15 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub log_level: Option<LogLevel>,
+    /// On a gateway's `hello` (surface `cloud`), the surface of the Client
+    /// whose Connection it relays, such as `mcp` for a model's: the engine
+    /// holds the Connection to that surface's rules, a model's settings
+    /// included (ADR 0092), and the gateway's mark only words
+    /// `not_in_product` (ADR 0095). None on the gateway's own Connection;
+    /// any other surface names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub client_surface: Option<Surface>,
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the
@@ -264,6 +331,13 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub private_endpoint: Option<PrivateEndpoint>,
+    /// The sign-in link of the Console an Attached engine serves for its
+    /// script, which asked for one with a Console address, reported to the
+    /// Client of its stdio alone: `<url>#token=<token>`, whose fragment the
+    /// page swaps once for its cookie (ADRs 0024 and 0031).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console_link: Option<String>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR
@@ -370,6 +444,12 @@ pub struct NotInProductDetails {
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
+    /// The command that installs the Product `needs` from the engine's own
+    /// channel, which `fix` names; none behind Goodfetch Cloud's gateway,
+    /// where an install would not help (ADR 0096).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub install: Option<String>,
     /// Whether the refusing engine is a Daemon handing over to its major's
     /// pick, which a Client of the major waits for and connects to (ADR
     /// 0098).
@@ -421,6 +501,23 @@ pub struct DeadlineExceededDetails {
 pub enum StoppedBy {
     /// A Client, such as through `$/cancel`.
     Client,
+    /// The program, such as through `run.stop` (ADR 0102).
+    Program,
+    /// The browser, outside every Client: a page's window closed there, or
+    /// the browser quit (ADR 0113).
+    Browser,
+}
+
+/// What was closed under a call that `call_cancelled` ended (ADR 0113).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClosedValue {
+    /// Its page.
+    Page,
+    /// Its page's Session.
+    Session,
+    /// Its page's browser.
+    Browser,
 }
 
 /// What `call_cancelled` details.
@@ -429,6 +526,11 @@ pub struct CallCancelledDetails {
     /// Who stopped the call.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub by: StoppedBy,
+    /// What was closed under it, when something was rather than the call
+    /// itself cancelled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub closed: Option<ClosedValue>,
 }
 
 /// A call on a value its program already closed (ADR 0078), raised by the
@@ -442,6 +544,32 @@ pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A transition a lifecycle table refuses that only a bug in Goodfetch can
+/// cause (ADRs 0079 and 0128), logged at `error` with the same details.
+pub const INTERNAL: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "internal",
+    description: "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
+    group: ErrorGroup::Internal,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `internal` details: the object whose table refused the event, its
+/// state and the event, as the engine names them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InternalDetails {
+    /// The object, such as `session` or `page`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub object: String,
+    /// Its state.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub state: String,
+    /// The event refused.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub event: String,
+}
+
 /// No engine executable to start, raised by an SDK's `connect()` (ADRs
 /// 0024, 0078 and 0090).
 pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -453,6 +581,27 @@ pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `engine_not_found` details: where the SDK looked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum EngineNotFoundDetails {
+    /// The Product's engine-path variable named a path that is no
+    /// executable file.
+    Path {
+        /// The path the variable named.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        path: String,
+    },
+    /// No engine-path variable was set, and the Product's platform package
+    /// is not installed.
+    Package {
+        /// The platform package's name, such as
+        /// `@goodfetch/collie-linux-x64`.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        package: String,
+    },
+}
+
 /// An Attached engine that ended before its Connection was closed (ADRs
 /// 0078 and 0079), raised by the SDK runtime.
 pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -460,6 +609,18 @@ pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "The Attached engine ended before its Connection was closed, so the call has no answer. Its details carry the exit code or signal and the last 64 KiB of its stderr.",
     group: ErrorGroup::Unavailable,
     retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Connection to an engine that dropped while a call waited for its
+/// answer (ADRs 0031 and 0079), raised by the Client's own runtime, as the
+/// Console's, which then connects again.
+pub const CONNECTION_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "connection_lost",
+    description: "The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
@@ -490,6 +651,14 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `engine_output_invalid` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EngineOutputInvalidDetails {
+    /// The line the engine wrote, without its line end.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub line: String,
+}
+
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
 /// asked by anything but the Console or an interactive CLI prompt.
@@ -514,8 +683,10 @@ pub const ENTRIES: Entries = Entries {
         CALL_CANCELLED,
         DEADLINE_EXCEEDED,
         CLOSED,
+        INTERNAL,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
+        CONNECTION_LOST,
         ENGINE_OUTPUT_INVALID,
         PERSON_REQUIRED,
     ],

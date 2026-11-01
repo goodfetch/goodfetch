@@ -15,17 +15,22 @@
 //! `crawl_request.handle`, each under an id of its own, and routes each
 //! reply back to its sender; a sender's cancel of one still unanswered
 //! goes to the Client as `$/cancel`, and the reply that still comes is
-//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names.
+//! routed the same way. The Connection's end fails those still waiting. A `$/credit` adds credits to the streaming call it names, and a notification a call takes as its input goes to that call.
 //!
 //! A Connection to a Daemon or to an Attached engine's private endpoint
 //! must open with a `hello` carrying that listener's token: anything else
 //! is closed without an answer, so a stranger learns nothing (ADRs 0024 and
 //! 0031). Each refusal is logged under [`REFUSAL_TARGET`], with its
-//! listener and its reason, until the Audit log records it (area 4). An
+//! listener and its reason, and recorded in the Audit log (`endpoint`). An
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
-//! endpoint, in the reply to its `hello`.
+//! endpoint, in the reply to its `hello`. The Console's WebSocket, whose
+//! sign-in its handshake proved, opens with a `hello` that carries no token
+//! (ADR 0031).
+//!
+//! Size: one Connection's life, the transition table's states and every
+//! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
@@ -39,36 +44,44 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Notification, ProtocolFailure, Request, RequestId, Version,
+    ErrorObject, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
 };
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
+use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
-    self, Authorities, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+    self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
 };
 use super::{
-    failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
-    success_line,
+    failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
+    record, record_cancel, success_line, trace_context,
 };
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallError, CallStream, ConnectionContext, DaemonSide, Handler,
+    CallContext, CallError, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
+    Driver, Handler, InputSender,
 };
+use crate::endpoint::{REFUSAL_TARGET, same_token};
 use crate::events::{Credits, Events};
-use crate::log::LogEvents;
+use crate::log::{ConnectionLog, LogEvents};
+use crate::mask::{Masks, Scope};
+use crate::people::SignInDriver;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
+use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
 use crate::transition::{self, Refusal};
 use crate::transport::{Connection, ConnectionWriter};
+use goodfetch_protocol::run::RunKind;
 
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
@@ -86,24 +99,30 @@ const LINGER: Duration = Duration::from_secs(2);
 /// What a dispatch record names a method no catalog holds.
 const UNKNOWN_METHOD: &str = "(unknown)";
 
-/// The `tracing` target of a listener's refusals of a Connection.
-pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
-
 /// What every Connection of an engine dispatches to.
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    /// The driver of each kind of Run that has one, which a resume starts
+    /// again.
+    pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The process's log events, which each Connection receives at its
-    /// own level.
-    pub(crate) log_events: LogEvents,
+    /// own level; `None` when the engine was given none, so no layer feeds
+    /// them and no buffer is kept for them.
+    pub(crate) log_events: Option<LogEvents>,
+    /// Every live Run's resolved values, masked in every message the
+    /// Connection sends (spec #564).
+    pub(crate) masks: Masks,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
 /// carry and what its reply tells.
 pub(crate) enum Access {
     /// An Attached engine's stdio, or an in-process Connection: no token;
-    /// its reply names the engine's private endpoint, when it has one.
-    Attached(Option<PrivateEndpoint>),
+    /// its reply names the engine's private endpoint, when it has one, and
+    /// the sign-in link of the Console it serves for its script, when it
+    /// serves one.
+    Attached(Option<PrivateEndpoint>, Option<String>),
     /// A Daemon's listener: its token, and what else the Daemon gives.
     Daemon(Arc<dyn DaemonSide>),
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
@@ -112,13 +131,27 @@ pub(crate) enum Access {
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
+    /// The Console's WebSocket on its own origin (ADR 0031): a Connection
+    /// whose sign-in cookie its handshake carried, so its `hello` carries
+    /// no token; the Daemon's, or none on an Attached engine serving its
+    /// script's own Console, and the sign-in driver its refusals are
+    /// recorded through.
+    Console(ConsoleSide),
+}
+
+/// What a Console's Connection reaches beside the engine: the Daemon that
+/// serves the Console, or none on an Attached engine serving its script's
+/// own, and the Console's sign-in driver, which records its refusals.
+pub(crate) struct ConsoleSide {
+    pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
+    pub(crate) sign_ins: SignInDriver,
 }
 
 impl Access {
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(_) => None,
+            Self::Attached(..) | Self::Console(..) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
@@ -128,7 +161,8 @@ impl Access {
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
-            Self::Attached(_) | Self::PrivateEndpoint(_) => None,
+            Self::Console(side) => side.daemon.clone(),
+            Self::Attached(..) | Self::PrivateEndpoint(_) => None,
         }
     }
 
@@ -136,18 +170,30 @@ impl Access {
     /// Connection of newline-delimited JSON-RPC.
     fn listener(&self) -> &'static str {
         match self {
-            Self::Attached(_) => "stdio",
+            Self::Attached(..) => "stdio",
             Self::Daemon(_) => "daemon_socket",
             Self::Exposed(..) => "exposed_daemon",
             Self::PrivateEndpoint(_) => "private_endpoint",
+            Self::Console(..) => CONSOLE_LISTENER,
         }
     }
+
+    /// Whether a stranger learns nothing from it: a first message that is
+    /// no `hello` is closed unanswered on a listener a Client proves
+    /// itself to.
+    fn guarded(&self) -> bool {
+        self.token().is_some() || matches!(self, Self::Console(..))
+    }
 }
+
+/// The endpoint table's name of the Console's WebSocket (ADR 0067).
+pub const CONSOLE_LISTENER: &str = "console";
 
 /// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
 const WEBSOCKET_LISTENER: &str = "daemon_websocket";
 
-/// How a Connection's messages arrive: as lines, or as WebSocket messages.
+/// How a Connection's messages arrive: as lines, as WebSocket messages, or
+/// in the Console's `POST` bodies.
 enum Reading {
     Lines {
         reader: Prefixed,
@@ -155,6 +201,7 @@ enum Reading {
         chunk: Vec<u8>,
     },
     Messages(MessageReader),
+    Posted(PostedReader),
 }
 
 impl Reading {
@@ -189,14 +236,17 @@ impl Reading {
                 }
             },
             Self::Messages(messages) => messages.read(frames).await,
+            Self::Posted(posted) => posted.read(frames).await,
         }
     }
 }
 
-/// How a Connection's messages leave: as lines, or as WebSocket messages.
+/// How a Connection's messages leave: as lines, as WebSocket messages, or
+/// as the events of the Console's event stream.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
+    Streamed(StreamedWriter),
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
@@ -205,6 +255,7 @@ enum Writing {
 async fn carriage(
     connection: Connection,
     access: &Access,
+    runs: &Runs,
 ) -> Option<(Reading, Writing, &'static str)> {
     let (mut reader, writer) = connection.split();
     let Access::Exposed(_, authorities) = access else {
@@ -233,7 +284,9 @@ async fn carriage(
             WEBSOCKET_LISTENER,
         )),
         Err(NotOpened::Refused(refusal)) => {
-            tracing::warn!(target: REFUSAL_TARGET, listener = WEBSOCKET_LISTENER, reason = refusal.reason(), "a WebSocket handshake whose `Host` or `Origin` is not the Daemon's was refused");
+            runs.refusals()
+                .refused(WEBSOCKET_LISTENER, refusal.reason())
+                .await;
             None
         }
         Err(NotOpened::Failed(error)) => {
@@ -259,15 +312,110 @@ pub(crate) async fn serve(
     access: Access,
     clock: Clock,
 ) {
-    let Some((mut reading, writing, listener)) = carriage(connection, &access).await else {
+    let Some((reading, writing, listener)) = carriage(connection, &access, &runs).await else {
         return;
     };
+    serve_carried(
+        dispatch,
+        Carried {
+            reading,
+            writing,
+            listener,
+        },
+        owner,
+        runs,
+        events,
+        access,
+        clock,
+    )
+    .await;
+}
+
+/// A Connection the Console's server opened on its own origin, its sign-in
+/// already checked, which the Daemon serves (ADR 0031): a WebSocket, or,
+/// where a proxy refuses `WebSocket`s, an event stream and the page's
+/// `POST`s.
+pub(crate) enum ConsoleConnection {
+    WebSocket(ConsoleSocket),
+    EventStream(EventStream),
+}
+
+/// Serves the Console's Connection `console`, a Connection of the Daemon
+/// `daemon` reaches, until it ends, its tasks those of `owner`, lingering
+/// on `clock` after the engine closes it.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the calls it started to `owner`, which stops
+/// them.
+pub(crate) async fn serve_console(
+    dispatch: Arc<Dispatch>,
+    console: ConsoleConnection,
+    owner: &TaskOwner,
+    runs: Runs,
+    events: Events,
+    side: ConsoleSide,
+    clock: Clock,
+) {
+    let (reading, writing) = match console {
+        ConsoleConnection::WebSocket(socket) => (
+            Reading::Messages(socket.reader),
+            Writing::Messages(socket.writer),
+        ),
+        ConsoleConnection::EventStream(stream) => (
+            Reading::Posted(stream.reader),
+            Writing::Streamed(stream.writer),
+        ),
+    };
+    let carried = Carried {
+        reading,
+        writing,
+        listener: CONSOLE_LISTENER,
+    };
+    serve_carried(
+        dispatch,
+        carried,
+        owner,
+        runs,
+        events,
+        Access::Console(side),
+        clock,
+    )
+    .await;
+}
+
+/// How a Connection's messages travel, and its listener's name.
+struct Carried {
+    reading: Reading,
+    writing: Writing,
+    listener: &'static str,
+}
+
+/// Serves the Connection `carried` gives until it ends, lingering on
+/// `clock` after the engine closes it.
+async fn serve_carried(
+    dispatch: Arc<Dispatch>,
+    carried: Carried,
+    owner: &TaskOwner,
+    runs: Runs,
+    events: Events,
+    access: Access,
+    clock: Clock,
+) {
+    let Carried {
+        mut reading,
+        writing,
+        listener,
+    } = carried;
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
-    owner.spawn(write_lines(writing, lines));
+    owner.spawn(write_lines(writing, lines, dispatch.masks.clone()));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     let (client, requests) = Client::new();
     let daemon = access.daemon();
-    let log = dispatch.log_events.connection();
+    let log = dispatch
+        .log_events
+        .as_ref()
+        .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
     let forwarding = log.forward(outgoing.clone());
     let stop_logging = logging.clone();
@@ -284,6 +432,8 @@ pub(crate) async fn serve(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        behind_gateway: OnceLock::new(),
+        drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
         daemon,
@@ -296,7 +446,6 @@ pub(crate) async fn serve(
         completed,
         completions,
         in_flight: BTreeMap::new(),
-        behind_gateway: false,
         state: ConnectionState::Opening,
         connection,
         requests,
@@ -341,12 +490,16 @@ async fn linger(reading: &mut Reading, clock: Clock) {
 
 /// Writes each line whole, or as one WebSocket message, flushing once no
 /// other line waits; shuts the Connection's sending side down, or closes
-/// its WebSocket, when every sender is gone.
-async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
+/// its WebSocket, when every sender is gone. Every line passes through
+/// `masks` first, as what a call returns or an event carries: no message
+/// the Connection sends holds a value a Run resolved (spec #564).
+async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>, masks: Masks) {
     while let Some(line) = lines.recv().await {
+        let line = masks.apply_json_line(line, Scope::Returned);
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
+            Writing::Streamed(streamed) => streamed.feed(line).await,
         };
         if !sent {
             return;
@@ -355,6 +508,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
+                Writing::Streamed(_) => true,
             };
             if !flushed {
                 return;
@@ -366,6 +520,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
+        Writing::Streamed(streamed) => streamed.close(),
     }
 }
 
@@ -374,6 +529,8 @@ struct InFlight {
     token: CancellationToken,
     cancellable: bool,
     credits: Option<Credits>,
+    /// The notification it takes as its input, and where each goes.
+    input: Option<(&'static str, InputSender)>,
 }
 
 /// A message read from the Connection, by the event of the engine's table
@@ -424,7 +581,6 @@ struct Session<'owner> {
     completed: mpsc::Sender<RequestId>,
     completions: mpsc::Receiver<RequestId>,
     in_flight: BTreeMap<RequestId, InFlight>,
-    behind_gateway: bool,
     /// Where it is, which only the engine's table changes (ADR 0128).
     state: ConnectionState,
     connection: Arc<ConnectionContext>,
@@ -570,8 +726,8 @@ impl Session<'_> {
     /// Refuses a first message that is no `hello`, then closes: unanswered
     /// on a listener with a token, answered with its error otherwise.
     async fn refuse(&mut self, message: Message) -> Flow {
-        if self.access.token().is_some() {
-            self.refused("hello_not_first");
+        if self.access.guarded() {
+            self.refused("hello_not_first").await;
             return Flow::Close;
         }
         match message {
@@ -676,32 +832,43 @@ impl Session<'_> {
     /// on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let hello = serde_json::from_value::<HelloParams>(request.params.unwrap_or(Value::Null));
+        let (hello, meta) = match trace_context(request.params) {
+            Ok((params, meta)) => (
+                serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
+                    |error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()),
+                ),
+                meta,
+            ),
+            Err(error) => (Err(error), None),
+        };
         if let Some(expected) = self.access.token() {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
                 None => {
-                    self.refused("token_missing");
+                    self.refused("token_missing").await;
                     return self.rejected();
                 }
                 Some(token) if !same_token(token, expected) => {
-                    self.refused("token_wrong");
+                    self.refused("token_wrong").await;
                     return self.rejected();
                 }
                 Some(_) => {}
             }
         }
+        // Opened once the token is checked: a stranger's `hello` has no
+        // span, and its Trace context is not read.
+        let span = trace::server_span(HELLO, &request.id, None, meta.as_ref());
         let answered = match hello {
             Ok(hello) => handshake::answer(
                 &self.dispatch.identity,
                 self.connection.events.instance(),
                 &hello,
             )
-            .map(|accepted| (accepted, hello.surface, hello.log_level)),
-            Err(error) => Err(handshake::Refused::Invalid(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                error.to_string(),
-            ))),
+            .map(|accepted| {
+                let surface = accepted.surface;
+                (accepted, surface, hello.log_level)
+            }),
+            Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
             Ok(accepted) => Ok(accepted),
@@ -723,16 +890,23 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                // Each CLI command is a Connection of its own, and the Runs
+                // it starts on the Daemon outlive it (ADRs 0024 and 0088).
+                if surface == Surface::Cli {
+                    self.connection.runs.outlive_connection().await;
+                }
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
-                self.behind_gateway = accepted.behind_gateway;
-                if let Access::Attached(private_endpoint) = &self.access {
+                let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
+                if let Access::Attached(private_endpoint, console_link) = &self.access {
                     accepted
                         .result
                         .private_endpoint
                         .clone_from(private_endpoint);
+                    accepted.result.console_link.clone_from(console_link);
                 }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
+                drop(span);
                 if self.send(success_line(request.id, result)).await {
                     Flow::Continue
                 } else {
@@ -741,6 +915,8 @@ impl Session<'_> {
             }
             Err(error) => {
                 record(HELLO, Some(error.code()));
+                trace::record_failure(&span, error.code(), error.wire_code());
+                drop(span);
                 self.send(failure_line(Some(request.id), &error)).await;
                 self.rejected()
             }
@@ -764,7 +940,7 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 "`$/cancel` is a notification",
             ))
-        } else if self.in_flight.contains_key(&id) {
+        } else if self.still_in_flight(&id) {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
@@ -779,8 +955,13 @@ impl Session<'_> {
                 Some(person_required(&method))
             } else {
                 let handler = handler.clone();
-                self.call(id, &handler, params);
-                return Flow::Continue;
+                match trace_context(params) {
+                    Ok((params, meta)) => {
+                        self.call(id, &handler, params, meta.as_ref());
+                        return Flow::Continue;
+                    }
+                    Err(error) => Some(error),
+                }
             }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
             && foxhound_names::OPERATIONS.contains(&method.as_str())
@@ -789,7 +970,11 @@ impl Session<'_> {
                 &self.dispatch.identity,
                 Requested::Name(&method),
                 Product::Foxhound,
-                self.behind_gateway,
+                self.connection
+                    .behind_gateway
+                    .get()
+                    .copied()
+                    .unwrap_or(false),
             ))
         } else {
             Some(CallError::protocol(
@@ -808,24 +993,48 @@ impl Session<'_> {
         }
     }
 
-    /// Starts `handler` on `params` as a task of the Connection.
-    fn call(&mut self, id: RequestId, handler: &Handler, params: Option<Value>) {
+    /// Starts `handler` on `params` as a task of the Connection, in the
+    /// request's span, the child of the span the Trace context `meta` names.
+    fn call(
+        &mut self,
+        id: RequestId,
+        handler: &Handler,
+        params: Option<Value>,
+        meta: Option<&TraceContext>,
+    ) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
+        let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
-        let stream = credits.clone().map(|credits| CallStream {
-            id: id.clone(),
-            credits,
-            outgoing: self.outgoing.clone(),
-        });
-        let context = CallContext::new(Arc::clone(&self.connection), token.clone(), stream);
-        let answer = handler.call(params.unwrap_or(Value::Object(Map::new())), context);
+        let notifier =
+            CallNotifier::new(id.clone(), self.outgoing.clone(), notification_value_line);
+        let stream = credits
+            .clone()
+            .map(|credits| CallStream::new(notifier.clone(), credits));
+        let (input, call_input) = match handler.input() {
+            Some((method, room)) => {
+                let (sender, call_input) = CallInput::new(notifier, room);
+                (Some((method, sender)), Some(call_input))
+            }
+            None => (None, None),
+        };
+        let context = CallContext::new(
+            Arc::clone(&self.connection),
+            id.clone(),
+            token.clone(),
+            stream,
+            call_input,
+        );
+        let answer = handler
+            .call(params.unwrap_or(Value::Object(Map::new())), context)
+            .instrument(span.clone());
         self.in_flight.insert(
             id.clone(),
             InFlight {
                 token: token.clone(),
                 cancellable: operation.cancellable,
                 credits,
+                input,
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
@@ -837,7 +1046,10 @@ impl Session<'_> {
                     () = token.cancelled() => Err(CallError::new(
                         &CALL_CANCELLED,
                         "The call was cancelled by its Client.",
-                        &CallCancelledDetails { by: StoppedBy::Client },
+                        &CallCancelledDetails {
+                            by: StoppedBy::Client,
+                            closed: None,
+                        },
                     )),
                 }
             } else {
@@ -850,21 +1062,37 @@ impl Session<'_> {
                 }
                 Err(error) => {
                     record(operation.name, Some(error.code()));
+                    trace::record_failure(&span, error.code(), error.wire_code());
                     failure_line(Some(id.clone()), &error)
                 }
             };
-            let _ = outgoing.send(line).await;
+            drop(span);
+            // Ended before its answer is sent: the Client may reuse the id
+            // as soon as the answer arrives, and `still_in_flight` then
+            // finds this end waiting.
             let _ = completed.send(id).await;
+            let _ = outgoing.send(line).await;
         });
     }
 
-    fn notification(&self, notification: &Notification) {
+    /// Whether the call `id` names is still in flight, once every call that
+    /// ended was taken out: a call ends before its answer is sent, so the
+    /// id of a call whose answer the Client read is free again (JSON-RPC
+    /// 2.0), however the session's loop was scheduled.
+    fn still_in_flight(&mut self, id: &RequestId) -> bool {
+        while let Ok(ended) = self.completions.try_recv() {
+            self.in_flight.remove(&ended);
+        }
+        self.in_flight.contains_key(id)
+    }
+
+    fn notification(&mut self, notification: &Notification) {
         if notification.method == CREDIT {
             self.credit(notification);
             return;
         }
         if notification.method != CANCEL {
-            tracing::debug!("an unknown notification is ignored");
+            self.input(notification);
             return;
         }
         let params = notification.params.clone().unwrap_or(Value::Null);
@@ -877,6 +1105,26 @@ impl Session<'_> {
         {
             record_cancel(CANCEL);
             call.token.cancel();
+        }
+    }
+
+    /// Hands an input notification to the call in flight it names, which
+    /// takes it; any other is ignored.
+    fn input(&mut self, notification: &Notification) {
+        #[derive(serde::Deserialize)]
+        struct Named {
+            id: RequestId,
+        }
+        let params = notification.params.clone().unwrap_or(Value::Null);
+        let taker = serde_json::from_value::<Named>(params.clone())
+            .ok()
+            .and_then(|Named { id }| self.in_flight.get_mut(&id))
+            .and_then(|call| call.input.as_mut())
+            .filter(|(method, _)| *method == notification.method);
+        if let Some((_, sender)) = taker {
+            sender.hand_over(params);
+        } else {
+            tracing::debug!("an unknown notification is ignored");
         }
     }
 
@@ -916,25 +1164,22 @@ impl Session<'_> {
         if known { method } else { UNKNOWN_METHOD }
     }
 
-    /// Logs the listener's refusal of the Connection, with its reason.
-    fn refused(&self, reason: &'static str) {
+    /// Logs the listener's refusal of the Connection, with its reason, and
+    /// records it in the Audit log: on the Console's WebSocket through its
+    /// sign-in driver, as the Console's.
+    async fn refused(&self, reason: &'static str) {
         let listener = self.listener;
-        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
+        if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
+            tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` was closed");
+            sign_ins.refused(listener, reason).await;
+        } else {
+            self.connection
+                .runs
+                .refusals()
+                .refused(listener, reason)
+                .await;
+        }
     }
-}
-
-/// Whether two tokens are equal, in time that depends only on their
-/// lengths, so a Client cannot guess one byte at a time.
-fn same_token(given: &str, expected: &str) -> bool {
-    let (given, expected) = (given.as_bytes(), expected.as_bytes());
-    given.len() == expected.len()
-        && given
-            .iter()
-            .zip(expected)
-            .fold(0_u8, |difference, (left, right)| {
-                difference | (left ^ right)
-            })
-            == 0
 }
 
 /// `person_required`: `method` is a person's answer, which only the Console

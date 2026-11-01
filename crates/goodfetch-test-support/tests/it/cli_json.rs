@@ -5,24 +5,20 @@
 //! home, which it stops afterwards, so one rstest case per mode shares one
 //! snapshot.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use goodfetch_test_support::{
-    Cli, CliError, DaemonError, Mode, RuntimeFile, TestEnv, Tool, assert_cli_snapshot, cli, tools,
+    Cli, CliError, Mode, RUNTIME_FILE, TestEnv, Tool, assert_cli_snapshot, cli, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::cli::unrecorded;
+use crate::cli::{collie, unrecorded};
 #[cfg(unix)]
 use crate::test_env_daemon::{LEAVES_ITS_RUNTIME_FILE, stand_in};
 
 /// An explanation of no setting, valid against `SettingsExplanation`.
 const EXPLANATION: &str = r#"{"files":[],"settings":[]}"#;
-
-fn collie() -> PathBuf {
-    tools().unwrap().path(Tool::Collie).unwrap().to_owned()
-}
 
 /// The CLI helper running the Scripted engine as a fixture command whose
 /// stdout is `stdout`, written as it is, and whose exit code is 0.
@@ -171,6 +167,59 @@ fn json_lines_rejects_a_line_of_another_type() {
     );
 }
 
+/// The two events, as one JSON array: what a command of a sequence that
+/// ended prints under `--json`.
+const EVENT_ARRAY: &str = concat!(
+    r#"[{"position":1,"event":"run.started","data":{}},"#,
+    r#"{"position":2,"event":"run.finished","data":{"pages":3}}]"#,
+    "\n",
+);
+
+#[test]
+fn json_array_accepts_one_array_whose_items_are_each_valid_against_the_type() {
+    let env = unrecorded();
+
+    let checked = printing(&env, EVENT_ARRAY)
+        .json_array("EventEnvelope")
+        .unwrap();
+
+    assert_eq!(
+        checked.documents,
+        [json!([
+            { "position": 1, "event": "run.started", "data": {} },
+            { "position": 2, "event": "run.finished", "data": { "pages": 3 } },
+        ])]
+    );
+}
+
+#[rstest]
+#[case::an_item_of_another_type(format!("[{}]\n", EXPLANATION))]
+#[case::one_item_not_in_an_array(EVENTS.lines().next().unwrap().to_owned() + "\n")]
+fn json_array_rejects_anything_but_an_array_of_the_type(#[case] stdout: String) {
+    let env = unrecorded();
+
+    let checked = printing(&env, &stdout).json_array("EventEnvelope");
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(&error, CliError::SchemaViolated { line: None, .. }),
+        "{error}"
+    );
+}
+
+#[test]
+fn json_lines_rejects_a_stdout_with_no_line() {
+    let env = unrecorded();
+
+    let checked = printing(&env, "").json_lines("EventEnvelope");
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(&error, CliError::NotJson { line: None, .. }),
+        "{error}"
+    );
+}
+
 #[rstest]
 #[case::a_stray_line(format!("{EVENTS}Done.\n"))]
 #[case::two_documents_on_one_line(EVENTS.replace('\n', " ") + "\n")]
@@ -182,6 +231,16 @@ fn json_lines_rejects_a_line_that_is_not_one_document(#[case] stdout: String) {
 
     let error = checked.unwrap_err();
     assert!(matches!(error, CliError::NotJson { .. }), "{error}");
+}
+
+/// Whether the home holds a Daemon's runtime file of any version, so the
+/// check holds whatever the workspace's version is.
+fn any_runtime_file(home: &Path) -> bool {
+    std::fs::read_dir(home).is_ok_and(|majors| {
+        majors
+            .flatten()
+            .any(|major| major.path().join(RUNTIME_FILE).exists())
+    })
 }
 
 /// Whether one of the home's log files records the engine dispatching
@@ -201,6 +260,23 @@ fn dispatched(home: &Path, method: &str) -> bool {
     })
 }
 
+#[test]
+fn a_command_prints_the_same_bytes_in_each_mode() {
+    let env = unrecorded();
+    let printed = |mode| {
+        cli(&env, collie())
+            .args(["config", "explain", "timeout.navigation", "--json"])
+            .mode(mode)
+            .json("SettingsExplanation")
+            .unwrap()
+            .printed
+    };
+
+    let (attached, daemon) = (printed(Mode::Attached), printed(Mode::Daemon));
+
+    assert_eq!(attached, daemon);
+}
+
 #[rstest]
 #[case::attached(Mode::Attached)]
 #[case::daemon(Mode::Daemon)]
@@ -217,7 +293,7 @@ fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] 
     assert_eq!(
         (
             dispatched(env.home(), "config.explain"),
-            RuntimeFile::path(env.home(), "0.0.0").exists(),
+            any_runtime_file(env.home()),
         ),
         (mode == Mode::Daemon, false)
     );
@@ -234,9 +310,9 @@ fn a_daemon_mode_run_whose_daemon_leaves_its_runtime_file_fails() {
         .mode(Mode::Daemon)
         .run();
 
-    let runtime_file = RuntimeFile::path(env.home(), "0.0.0");
+    let runtime_file = goodfetch_test_support::RuntimeFile::path(env.home(), "0.0.0");
     assert!(
-        matches!(&run, Err(CliError::Daemon(DaemonError::RuntimeFileLeft(path))) if *path == runtime_file),
+        matches!(&run, Err(CliError::Daemon(goodfetch_test_support::DaemonError::RuntimeFileLeft(path))) if *path == runtime_file),
         "{run:?}"
     );
 }

@@ -9,7 +9,9 @@ nextest-version = { required = "0.9.148" }
 # The LazyFS power cuts (`lazyfs::` in an integration-test binary) run only in
 # the Release suite on Linux x64 (ADR 0060), where `just lazyfs-test` builds
 # LazyFS and selects them with `--ignore-default-filter`; every other run
-# leaves them out.
+# leaves them out. `just repeat` (and so `just stress`) lifts the filter for
+# a selected `lazyfs::` test where GOODFETCH_LAZYFS names a LazyFS build, and
+# fails elsewhere rather than drop it (`xtask repeat`).
 
 # Local runs without a suite: the Pre-merge caps.
 [profile.default]
@@ -47,6 +49,33 @@ leak-timeout = { period = "200ms", result = "fail" }
 [profile.ci.junit]
 path = "junit.xml"
 
+# Chrome for Testing has no build for Linux arm64 or musl, where Collie
+# launches the distribution's Chromium instead (ADR 0024), so the tests of the
+# pinned build cannot run on the Release suite's linux-arm64-gnu,
+# linux-arm64-musl and linux-x64-musl cells: each launches that build from the
+# Browser cache `goodfetch-test-support`'s `browser_cache` lays out, which
+# has none for arm64 (`NoBuild`), or reads which build launches or whether a
+# browser is installed. They run on every other cell. A test of the pinned
+# build added later joins this list; on those cells it fails with `NoBuild`
+# until it does.
+[[profile.ci.overrides]]
+platform = 'cfg(all(target_os = "linux", any(target_arch = "aarch64", target_env = "musl")))'
+default-filter = """
+not (kind(test) & test(/^lazyfs::/))
+and not (
+  (binary_id(goodfetch-collie::it) & (
+    test(/^(background_traffic|browser_pool|launch|virtual_display)::/)
+    | test(=journeys::j015::cli)
+    | test(=browsers::browsers_install_makes_sure_of_each_build_the_version_pins)
+    | (test(/^(locator|page|page_events|sessions)::/) & not test(/no_engine_holds|run_not_found|run_ended/))
+    | test(/^ops::(daemon_health_answers_whether_the_foreground_daemon_is_ready_or_live|metrics_answer_the_ops_token|the_ops_listener_passes_its_endpoint_table_rows|the_probes_answer_whether_the_daemon_is_live_and_ready)/)
+    | test(/^proxy::(a_failing_proxy_raises_a_proxy_error|two_sessions_of_one_run_reach_the_site|a_host_proxy_bypass_names_is_reached|the_credentials_of_a_socks5_proxy_reach_it)/)
+  ))
+  | (binary_id(goodfetch-conformance::it) & test(/^page::the_page_suite_proves_/))
+  | (binary_id(goodfetch-conformance::it) & test(/^protocol::the_reset_gate_is_proved_against_collie_in_either_layout/))
+)
+"""
+
 # `xtask`'s tests that build a fixture crate (codegen, compat, the Feature
 # generators, perf, stress, test tools) each build into a target folder their
 # workspace holds alone (the harness's numbered slots under `fixture-target/`),
@@ -57,9 +86,48 @@ path = "junit.xml"
 # `daemon install`'s real installs (`service_manager::`) register services
 # with the user's own service manager, which the whole user shares: one at
 # a time, each named by its test's Goodfetch home (TESTING.md, Isolation).
+#
+# Timing-sensitive tests (TESTING.md, Time) wait on real time against a
+# figure of their own: a lease, a navigation timeout, a domain delay or
+# rate, an idle timer, a race's delay, a kill's deadline, the protocol
+# client's per-message deadline over a long browser run. On a CPU-starved
+# host their checks fail with no change to the product (fix-queue items 67,
+# 77, 79, 80, 82, 84, 87, 88 and 95), so at most four run at once whatever
+# the run's thread count, as when every run was capped at four, and the
+# rest of the suite takes the other threads. Each selection is a module, so
+# a new test of the module joins it; a timing-sensitive test elsewhere joins
+# the filter in the change that adds it.
+#
+# The SSRF table's navigation and request kind runners on Chromium
+# (TESTING.md, Time) each take dozens of the table's cases through one
+# engine, under the protocol client's per-message deadline. While the
+# host's memory is under pressure the Resource governor admits no page past
+# its floor, one (ADR 0040), so a page waits until the pressure ends, and
+# their own browsers must not be what makes it (fix-queue items 107 and
+# 110): each finishes a Run once its cases are done, so it holds one
+# browser and one page at a time, and at most two run at once, which
+# halves the serial time one at a time would take. They are
+# timing-sensitive too; this group's limit is the stricter one, and its
+# override comes first, as nextest takes the first override that matches a
+# test.
 [test-groups]
+browser-fleet = { max-threads = 2 }
 fixture-builds = { max-threads = 4 }
 service-manager = { max-threads = 1 }
+timing-sensitive = { max-threads = 4 }
+
+# The Daemon soak (TESTING.md, Time and Memory at scale) runs 40 crawls of
+# 300 pages on one Daemon, whose own work keeps two to three cores busy for
+# about two minutes: 100 to 142 s alone on the M1 server and 138 to 148 s in a
+# Pre-merge run (#1765), against the five-minute kill; beside the rest of a
+# Pre-merge run it took 354 to 578 s before #1765 (#1740).
+# It takes every test thread of the run, so nextest starts it once the
+# threads are free and starts nothing beside it until it ends: the run's
+# own load no longer decides whether it ends within its cap, which stays
+# the profile's.
+[[profile.default.overrides]]
+filter = "binary_id(goodfetch-foxhound::it) & test(/^soak::/)"
+threads-required = "num-test-threads"
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
@@ -68,3 +136,17 @@ test-group = "fixture-builds"
 [[profile.default.overrides]]
 filter = "kind(test) & test(/^service_manager::/)"
 test-group = "service-manager"
+
+[[profile.default.overrides]]
+filter = "binary_id(goodfetch-collie::it) & (test(/^navigation_egress::every_.*_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium$/) | test(/^request_kinds::every_address_case_of_the_ssrf_table_/))"
+test-group = "browser-fleet"
+
+[[profile.default.overrides]]
+filter = """
+(binary_id(goodfetch-collie::it) & test(/^(browser_pool|page_ends|request_kinds|storage)::/))
+| (binary_id(goodfetch-conformance::it) & test(/^protocol::/))
+| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|staging|tier_race)::/))
+| (binary_id(goodfetch-page::it) & test(/^navigation_gate::/))
+| (binary_id(goodfetch-test-support::it) & test(/^seeded_kill::/))
+"""
+test-group = "timing-sensitive"

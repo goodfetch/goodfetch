@@ -2,5 +2,5 @@
 # directory source under vendor/ stands in as crates.io (.cargo/config.toml).
 [workspace]
 members = ["app"]
-exclude = ["vendor"]
+exclude = ["vendor", "forks"]
 resolver = "3"

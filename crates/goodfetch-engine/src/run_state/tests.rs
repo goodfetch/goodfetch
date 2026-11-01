@@ -9,10 +9,15 @@
 
 mod model;
 
-use goodfetch_test_support::TestEnv;
+use std::time::Duration;
+
+use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
-use super::{Durability, RunState, RunStateError, RunStateOptions, RunStateTables};
+use super::{
+    Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions, RunStateTables,
+    open_reader,
+};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A contributed table the tests write through the writer.
@@ -100,6 +105,36 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     assert_eq!(pragmas, ("wal".to_owned(), "2".to_owned()));
 }
 
+/// A writer opens a new run file another connection writes once that write
+/// ends: its switch of the file to WAL waits, as SQLite answers that switch
+/// busy at once (#1773's class).
+///
+/// Covers: story:3-25
+#[test]
+fn a_writer_opens_a_new_run_file_beside_another_write_of_it() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let opened = crate::sqlite_wal::tests::opened_beside_a_write(&path, || {
+        goodfetch_test_support::runtime().block_on(async {
+            let owner = TaskOwner::root(BlockingPolicy::Inline);
+            let opened = RunState::open(
+                path.clone(),
+                &RunStateOptions::default(),
+                vec![ITEMS],
+                1,
+                &owner,
+            )
+            .await
+            .map(drop);
+            owner.wait().await;
+            opened
+        })
+    });
+
+    assert_eq!(opened, Ok(()));
+}
+
 /// `run_state.durability = fast` trades the power-cut guarantee for speed:
 /// the file commits with `synchronous=NORMAL`, still in WAL mode.
 ///
@@ -120,6 +155,20 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     });
 
     assert_eq!(pragmas, ("wal".to_owned(), "1".to_owned()));
+}
+
+/// The writer's page cache is bounded at `PAGE_CACHE_KIB`, so a Frontier
+/// of any size keeps its memory under ADR 0134's 8 bytes per URL at
+/// 100,000 URLs, its visited set staying on disk.
+#[test]
+fn a_run_file_bounds_its_page_cache() {
+    let env = TestEnv::new();
+
+    let cache_size = with_writer(&env, 1, async |state| {
+        state.read(pragma("cache_size")).await.unwrap()
+    });
+
+    assert_eq!(cache_size, format!("-{PAGE_CACHE_KIB}"));
 }
 
 /// Covers: story:3-26
@@ -177,6 +226,156 @@ fn a_failing_write_commits_nothing_and_leaves_its_group_committed() {
     });
 
     assert_eq!((answers, committed), ((true, false, true), vec![1, 3]));
+}
+
+/// A write of one row of `mib` MiB, many times the writer's page cache, so
+/// SQLite spills its pages to the WAL in the middle of its statement.
+fn blob(mib: u32) -> impl FnOnce(&Connection) -> rusqlite::Result<()> + Send + 'static {
+    move |connection| {
+        connection.execute("CREATE TABLE IF NOT EXISTS blobs (data)", [])?;
+        connection
+            .execute(
+                "INSERT INTO blobs (data) VALUES (randomblob(?1 * 1048576))",
+                [mib],
+            )
+            .map(drop)
+    }
+}
+
+/// The items committed to the run file of `env` and its integrity check,
+/// read through `vfs` once its writer stopped.
+fn committed_through(env: &TestEnv, vfs: &CrashVfs) -> (Vec<i64>, String) {
+    let reader = open_reader(&env.folder().join("run.sqlite"), Some(vfs.name())).unwrap();
+    let integrity = reader
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    (items(&reader).unwrap(), integrity)
+}
+
+/// A full disk met at a statement in the middle of a group, where a write
+/// spills past the writer's page cache, ends the group's transaction in
+/// SQLite: no write of the group commits, though a small one still fits in
+/// the room an earlier checkpoint left in the WAL, each is answered with the
+/// storage failure, and the writer reports it to whoever watches its storage
+/// failures, which stop its Run (ADR 0122).
+///
+/// Covers: row:RT-03
+#[test]
+fn a_full_disk_at_a_statement_fails_its_whole_group_as_a_storage_failure() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("statement-full"), env.seed()).unwrap();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        ..RunStateOptions::default()
+    };
+
+    let (answers, reported) = with_writer_options(&env, &options, async |state| {
+        state.write(insert(0)).await.unwrap();
+        // Past SQLite's 1,000-page automatic checkpoint, whose WAL the next
+        // commit writes again from its start.
+        state.write(blob(5)).await.unwrap();
+        vfs.fail_at(vfs.operations(), IoFault::Full);
+        let first = state.reserve().await.unwrap().write(blob(8));
+        let second = state.reserve().await.unwrap().write(insert(2));
+        let answers = tokio::join!(first, second);
+        (answers, state.storage_failures().borrow().is_some())
+    });
+    vfs.free_space();
+
+    assert_eq!(
+        (
+            matches!(answers.0, Err(RunStateError::Storage { .. })),
+            matches!(answers.1, Err(RunStateError::Storage { .. })),
+            reported,
+            committed_through(&env, &vfs),
+        ),
+        (true, true, true, (vec![0], "ok".to_owned())),
+        "{answers:?}"
+    );
+}
+
+/// SQLite reports a read that met an I/O error (EIO) as `SQLITE_CORRUPT`
+/// (its Unix VFS's `SQLITE_IOERR_CORRUPTFS`): a write that meets it fails
+/// its group as a storage failure, as a full disk does.
+///
+/// Covers: row:RT-03
+#[test]
+fn a_write_whose_read_meets_a_damaged_disk_fails_its_group_as_a_storage_failure() {
+    let env = TestEnv::new();
+
+    let (answers, reported, committed) = with_writer(&env, 1, async |state| {
+        let damaged = state.reserve().await.unwrap().write(|connection| {
+            insert(1)(connection)?;
+            Err::<(), _>(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                None,
+            ))
+        });
+        let other = state.reserve().await.unwrap().write(insert(2));
+        let answers = tokio::join!(damaged, other);
+        let reported = state.storage_failures().borrow().is_some();
+        (answers, reported, state.read(items).await.unwrap())
+    });
+
+    assert_eq!(
+        (
+            matches!(answers.0, Err(RunStateError::Storage { .. })),
+            matches!(answers.1, Err(RunStateError::Storage { .. })),
+            reported,
+            committed,
+        ),
+        (true, true, true, Vec::<i64>::new()),
+        "{answers:?}"
+    );
+}
+
+/// A last write stops the writer once it commits, though other handles
+/// still hold it: a write through one of them afterwards, or through a
+/// place one reserved before, is refused as `Closed`, and the file holds
+/// every write queued up to the last and nothing after it (#1763).
+/// Covers: story:3-153
+#[test]
+fn a_last_write_stops_the_writer_while_other_handles_hold_it_and_refuses_later_writes() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let (stopped, later, reserved) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            path.clone(),
+            &RunStateOptions::default(),
+            vec![ITEMS],
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        let stray = state.clone();
+        let place = stray.reserve().await.unwrap();
+        state.write(insert(1)).await.unwrap();
+        state.write_last(insert(2)).await.unwrap();
+        let stopped = tokio::time::timeout(Duration::from_mins(1), owner.wait())
+            .await
+            .is_ok();
+        let later = stray.write(insert(3)).await;
+        let reserved = place.write(insert(4)).await;
+        (stopped, later, reserved)
+    });
+
+    assert_eq!(
+        (
+            stopped,
+            later,
+            reserved,
+            items(&open_reader(&path, None).unwrap()).unwrap(),
+        ),
+        (
+            true,
+            Err(RunStateError::Closed),
+            Err(RunStateError::Closed),
+            vec![1, 2],
+        )
+    );
 }
 
 /// A writer whose run epoch the file no longer holds commits nothing

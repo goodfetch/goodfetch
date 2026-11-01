@@ -312,10 +312,15 @@ pub enum ResourceLimit {
         /// Its `Content-Encoding` codings, in the order they were applied.
         content_encodings: Vec<String>,
     },
-    /// A response body larger than the engine reads, uncompressed.
+    /// A response body that decodes to more than the engine reads, within
+    /// the decompression ratio when it is coded.
     OversizedBody {
-        /// Its length.
+        /// Its length once decoded.
         bytes: u64,
+        /// Its `Content-Encoding` codings, in the order they were applied;
+        /// none when it is sent uncoded.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        content_encodings: Vec<String>,
     },
     /// A response body that never ends.
     EndlessBody {

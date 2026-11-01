@@ -361,6 +361,56 @@ fn a_message_no_step_expects_fails_the_engine() {
 }
 
 #[test]
+fn a_hello_without_the_jsonrpc_member_fails_the_engine() {
+    let env = TestEnv::new();
+    let map = engine_map(&env, "collie", "self-test/call-answered.json");
+    let mut client = TinyClient::connect(&env, "collie", &map);
+
+    client.send(&json!({
+        "id": 1,
+        "method": "hello",
+        "params": {
+            "protocol_version": "0.1",
+            "surface": "sdk_typescript",
+            "needs": "collie",
+            "product_version": "0.1.0",
+        },
+    }));
+    let after = client.next().unwrap();
+
+    let (status, stderr) = client.close();
+    assert_eq!(
+        (after, status.success(), failure(&stderr)),
+        (None, false, "unexpected_message")
+    );
+}
+
+#[test]
+fn an_answer_with_both_a_result_and_an_error_fails_the_engine() {
+    let env = TestEnv::new();
+    let map = engine_map(&env, "collie", "self-test/handler-call-and-event.json");
+    let mut client = TinyClient::connect(&env, "collie", &map);
+    client.hello("0.1", "0.1.0");
+    client.next().unwrap().unwrap();
+    client.request("sample.echo", &json!({ "text": "hello" }));
+    let handler = client.next().unwrap().unwrap();
+
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "id": handler["id"],
+        "result": { "replaced": false },
+        "error": { "code": -32000, "message": "both" },
+    }));
+    let after = client.next().unwrap();
+
+    let (status, stderr) = client.close();
+    assert_eq!(
+        (after, status.success(), failure(&stderr)),
+        (None, false, "unexpected_message")
+    );
+}
+
+#[test]
 fn a_step_left_unused_fails_the_engine() {
     let env = TestEnv::new();
     let map = engine_map(&env, "collie", "self-test/call-answered.json");

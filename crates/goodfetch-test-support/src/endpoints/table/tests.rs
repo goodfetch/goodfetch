@@ -12,6 +12,9 @@ listeners.private_endpoint = { expect = "closed" }
 listeners.ops_listener = { expect = "status", status = 401 }
 listeners.daemon_websocket = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
+listeners.console = { expect = "status", status = 401 }
+listeners.content_origin = { expect = "status", status = 401 }
+listeners.proxy_relay = { expect = "challenge" }
 "#;
 
 #[test]
@@ -112,6 +115,20 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::OriginMissing,
     ListenerKind::ExposedDaemon
 )]
+#[case::a_closed_connection_for_a_sign_in_cookie(
+    "token_wrong",
+    "console",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::Console
+)]
+#[case::a_status_for_a_signed_in_websockets_first_message(
+    "hello_not_first",
+    "console",
+    r#"{ expect = "status", status = 400 }"#,
+    Rule::HelloNotFirst,
+    ListenerKind::Console
+)]
 #[case::a_refusal_rule_answering_with_a_status_only(
     "token_wrong",
     "ops_listener",
@@ -125,6 +142,104 @@ listeners.private_endpoint = { expect = "closed" }
     r#"{ expect = "status", status = 404 }"#,
     Rule::ProbesAnswerStatusOnly,
     ListenerKind::OpsListener
+)]
+#[case::a_sign_in_route_rule_on_a_listener_without_sign_in_routes(
+    "sign_in_rate_exceeded",
+    "daemon_websocket",
+    r#"{ expect = "status", status = 429 }"#,
+    Rule::SignInRateExceeded,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_closed_connection_for_a_sign_in_route(
+    "csrf_token_missing",
+    "console",
+    r#"{ expect = "closed" }"#,
+    Rule::CsrfTokenMissing,
+    ListenerKind::Console
+)]
+#[case::a_revoked_sign_in_on_a_listener_without_sign_ins(
+    "sign_in_revoked",
+    "ops_listener",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::SignInRevoked,
+    ListenerKind::OpsListener
+)]
+#[case::a_closed_connection_for_a_signed_address(
+    "token_wrong",
+    "content_origin",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ContentOrigin
+)]
+#[case::a_first_message_rule_on_a_signed_address(
+    "hello_not_first",
+    "content_origin",
+    r#"{ expect = "status", status = 400 }"#,
+    Rule::HelloNotFirst,
+    ListenerKind::ContentOrigin
+)]
+#[case::a_query_token_rule_on_a_signed_address(
+    "token_in_query_string",
+    "content_origin",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::TokenInQueryString,
+    ListenerKind::ContentOrigin
+)]
+#[case::another_files_signature_on_a_listener_without_files(
+    "token_for_another_file",
+    "ops_listener",
+    r#"{ expect = "status", status = 401 }"#,
+    Rule::TokenForAnotherFile,
+    ListenerKind::OpsListener
+)]
+#[case::an_accepted_attempt_that_must_be_refused(
+    "token_wrong",
+    "ops_listener",
+    r#"{ expect = "accepted" }"#,
+    Rule::TokenWrong,
+    ListenerKind::OpsListener
+)]
+#[case::an_accepted_missing_origin_on_a_websocket(
+    "origin_missing",
+    "daemon_websocket",
+    r#"{ expect = "accepted" }"#,
+    Rule::OriginMissing,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_cookie_token_rule_on_a_json_rpc_stream(
+    "origin_missing_without_header_token",
+    "daemon_socket",
+    r#"{ expect = "closed" }"#,
+    Rule::OriginMissingWithoutHeaderToken,
+    ListenerKind::DaemonSocket
+)]
+#[case::a_challenge_from_a_listener_that_is_no_proxy(
+    "token_wrong",
+    "ops_listener",
+    r#"{ expect = "challenge" }"#,
+    Rule::TokenWrong,
+    ListenerKind::OpsListener
+)]
+#[case::a_challenge_for_a_wrong_token(
+    "token_wrong",
+    "proxy_relay",
+    r#"{ expect = "challenge" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ProxyRelay
+)]
+#[case::a_closed_connection_from_a_proxy(
+    "token_wrong",
+    "proxy_relay",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ProxyRelay
+)]
+#[case::a_header_rule_on_a_proxy(
+    "host_foreign",
+    "proxy_relay",
+    r#"{ expect = "status", status = 403 }"#,
+    Rule::HostForeign,
+    ListenerKind::ProxyRelay
 )]
 fn a_cell_its_listener_cannot_try_fails(
     #[case] rule_name: &str,
@@ -180,7 +295,7 @@ fn the_committed_table_meets_its_committed_schema() {
 #[test]
 fn the_committed_schema_refuses_a_listener_the_table_has_no_kind_for() {
     let table: serde_json::Value =
-        toml::from_str(&GOOD.replace("daemon_socket", "console")).unwrap();
+        toml::from_str(&GOOD.replace("daemon_socket", "mcp_listener")).unwrap();
 
     let valid = jsonschema::validator_for(&committed_schema())
         .unwrap()

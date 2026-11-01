@@ -2,8 +2,9 @@
 // 2.2 AA and best practices (ADR 0073). The `axe` fixture fails a served
 // test whose page has a violation at its end, `expectAccessible` audits a
 // state on the way, "incomplete" results go to the report without failing,
-// and an exception suppresses only its rule on its selector, and fails when
-// its selector matches nothing on a page where its rule ran.
+// and an exception suppresses only its rule on its selector on the pages it
+// names, and fails when its selector matches nothing on a page it names
+// where its rule ran.
 import { expect, test as base } from "@playwright/test";
 import {
   auditAccessibility,
@@ -16,17 +17,17 @@ import { cspPagesFixture, type CspPages } from "./csp-pages.ts";
 const test = base.extend<object, { cspPages: CspPages }>({ cspPages: cspPagesFixture });
 const servedTest = served.extend<object, { cspPages: CspPages }>({ cspPages: cspPagesFixture });
 
-function exception(rule: string, selector: string): AxeException {
-  return { rule, selector, reason: "a fixture's false positive", issue: 1701 };
+function exception(
+  rule: string,
+  selector: string,
+  pages: readonly string[] = ["/*"],
+): AxeException {
+  return { rule, selector, pages, reason: "a fixture's false positive", issue: 1701 };
 }
 
+// That the `axe` fixture fails a test whose page has a violation, by its
+// Error code, is `fixture-failures.test.ts`'s.
 servedTest.describe("the axe fixture", () => {
-  servedTest.fail("fails a test whose page has a violation", async ({ page, cspPages }) => {
-    await page.goto(cspPages.url("inaccessible"));
-
-    await expect(page.getByRole("heading", { name: "Inaccessible" })).toBeVisible();
-  });
-
   servedTest("passes a test whose page is accessible", async ({ page, cspPages }) => {
     await page.goto(cspPages.url("accessible"));
 
@@ -123,6 +124,78 @@ test.describe("auditAccessibility's exceptions", () => {
     });
 
     await expect(audited).rejects.toMatchObject({ code: "axe_exception_unmatched" });
+  });
+
+  test("an exception whose elements no longer violate its rule fails where its rule ran", async ({
+    page,
+    cspPages,
+  }, testInfo) => {
+    await page.goto(cspPages.url("accessible"));
+
+    const audited = auditAccessibility(page, {
+      exceptions: [exception("document-title", "h1")],
+      testInfo,
+    });
+
+    await expect(audited).rejects.toMatchObject({ code: "axe_exception_unmatched" });
+  });
+
+  for (const selector of ["*", "body *", ":not(#first)"]) {
+    test(`an exception whose selector \`${selector}\` takes in the whole page is refused`, async ({
+      page,
+      cspPages,
+    }, testInfo) => {
+      await page.goto(cspPages.url("two-images"));
+
+      const audited = auditAccessibility(page, {
+        exceptions: [exception("image-alt", selector)],
+        testInfo,
+      });
+
+      await expect(audited).rejects.toMatchObject({ code: "axe_exception_too_broad" });
+    });
+  }
+
+  test("an exception suppresses its rule on the pages it names", async ({
+    page,
+    cspPages,
+  }, testInfo) => {
+    await page.goto(cspPages.url("two-images"));
+
+    const audited = auditAccessibility(page, {
+      exceptions: [exception("image-alt", "#first, #second", ["/two-images.html"])],
+      testInfo,
+    });
+
+    await expect(audited).resolves.toBeUndefined();
+  });
+
+  test("an exception leaves its rule's violations on a page it does not name", async ({
+    page,
+    cspPages,
+  }, testInfo) => {
+    await page.goto(cspPages.url("two-images"));
+
+    const audited = auditAccessibility(page, {
+      exceptions: [exception("image-alt", "#first, #second", ["/accessible.html"])],
+      testInfo,
+    });
+
+    await expect(audited).rejects.toMatchObject({ code: "axe_violations" });
+  });
+
+  test("an exception whose selector matches nothing is not checked on a page it does not name", async ({
+    page,
+    cspPages,
+  }, testInfo) => {
+    await page.goto(cspPages.url("accessible"));
+
+    const audited = auditAccessibility(page, {
+      exceptions: [exception("document-title", "#absent", ["/two-images.html"])],
+      testInfo,
+    });
+
+    await expect(audited).resolves.toBeUndefined();
   });
 
   test("an exception whose rule did not run on a page is not checked there", async ({

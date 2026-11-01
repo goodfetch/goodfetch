@@ -108,7 +108,7 @@ fn keeping() -> Contribution {
                             ended_by: EndedBy::Finish,
                             initialize: None,
                             policy_version: None,
-                            weakened_by: Vec::new(),
+                            weakened: Vec::new(),
                             binding,
                             clean_up_digest: params["clean_up_digest"].as_str().map(str::to_owned),
                             checkpoint_interval: None,
@@ -166,7 +166,7 @@ pub(super) struct Talk {
 impl Talk {
     /// Opens the Connection with `hello` and subscribes to every event,
     /// granting credits enough for any test.
-    async fn open(mut client: Client) -> Self {
+    pub(super) async fn open(mut client: Client) -> Self {
         client.send(&[hello("collie", "0.1")]).await;
         let opened = client.next().await.unwrap();
         assert!(opened.get("result").is_some(), "{opened}");
@@ -230,11 +230,15 @@ impl Talk {
         began.elapsed()
     }
 
-    /// Each event read, as `[name, data]`, but axis changes.
+    /// Each event read, as `[name, data]`, but axis changes and the
+    /// progress values, which a Checkpoint changes too.
     fn lifecycle_events(&self) -> Vec<Value> {
         self.events
             .iter()
-            .filter(|event| event["event"] != "run.axes_changed")
+            .filter(|event| {
+                !["run.axes_changed", "run.progress"]
+                    .contains(&event["event"].as_str().unwrap_or_default())
+            })
             .map(|event| json!([event["event"], event["data"]]))
             .collect()
     }
@@ -282,6 +286,7 @@ fn run_row(path: &Path) -> Value {
 fn another_machine(env: &TestEnv) -> crate::engine::Dependencies {
     crate::engine::Dependencies {
         environment: std::collections::BTreeMap::new(),
+        keychain: crate::secrets::Keychain::absent(),
         entropy: crate::entropy::Entropy::seeded(env.seed() ^ 1),
         ..dependencies(env)
     }
@@ -294,7 +299,20 @@ where
     F: FnOnce(Talk, Talk) -> Fut,
     Fut: Future<Output = T>,
 {
-    let engine = engine();
+    two_machines_on(&engine(), first, second, talk)
+}
+
+/// [`two_machines`], with `engine` on both.
+pub(super) fn two_machines_on<F, Fut, T>(
+    engine: &Engine,
+    first: &TestEnv,
+    second: &TestEnv,
+    talk: F,
+) -> T
+where
+    F: FnOnce(Talk, Talk) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
         // The test `tracing` subscriber writes the dispatch records into the
         // test's exercise record (ADR 0072), as `attached_with`'s does.
@@ -802,8 +820,9 @@ fn a_checkpoint_that_cannot_be_written_fails_and_leaves_no_file() {
 
 /// The `head/` set's real Checkpoint (ADR 0066): its size and digest are
 /// those its record states, and an engine of today resumes the Run it holds
-/// at the next run epoch, keeping its Clean-up rules digest.
-/// Covers: story:3-37, story:3-38
+/// at the next run epoch, keeping its Clean-up rules digest and the
+/// Download's file it carries, which saves whole.
+/// Covers: story:3-37, story:3-38, story:6-17
 #[test]
 fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
     let head = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/run-state/head");
@@ -814,6 +833,8 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
     std::fs::copy(head.join("checkpoint.sqlite"), &copy).unwrap();
     let location = copy.display().to_string();
     let (size, digest) = (std::fs::metadata(&copy).unwrap().len(), sha256(&copy));
+    let saved = env.folder().join("books.csv");
+    let path = saved.display().to_string();
 
     let resumed = attached_on(&engine(), &env, |client| async move {
         let mut talk = Talk::open(client).await;
@@ -824,7 +845,13 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
                 json!({ "run_id": "paused", "checkpoint": location }),
             )
             .await;
-        talk.ok(3, "run.finish", json!({ "run_id": "paused" }))
+        talk.ok(
+            3,
+            "download.save_as",
+            json!({ "download_id": "paused.download-1", "path": path }),
+        )
+        .await;
+        talk.ok(4, "run.finish", json!({ "run_id": "paused" }))
             .await;
         resumed
     });
@@ -834,6 +861,7 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
             (record["size"].clone(), record["digest"].clone()),
             resumed["started_as"].clone(),
             run_row(&run_folder(&env, "paused").join("run.sqlite")),
+            std::fs::read(&saved).ok(),
         ),
         (
             (json!(size), json!(digest)),
@@ -844,6 +872,7 @@ fn the_head_sets_checkpoint_matches_its_record_and_resumes() {
                 "stop_reason": null,
                 "clean_up_digest": "6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b",
             }),
+            Some(b"title,price\nDune,9.99\n".to_vec()),
         )
     );
 }
@@ -870,8 +899,10 @@ fn secret_canaries_planted_in_a_run_are_absent_from_its_checkpoint() {
         .plant(goodfetch_test_support::SecretKind::ModelApiKey)
         .value()
         .to_owned();
-    let source =
-        format!("cdp_url:ws://user:{password}@127.0.0.1:9222/devtools/browser/{token}?key={key}");
+    let source = json!({
+        "kind": "cdp_url",
+        "url": format!("ws://user:{password}@127.0.0.1:9222/devtools/browser/{token}?key={key}"),
+    });
 
     let checkpoint = attached_on(&engine(), &env, |client| async move {
         let mut talk = Talk::open(client).await;

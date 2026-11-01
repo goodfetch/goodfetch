@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.session]
+source = { browser = "chrome", chromium_profile = "Default", domains = ["example.com"], kind = "profile_directory", path = "profile" }

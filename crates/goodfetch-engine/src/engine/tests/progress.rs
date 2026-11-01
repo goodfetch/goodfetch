@@ -91,8 +91,17 @@ fn a_progress_message_is_kept_in_run_state_carried_on_progress_and_in_the_run_in
         reply_and_progress(&mut client, 3).await
     });
 
-    let progress =
-        json!({ "run_id": "noted", "lifecycle": "running", "message": "Reading page 3 of 10" });
+    let progress = json!({
+        "run_id": "noted",
+        "position": 4_294_967_297_u64,
+        "at": "2026-01-05T09:00:00Z",
+        "lifecycle": "running",
+        "writer": "live",
+        "epoch": 1,
+        "pauses": [],
+        "message": "Reading page 3 of 10",
+        "last": false,
+    });
     assert_eq!(
         (
             &answer["result"],

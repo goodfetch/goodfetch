@@ -150,6 +150,10 @@ job = "release-suite.yml#plan"
 reason = "It reads and writes the Release runs' records through GitHub's API to choose the cells, and runs none of the product."
 
 [[outside]]
+job = "release-suite.yml#budgets"
+reason = "It reads the results store and opens budget issues through GitHub's API (ADR 0061), and runs none of the product."
+
+[[outside]]
 job = "release-suite.yml#caches"
 reason = "It lists and deletes the repository's caches through GitHub's API (ADR 0061), and runs none of the product."
 

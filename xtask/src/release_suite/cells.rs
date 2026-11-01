@@ -159,6 +159,16 @@ impl Cell {
                 .is_some_and(|rest| rest.starts_with(' '))
     }
 
+    /// The name of the JUnit artifact the cell's job uploads (TESTING.md,
+    /// Sharding, caching and reports), which the results store reads as the
+    /// cell's configuration.
+    pub(crate) fn junit_artifact(self) -> String {
+        match self {
+            Self::MacosX64 => "junit-release-dispatch-macos-x64-rosetta-1".to_owned(),
+            other => format!("junit-release-dispatch-{}-1", other.key()),
+        }
+    }
+
     /// The cell's entry in its Linux job's matrix.
     pub(crate) fn matrix_entry(self) -> serde_json::Value {
         serde_json::json!({
@@ -204,6 +214,36 @@ mod tests {
             .sum();
 
         assert_eq!(minutes, 270);
+    }
+
+    /// The workflow uploads each cell's JUnit files under the artifact name
+    /// the results store reads the cell's configuration from.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a synchronous unit test reads the workflow file"
+    )]
+    fn each_cells_junit_artifact_is_the_one_its_job_uploads() {
+        let workflow = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../.github/workflows/release-suite.yml"),
+        )
+        .unwrap();
+
+        for cell in Cell::ALL {
+            let uploaded = match cell.linux_job() {
+                Some(_) => "junit-release-dispatch-${{ matrix.cell }}-1".to_owned(),
+                None => cell.junit_artifact(),
+            };
+            assert!(
+                workflow.contains(&format!("name: {uploaded}")),
+                "{cell} uploads no `{uploaded}`"
+            );
+        }
+        assert_eq!(
+            Cell::LinuxArm64Musl.junit_artifact(),
+            "junit-release-dispatch-linux-arm64-musl-1"
+        );
     }
 
     #[test]

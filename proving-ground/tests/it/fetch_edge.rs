@@ -141,6 +141,38 @@ fn a_gzip_body_ending_before_its_content_length_is_recorded_against_it() {
     assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
 }
 
+/// A late cut sends the half body, then holds the connection open 75 ms
+/// before it closes it, so a client reading the body as it arrives reads
+/// that half before the body's end, the cut a browser's interception can
+/// lose (#1732): whatever its framing, the body is cut as the plain page's
+/// is.
+#[rstest::rstest]
+#[case::content_length("/cut/late/content-length")]
+#[case::chunked("/cut/late/chunked")]
+#[case::gzip_content_length("/cut/late/gzip-content-length")]
+fn a_late_cut_closes_its_connection_a_while_after_its_half_body(#[case] path: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let asked = std::time::Instant::now();
+    let arrived = raw_clients::get(&proving_ground, HTTP1, path, &[]);
+    let took = asked.elapsed();
+
+    assert_eq!(arrived.status(), Some(200));
+    match arrived.header("content-length") {
+        Some(declared) => assert!(
+            arrived.body().len() < declared.parse().expect("a length"),
+            "{}",
+            arrived.body().len()
+        ),
+        None => assert!(!arrived.body().ends_with(b"0\r\n\r\n")),
+    }
+    assert!(!arrived.closed_cleanly);
+    assert!(took >= Duration::from_millis(75), "closed after {took:?}");
+    let delivery = &request_for(&proving_ground.observations(), HTTP1, path)["delivery"];
+    assert_eq!(delivery["end"], json!({ "kind": "connection_closed" }));
+    assert!(delivery["body_sent"].as_u64() > Some(0), "{delivery}");
+}
+
 #[test]
 fn a_body_delimited_by_its_connections_close_is_whole() {
     let proving_ground = ProvingGround::start(SEED);
@@ -301,6 +333,25 @@ fn a_keep_alive_connection_closes_or_answers_408_as_it_is_reused() {
 }
 
 #[test]
+fn a_page_answers_421_on_its_first_request_and_its_page_after() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let misdirected = raw_clients::keep_alive(&proving_ground, HTTP1, &[("GET", "/misdirected")]);
+    let resent = raw_clients::keep_alive(&proving_ground, HTTP1, &[("GET", "/misdirected")]);
+
+    assert_eq!(
+        misdirected[0]
+            .as_ref()
+            .and_then(raw_clients::Arrived::status),
+        Some(421)
+    );
+    assert_eq!(
+        resent[0].as_ref().and_then(raw_clients::Arrived::status),
+        Some(200)
+    );
+}
+
+#[test]
 fn enhance_your_calm_is_sent_and_the_next_request_is_timed_from_it() {
     let proving_ground = ProvingGround::start(SEED);
 
@@ -367,6 +418,44 @@ fn retry_after_is_sent_in_seconds_and_each_http_date_format_on_429_503_and_302()
     );
     let long = raw_clients::get(&proving_ground, HOST, "/retry-after/503/long", &[]);
     assert_eq!(long.header("retry-after").as_deref(), Some("3600"));
+    for _ in 0..2 {
+        let limited = raw_clients::get(&proving_ground, HOST, "/retry-after/429/long", &[]);
+        assert_eq!(
+            (limited.status(), limited.header("retry-after").as_deref()),
+            (Some(429), Some("3600"))
+        );
+    }
+}
+
+/// `/long` after a form asks for an hour once, in seconds or as an
+/// HTTP-date an hour after the response's own `Date`, then serves a page:
+/// a client that did not wait cannot be mistaken for a slow one.
+///
+/// Covers: story:2-40
+#[test]
+fn retry_after_with_long_asks_for_an_hour_once_in_each_form() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    for form in ["seconds", "imf-fixdate", "rfc850", "asctime"] {
+        let path = format!("/retry-after/429/{form}/long");
+        let first = raw_clients::get(&proving_ground, HOST, &path, &[]);
+        let second = raw_clients::get(&proving_ground, HOST, &path, &[]);
+
+        assert_eq!(first.status(), Some(429), "{path}");
+        let retry_after = first.header("retry-after").expect("a Retry-After");
+        let date = httpdate::parse_http_date(&first.header("date").expect("a Date")).unwrap();
+        let asked = if form == "seconds" {
+            date + Duration::from_secs(retry_after.parse().unwrap())
+        } else {
+            httpdate::parse_http_date(&retry_after).unwrap()
+        };
+        assert_eq!(
+            asked.duration_since(date).unwrap(),
+            Duration::from_hours(1),
+            "{path}: {retry_after}"
+        );
+        assert_eq!(second.status(), Some(200), "{path}");
+    }
 }
 
 #[test]
@@ -404,11 +493,106 @@ fn refresh_stubs_name_their_targets() {
     );
 }
 
+/// The bodies `page.request`'s decoding cases read (ADR 0119): text in
+/// `Shift_JIS`, labelled so, and JSON after a UTF-8 BOM.
+#[test]
+fn a_shift_jis_text_and_a_json_body_after_a_bom_are_served_as_their_bytes() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let text = raw_clients::get(&proving_ground, HOST, "/text/shift-jis", &[]);
+    let json = raw_clients::get(&proving_ground, HOST, "/json/bom", &[]);
+
+    assert_eq!(
+        (
+            text.status(),
+            text.header("content-type").as_deref(),
+            text.body()
+        ),
+        (
+            Some(200),
+            Some("text/plain; charset=Shift_JIS"),
+            // 日本語 in Shift_JIS.
+            &[0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA][..]
+        )
+    );
+    assert_eq!(
+        (
+            json.status(),
+            json.header("content-type").as_deref(),
+            json.body()
+        ),
+        (
+            Some(200),
+            Some("application/json"),
+            &b"\xEF\xBB\xBF{\"bom\":true}"[..]
+        )
+    );
+}
+
+/// The bodies MIME sniffing types (ADR 0119), each served with no
+/// `Content-Type`, and a listed redirect with neither a type nor a body.
+#[test]
+fn sniffed_bodies_and_an_untyped_redirect_carry_no_content_type() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    for (case, starts) in [
+        ("html", &b"\n  <!DOCTYPE html>"[..]),
+        ("xml", b"<?xml"),
+        ("text", b"Sniffed as plain text."),
+        ("binary", b"Sniffed\x00"),
+        ("pdf", b"%PDF-"),
+    ] {
+        let answer = raw_clients::get(&proving_ground, HOST, &format!("/sniffed/{case}"), &[]);
+        assert_eq!(
+            (
+                answer.status(),
+                answer.header("content-type"),
+                answer.body().starts_with(starts)
+            ),
+            (Some(200), None, true),
+            "{case}"
+        );
+    }
+    let redirect = raw_clients::get(&proving_ground, HOST, "/redirect/301/untyped", &[]);
+    assert_eq!(
+        (
+            redirect.status(),
+            redirect.header("content-type"),
+            redirect.header("location").as_deref(),
+            redirect.body().len()
+        ),
+        (Some(301), None, Some("/target"), 0)
+    );
+}
+
+/// A PDF whose chunked body never ends (ADR 0119): it keeps coming past a
+/// mebibyte.
+#[test]
+fn the_endless_pdf_names_its_type_and_never_ends() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let arrived = raw_clients::get_prefix(&proving_ground, HOST, "/endless/pdf", 1 << 20);
+
+    assert_eq!(
+        (
+            arrived.status(),
+            arrived.header("content-type").as_deref(),
+            arrived.header("transfer-encoding").as_deref(),
+        ),
+        (Some(200), Some("application/pdf"), Some("chunked"))
+    );
+    assert!(arrived.body().len() >= 1 << 19, "{}", arrived.body().len());
+}
+
 #[test]
 fn redirects_are_served_as_each_case_needs() {
     let proving_ground = ProvingGround::start(SEED);
     let port = proving_ground.port().to_owned();
     let cross_origin = format!("https://{HTTP1}:{port}/target");
+    let address = format!("http://127.0.0.1:{port}/address/target");
+    let hex = format!("http://0x7f.0.0.1:{port}/address/target");
+    let name = format!("http://localhost:{port}/address/target");
+    let punycode = format!("http://xn--bcher-kva.test:{port}/target");
     let redirects = [
         ("/redirect/loop", 302, Some("/redirect/loop")),
         ("/redirect/301", 301, Some("/target")),
@@ -422,6 +606,13 @@ fn redirects_are_served_as_each_case_needs() {
         ("/redirect/cross-origin", 302, Some(cross_origin.as_str())),
         ("/redirect/hops/2", 302, Some("/redirect/hops/1")),
         ("/redirect/robots", 302, Some("/private/target")),
+        ("/redirect/file", 302, Some("file:///etc/passwd")),
+        ("/redirect/gopher", 302, Some("gopher://fetch-edge.test/1")),
+        ("/redirect/data", 302, Some("data:text/html,hi")),
+        ("/redirect/address", 302, Some(address.as_str())),
+        ("/redirect/address/hex", 302, Some(hex.as_str())),
+        ("/redirect/address/name", 302, Some(name.as_str())),
+        ("/redirect/punycode", 302, Some(punycode.as_str())),
     ];
 
     for (path, status, location) in redirects {

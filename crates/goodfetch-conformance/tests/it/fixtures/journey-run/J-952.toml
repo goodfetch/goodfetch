@@ -1,0 +1,27 @@
+id = "J-952"
+title = "Read the catalog twice"
+goal = "A person reads every product of the catalog twice. Both reads' Records MUST be the catalog's products."
+area = 3
+product = "collie"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 952
+tasks = [
+  { id = "catalog/1", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Read every product the catalog lists, from its first listing page, twice"
+
+[[expect]]
+text = "The oracle verifies the first read's Records"
+task = "catalog/1"
+
+[[expect]]
+text = "The oracle verifies the second read's Records"
+task = "catalog/1"

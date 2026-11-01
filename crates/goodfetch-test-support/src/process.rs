@@ -82,6 +82,51 @@ impl Process {
         child.wait()
     }
 
+    /// Asks it to stop with `SIGINT` and waits up to `deadline` for it to
+    /// exit, then kills it if it still runs; either way it is reaped. On
+    /// Windows, which has no `SIGINT` to send it, it is killed at once.
+    ///
+    /// # Errors
+    ///
+    /// When the signal, the kill or the wait fails, or when it still ran at
+    /// the deadline (`TimedOut`, once it is killed and reaped).
+    #[cfg_attr(
+        unix,
+        expect(
+            clippy::disallowed_methods,
+            reason = "a test helper times and polls its child's exit outside any async worker (ADR 0062)"
+        )
+    )]
+    pub fn interrupt_and_wait(&self, deadline: Duration) -> io::Result<ExitStatus> {
+        if let Some(status) = self.child().try_wait()? {
+            return Ok(status);
+        }
+        #[cfg(unix)]
+        {
+            self.interrupt()?;
+            let started = std::time::Instant::now();
+            while started.elapsed() < deadline {
+                if let Some(status) = self.child().try_wait()? {
+                    return Ok(status);
+                }
+                std::thread::sleep(STOP_POLL);
+            }
+            self.stop()?;
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "{} still ran {deadline:?} after SIGINT, so it was killed",
+                    self.program
+                ),
+            ))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = deadline;
+            self.stop()
+        }
+    }
+
     /// Sends it `SIGINT`, as Ctrl-C at a terminal does, through `kill -INT`,
     /// without waiting for it to exit.
     #[cfg(unix)]
@@ -133,6 +178,11 @@ impl fmt::Display for ProcessesAlive {
         )
     }
 }
+
+/// How often [`Process::interrupt_and_wait`] looks at whether its process
+/// has exited.
+#[cfg(unix)]
+const STOP_POLL: Duration = Duration::from_millis(10);
 
 /// How long `reported_address` waits for the first line.
 pub const REPORT_DEADLINE: Duration = Duration::from_secs(10);

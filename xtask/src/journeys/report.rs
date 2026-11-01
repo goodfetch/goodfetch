@@ -13,12 +13,16 @@
 //!   `failed` when any does;
 //! - `rejected` when the reader refuses any of them, or one names another
 //!   variant than its file: never `proved`;
-//! - `unproved` when the run kept none.
+//! - `unproved` when the run kept none;
+//! - with the runners' listings, `failed` when a cell of that run ran a test
+//!   that carries the variant and kept no document of it, as when the test
+//!   panicked before `finish`: an owner test is ready only when every
+//!   automated variant is `proved` (ADR 0063).
 //!
 //! The variant's Product is its Journey's, but Foxhound's for
 //! `foxhound-cli`, which runs on Foxhound's executable.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -38,7 +42,7 @@ const DOCUMENTS: &str = "result-documents/";
 /// worst.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(super) enum VariantOutcome {
+pub(crate) enum VariantOutcome {
     Proved,
     Unproved,
     Failed,
@@ -100,10 +104,18 @@ struct Judged {
     detail: Option<String>,
 }
 
-/// The report of the active Journeys, from the store at `store` if any.
-pub(super) fn build(journeys: &[Journey], store: Option<&Path>) -> Result<Report> {
+/// The tests that carry each variant, by its ID, as `(<runner>, <test>)`.
+pub(crate) type VariantTests = BTreeMap<String, Vec<(String, String)>>;
+
+/// The report of the active Journeys, from the store at `store` if any,
+/// cross-checked against the cells' test runs when `variant_tests` is given.
+pub(super) fn build(
+    journeys: &[Journey],
+    store: Option<&Path>,
+    variant_tests: Option<&VariantTests>,
+) -> Result<Report> {
     let (release_commit, judged) = match store {
-        Some(store) => judge_documents(journeys, store)?,
+        Some(store) => judge_documents(journeys, store, variant_tests)?,
         None => (None, BTreeMap::new()),
     };
     let mut groups: BTreeMap<(Milestone, u8, Product), Vec<Entry>> = BTreeMap::new();
@@ -155,17 +167,45 @@ fn product_of(variant: &Variant<'_>) -> Product {
     }
 }
 
+/// A Release cell: its OS, architecture and runtime.
+type Cell = (String, String, Option<String>);
+
+fn cell_name(cell: &Cell) -> String {
+    match &cell.2 {
+        Some(runtime) => format!("{} {} {runtime}", cell.0, cell.1),
+        None => format!("{} {}", cell.0, cell.1),
+    }
+}
+
+/// Each variant's outcome on `main`'s latest Release run, by its ID, as the
+/// Journey report gives it: the Feature report reads its variants through
+/// this, never from JUnit alone (ADR 0072's rules 3 and 4).
+pub(crate) fn variant_outcomes(
+    journeys: &[Journey],
+    store: &Path,
+    variant_tests: Option<&VariantTests>,
+) -> Result<BTreeMap<String, VariantOutcome>> {
+    let (_, judged) = judge_documents(journeys, store, variant_tests)?;
+    Ok(judged
+        .into_iter()
+        .map(|(variant, judged)| (variant, judged.outcome))
+        .collect())
+}
+
 /// The commit of `main`'s latest Release run, and what the documents its
-/// cells kept give for each variant they name.
+/// cells kept give for each variant they name, a variant whose test a cell
+/// ran without keeping its document `failed`.
 fn judge_documents(
     journeys: &[Journey],
     store: &Path,
+    variant_tests: Option<&VariantTests>,
 ) -> Result<(Option<String>, BTreeMap<String, Judged>)> {
     let attempts = results::read_all(store)
         .with_context(|| format!("reading the results store at {}", store.display()))?;
-    let Some((latest, _)) = results::latest_on_main(&attempts) else {
+    let Some((latest, runs)) = results::latest_on_main(&attempts) else {
         return Ok((None, BTreeMap::new()));
     };
+    let mut kept_by: BTreeMap<String, BTreeSet<Cell>> = BTreeMap::new();
     let by_id: BTreeMap<&str, &Journey> = journeys
         .iter()
         .map(|journey| (journey.id.as_str(), journey))
@@ -193,6 +233,11 @@ fn judge_documents(
         else {
             continue;
         };
+        kept_by.entry(variant.to_owned()).or_default().insert((
+            kept.configuration.os.clone(),
+            kept.configuration.arch.clone(),
+            kept.configuration.runtime.clone(),
+        ));
         let read = read_document(&kept.contents, variant, journey);
         let entry = judged.entry(variant.to_owned()).or_insert(Judged {
             outcome: read.outcome,
@@ -201,6 +246,36 @@ fn judge_documents(
         if read.outcome >= entry.outcome {
             entry.outcome = read.outcome;
             entry.detail = entry.detail.take().or(read.detail);
+        }
+    }
+    for (variant, carriers) in variant_tests.into_iter().flatten() {
+        let ran: BTreeSet<Cell> = runs
+            .iter()
+            .filter(|run| {
+                carriers
+                    .iter()
+                    .any(|(runner, test)| *runner == run.runner && *test == run.test)
+            })
+            .map(|run| (run.os.clone(), run.arch.clone(), run.runtime.clone()))
+            .collect();
+        let kept = kept_by.get(variant);
+        let Some(missing) = ran
+            .iter()
+            .find(|cell| kept.is_none_or(|kept| !kept.contains(*cell)))
+        else {
+            continue;
+        };
+        let detail = format!(
+            "the {} cell ran its test and kept no document of it",
+            cell_name(missing)
+        );
+        let entry = judged.entry(variant.clone()).or_insert(Judged {
+            outcome: VariantOutcome::Failed,
+            detail: None,
+        });
+        if VariantOutcome::Failed >= entry.outcome {
+            entry.outcome = VariantOutcome::Failed;
+            entry.detail = Some(detail);
         }
     }
     Ok((Some(latest), judged))

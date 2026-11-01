@@ -1,0 +1,44 @@
+{
+  "name": "@goodfetch/console-foxhound",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Foxhound's Console: Foxhound's screens and Foxhound's build entry, which composes Collie's screens with them and which Foxhound's executable embeds (ADRs 0057, 0087 and 0094); never published.",
+  "type": "module",
+  "imports": {
+    "#*": "./src/*"
+  },
+  "scripts": {
+    "build": "vite build",
+    "messages": "lingui extract --clean",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie-client": "workspace:*",
+    "@goodfetch/console": "workspace:*",
+    "@goodfetch/foxhound": "workspace:*",
+    "@lingui/core": "6.10.0",
+    "@lingui/react": "6.10.0",
+    "@tanstack/react-virtual": "3.14.13",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@goodfetch/test-support": "workspace:*",
+    "@lingui/cli": "6.10.0",
+    "@lingui/format-json": "6.10.0",
+    "@lingui/vite-plugin": "6.10.0",
+    "@storybook/react-vite": "10.6.3",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "tailwindcss": "4.3.3",
+    "typescript": "catalog:",
+    "vite": "8.3.4",
+    "vitest": "catalog:",
+    "vitest-browser-react": "2.3.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

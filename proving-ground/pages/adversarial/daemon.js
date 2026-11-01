@@ -1,8 +1,9 @@
 // The public page that calls the local Daemon from its own origin
 // (ADR 0067): it tries to read an answer from the Daemon's HTTP listener,
-// to make a JSON-RPC call and to open its WebSocket, and reports to the
-// Proving ground each call that got through. The Daemon must refuse a
-// foreign Origin, so a run of this page reports nothing.
+// to make a JSON-RPC call and to open its WebSocket and the Console's, and
+// reports to the Proving ground each call that got through. The Daemon and
+// its Console must refuse a foreign Origin, so a run of this page reports
+// nothing.
 (() => {
   "use strict";
   const script = document.currentScript;
@@ -32,13 +33,19 @@
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "runs.list", params: {} }),
   });
-  try {
-    const socket = new WebSocket(`ws://${daemon}/`);
-    socket.addEventListener("open", () => {
-      report("websocket_open");
-      socket.close();
-    });
-  } catch {
-    // Refused, as it must be.
+  // The Daemon's WebSocket, and the Console's, which opens at `/protocol`.
+  for (const [call, path] of [
+    ["websocket_open", "/"],
+    ["console_websocket_open", "/protocol"],
+  ]) {
+    try {
+      const socket = new WebSocket(`ws://${daemon}${path}`);
+      socket.addEventListener("open", () => {
+        report(call);
+        socket.close();
+      });
+    } catch {
+      // Refused, as it must be.
+    }
   }
 })();

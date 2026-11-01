@@ -309,7 +309,7 @@ status = "active"
 
 [[story]]
 id = 39
-title = "As a developer, I want a browser Session with an exception to reach the listed hosts through the engine's TLS relay, which shows the site the browser's own ClientHello and HTTP/2 settings, and the hosts it terminated reported on the Session, so that the exception does not change what the site sees (ADR 0042)."
+title = "As a developer, I want a browser Session with an exception to reach the listed hosts through the engine's TLS relay, which shows the site the browser's own ClientHello and HTTP/2 settings (a host only `tls.trusted_cas` lists; a host an invalid-certificate exception lists is reached over HTTP/1.1 alone, so that no Session cookie reaches it), and the hosts it terminated reported on the Session, so that the exception does not change what the site sees (ADR 0042)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -744,6 +744,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 95
@@ -752,6 +753,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 96
@@ -760,6 +762,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 97
@@ -768,6 +771,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 98
@@ -776,6 +780,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 99
@@ -784,6 +789,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 100
@@ -792,6 +798,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 101
@@ -800,6 +807,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 102
@@ -808,6 +816,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 103
@@ -816,6 +825,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 104
@@ -823,6 +833,7 @@ title = "As a developer, I want the HTTP tiers to verify TLS per host with Colli
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 105
@@ -831,6 +842,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 106
@@ -839,6 +851,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 107
@@ -847,6 +860,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 108
@@ -854,6 +868,7 @@ title = "As an operator, I want the HTTP tiers to send from the Session's local 
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 109
@@ -862,6 +877,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 110
@@ -870,6 +886,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 111
@@ -878,6 +895,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 112
@@ -886,6 +904,7 @@ milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 113
@@ -894,6 +913,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "reach"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 114
@@ -902,6 +922,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 115
@@ -910,6 +931,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 116
@@ -918,6 +940,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 117
@@ -925,6 +948,7 @@ title = "As a compliance reviewer, I want every Politeness or Site-preferences v
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 118
@@ -932,6 +956,7 @@ title = "As a site owner's correspondent, I want every Record fetched against it
 milestone = "M1 Core"
 journey = true
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 119
@@ -940,6 +965,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 120
@@ -948,6 +974,7 @@ milestone = "M4 Everything else"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 121
@@ -956,6 +983,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 122
@@ -964,3 +992,4 @@ milestone = "M1 Core"
 journey = false
 not_journey = "actor"
 status = "active"
+product = "foxhound"

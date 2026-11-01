@@ -7,27 +7,82 @@
 //! processes do. Foxhound's own.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Operation, OperationClass,
-    OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HandlerRequest, Instrument, Metric,
+    Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
+    ValueKind, schema_of,
 };
+use crate::foxhound::dataset::DatasetDeclaration;
+use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
-use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunReport, RunStarted, Tags};
+use crate::page::{FormatsRequest, PageId, PageResponse};
+use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+/// seeds the entries of a site's sitemaps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Seed {
+    /// One request.
+    Request(RequestSeed),
+    /// The entries of a sitemap, or of the sitemaps a site's robots.txt
+    /// names.
+    Sitemap(SitemapSeed),
+}
+
+/// A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+/// or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+/// are read. The engine reads it, and every sitemap index it nests, once
+/// the Run is running, through the domain policy, Politeness and robots.txt,
+/// running no handler; each entry is checked as an enqueue is, at depth 0,
+/// with the Label of the first rule whose pattern matches its URL and no
+/// Payload, and one no rule matches is not added, with `no_rule`. The seed
+/// widens the crawl's scope by the host of the URL it names, and an entry
+/// outside the scope is not added, with `out_of_scope`, so a robots.txt
+/// seed admits its own host's entries from a sitemap on another host it
+/// names, and no other host's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SitemapSeed {
+    /// The URL of the sitemap, or of the site's robots.txt.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sitemap: String,
+    /// The rules that give each entry its Label, in order: the first whose
+    /// pattern matches the entry's URL wins.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rules: Vec<SitemapRule>,
+}
+
+/// One rule of a sitemap seed: a URL pattern, a glob as
+/// `crawl.scope.include` takes them, matched in the engine, and the Label
+/// it gives the entries it matches, which take no Payload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SitemapRule {
+    /// The URL pattern.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pattern: String,
+    /// The Label of the entries it matches.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+}
 
 /// One request a crawl starts from (ADR 0093): a URL, the Label that picks
 /// its handler and its Payload, and how it is sent and identified.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Seed {
+pub struct RequestSeed {
     /// Its URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
@@ -44,6 +99,12 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    /// Whether it goes ahead of every request its domain holds pending,
+    /// whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    /// such requests, the later goes first; `false` by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub forefront: bool,
     /// The method it is sent with: `GET` by default.
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -58,6 +119,14 @@ pub struct Seed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 #[expect(
@@ -108,6 +177,184 @@ impl JsonSchema for Seeds {
     }
 }
 
+/// One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
+/// and the settings its requests take over the Run's.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LabelDeclaration {
+    /// The JSON Schema its requests' Payloads are checked against, the
+    /// side the program's schema parses from; none takes any Payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub payload: Option<Value>,
+    /// Its settings, nested by key: today `fetch.tier`, `session.page_check`,
+    /// which judges its pages in place of the Run's, and `session.source`,
+    /// which gives the Label a Session pool of its own (ADR 0093), any other
+    /// key refused with `setting_not_applicable`.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+}
+
+/// The one Label a code-free crawl declares, which every request it
+/// enqueues takes (ADR 0103).
+pub const CODE_FREE_LABEL: &str = "page";
+
+/// The one Dataset a code-free crawl declares, keyed by `url` (ADR 0103).
+pub const CODE_FREE_DATASET: &str = "pages";
+
+/// What a crawl with no handler reads from each page it fetches (spec
+/// #582's code-free crawls; ADR 0103): the engine declares the Label
+/// [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
+/// `url`, whose JSON Schema is generated from `formats`, and commits one
+/// Record per page fetched: the page's formats, as `page.formats` answers
+/// them (its `url` the document's, after redirects), its response's
+/// `status` and `fetched_at`, when the engine read it, and its named
+/// `fields`, each read by a locator and given by a Value transform (ADR
+/// 0123).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CrawlExtraction {
+    /// The formats each page's Record holds, as `page.formats` takes them.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub formats: FormatsRequest,
+    /// Which pages the crawl fetches beyond its seeds: `scope` by default.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub follow: ExtractionFollow,
+    /// The named fields each page's Record holds beside its formats, by
+    /// name, which no format's property and neither `status` nor
+    /// `fetched_at` may take; none by default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fields: BTreeMap<String, ExtractionField>,
+}
+
+/// One named field of a code-free crawl's Records (ADR 0123): the first
+/// element its locator finds in the page, its text, its runs of white
+/// space read as one space and trimmed, or one of its attributes, an
+/// `href` or `src` resolved against the document's base URL; optionally a
+/// capture group of a regular expression over that text; then its Value
+/// transform. A field the page does not give is null, and the Record's
+/// Provenance names why (`unread_fields`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractionField {
+    /// What finds its element.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: FieldLocator,
+    /// The attribute read in place of the element's text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attribute: Option<String>,
+    /// The `match` that picks the text its transform reads.
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub matched: Option<FieldMatch>,
+    /// Its Value transform: `text` by default.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub transform: FieldTransform,
+}
+
+/// What finds a field's element, named by `kind`: a CSS selector or an
+/// `XPath` expression, each read alike on every tier, a page a fetch tier
+/// serves from its document reading it as a browser reads it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FieldLocator {
+    /// A CSS selector.
+    Css {
+        /// The selector.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        selector: String,
+    },
+    /// An `XPath` 1.0 expression that finds nodes, with no namespace
+    /// prefix and no variable; the field reads the first node it finds in
+    /// document order, when that node is an element.
+    Xpath {
+        /// The expression.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        selector: String,
+    },
+}
+
+/// The `match` before a field's transform (ADR 0123): a capture group of a
+/// regular expression, in the `regex` crate's syntax (ADR 0081), over the
+/// text read; that group's text is what the transform reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FieldMatch {
+    /// The expression's source.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pattern: String,
+    /// The capture group, 1 by default; 0 is the whole match.
+    #[serde(default = "first_group")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group: u32,
+}
+
+const fn first_group() -> u32 {
+    1
+}
+
+/// A field's Value transform (ADR 0123), named by `kind`, each
+/// locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+/// `date` or `date_time` reads the machine-readable value of a `<time
+/// datetime>`, a `<data value>` or an element's `content` attribute in its
+/// invariant form (ISO 8601, a plain decimal with a dot), whatever the
+/// locale; a text printed for people is read under its locale's CLDR
+/// forms: a number in its digits, separators and grouping, a date or a
+/// date and time in one of its short, medium or long forms with a
+/// four-digit year; any other text is not a value.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FieldTransform {
+    /// The text read: a string.
+    #[default]
+    Text,
+    /// An integer or decimal: a JSON number, never through a float, so a
+    /// decimal a JSON number cannot hold exactly is not a value.
+    Number {
+        /// Its locale.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        locale: String,
+    },
+    /// A date: `YYYY-MM-DD`.
+    Date {
+        /// Its locale.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        locale: String,
+    },
+    /// A date and time: RFC 3339 with its offset, the one the text states,
+    /// else `time_zone`'s at that time; one stating neither is not a value.
+    DateTime {
+        /// Its locale.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        locale: String,
+        /// The time zone, an IANA name, of a text that states none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        time_zone: Option<String>,
+    },
+}
+
+/// Which pages a code-free crawl fetches beyond its seeds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractionFollow {
+    /// Every link of every page the crawl's scope admits: each `a[href]`
+    /// of the page, admitted as `enqueueLinks` admits it.
+    #[default]
+    Scope,
+    /// The entries of the sitemaps each seed's site names in its
+    /// robots.txt, read as a sitemap seed of that robots.txt reads them,
+    /// and no page's links.
+    Sitemap,
+    /// The seeds alone.
+    None,
+}
+
 /// What `crawl.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +370,31 @@ pub struct CrawlStartParams {
     /// The requests the crawl starts from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Seeds,
+    /// The crawl's Labels, by name, each with its Payload's JSON Schema or
+    /// none, and its own settings (ADRs 0082 and 0093): a scope between the
+    /// Run and its requests. A Payload of a declared schema is checked
+    /// against it at every enqueue; a Label the crawl does not declare
+    /// takes any Payload.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub labels: BTreeMap<String, LabelDeclaration>,
+    /// The crawl's Datasets, each with its JSON Schema and its key (ADR
+    /// 0103): a second of one name fails the start with
+    /// `dataset_duplicate`, and a key on a field the schema does not
+    /// require with `dataset_key_invalid`. Its handlers push Records only
+    /// into these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub datasets: Vec<DatasetDeclaration>,
+    /// What a crawl with no handler reads from each page (a code-free
+    /// crawl, ADR 0103): the engine handles each request itself and
+    /// declares the Label and the Dataset it commits into, so such a start
+    /// declares no Dataset of its own, else it fails with
+    /// `invalid_params`. None for a crawl whose program handles its
+    /// requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub extraction: Option<CrawlExtraction>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -177,6 +449,26 @@ pub struct CrawlRequestHandleParams {
     /// The Session of the crawl's Session pool that serves the attempt.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub session: ServingSession,
+    /// The tier that fetched the request's document, when the engine
+    /// fetched it (`fetch.tier`); none when the handler is given the
+    /// request alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub tier: Option<FetchTier>,
+    /// The page served from the fetched document, which the handler reads
+    /// as any page, when the engine fetched it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub page_id: Option<PageId>,
+    /// The response of the request's own document, when the engine
+    /// fetched it: its final URL, status and headers as the site sent
+    /// them, the encoding its document was decoded with, and the
+    /// `request_id` whose body `response.body` reads (ADRs 0093 and 0119).
+    /// None when the handler is given the request alone, or when the
+    /// browser's navigation answered none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub response: Option<PageResponse>,
 }
 
 /// One Record a handler pushed into a Dataset (ADR 0103).
@@ -238,9 +530,11 @@ pub const CRAWL_SERVE: Operation = Operation {
     description: "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
-    reach: Reach::AllSurfaces,
+    // It serves a handler, which no CLI command, MCP tool or Code mode
+    // global carries (ADR 0104).
+    reach: Reach::SdkOnly,
     params: schema_of::<RunParams>,
-    result: schema_of::<RunReport>,
+    result: schema_of::<CrawlRunReport>,
     events: &[],
     cancellable: true,
     stability: Stability::Experimental,
@@ -265,6 +559,27 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     description: "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
     group: ErrorGroup::Program,
     retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A site failing for now, or holding a crawl request unsent past the
+/// bound on its `Retry-After` (ADRs 0093 and 0118).
+pub const RESPONSE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_unavailable",
+    description: "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+    group: ErrorGroup::Page,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A response no handler is handed (ADRs 0093 and 0118).
+pub const RESPONSE_NOT_OK: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_ok",
+    description: "The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. A sitemap seed's sitemap (ADR 0093) fails with it on any status but a 2xx, 408, 429 or 5xx, and on a file that is no sitemap the crawl reads: XML that breaks off, another root, a gzip stream that does not decode, or more than sitemaps.org's 50,000 URLs or 50 MB uncompressed; its `details` name the `url`, and the `status` when one answered. Not retried: the site answers the same again.",
+    group: ErrorGroup::Page,
+    retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
@@ -299,6 +614,40 @@ pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A call that stages an output with an attempt while a declared Effect's
+/// body runs in it (ADR 0106).
+pub const EFFECT_STAGING_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "effect_staging_refused",
+    description: "The call would stage an output with its attempt (an enqueue, a seed added through `ctx.run`, a Record or a Key-value store write through `ctx.run`) while a declared Effect's body runs in that attempt. A re-run that finds the Effect in the Effect journal does not run the body again, so the output would be lost for good; nothing was staged. The details' `fix` says to stage it after the declaration, from the output the body returned.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A call that would stage one more admission with an attempt that holds
+/// `crawl.max_staged_enqueues` of them (ADR 0093).
+pub const STAGING_FULL: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "staging_full",
+    description: "The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `staging_full` names: the setting that bounds an attempt's staged
+/// admissions, and its value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StagingFullDetails {
+    /// The setting's name, `crawl.max_staged_enqueues`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: String,
+    /// How many admissions it lets one attempt stage.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max: u64,
+}
+
 /// A commit refused because its attempt's lease ended (ADR 0003).
 pub const LEASE_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "lease_lost",
@@ -321,6 +670,41 @@ pub const TIMEOUT_HANDLER: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn no_statuses() -> Value {
+    Value::Array(Vec::new())
+}
+
+/// `crawl.handle_statuses` (ADRs 0093 and 0118).
+pub const CRAWL_HANDLE_STATUSES: Setting = Setting {
+    name: "crawl.handle_statuses",
+    description: "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+    kind: ValueKind::List(&ValueKind::Count),
+    default: no_statuses,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn html_and_xhtml() -> Value {
+    Value::Array(vec![
+        Value::from("text/html"),
+        Value::from("application/xhtml+xml"),
+    ])
+}
+
+/// `crawl.content_types` (ADR 0119; pitfall H16).
+pub const CRAWL_CONTENT_TYPES: Setting = Setting {
+    name: "crawl.content_types",
+    description: "The media types a Label's handler takes, each `type/subtype`, `type/*` or `*/*`, set for the Run or for one of its Labels, whose own list wins for its requests: `text/html` and `application/xhtml+xml` by default. A response that would reach the handler (a 2xx, or a status `crawl.handle_statuses` lists) of another type ends its request `skipped` with the reason `content_type` before its body is read, never retried. The type is the response's `Content-Type` essence, or, when it names none, the type the pinned Chromium's MIME sniffer gives its first 1,024 bytes; a response with neither a type nor a body is an empty HTML document. An accepted type that is not HTML or XHTML reaches the handler with its body in its response and a page holding no document, whose document calls fail with `response_not_document`. A handler's own navigations are not checked. A value that is no list of media ranges is refused with `setting_invalid` when the crawl starts.",
+    kind: ValueKind::List(&ValueKind::Text),
+    default: html_and_xhtml,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `crawl.retry.max` (ADR 0093).
 pub const CRAWL_RETRY_MAX: Setting = Setting {
     name: "crawl.retry.max",
@@ -332,6 +716,22 @@ pub const CRAWL_RETRY_MAX: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `crawl.max_staged_enqueues` (ADR 0093).
+pub const CRAWL_MAX_STAGED_ENQUEUES: Setting = Setting {
+    name: "crawl.max_staged_enqueues",
+    description: "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+    kind: ValueKind::Count,
+    default: ten_thousand,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn ten_thousand() -> Value {
+    Value::from(10_000_u64)
+}
 
 /// `crawl.retry.handler_failed` (ADR 0093).
 pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
@@ -401,6 +801,42 @@ fn no() -> Value {
     Value::Bool(false)
 }
 
+/// `goodfetch.work_item.leased`: the crawls' work items whose attempt runs
+/// (ADR 0050).
+pub const WORK_ITEM_LEASED: Metric = Metric {
+    name: "goodfetch.work_item.leased",
+    description: "The crawls' work items leased to a handler whose attempt has not ended.",
+    instrument: Instrument::UpDownCounter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Stable,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.work_item.queued`: the crawls' work items waiting in their
+/// per-domain queues (ADR 0050).
+pub const WORK_ITEM_QUEUED: Metric = Metric {
+    name: "goodfetch.work_item.queued",
+    description: "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+    instrument: Instrument::UpDownCounter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.work_item.retried`: the attempts that ended to be tried
+/// again (ADR 0050).
+pub const WORK_ITEM_RETRIED: Metric = Metric {
+    name: "goodfetch.work_item.retried",
+    description: "The crawls' work items whose attempt ended and that wait to be tried again.",
+    instrument: Instrument::Counter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Stable,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -409,17 +845,24 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[CRAWL_REQUEST_HANDLE],
     error_codes: &[
         HANDLER_FAILED,
+        RESPONSE_UNAVAILABLE,
+        RESPONSE_NOT_OK,
         HANDLER_LOST,
         CLIENT_GONE,
         LEASE_LOST,
         ATTEMPT_ENDED,
+        EFFECT_STAGING_REFUSED,
+        STAGING_FULL,
     ],
     plugin_kinds: &[],
-    metrics: &[],
+    metrics: &[WORK_ITEM_QUEUED, WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
     settings: &[
         TIMEOUT_HANDLER,
+        CRAWL_HANDLE_STATUSES,
+        CRAWL_CONTENT_TYPES,
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
+        CRAWL_MAX_STAGED_ENQUEUES,
         CRAWL_HANDLER_CONCURRENCY,
         CRAWL_DOMAIN_KEYS,
         CRAWL_KEEP_ALIVE,

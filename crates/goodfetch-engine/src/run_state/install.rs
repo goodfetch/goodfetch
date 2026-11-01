@@ -55,6 +55,12 @@ const CHUNK: usize = 4096;
 /// The number of shared-memory lock slots SQLite uses (`SQLITE_SHM_NLOCK`).
 const SHM_LOCKS: usize = 8;
 
+/// The names of a run folder's files, between `?1`, the folder's name and
+/// its `/`, and `?2`, the same with `/` raised to `0`, the next byte: a
+/// range on the primary key, which SQLite searches, never a scan of every
+/// Run's files, and no `LIKE`, whose `_` a Run ID may hold.
+const ERASED: &str = "name >= ?1 AND name < ?2";
+
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS files (name TEXT NOT NULL PRIMARY KEY, size INTEGER NOT NULL) STRICT",
@@ -145,6 +151,15 @@ impl InstallDatabase {
         )
     }
 
+    /// The folder holding the database: the filesystem of every Run's
+    /// run state in the per-install layout (ADR 0122).
+    pub fn folder(&self) -> &Path {
+        self.install
+            .path
+            .parent()
+            .expect("invariant: the install database's path names a file in a folder")
+    }
+
     /// The name of the VFS the run state opens its run files through, as
     /// [`RunStateOptions::vfs`].
     pub fn vfs(&self) -> &'static str {
@@ -170,6 +185,61 @@ impl InstallDatabase {
             .into_iter()
             .filter_map(|name| name.split_once('/').map(|(run, _)| run.to_owned()))
             .collect())
+    }
+
+    /// Deletes every file of the run folder `run_id`, its run file and its
+    /// WAL, and makes the deletion durable, then truncates the database's
+    /// WAL with `wal_checkpoint(TRUNCATE)`: the database deletes with
+    /// `secure_delete` on, so neither it nor its `-wal` and `-shm` files
+    /// keep their bytes (ADR 0002). Answers whether it held any. It blocks:
+    /// run it under a blocking policy.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when a file of the run folder is open, or the database
+    /// cannot be written or its WAL truncated.
+    pub fn erase(&self, run_id: &str) -> Result<bool, RunStateError> {
+        let failed = |error: rusqlite::Error| sqlite_error(&self.install.path, &error);
+        let prefix = format!("{run_id}/");
+        let mut state = lock(&self.install.state);
+        if state
+            .locks
+            .keys()
+            .chain(state.shared_memory.keys())
+            .any(|name| name.starts_with(&prefix))
+        {
+            return Err(RunStateError::Sqlite {
+                path: self.install.path.clone(),
+                message: format!("a file of the run folder `{run_id}` is open"),
+            });
+        }
+        let after = format!("{run_id}0");
+        let mut erased = false;
+        state
+            .commit(|state| {
+                state.connection.execute(
+                    &format!("DELETE FROM chunks WHERE {ERASED}"),
+                    [&prefix, &after],
+                )?;
+                erased = state.connection.execute(
+                    &format!("DELETE FROM files WHERE {ERASED}"),
+                    [&prefix, &after],
+                )? > 0;
+                Ok(())
+            })
+            .map_err(failed)?;
+        state.sync().map_err(failed)?;
+        let busy: i64 = state
+            .connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+            .map_err(failed)?;
+        if busy != 0 {
+            return Err(RunStateError::Sqlite {
+                path: self.install.path.clone(),
+                message: "a reader held the WAL, so it was not truncated".to_owned(),
+            });
+        }
+        Ok(erased)
     }
 }
 
@@ -206,11 +276,14 @@ fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateE
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, super::SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(failed)?;
+    // Every page a Run's rewritten or deleted chunks free is zeroed, so a
+    // discarded Run's bytes are kept nowhere in the database (ADR 0002).
+    connection
+        .pragma_update(None, "secure_delete", "ON")
         .map_err(failed)?;
     if cfg!(target_os = "macos") {
         connection

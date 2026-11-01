@@ -1,8 +1,11 @@
-//! `xtask console build` (ADRs 0057 and 0068): Collie's Console build, run
-//! through its package's `build` script into a folder of its own, then
-//! every file it wrote compressed with brotli into the folder Collie's
-//! executable embeds, which holds brotli files only. A build whose inputs
-//! did not change since the last one runs nothing.
+//! `xtask console build` (ADRs 0057, 0068 and 0087): each Product's Console
+//! build, run through its package's `build` script into a folder of its
+//! own, then every file it wrote compressed with brotli into the folder its
+//! executable embeds, which holds brotli files and the build's routes only.
+//! Foxhound's build composes Collie's screens with its own, so its routes
+//! are Collie's and its own, and a change to Collie's package builds it
+//! again. A build whose inputs did not change since the last one runs
+//! nothing.
 
 use std::io::Read as _;
 
@@ -10,6 +13,8 @@ use crate::workspace::Workspace;
 
 /// The folder Collie's executable embeds.
 const BUILD: &str = "crates/goodfetch-collie/console-build";
+/// The folder Foxhound's executable embeds.
+const FOXHOUND_BUILD: &str = "crates/foxhound/goodfetch-foxhound/console-build";
 
 fn decompressed(workspace: &Workspace, relative: &str) -> Vec<u8> {
     let compressed = workspace.read(relative).unwrap();
@@ -35,6 +40,7 @@ fn the_console_build_holds_each_built_file_compressed_with_brotli_and_nothing_el
             "assets/font-3c4d.woff2.br",
             "assets/index-1a2b.js.br",
             "index.html.br",
+            "routes.json",
         ]
     );
     assert_eq!(
@@ -72,6 +78,50 @@ fn a_changed_input_builds_the_console_again() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert_eq!(
         workspace.read_text("target/console-build-runs.txt"),
+        "run\nrun\n"
+    );
+}
+
+/// Covers: story:12-201
+#[test]
+fn foxhounds_console_build_is_its_own_page_with_collies_routes_and_its_own() {
+    let workspace = Workspace::from_fixture("console");
+
+    let outcome = workspace.xtask(&["console", "build"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let mut files: Vec<String> = walk(&workspace.path().join(FOXHOUND_BUILD));
+    files.sort();
+    assert_eq!(files, ["index.html.br", "routes.json"]);
+    assert_eq!(
+        decompressed(&workspace, &format!("{FOXHOUND_BUILD}/index.html.br")),
+        b"<!doctype html><title>Goodfetch Foxhound</title>\n"
+    );
+    let routes: serde_json::Value =
+        serde_json::from_str(&workspace.read_text(&format!("{FOXHOUND_BUILD}/routes.json")))
+            .unwrap();
+    assert_eq!(
+        routes,
+        serde_json::json!({ "routes": ["/runs", "/runs/$run", "/datasets"] })
+    );
+}
+
+#[test]
+fn a_change_to_collies_console_builds_foxhounds_again() {
+    let workspace = Workspace::from_fixture("console");
+    assert_eq!(workspace.xtask(&["console", "build"]).code, 0);
+    assert_eq!(workspace.xtask(&["console", "build"]).code, 0);
+    assert_eq!(
+        workspace.read_text("target/console-foxhound-build-runs.txt"),
+        "run\n"
+    );
+    workspace.append("console/collie/build.mjs", "// changed\n");
+
+    let outcome = workspace.xtask(&["console", "build"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        workspace.read_text("target/console-foxhound-build-runs.txt"),
         "run\nrun\n"
     );
 }

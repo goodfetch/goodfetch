@@ -1,0 +1,37 @@
+[package]
+name = "goodfetch-secret-providers"
+description = "The built-in external Secret providers: 1Password (`op://`), Bitwarden and Vaultwarden (`bw:`), HashiCorp Vault and OpenBao (`vault:`), AWS Secrets Manager (`aws-sm:`), GCP Secret Manager (`gcp-sm:`) and Azure Key Vault (`azure-kv:`), each filling the Secret-provider driver's two primitives (spec #564; ADRs 0015, 0033 and 0129)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+data-encoding.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+hmac.workspace = true
+hyper.workspace = true
+jiff.workspace = true
+secrecy.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["process"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rcgen = { workspace = true, features = ["ring"] }
+rstest.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+tokio = { workspace = true, features = ["rt", "time", "net"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+
+[lints]
+workspace = true

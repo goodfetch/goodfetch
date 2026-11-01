@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
-use goodfetch_protocol::usage::{Limit, LimitSetter, LimitStanding};
+use goodfetch_protocol::usage::{Limit, LimitStanding};
 use goodfetch_test_support::TestEnv;
 use jiff::Timestamp;
 use rstest::rstest;
@@ -147,6 +148,57 @@ fn a_charge_beyond_what_is_left_is_refused_naming_the_limit() {
             period: None,
             resets_at: None,
         })))
+    );
+}
+
+/// A run's charges out of the Slices it holds read the Limits that hold it
+/// on one connection the run keeps, so a hundred of them run fewer file
+/// operations in all than one ledger open does (the deep review's 599-12:
+/// every 16 KiB a provider Session relayed reopened the ledger); and the
+/// Limits are still read on each charge, so one set meanwhile through
+/// another engine's connection holds the very next charge.
+///
+/// Covers: story:3-67, story:3-71
+#[test]
+fn a_runs_charges_read_its_limits_on_one_connection_and_still_meet_a_limit_set_meanwhile() {
+    let env = TestEnv::new();
+    let name = env.unique_name("ledger-connection");
+    let vfs = goodfetch_test_support::CrashVfs::register(&name, env.seed()).unwrap();
+    let ledger = Ledger::at(
+        env.home().join("usage-ledger.sqlite"),
+        Some(vfs.name().to_owned()),
+    );
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000_000), now())
+        .unwrap();
+    let mut run = Charging::new(
+        ledger.clone(),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+    run.charge("requests", 1, now()).unwrap();
+    let before = vfs.operations();
+    ledger.limits().unwrap();
+    let one_open = vfs.operations() - before;
+
+    let before = vfs.operations();
+    for _ in 0..100 {
+        run.charge("requests", 1, now()).unwrap();
+    }
+    let hundred_charges = vfs.operations() - before;
+    ledger
+        .add_limit(&limit(install(), "requests", 5), now())
+        .unwrap();
+    let after_the_new_limit = run.charge("requests", 10, now());
+
+    assert_eq!(
+        (
+            hundred_charges < one_open,
+            matches!(after_the_new_limit, Err(Refusal::Reached(_)))
+        ),
+        (true, true),
+        "a hundred charges ran {hundred_charges} file operations, one open {one_open}"
     );
 }
 
@@ -429,7 +481,9 @@ fn a_ledger_keeps_the_columns_a_newer_minor_added() {
 
 /// Engines that open a new ledger at once, such as an engine and its
 /// `usage` call at its start, each open it: switching the new file to WAL
-/// waits for the others as every transaction does.
+/// waits for the others as every transaction does. Its 40 new ledgers lie
+/// in memory, where it was red before the fix (047f3ab60): on a busy disk
+/// their synced creations passed the Quick kill (fix-queue 123).
 ///
 /// Covers: story:3-67
 #[test]
@@ -438,7 +492,7 @@ fn a_ledger_keeps_the_columns_a_newer_minor_added() {
     reason = "the test opens the ledger from threads of its own, as engines in their processes do"
 )]
 fn engines_opening_a_new_ledger_at_once_each_open_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let mut failures = Vec::new();
     for round in 0..40 {
         let path = env.home().join(format!("ledger-{round}.sqlite"));

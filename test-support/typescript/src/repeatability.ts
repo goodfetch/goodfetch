@@ -55,14 +55,22 @@ export async function measureRepeatability(
   for (const browser of options.browsers) {
     await playwright(options, browser, "update", ["--update-snapshots=all"]);
     const report = await playwright(options, browser, "runs", [`--repeat-each=${options.runs}`]);
-    const cases = caseRuns(report, visualProject(browser));
-    verdicts.push({
-      browser,
-      repeats: cases.length > 0 && cases.every((runs) => runs.repeated === runs.runs),
-      cases,
-    });
+    verdicts.push(browserVerdict(browser, caseRuns(report, visualProject(browser)), options.runs));
   }
   return verdicts;
+}
+
+/** The verdict of `browser` on its `cases`, each of which was asked to run `runs` times. */
+export function browserVerdict(
+  browser: VisualBrowser,
+  cases: readonly CaseRuns[],
+  runs: number,
+): BrowserVerdict {
+  return {
+    browser,
+    repeats: cases.length > 0 && cases.every((one) => one.runs === runs && one.repeated === runs),
+    cases,
+  };
 }
 
 /** The parts of Playwright's JSON report the measurement reads. */

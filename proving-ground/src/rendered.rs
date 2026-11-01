@@ -4,7 +4,10 @@
 //! pages whose name a script puts in a shadow root, whose price it loads by
 //! AJAX and whose description sits in a frame. None of a Record's data is in
 //! a page's own HTML. Every value comes from the seed, and the expected
-//! results from the same seed data, never from a tool's output.
+//! results from the same seed data, never from a tool's output. An app
+//! shell, `/shell`, whose content its inline script writes as the page
+//! parses, is shown complete by the time it loads, its own HTML holding an
+//! empty `#app` (a JavaScript page fetched over HTTP, ADR 0093).
 
 use hyper::{Method, StatusCode};
 use serde_json::json;
@@ -187,6 +190,9 @@ pub(crate) fn respond(seed: u64, request: &Request<'_>) -> Reply {
     if path == "/feed" {
         return Reply::html(feed_page());
     }
+    if path == "/shell" {
+        return Reply::html(SHELL_PAGE.to_owned());
+    }
     if let Some(page) = path.strip_prefix("/api/feed/") {
         return match canonical_number(page).filter(|page| (1..=FEED_PAGES).contains(page)) {
             Some(page) => feed_data(seed, page),
@@ -220,6 +226,11 @@ pub(crate) fn respond(seed: u64, request: &Request<'_>) -> Reply {
     }
     Reply::not_found()
 }
+
+/// The app shell: its inline script writes its heading into the empty
+/// `#app` before the page loads, so a browser shows it at `load` and the
+/// HTML alone never does.
+const SHELL_PAGE: &str = "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Shell</title></head>\n<body>\n<main id=\"app\"></main>\n<script>\ndocument.getElementById(\"app\").innerHTML = \"<h1 class=\\\"title\\\">Rendered shell</h1><p>Written by its script.</p>\";\n</script>\n</body>\n</html>\n";
 
 fn feed_page() -> String {
     format!(

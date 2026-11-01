@@ -38,6 +38,10 @@ fn not_resolved(name: &str) -> Looked {
 /// Looks `name`'s IPv4 addresses up at the moments `after` the first, each
 /// measured from the lookup before it, through the fixture of
 /// `proving_ground`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the lookups run on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+)]
 fn lookups(proving_ground: &ProvingGround, name: &str, after: &[Duration]) -> Vec<Looked> {
     let fixture = proving_ground.description().fixtures.dns.parse().unwrap();
     goodfetch_test_support::runtime().block_on(async {
@@ -175,6 +179,10 @@ mod linux {
     /// The child, which runs only inside the namespace.
     #[test]
     #[ignore = "run as a child by resolver_cache::linux::on_linux_a_direct_lookup_keeps_the_fixtures_answer_for_its_ttl"]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the lookups run on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
+    )]
     fn in_the_namespace_a_direct_lookup_keeps_its_answer_for_its_ttl() {
         let looked: Vec<Vec<IpAddr>> = goodfetch_test_support::runtime().block_on(async {
             let clock = Clock::paused(SystemTime::UNIX_EPOCH);

@@ -62,24 +62,35 @@ impl Watchlist {
         }
     }
 
-    /// The watchlist `text` (a source's name or address) names, if any.
+    /// The watchlist `text` (a source's name or address) names, if any:
+    /// its repository's name, compared as keys, so `Antibot Detector` and
+    /// `antibot-detector` both name it.
     pub(crate) fn named_in(text: &str) -> Option<Self> {
-        let text = text.to_ascii_lowercase();
+        let text = key(text);
         Self::ALL.into_iter().find(|watchlist| {
-            let repository = watchlist.repository().to_ascii_lowercase();
+            let repository = watchlist.repository();
             let name = repository
                 .rsplit_once('/')
-                .map_or(repository.as_str(), |(_, name)| name);
-            text.contains(name)
+                .map_or(repository, |(_, name)| name);
+            text.contains(&key(name))
         })
     }
 
-    /// The vendor names a checkout of the list at `folder` lists.
+    /// The vendor names a checkout of the list at `folder` lists; an error
+    /// when it lists none, which means its layout changed, never that every
+    /// vendor went away.
     fn read(self, folder: &Path) -> Result<Vec<String>> {
-        match self {
-            Self::WebAppAnalyzer => read_webappanalyzer(folder),
-            Self::AntibotDetector => read_antibot_detector(folder),
-        }
+        let names = match self {
+            Self::WebAppAnalyzer => read_webappanalyzer(folder)?,
+            Self::AntibotDetector => read_antibot_detector(folder)?,
+        };
+        anyhow::ensure!(
+            !names.is_empty(),
+            "{} at {} lists no bot-protection vendor: its layout may have changed",
+            self.name(),
+            folder.display()
+        );
+        Ok(names)
     }
 }
 
@@ -103,6 +114,11 @@ fn read_webappanalyzer(folder: &Path) -> Result<Vec<String>> {
         .filter(|(_, category)| category.name == "Security")
         .map(|(number, _)| number)
         .collect();
+    anyhow::ensure!(
+        !security.is_empty(),
+        "{} has no \"Security\" category: its layout may have changed",
+        source.join("categories.json").display()
+    );
     let technologies = source.join("technologies");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&technologies)
         .with_context(|| format!("reading {}", technologies.display()))?
@@ -198,27 +214,40 @@ pub(crate) fn read_listed(folders: &[(Watchlist, &Path)]) -> Result<Vec<Listed>>
     Ok(listed)
 }
 
-/// A vendor the rules cover: its name and the other names a watchlist lists
-/// it under (`block_detection`'s tests check its `rules` exist).
+/// A vendor the coverage file names: its name and the other names a
+/// watchlist lists it under.
 #[derive(Deserialize)]
-pub(crate) struct Covered {
+struct Known {
     name: String,
     #[serde(default)]
     listed_as: Vec<String>,
 }
 
-/// The vendors the rules of the workspace at `root` cover.
-pub(crate) fn read_covered(root: &Path) -> Result<Vec<Covered>> {
-    #[derive(Deserialize)]
-    struct File {
-        vendor: Vec<Covered>,
+/// The coverage file, `vendors.toml`: the vendors the rules cover
+/// (`block_detection`'s tests check their `rules` exist), and the vendors no
+/// rule covers yet that the watchlists list under several names, which
+/// each get one issue, keyed by their `name`.
+#[derive(Deserialize)]
+pub(crate) struct Coverage {
+    #[serde(rename = "vendor")]
+    covered: Vec<Known>,
+    #[serde(default)]
+    uncovered: Vec<Known>,
+}
+
+impl Coverage {
+    /// The coverage file `text`.
+    pub(crate) fn parse(text: &str) -> Result<Self> {
+        Ok(toml::from_str(text)?)
     }
+}
+
+/// The coverage file of the workspace at `root`.
+pub(crate) fn read_coverage(root: &Path) -> Result<Coverage> {
     let path = root.join(VENDORS);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let file: File =
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-    Ok(file.vendor)
+    Coverage::parse(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// A vendor the watchlists list that no rule covers.
@@ -230,25 +259,45 @@ pub(crate) struct Missing {
     pub(crate) listings: Vec<Listed>,
 }
 
-/// Each vendor of `listed` that `covered` lacks, by key, its listings in
+/// Each vendor of `listed` that `coverage` lacks, by key, its listings in
 /// `listed`'s order. A name matches a covered vendor's name or one of its
-/// `listed_as` names, compared as keys.
-pub(crate) fn missing(listed: &[Listed], covered: &[Covered]) -> Vec<Missing> {
-    let covered: BTreeSet<String> = covered
+/// `listed_as` names, compared as keys; an uncovered vendor's `listed_as`
+/// names fold into its own name's key.
+pub(crate) fn missing(listed: &[Listed], coverage: &Coverage) -> Vec<Missing> {
+    let names = |vendor: &'_ Known| {
+        let own = key(&vendor.name);
+        std::iter::once(&vendor.name)
+            .chain(vendor.listed_as.iter())
+            .map(move |name| (key(name), own.clone()))
+            .collect::<Vec<_>>()
+    };
+    let covered: BTreeSet<String> = coverage
+        .covered
         .iter()
-        .flat_map(|vendor| std::iter::once(&vendor.name).chain(&vendor.listed_as))
-        .map(|name| key(name))
+        .flat_map(names)
+        .map(|(name, _)| name)
         .collect();
+    let folded: BTreeMap<String, String> = coverage.uncovered.iter().flat_map(names).collect();
     let mut missing: BTreeMap<String, Vec<Listed>> = BTreeMap::new();
     for listing in listed {
         let key = key(&listing.name);
         if !key.is_empty() && !covered.contains(&key) {
-            missing.entry(key).or_default().push(listing.clone());
+            let vendor = folded.get(&key).cloned().unwrap_or(key);
+            missing.entry(vendor).or_default().push(listing.clone());
         }
     }
     missing
         .into_iter()
         .map(|(key, listings)| Missing { key, listings })
+        .collect()
+}
+
+/// The listings of `listed` whose name has no letter or digit, which no key
+/// compares.
+pub(crate) fn unkeyed(listed: &[Listed]) -> Vec<&Listed> {
+    listed
+        .iter()
+        .filter(|listing| key(&listing.name).is_empty())
         .collect()
 }
 
@@ -286,12 +335,12 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         (Watchlist::WebAppAnalyzer, &webappanalyzer),
         (Watchlist::AntibotDetector, &antibot_detector),
     ])?;
-    let covered = read_covered(&environment.root)?;
+    let coverage = read_coverage(&environment.root)?;
     let api = arguments.github.api(environment.token());
     let mut issues = Issues::new(&api, &arguments.github.repository);
     let mut opened = 0;
     let mut waiting = 0;
-    for vendor in missing(&listed, &covered) {
+    for vendor in missing(&listed, &coverage) {
         if opened == arguments.limit {
             waiting += 1;
             continue;
@@ -308,6 +357,13 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     for action in issues.actions() {
         output::line(action);
     }
+    for listing in unkeyed(&listed) {
+        output::line(&format!(
+            "{} lists a name with no letter or digit, which the job cannot compare: {:?}",
+            listing.watchlist.name(),
+            listing.name
+        ));
+    }
     if waiting > 0 {
         output::line(&format!(
             "{waiting} more vendors may lack a rule; the next run opens up to {} of them",
@@ -317,11 +373,32 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     Ok(ExitCode::SUCCESS)
 }
 
+/// The most characters of a listed name an issue shows.
+const SHOWN_NAME: usize = 64;
+
+/// A listed name as an issue shows it: only letters, digits, spaces and
+/// `.-_+&'`, so nothing from an unpinned checkout becomes live Markdown, a
+/// mention or a link, and at most [`SHOWN_NAME`] characters.
+fn shown(name: &str) -> String {
+    let kept: Vec<char> = name
+        .chars()
+        .filter(|character| {
+            character.is_alphanumeric()
+                || matches!(character, ' ' | '.' | '-' | '_' | '+' | '&' | '\'')
+        })
+        .collect();
+    let mut text: String = kept.iter().take(SHOWN_NAME).collect();
+    if kept.len() > SHOWN_NAME {
+        text.push('…');
+    }
+    text
+}
+
 fn title(vendor: &Missing) -> String {
     let name = vendor
         .listings
         .first()
-        .map_or(vendor.key.as_str(), |listed| listed.name.as_str());
+        .map_or_else(|| vendor.key.clone(), |listed| shown(&listed.name));
     format!("Block detection: no rule covers {name}, which a watchlist lists")
 }
 
@@ -334,7 +411,7 @@ fn body(vendor: &Missing) -> String {
             "- {} ({}) lists `{}`.",
             listed.watchlist.name(),
             listed.watchlist.license(),
-            listed.name
+            shown(&listed.name)
         );
     }
     format!(

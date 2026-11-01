@@ -1,7 +1,7 @@
 // The axe exception file, `console/axe-exceptions.toml` (ADR 0073): axe's
 // known false positives, one `[[exception]]` entry each, naming the rule,
-// the selector of the elements it is excepted on, the reason and its open
-// issue. A test never disables a rule; the axe fixture reads this file.
+// the selector of the elements it is excepted on, the pages it is excepted
+// on, the reason and its open issue. A test never disables a rule; the axe fixture reads this file.
 // Whether each issue is still open is `xtask axe-exceptions check`'s job, as
 // a test cannot reach GitHub (ADR 0043).
 import { readFile } from "node:fs/promises";
@@ -15,6 +15,12 @@ export interface AxeException {
   readonly rule: string;
   /** A CSS selector of the elements the rule is excepted on. */
   readonly selector: string;
+  /**
+   * The pages it is excepted on, each a URL path pattern as `URLPattern`
+   * reads one (`/runs/:run_id`; `/*` for every page), so an entry is scoped
+   * to the screens where axe is wrong.
+   */
+  readonly pages: readonly string[];
   /** Why axe is wrong there. */
   readonly reason: string;
   /** The number of its open issue, which the fix closes. */
@@ -31,7 +37,7 @@ export const AXE_EXCEPTIONS_FILE: string = join(
   "axe-exceptions.toml",
 );
 
-const FIELDS: readonly string[] = ["rule", "selector", "reason", "issue"];
+const FIELDS: readonly string[] = ["rule", "selector", "pages", "reason", "issue"];
 
 /** The entries of an exception file's text; fails with `axe_exceptions_invalid` on an entry missing a field, or with one it does not define. */
 export function parseAxeExceptions(text: string): readonly AxeException[] {
@@ -71,20 +77,46 @@ function exceptionAt(entry: unknown, position: number): AxeException {
   if (unknownFields.length > 0) {
     throw invalid(`has fields it does not define: ${unknownFields.join(", ")}`);
   }
-  const { rule, selector, reason, issue } = fields;
-  if (typeof rule !== "string" || rule === "") {
+  const { rule, selector, pages, reason, issue } = fields;
+  if (typeof rule !== "string" || rule.trim() === "") {
     throw invalid("has no rule");
   }
-  if (typeof selector !== "string" || selector === "") {
+  if (typeof selector !== "string" || selector.trim() === "") {
     throw invalid("has no selector");
   }
-  if (typeof reason !== "string" || reason === "") {
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw invalid("names no page");
+  }
+  const patterns: string[] = [];
+  for (const pattern of pages) {
+    if (typeof pattern !== "string" || !isPathPattern(pattern)) {
+      throw invalid(`has a page that is no URL path pattern: ${JSON.stringify(pattern)}`);
+    }
+    patterns.push(pattern);
+  }
+  if (typeof reason !== "string" || reason.trim() === "") {
     throw invalid("has no reason");
   }
   if (typeof issue !== "number" || !Number.isSafeInteger(issue) || issue < 1) {
     throw invalid("has no issue number");
   }
-  return { rule, selector, reason, issue };
+  return { rule, selector, pages: patterns, reason, issue };
+}
+
+/** Whether `pattern` is a URL path pattern `URLPattern` reads. */
+function isPathPattern(pattern: string): boolean {
+  try {
+    return new URLPattern({ pathname: pattern }) instanceof URLPattern;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `exception` names the page at `url`, by its path. */
+export function namesPage(exception: AxeException, url: string): boolean {
+  return exception.pages.some((pathname) =>
+    new URLPattern({ pathname }).test({ pathname: new URL(url).pathname }),
+  );
 }
 
 let committed: Promise<readonly AxeException[]> | undefined;

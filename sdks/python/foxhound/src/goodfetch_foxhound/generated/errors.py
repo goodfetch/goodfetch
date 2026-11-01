@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from goodfetch_collie_client.generated.errors import GoodfetchError, ProgramError, RefusedError, UnavailableError
+from goodfetch_collie_client.generated.errors import GoodfetchError, PageError, ProgramError, RefusedError, UnavailableError
 
 
 class AttemptEndedError(ProgramError):
@@ -19,12 +19,52 @@ class AttemptEndedError(ProgramError):
         super().__init__(message, code="attempt_ended", group="program", retryable=False)
 
 
+class BrowserRequiredError(ProgramError):
+    """A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_required", group="program", retryable=False)
+
+
 class ClientGoneError(UnavailableError):
     """The Connection the attempt's request went on ended before its handler answered: the program or one of its `workers=N` handler processes ended, or its Connection dropped. Not the handler's own failure (`handler_failed`): the attempt committed nothing and is retried, on another Connection that serves the crawl, under `crawl.retry.max`."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="client_gone", group="unavailable", retryable=True)
+
+
+class DatasetDuplicateError(ProgramError):
+    """The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_duplicate", group="program", retryable=False)
+
+
+class DatasetKeyInvalidError(ProgramError):
+    """A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_key_invalid", group="program", retryable=False)
+
+
+class DatasetUnknownError(ProgramError):
+    """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_unknown", group="program", retryable=False)
+
+
+class EffectStagingRefusedError(ProgramError):
+    """The call would stage an output with its attempt (an enqueue, a seed added through `ctx.run`, a Record or a Key-value store write through `ctx.run`) while a declared Effect's body runs in that attempt. A re-run that finds the Effect in the Effect journal does not run the body again, so the output would be lost for good; nothing was staged. The details' `fix` says to stage it after the declaration, from the output the body returned."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_staging_refused", group="program", retryable=False)
 
 
 class HandlerFailedError(ProgramError):
@@ -51,6 +91,78 @@ class LeaseLostError(UnavailableError):
         super().__init__(message, code="lease_lost", group="unavailable", retryable=True)
 
 
+class PayloadInvalidError(ProgramError):
+    """A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="payload_invalid", group="program", retryable=False)
+
+
+class PayloadSchemaChangedError(ProgramError):
+    """The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="payload_schema_changed", group="program", retryable=False)
+
+
+class QueryFailedError(UnavailableError):
+    """The query failed in a way the engine does not recognise, such as a run file it could not read; the engine's log holds the cause. Try again; if it fails the same way, report it with the log."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="query_failed", group="unavailable", retryable=False)
+
+
+class QueryInvalidError(ProgramError):
+    """The SQL tab did not run the statement: it does not parse, names a table, column or function that does not exist or a run the query did not select, is not one `SELECT` or `WITH` statement (a write, `ATTACH`, `INSTALL`, `LOAD` or `COPY`), or reads a file or URL, which the SQL tab never reaches. The details say which. Read only the selected runs' tables, and select the run first."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="query_invalid", group="program", retryable=False)
+
+
+class QueryMemoryExceededError(ProgramError):
+    """The query needed more memory than `dataset.query.memory_limit`, so it was stopped. The details name the setting, its value and its layer. Aggregate or filter sooner, select fewer runs, or raise `dataset.query.memory_limit`."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="query_memory_exceeded", group="program", retryable=False)
+
+
+class RecordInvalidError(ProgramError):
+    """A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="record_invalid", group="program", retryable=False)
+
+
+class ResponseNotDocumentError(ProgramError):
+    """A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_not_document", group="program", retryable=False)
+
+
+class ResponseNotOKError(PageError):
+    """The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. A sitemap seed's sitemap (ADR 0093) fails with it on any status but a 2xx, 408, 429 or 5xx, and on a file that is no sitemap the crawl reads: XML that breaks off, another root, a gzip stream that does not decode, or more than sitemaps.org's 50,000 URLs or 50 MB uncompressed; its `details` name the `url`, and the `status` when one answered. Not retried: the site answers the same again."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_not_ok", group="page", retryable=False)
+
+
+class ResponseUnavailableError(PageError):
+    """The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_unavailable", group="page", retryable=True)
+
+
 class SampleCrawlRefusedError(RefusedError):
     """The sample crawl refused its pages."""
 
@@ -59,12 +171,35 @@ class SampleCrawlRefusedError(RefusedError):
         super().__init__(message, code="sample_crawl_refused", group="refused", retryable=True)
 
 
+class StagingFullError(ProgramError):
+    """The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="staging_full", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "attempt_ended": AttemptEndedError,
+    "browser_required": BrowserRequiredError,
     "client_gone": ClientGoneError,
+    "dataset_duplicate": DatasetDuplicateError,
+    "dataset_key_invalid": DatasetKeyInvalidError,
+    "dataset_unknown": DatasetUnknownError,
+    "effect_staging_refused": EffectStagingRefusedError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
     "lease_lost": LeaseLostError,
+    "payload_invalid": PayloadInvalidError,
+    "payload_schema_changed": PayloadSchemaChangedError,
+    "query_failed": QueryFailedError,
+    "query_invalid": QueryInvalidError,
+    "query_memory_exceeded": QueryMemoryExceededError,
+    "record_invalid": RecordInvalidError,
+    "response_not_document": ResponseNotDocumentError,
+    "response_not_ok": ResponseNotOKError,
+    "response_unavailable": ResponseUnavailableError,
     "sample_crawl_refused": SampleCrawlRefusedError,
+    "staging_full": StagingFullError,
 }
 """The exception class of each Error code."""

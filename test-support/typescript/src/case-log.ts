@@ -90,14 +90,16 @@ export function checkedCaseLogEntry(value: unknown): CaseLogEntry {
   return value;
 }
 
-/** The operating system and architecture as Rust's `std::env::consts` names them, which every result document uses. */
+/** This host's operating system and architecture as Rust's `std::env::consts` names them, which every result document uses. */
 export function hostPlatform(): Platform {
+  return rustPlatform(process.platform, process.arch);
+}
+
+/** Node's `process.platform` and `process.arch` as Rust's `std::env::consts` names them: `darwin` is `macos`, `x64` is `x86_64`. */
+export function rustPlatform(platform: string, arch: string): Platform {
   const os: Record<string, string> = { darwin: "macos", win32: "windows" };
-  const arch: Record<string, string> = { x64: "x86_64", arm64: "aarch64", ia32: "x86" };
-  return {
-    os: os[process.platform] ?? process.platform,
-    arch: arch[process.arch] ?? process.arch,
-  };
+  const cpu: Record<string, string> = { x64: "x86_64", arm64: "aarch64", ia32: "x86" };
+  return { os: os[platform] ?? platform, arch: cpu[arch] ?? arch };
 }
 
 /** The runtime the cases run on, such as `node-24`. */

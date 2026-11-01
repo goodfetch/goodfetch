@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`a 10,000-row Runs list renders only the rows in view, and the last ones once scrolled to 1`] = `
+{
+  "rendered": 16,
+}
+`;
+
+exports[`the Runs screen's render budget: commits per event batch, filtering and sorting 1`] = `
+{
+  "eventBatch": 1,
+  "filtering": 2,
+  "sorting": 2,
+}
+`;

@@ -11,7 +11,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::run::{Presence, RunId, RunIndexRow};
+use goodfetch_protocol::run::{Presence, RunId, RunIndexRow, RunReport};
 
 use super::folder::read_recorded;
 use super::writer::{Writer, test_writer};
@@ -146,5 +146,7 @@ fn found_row(
         owner,
         presence: Presence::Present,
         progress_message: recorded.progress_message.clone(),
+        stop_reason: report.and_then(|report| report.stop_reason.clone()),
+        replayed: report.is_some_and(RunReport::replayed),
     })
 }

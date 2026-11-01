@@ -3,8 +3,8 @@ use std::net::IpAddr;
 use rstest::rstest;
 
 use super::{
-    CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome, Refusal, SsrfCase,
-    SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseDomains, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough, Miss, Outcome,
+    Refusal, SsrfCase, SsrfTable, SsrfTableError, run_cases,
 };
 use crate::resolver::ScriptedResolver;
 use crate::special_purpose::SpecialPurposeRegistries;
@@ -12,6 +12,9 @@ use crate::special_purpose::SpecialPurposeRegistries;
 fn address(text: &str) -> IpAddr {
     text.parse().unwrap()
 }
+
+/// The fixture layers' public stand-in.
+const PUBLIC: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7));
 
 #[test]
 fn a_case_reads_its_input_and_expected_refusal() {
@@ -41,7 +44,7 @@ fn a_case_reads_its_input_and_expected_refusal() {
             "decimal_integer",
             Family::Encoding,
             "http://2130706433/",
-            Some(address("127.0.0.1")),
+            Some(Answer::Address(address("127.0.0.1"))),
             &Refusal::EgressRefused {
                 rule: EgressRule::PrivateAddress
             }
@@ -119,7 +122,7 @@ fn dotted_text_filter(case: &SsrfCase) -> Outcome {
     if case.url.contains("127.0.0.1") {
         Outcome::refused(PRIVATE_ADDRESS)
     } else {
-        Outcome::connected(case.target)
+        Outcome::connected(case.target_address(PUBLIC))
     }
 }
 
@@ -127,7 +130,7 @@ fn dotted_text_filter(case: &SsrfCase) -> Outcome {
 fn a_runner_reports_every_case_its_layer_lets_through() {
     let table = SsrfTable::parse(LOOPBACK_CASES).unwrap();
 
-    let result = run_cases(&table.cases, dotted_text_filter);
+    let result = run_cases(&table.cases, PUBLIC, dotted_text_filter);
 
     assert_eq!(
         result,
@@ -154,9 +157,9 @@ fn a_runner_reports_every_case_its_layer_lets_through() {
 fn a_runner_reports_a_refusal_that_came_after_a_connection_reached_the_target() {
     let table = SsrfTable::parse(LOOPBACK_CASES).unwrap();
 
-    let result = run_cases(&table.cases[..1], |case| Outcome {
+    let result = run_cases(&table.cases[..1], PUBLIC, |case| Outcome {
         refusal: Some(PRIVATE_ADDRESS),
-        connections: case.target.into_iter().collect(),
+        connections: case.target_address(PUBLIC).into_iter().collect(),
     });
 
     assert_eq!(
@@ -179,7 +182,9 @@ fn a_runner_reports_a_case_refused_under_another_rule() {
         rule: EgressRule::Scheme,
     };
 
-    let result = run_cases(&table.cases[..1], |_| Outcome::refused(scheme.clone()));
+    let result = run_cases(&table.cases[..1], PUBLIC, |_| {
+        Outcome::refused(scheme.clone())
+    });
 
     assert_eq!(
         result,
@@ -208,7 +213,7 @@ fn a_connection_to_the_ipv4_address_an_ipv4_mapped_target_embeds_reached_the_tar
     )
     .unwrap();
 
-    let result = run_cases(&table.cases, |_| Outcome {
+    let result = run_cases(&table.cases, PUBLIC, |_| Outcome {
         refusal: Some(PRIVATE_ADDRESS),
         connections: vec![address("127.0.0.1")],
     });
@@ -230,7 +235,7 @@ fn a_connection_to_the_ipv4_address_an_ipv4_mapped_target_embeds_reached_the_tar
 fn a_runner_passes_a_layer_that_refuses_every_case_before_any_connection() {
     let table = SsrfTable::parse(LOOPBACK_CASES).unwrap();
 
-    let result = run_cases(&table.cases, |_| Outcome::refused(PRIVATE_ADDRESS));
+    let result = run_cases(&table.cases, PUBLIC, |_| Outcome::refused(PRIVATE_ADDRESS));
 
     assert_eq!(result, Ok(()));
 }
@@ -363,6 +368,9 @@ fn the_committed_table_covers_the_committed_iana_registries() {
 #[case::upstream_proxy(Family::UpstreamProxy)]
 #[case::plugin_traffic(Family::PluginTraffic)]
 #[case::lent_page_client(Family::LentPageClient)]
+#[case::operator_endpoint(Family::OperatorEndpoint)]
+#[case::domain_policy(Family::DomainPolicy)]
+#[case::borrowed_browser(Family::BorrowedBrowser)]
 fn the_committed_table_has_cases_of_every_family(#[case] family: Family) {
     let table = SsrfTable::committed().unwrap();
 
@@ -385,4 +393,98 @@ fn a_case_naming_an_unknown_family_is_refused() {
     );
 
     assert!(matches!(parsed, Err(SsrfTableError::Malformed(_))));
+}
+
+#[test]
+fn a_domain_policy_case_reads_the_policy_it_runs_under() {
+    let table = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "blocked_subdomain"
+        family = "domain_policy"
+        url = "http://shop.scope.test/cart"
+        domains = { allowed = ["scope.test"], blocked = ["shop.scope.test"] }
+        lookups = [{ name = "shop.scope.test", answers = ["public"] }]
+        target = "public"
+        refusal = { code = "egress_refused", rule = "domain_policy" }
+
+        [[cases]]
+        name = "blocked_host"
+        family = "domain_policy"
+        url = "http://elsewhere.test/"
+        domains = { blocked = ["elsewhere.test"] }
+        target = "public"
+        refusal = { code = "egress_refused", rule = "domain_policy" }
+        "#,
+    )
+    .unwrap();
+    let domain_policy = Refusal::EgressRefused {
+        rule: EgressRule::DomainPolicy,
+    };
+
+    assert_eq!(
+        table
+            .cases
+            .iter()
+            .map(|case| (
+                case.domains.clone(),
+                case.target_address(PUBLIC),
+                &case.refusal
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (
+                Some(CaseDomains {
+                    allowed: vec!["scope.test".to_owned()],
+                    blocked: vec!["shop.scope.test".to_owned()],
+                }),
+                Some(PUBLIC),
+                &domain_policy,
+            ),
+            (
+                Some(CaseDomains {
+                    allowed: vec!["*".to_owned()],
+                    blocked: vec!["elsewhere.test".to_owned()],
+                }),
+                Some(PUBLIC),
+                &domain_policy,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_connection_to_the_public_stand_in_reached_a_target_written_public() {
+    let table = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "host_not_allowed"
+        family = "domain_policy"
+        url = "http://elsewhere.test/"
+        domains = { allowed = ["scope.test"] }
+        target = "public"
+        refusal = { code = "egress_refused", rule = "domain_policy" }
+        "#,
+    )
+    .unwrap();
+    let domain_policy = Refusal::EgressRefused {
+        rule: EgressRule::DomainPolicy,
+    };
+
+    let result = run_cases(&table.cases, PUBLIC, |_| Outcome {
+        refusal: Some(domain_policy.clone()),
+        connections: vec![PUBLIC],
+    });
+
+    assert_eq!(
+        result,
+        Err(LetThrough {
+            misses: vec![Miss {
+                case: "host_not_allowed".to_owned(),
+                expected: domain_policy.clone(),
+                refusal: Some(domain_policy.clone()),
+                reached_target: true,
+            }]
+        })
+    );
 }

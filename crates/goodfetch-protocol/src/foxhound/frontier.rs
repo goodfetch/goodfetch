@@ -4,23 +4,45 @@
 //! why. `run.seeds` lists the answers each seed of a crawl got when its Run
 //! began, and `crawl_request.enqueue` adds a request from inside a
 //! handler's attempt, resolving a relative URL against the document's base
-//! URL. A crawl request is sent with a method and a body, which with its
+//! URL; `crawl_request.links` reads the elements a locator matches on
+//! the attempt's page, as an `enqueueLinks` Payload function reads them,
+//! and `crawl_request.enqueue_links` adds their links, each `href`'s query
+//! percent-encoded in its document's encoding, answering each element
+//! added, not added with its reason, `no_link` or `skipped_by_payload`.
+//! A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
-//! The `crawl.scope.*` settings say which links a crawl may follow, fixed
-//! for the Run's life. Foxhound's own.
+//! `run.add_seed` adds a seed to a running crawl, and `run.add_seeds` takes
+//! a stream of them under credits, answering each in order. The
+//! `crawl.scope.*` settings say which links a crawl may follow, fixed for
+//! the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it, and
+//! three caps on a URL's shape end the traps no rule learned;
+//! `crawl.path_budgets` bounds sections of a site. A Payload is refused at
+//! its enqueue with `payload_invalid` when it does not fit its Label's JSON
+//! Schema or is longer than `crawl.payload.max_size`, and a resume whose
+//! Label's Payload schema changed under pending Payloads that fail it with
+//! `payload_schema_changed` (ADR 0082). Foxhound's own.
 
 use std::borrow::Cow;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
-    Stability, ValueKind, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
+use crate::foxhound::crawl::Seed;
+use crate::jsonrpc::RequestId;
 use crate::run::RunId;
+
+mod links;
+
+pub use links::{
+    CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
+    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLink, EnqueuedLinks, MatchedLink,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -228,6 +250,21 @@ pub enum NotAddedReason {
     /// A segment of its URL's path repeats more than
     /// `crawl.max_segment_repeats`.
     MaxSegmentRepeats,
+    /// The first entry of `crawl.path_budgets` whose pattern its URL's path
+    /// and query match already counted that entry's `max_requests`.
+    PathBudget,
+    /// Its URL's path falls under a trap the Frontier learned and closed
+    /// (ADR 0005): a path pattern whose pages brought no new page and no
+    /// URL outside it, which leaves a finished Run `unverified`.
+    TrapPath,
+    /// A sitemap entry no rule of its sitemap seed matches (ADR 0093).
+    NoRule,
+    /// On the browser tier, its link is one a person cannot see, a
+    /// `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    TrapLink,
+    /// The `enqueueLinks` call that matched it already added its `limit`
+    /// links (ADR 0093).
+    LinkLimit,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
@@ -344,6 +381,145 @@ pub struct CrawlRequestEnqueueParams {
     pub document: Option<EnqueueDocument>,
 }
 
+/// The notification that carries a batch of the seeds a Client streams to
+/// a `run.add_seeds` call.
+pub const SEEDS: &str = "$/seeds";
+
+/// The notification that carries the answers of a batch of seeds a
+/// `run.add_seeds` call admitted, in the order they came.
+pub const ENQUEUED: &str = "$/enqueued";
+
+/// How many seeds a `run.add_seeds` call takes before it answers any: the
+/// credits it grants its Client at once (CO-02) **(shape)**. It grants one
+/// more for each seed it answers, so it holds at most this many seeds at a
+/// time, whatever the length of the stream.
+pub const SEED_CREDITS: u32 = 256;
+
+/// The attempt a seed is added from: a handler's `ctx.run`, which is bound
+/// to its attempt (ADR 0093).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeedAttempt {
+    /// The ID of the crawl request whose attempt adds the seed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The attempt's lease epoch, as `crawl_request.handle` gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lease_epoch: u64,
+}
+
+/// What `run.add_seed` takes: one seed for a running crawl.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunAddSeedParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The seed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seed: Seed,
+    /// The attempt that adds it, when a handler adds it through its
+    /// context's `run`; absent, the program adds it from outside any
+    /// attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<SeedAttempt>,
+}
+
+/// What `run.add_seeds` takes: the running crawl its Client streams seeds
+/// to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunAddSeedsParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+}
+
+/// What `$/seeds` carries: the next seeds a Client streams to a
+/// `run.add_seeds` call, never more than the credits the call granted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeedBatch {
+    /// The id of the `run.add_seeds` call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: RequestId,
+    /// The seeds, in order.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seeds: Vec<Seed>,
+    /// Whether they are the stream's last: the call answers once it
+    /// answered them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub end: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_false(flag: &bool) -> bool {
+    !*flag
+}
+
+/// What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+/// batch, in the batch's order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EnqueuedBatch {
+    /// The id of the `run.add_seeds` call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: RequestId,
+    /// Each seed's answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub answers: Vec<Enqueued>,
+}
+
+/// What `run.add_seeds` answers once its stream ended: how many of the
+/// seeds it took were added, and how many were not.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunSeedsAdded {
+    /// The seeds added.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub added: u64,
+    /// The seeds not added, each with its reason in its answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub not_added: u64,
+}
+
+/// `run.add_seed`.
+pub const RUN_ADD_SEED: Operation = Operation {
+    name: "run.add_seed",
+    description: "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunAddSeedParams>,
+    result: schema_of::<Enqueued>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `run.add_seeds`.
+pub const RUN_ADD_SEEDS: Operation = Operation {
+    name: "run.add_seeds",
+    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::Sequence,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunAddSeedsParams>,
+    result: schema_of::<RunSeedsAdded>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `run.seeds`.
 pub const RUN_SEEDS: Operation = Operation {
     name: "run.seeds",
@@ -363,7 +539,7 @@ pub const RUN_SEEDS: Operation = Operation {
 /// `crawl_request.enqueue`.
 pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     name: "crawl_request.enqueue",
-    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
+    description: "Adds one request to a crawl from inside a handler's attempt, a handler context's `enqueue`, and answers what the Frontier did with it: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `out_of_scope`, `unsupported_scheme`, `invalid_url`, `max_depth`, `max_requests`, `path_budget` or a URL cap's name). A relative URL resolves against the document's base URL: its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself. A request is `duplicate` when one of its identity was already admitted: its method, its URL's key (the fragment, `utm_*`, `gclid`, `fbclid`, empty pairs and `;jsessionid=` dropped, the parameters sorted) and its body's hash, or the `key` the program declares in their place; it is still fetched at its own URL. The request sits one level deeper than the one whose attempt added it. An attempt whose lease no longer holds fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -415,6 +591,267 @@ pub const CRAWL_SCOPE_EXCLUDE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.max_depth` (ADRs 0005 and 0093; CO-07).
+pub const CRAWL_MAX_DEPTH: Setting = Setting {
+    name: "crawl.max_depth",
+    description: "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it.",
+    kind: ValueKind::Count,
+    default: no_bound,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_requests` (ADRs 0005 and 0093; CO-08).
+pub const CRAWL_MAX_REQUESTS: Setting = Setting {
+    name: "crawl.max_requests",
+    description: "How many requests a crawl admits, its seeds included: once it admitted this many, a further one is not added, with `max_requests`, and a Run that refused one ends `incomplete`. None by default; `null` clears it.",
+    kind: ValueKind::Count,
+    default: no_bound,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_url_length` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_URL_LENGTH: Setting = Setting {
+    name: "crawl.max_url_length",
+    description: "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_url_length,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_path_segments` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_PATH_SEGMENTS: Setting = Setting {
+    name: "crawl.max_path_segments",
+    description: "The most segments a URL's path may have, as the WHATWG parser splits it, an empty last segment (a trailing slash) not counted (Heritrix's `maxPathDepth`): a URL with more is not added, with `max_path_segments`, and a finished Run that refused one is `unverified`. 20 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_path_segments,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.max_segment_repeats` (ADR 0120; pitfall U10).
+pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
+    name: "crawl.max_segment_repeats",
+    description: "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off.",
+    kind: ValueKind::Count,
+    default: max_segment_repeats,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// One entry of `crawl.path_budgets` (CO-08): a pattern, a glob read as
+/// Playwright reads one and matched in the engine against a URL's path and
+/// query, and how many requests it admits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PathBudget {
+    /// The glob, such as `/shop?*`, matched against the path and query.
+    pub pattern: String,
+    /// How many requests whose URL it matches first the crawl admits.
+    pub max_requests: u64,
+}
+
+/// The fields of a `crawl.path_budgets` entry.
+const PATH_BUDGET_FIELDS: [&str; 2] = ["pattern", "max_requests"];
+
+impl PathBudget {
+    /// Reads one entry of `crawl.path_budgets`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for a `setting_invalid` message.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        let Some(entry) = value.as_object() else {
+            return Err("a path budget is a table of `pattern` and `max_requests`".to_owned());
+        };
+        if let Some(unknown) = entry
+            .keys()
+            .find(|field| !PATH_BUDGET_FIELDS.contains(&field.as_str()))
+        {
+            return Err(format!(
+                "a path budget takes `pattern` and `max_requests`, not `{unknown}`"
+            ));
+        }
+        let Some(pattern) = entry.get("pattern").and_then(Value::as_str) else {
+            return Err("a path budget's `pattern` is a glob, such as `/shop?*`".to_owned());
+        };
+        let Some(max_requests) = entry.get("max_requests").and_then(Value::as_u64) else {
+            return Err("a path budget's `max_requests` is a whole number from 0".to_owned());
+        };
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            max_requests,
+        })
+    }
+
+    /// The entries of a `crawl.path_budgets` value, in order, skipping any
+    /// that is not one, which the settings refused before.
+    pub fn list(value: &Value) -> Vec<Self> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| Self::read(entry).ok())
+            .collect()
+    }
+}
+
+/// A value of `crawl.path_budgets`.
+pub const PATH_BUDGET_SHAPE: ValueShape = ValueShape {
+    name: "PathBudget",
+    check: |value| PathBudget::read(value).map(drop),
+    schema: || {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": PATH_BUDGET_FIELDS,
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                },
+                "max_requests": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                },
+            },
+        })
+    },
+    examples: || vec![json!({ "pattern": "/shop?*", "max_requests": 100 })],
+};
+
+/// `crawl.path_budgets` (CO-08; Spider's `with_budget`).
+pub const CRAWL_PATH_BUDGETS: Setting = Setting {
+    name: "crawl.path_budgets",
+    description: "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+    kind: ValueKind::List(&ValueKind::Shape(&PATH_BUDGET_SHAPE)),
+    default: no_patterns,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `crawl.keep_url_fragment` (ADR 0120; pitfall U05).
+pub const CRAWL_KEEP_URL_FRAGMENT: Setting = Setting {
+    name: "crawl.keep_url_fragment",
+    description: "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
+    kind: ValueKind::Boolean,
+    default: no_fragment,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_fragment() -> Value {
+    Value::Bool(false)
+}
+
+/// `crawl.payload.max_size` (ADR 0082).
+pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
+    name: "crawl.payload.max_size",
+    description: "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+    kind: ValueKind::Count,
+    default: sixty_four_kibibytes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn sixty_four_kibibytes() -> Value {
+    Value::from(65_536)
+}
+
+/// A Payload refused at its enqueue (ADR 0082).
+pub const PAYLOAD_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "payload_invalid",
+    description: "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A resume refused because a Label's Payload schema changed (ADR 0082).
+pub const PAYLOAD_SCHEMA_CHANGED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "payload_schema_changed",
+    description: "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// One way a Payload does not fit its Label's JSON Schema.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadIssue {
+    /// Where in the Payload, a JSON Pointer: empty for the Payload itself.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// What is wrong there.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
+/// What `payload_invalid` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadInvalidDetails {
+    /// The Label the Payload was enqueued under.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// Each way it does not fit the Label's JSON Schema; none when it is
+    /// too long.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub issues: Vec<PayloadIssue>,
+    /// The setting it is longer than, `crawl.payload.max_size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<String>,
+    /// Its JSON's length in bytes, when it is too long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: Option<u64>,
+    /// The setting's value, when it is too long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max_size: Option<u64>,
+}
+
+/// What `payload_schema_changed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadSchemaChangedDetails {
+    /// The Label whose Payload schema changed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// How many of its pending requests' Payloads fail the new schema.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failing: u64,
+    /// How many of its requests are pending.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pending: u64,
+    /// The first failing request's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// How its Payload fails the new schema.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub issues: Vec<PayloadIssue>,
+}
+
 fn same_hostname() -> Value {
     Value::from("same_hostname")
 }
@@ -423,23 +860,64 @@ fn no_patterns() -> Value {
     Value::Array(Vec::new())
 }
 
+fn no_bound() -> Value {
+    Value::Null
+}
+
+fn max_url_length() -> Value {
+    Value::from(2_083)
+}
+
+fn max_path_segments() -> Value {
+    Value::from(20)
+}
+
+fn max_segment_repeats() -> Value {
+    Value::from(2)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_SEEDS, CRAWL_REQUEST_ENQUEUE],
+    operations: &[
+        RUN_SEEDS,
+        RUN_ADD_SEED,
+        RUN_ADD_SEEDS,
+        CRAWL_REQUEST_ENQUEUE,
+        CRAWL_REQUEST_LINKS,
+        CRAWL_REQUEST_ENQUEUE_LINKS,
+    ],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
         CRAWL_SCOPE_STRATEGY,
         CRAWL_SCOPE_INCLUDE,
         CRAWL_SCOPE_EXCLUDE,
+        CRAWL_MAX_DEPTH,
+        CRAWL_MAX_REQUESTS,
+        CRAWL_MAX_URL_LENGTH,
+        CRAWL_MAX_PATH_SEGMENTS,
+        CRAWL_MAX_SEGMENT_REPEATS,
+        CRAWL_PATH_BUDGETS,
+        CRAWL_PAYLOAD_MAX_SIZE,
+        CRAWL_KEEP_URL_FRAGMENT,
     ],
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+/// The settings fixed for a Run's life (ADRs 0102 and 0120): those that
+/// decide its scope, and whether a request's identity keeps its URL's
+/// fragment, since the requests it already admitted would no longer match.
+pub const FIXED_FOR_A_RUN: [&Setting; 4] = [
+    &CRAWL_SCOPE_STRATEGY,
+    &CRAWL_SCOPE_INCLUDE,
+    &CRAWL_SCOPE_EXCLUDE,
+    &CRAWL_KEEP_URL_FRAGMENT,
+];
 
 #[cfg(test)]
 mod tests;

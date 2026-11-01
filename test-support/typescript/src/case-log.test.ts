@@ -4,8 +4,22 @@ import {
   clientCaseRecord,
   clientCaseTags,
   parseClientCases,
+  rustPlatform,
   type CaseRecording,
 } from "./case-log.ts";
+
+describe("rustPlatform", () => {
+  test.for([
+    ["darwin", "arm64", { os: "macos", arch: "aarch64" }],
+    ["darwin", "x64", { os: "macos", arch: "x86_64" }],
+    ["linux", "x64", { os: "linux", arch: "x86_64" }],
+    ["linux", "arm64", { os: "linux", arch: "aarch64" }],
+    ["win32", "x64", { os: "windows", arch: "x86_64" }],
+    ["win32", "arm64", { os: "windows", arch: "aarch64" }],
+  ] as const)("names Node's %s on %s as Rust's std::env::consts do", ([platform, arch, rust]) => {
+    expect(rustPlatform(platform, arch)).toEqual(rust);
+  });
+});
 
 const CASE_LIST = `
 [suite]

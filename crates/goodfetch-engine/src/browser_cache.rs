@@ -5,7 +5,7 @@
 //! lock; a build with the wrong digest is refused and removed; a missing one
 //! is downloaded on first use through `pinned_download` with its progress
 //! reported, unless `egress.offline` refuses it or the engine cannot write
-//! the cache. `browsers install`
+//! the cache. `browser install`
 //! prepares every pin ahead of time, and the clean-up deletes only what
 //! nothing installed pins, nothing used for `browser_cache.max_unused_age`
 //! and nothing holds.
@@ -28,14 +28,15 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
-    ArtifactId, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED, BrowserCacheEntry,
-    BrowserNotInstalledDetails, DownloadFailure, DownloadProgress, InstallOutcome, MissingBrowser,
-    PinnedBy,
+    ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails, BROWSER_NOT_INSTALLED,
+    BrowserCacheEntry, BrowserNotInstalledDetails, DownloadFailure, DownloadProgress,
+    InstallOutcome, MissingBrowser, PinnedBy,
 };
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{EGRESS_OFFLINE, SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
@@ -171,9 +172,9 @@ impl CacheError {
 }
 
 /// The command that installs `pinned_by`'s builds: its executable's
-/// `browsers install` (ADR 0098).
+/// `browser install` (ADR 0098).
 fn install_command(product: Product) -> String {
-    format!("goodfetch-{} browsers install", product.as_str())
+    format!("goodfetch-{} browser install", product.as_str())
 }
 
 fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
@@ -315,7 +316,7 @@ impl BrowserCache {
     }
 
     /// Prepares every artifact `pins` pins for `platform` (`None` for one no
-    /// build is made for), then releases them: what `browsers install` does
+    /// build is made for), then releases them: what `browser install` does
     /// for CI and images.
     ///
     /// # Errors
@@ -443,6 +444,84 @@ impl BrowserCache {
         Ok(Present::Missing)
     }
 
+    /// The artifact `id` when the cache holds it with files of `digest`,
+    /// held so the clean-up leaves it alone, its use recorded at `now`; a
+    /// copy of another digest is removed where the cache is writable. It
+    /// reads and hashes the artifact's files: run it on a blocking task.
+    ///
+    /// # Errors
+    ///
+    /// When the cache's files cannot be read or written.
+    pub fn find(
+        &self,
+        id: &ArtifactId,
+        digest: Digest,
+        now: jiff::Timestamp,
+    ) -> Result<Option<HeldArtifact>, CacheError> {
+        let artifact = PinnedArtifact {
+            id: id.clone(),
+            platform: None,
+            url: String::new(),
+            archive_digest: None,
+            application_settings: std::collections::BTreeMap::new(),
+            digest,
+        };
+        Ok(match self.present(&artifact, now)? {
+            Present::Held(held) => Some(held),
+            Present::Missing | Present::Refused => None,
+        })
+    }
+
+    /// Puts `files`, each a relative path with its bytes, in the cache as an
+    /// artifact of `kind` named `name` whose build is the hexadecimal digest
+    /// of those files, and answers that digest and the artifact, held: what
+    /// the engine fetched itself from a configured source, such as a
+    /// version of the Clean-up rules (ADR 0047). When the cache already
+    /// holds it, that copy is answered. It writes and hashes the files: run
+    /// it on a blocking task.
+    ///
+    /// # Errors
+    ///
+    /// When the cache cannot be written, or a path leaves its folder.
+    pub fn keep(
+        &self,
+        kind: ArtifactKind,
+        name: &str,
+        files: &[(String, Vec<u8>)],
+        now: jiff::Timestamp,
+    ) -> Result<(Digest, HeldArtifact), CacheError> {
+        let partial = store::partial(&self.root).map_err(CacheError::cache(&self.root))?;
+        let folder = store::files(partial.path());
+        let digest = store::write_files(&folder, files)
+            .and_then(|()| content_digest(&folder))
+            .map_err(CacheError::cache(partial.path()))?;
+        let id = ArtifactId {
+            kind,
+            name: name.to_owned(),
+            build: digest.hex(),
+        };
+        let entry = BrowserCacheEntry {
+            format_version: BROWSER_CACHE.version,
+            artifact: id.clone(),
+            digest: digest.to_string(),
+            installed_at: now,
+            used_at: now,
+        };
+        let entry_folder = store::entry_folder(&self.root, &id);
+        store::install(&self.root, partial, &id, &entry)
+            .map_err(CacheError::cache(&entry_folder))?;
+        match self.find(&id, digest, now)? {
+            Some(held) => Ok((digest, held)),
+            None => Err(CacheError::Cache {
+                path: entry_folder,
+                source: io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "the artifact just put in the Browser cache is gone",
+                ),
+            }),
+        }
+    }
+
     /// Downloads and installs `artifact`; `None` when another process put it
     /// in place first.
     async fn download(
@@ -469,7 +548,10 @@ impl BrowserCache {
         let partial = blocking(|| store::partial(&self.root))
             .await
             .map_err(CacheError::cache(&self.root))?;
-        let archive = partial.path().join("archive.zip");
+        let archive = partial.path().join("archive");
+        // A URL naming a ZIP archive is unpacked; any other serves one
+        // executable, placed under its own name (ADR 0020's Lightpanda).
+        let file_name = url.file_name().to_owned();
         let host = url.host().to_owned();
         let mut report = |received_bytes, total_bytes| {
             progress(DownloadProgress {
@@ -500,7 +582,14 @@ impl BrowserCache {
         }
         let files = store::files(partial.path());
         let unpacked = blocking(|| {
-            extract::unpack(&archive, &files)?;
+            if Path::new(&file_name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+            {
+                extract::unpack(&archive, &files)?;
+            } else {
+                extract::place(&archive, &files, &file_name)?;
+            }
             content_digest(&files)
         })
         .await;

@@ -73,6 +73,30 @@ pub struct Request {
     pub params: Option<Value>,
 }
 
+/// The member of a request's params that holds its [`TraceContext`]
+/// (ADR 0132), an envelope field, not a catalog parameter: `xtask codegen`
+/// adds it to every request's params, and no generator gives it a member.
+pub const META: &str = "_meta";
+
+/// A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+/// and `tracestate`, which its runtime writes and never a program, with no
+/// Baggage. The schema checks only that each is a string: a receiver drops
+/// a value it cannot use, and never fails the call for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TraceContext {
+    /// The caller's span, as W3C Trace Context's `traceparent` header
+    /// holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub traceparent: Option<String>,
+    /// Its vendors' values, as W3C Trace Context's `tracestate` header
+    /// holds them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub tracestate: Option<String>,
+}
+
 /// A message that expects no reply, such as `$/cancel`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

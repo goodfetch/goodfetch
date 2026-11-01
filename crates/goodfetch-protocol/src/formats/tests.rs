@@ -189,6 +189,28 @@ fn each_preview_minor_counts_as_a_major(
     assert_eq!(rule.compatibility(reader, found), compatibility);
 }
 
+/// The Clean-up rules' newest-readable rule, case by case (ADRs 0030 and
+/// 0047): a reader reads a version's manifest of its own major up to its
+/// own minor, as the default rule does, and skips any other one for the
+/// newest version it can read.
+/// Covers: format:clean-up-rules
+#[rstest]
+#[case::same_version(version(1, 4), version(1, 4), Compatibility::Compatible)]
+#[case::older_minor(version(1, 4), version(1, 0), Compatibility::Compatible)]
+#[case::newer_minor(version(1, 4), version(1, 5), Compatibility::NewerMinor)]
+#[case::older_major(version(2, 0), version(1, 9), Compatibility::OlderMajor)]
+#[case::newer_major(version(1, 9), version(2, 0), Compatibility::NewerMajor)]
+fn the_newest_readable_rule_reads_a_manifest_of_its_major_up_to_its_own_minor(
+    #[case] reader: ProtocolVersion,
+    #[case] found: ProtocolVersion,
+    #[case] compatibility: Compatibility,
+) {
+    assert_eq!(
+        Rule::NewestReadable.compatibility(reader, found),
+        compatibility
+    );
+}
+
 /// The rule of a handshake whose two sides settle on the lower minor, a
 /// Browser host's with its engine (ADR 0096): only another major is refused.
 #[rstest]
@@ -216,14 +238,18 @@ fn the_registry_lists_every_format_under_its_rule() {
         [
             ("protocol", Rule::Default),
             ("browser-cache", Rule::Default),
+            ("clean-up-rules", Rule::NewestReadable),
             ("run-index", Rule::SharedStore),
             ("run-state", Rule::Default),
             ("installed-executables", Rule::FrozenMajor),
             ("usage-ledger", Rule::FrozenMajor),
             ("politeness-file", Rule::FrozenMajor),
             ("audit-log", Rule::FrozenMajor),
+            ("known-certificates", Rule::FrozenMajor),
+            ("accounts-store", Rule::Default),
             ("operator-policy", Rule::SharedStore),
-            ("user-configuration", Rule::SharedStore)
+            ("user-configuration", Rule::SharedStore),
+            ("export", Rule::Default)
         ]
     );
 }

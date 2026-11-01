@@ -28,8 +28,8 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Value, json};
 
 use super::{
-    ConfigProblem, ProviderFailure, Purpose, Resolving, RunSecrets, SecretError, SecretProvider,
-    Secrets,
+    Carried, ConfigProblem, Keychain, ProviderFailure, Purpose, Resolving, RunSecrets, SecretError,
+    SecretProvider, Secrets,
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
@@ -71,13 +71,29 @@ impl SecretProvider for Hanging {
     }
 }
 
+mod files;
+mod keychain;
+mod racing;
+mod reuse;
+mod translations;
+
 fn driver(env: &TestEnv, variables: &[(&str, &str)]) -> Secrets {
+    driver_with(env, variables, Keychain::absent())
+}
+
+/// The driver over `variables` and `keychain`, with the test's home.
+fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) -> Secrets {
     let environment: BTreeMap<OsString, OsString> = variables
         .iter()
         .map(|(name, value)| (OsString::from(name), OsString::from(value)))
         .collect();
     Secrets::new(
-        environment,
+        Carried {
+            environment,
+            keychain,
+            home: Home::new(env.home().to_path_buf()),
+            entropy: crate::entropy::Entropy::seeded(env.seed()),
+        },
         Arc::new(AuditLog::of(&Home::new(env.home().to_path_buf()), None)),
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         Clock::paused(env.start_time()),
@@ -163,11 +179,44 @@ fn a_set_variable_resolves_through_env_and_is_held_for_the_run() {
     );
 }
 
+/// A value resolved again for the same placeholder, as each Session's open
+/// resolves the proxy password, is held once: 100 resolutions of one
+/// value leave one held value, and a value resolved after it comes last.
+/// Covers: story:4-49
+#[test]
+fn a_value_resolved_again_for_its_placeholder_is_held_once() {
+    let env = TestEnv::new();
+    let secrets = goodfetch_test_support::runtime().block_on(async {
+        driver(
+            &env,
+            &[("SHOP_KEY", "s3cr3t-value"), ("OTHER_KEY", "other-value")],
+        )
+        .for_run(Duration::from_secs(30))
+    });
+
+    for _ in 0..100 {
+        resolved(&secrets, "env:SHOP_KEY").unwrap();
+    }
+    resolved(&secrets, "env:OTHER_KEY").unwrap();
+    resolved(&secrets, "env:SHOP_KEY").unwrap();
+
+    let held = goodfetch_test_support::runtime().block_on(secrets.held());
+    assert_eq!(
+        held.iter()
+            .map(|(name, value)| (name.clone(), value.expose_secret().to_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (KEY.to_owned(), "other-value".to_owned()),
+            (KEY.to_owned(), "s3cr3t-value".to_owned())
+        ]
+    );
+}
+
 /// Covers: story:4-60, error:secret_unavailable
 #[rstest]
 #[case::an_unset_variable("env:SHOP_KEY", &[], SecretFailure::Missing)]
 #[case::an_empty_variable("env:SHOP_KEY", &[("SHOP_KEY", "")], SecretFailure::Missing)]
-#[case::a_provider_this_engine_lacks("keychain:goodfetch/portal", &[], SecretFailure::NotConfigured)]
+#[case::a_provider_this_engine_lacks("op://shop/portal/password", &[], SecretFailure::NotConfigured)]
 fn a_reference_that_gives_no_value_is_unavailable_naming_its_placeholder_and_failure(
     #[case] text: &str,
     #[case] variables: &[(&str, &str)],
@@ -286,4 +335,43 @@ fn a_value_goes_only_to_a_domain_its_binding_allows(
         Err(other) => panic!("expected a value or `secret_domain_not_allowed`: {other:?}"),
     };
     assert_eq!(refused_for.as_deref(), refused);
+}
+
+/// Where the host has an OS keychain, the engine makes its own key there,
+/// as `keychain:goodfetch/run-state-key`, once: 32 random bytes in Base64,
+/// which resolve through `keychain:`; made again, the first key stays, and
+/// no encrypted local file is made. keyring-core's mock store stands in
+/// for the keychain, as its reads and writes are the real ones'.
+/// Covers: story:4-64, setting:run_state.key_reference
+#[test]
+fn with_an_os_keychain_the_engines_own_key_is_made_once_there() {
+    let env = TestEnv::new();
+    let keychain = Keychain::of(keyring_core::mock::Store::new().unwrap());
+    let key = reference("keychain:goodfetch/run-state-key");
+    let runtime = goodfetch_test_support::runtime();
+    let secrets = runtime.block_on(async { driver_with(&env, &[], keychain) });
+    let read = || {
+        let resolving = secrets.for_run(Duration::from_secs(30));
+        runtime
+            .block_on(resolving.resolve(&key, &for_the_key(None, &[])))
+            .unwrap()
+            .expose_secret()
+            .to_owned()
+    };
+
+    runtime.block_on(secrets.make_key(&key)).unwrap();
+    let first = read();
+    runtime.block_on(secrets.make_key(&key)).unwrap();
+    let second = read();
+
+    assert_eq!(
+        (
+            data_encoding::BASE64
+                .decode(first.as_bytes())
+                .map(|bytes| bytes.len()),
+            first == second,
+            env.home().join("secrets").exists()
+        ),
+        (Ok(32), true, false)
+    );
 }

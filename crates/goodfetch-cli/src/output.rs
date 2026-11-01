@@ -14,19 +14,29 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{IsTerminal as _, Write as _};
+use std::process::ExitCode;
 
+use goodfetch_protocol::cli::{CommandError, CommandFailed};
+use goodfetch_protocol::jsonrpc::ErrorObject;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde::Serialize;
 
-fn write_stdout(bytes: &[u8]) {
+use crate::exit_codes;
+
+fn write_stdout(bytes: &[u8]) -> std::io::Result<()> {
     #[expect(
         clippy::disallowed_methods,
         reason = "the CLI's output writer is one of the three writers of stdout (STYLE.md)"
     )]
     let mut stdout = std::io::stdout().lock();
-    // A closed stdout, such as a pipe whose reader left, ends the output.
-    let _ = stdout.write_all(bytes).and_then(|()| stdout.flush());
+    stdout.write_all(bytes).and_then(|()| stdout.flush())
+}
+
+/// Writes `bytes` on stdout for a command's own output, which ends where a
+/// closed stdout, such as a pipe whose reader left, ends it.
+fn print_stdout(bytes: &[u8]) {
+    let _ = write_stdout(bytes);
 }
 
 fn write_stderr(bytes: &[u8]) {
@@ -40,7 +50,24 @@ fn write_stderr(bytes: &[u8]) {
 
 /// Writes `text` and a newline on stdout.
 pub fn line(text: &str) {
-    write_stdout(format!("{text}\n").as_bytes());
+    print_stdout(format!("{text}\n").as_bytes());
+}
+
+/// Writes `bytes` on stdout for a command's own output, as they are, such
+/// as part of the one JSON value it writes as its items arrive.
+pub fn raw(bytes: &[u8]) {
+    print_stdout(bytes);
+}
+
+/// Writes `bytes` on stdout as they are, such as a file's that a command
+/// streams there.
+///
+/// # Errors
+///
+/// When stdout takes them not: a pipe whose reader left, or a file whose
+/// storage is full or fails; the command then stops what sends them.
+pub fn bytes(bytes: &[u8]) -> std::io::Result<()> {
+    write_stdout(bytes)
 }
 
 /// Writes `value` on stdout as one line of JSON.
@@ -52,13 +79,83 @@ pub fn line(text: &str) {
 pub fn json(value: &impl Serialize) {
     let mut bytes = serde_json::to_vec(value).expect("invariant: the output types serialize");
     bytes.push(b'\n');
-    write_stdout(&bytes);
+    print_stdout(&bytes);
 }
 
 /// Writes `text` and a newline on stderr: a warning, a hint or a failure,
 /// which never reaches stdout.
 pub fn note(text: &str) {
     write_stderr(format!("{text}\n").as_bytes());
+}
+
+/// Prints a command's failure: under `--json` the [`CommandFailed`] on
+/// stdout, else as `human` shows it on stderr, its message, then `code`,
+/// `retryable` and its `fix` when it has one, each on a line of its own.
+pub fn failed(failed: &CommandFailed, json: bool, human: &Human) {
+    if json {
+        self::json(failed);
+        return;
+    }
+    let error = &failed.error;
+    let mut details = vec![
+        ("code", error.code.clone()),
+        ("retryable", error.retryable.to_string()),
+    ];
+    if let Some(fix) = error.details.get("fix").and_then(serde_json::Value::as_str) {
+        details.push(("fix", fix.to_owned()));
+    }
+    human.failure(&error.message, &details);
+}
+
+/// Prints a failure once the command's stdout holds its value, as `crawl
+/// start` does once it printed the Run ID: on stderr alone, so stdout under
+/// `--json` keeps its one value, as one line of JSON under `--json`, else
+/// as [`failed`] shows it (ADR 0069).
+pub fn failed_after(failed: &CommandFailed, json: bool, human: &Human) {
+    if json {
+        let mut bytes = serde_json::to_vec(failed).expect("invariant: the output types serialize");
+        bytes.push(b'\n');
+        write_stderr(&bytes);
+    } else {
+        self::failed(failed, false, human);
+    }
+}
+
+/// What a command prints when it fails with `error`, having called
+/// `operation`, by its canonical name, or nothing yet (`None`).
+pub fn command_failed(error: ErrorObject, operation: Option<&str>) -> CommandFailed {
+    CommandFailed {
+        error: CommandError {
+            group: exit_codes::group(&error),
+            code: error.data.code,
+            retryable: error.data.retryable,
+            message: error.message,
+            operation: operation.map(str::to_owned),
+            details: error.data.details,
+        },
+    }
+}
+
+/// Prints the failure `error` of a command that called `operation`, or
+/// nothing yet, as [`failed`] does, and answers its exit code: its Error
+/// code's row, else its group's (ADR 0069).
+pub fn fail(error: ErrorObject, operation: Option<&str>, json: bool, human: &Human) -> ExitCode {
+    let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
+    fail_exiting(error, operation, exit, json, human)
+}
+
+/// Prints the failure `error` as [`fail`] does, and answers `exit`, such
+/// as a Daemon's refusal of `hello`, which exits `11` whichever code
+/// refused it.
+pub fn fail_exiting(
+    error: ErrorObject,
+    operation: Option<&str>,
+    exit: u8,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    failed(&command_failed(error, operation), json, human);
+    ExitCode::from(exit)
 }
 
 /// When human output is coloured: `--color auto|always|never`.
@@ -181,7 +278,18 @@ impl Human {
     /// Writes `name: value` on stdout, the name styled.
     pub fn field(&self, name: &str, value: &str) {
         let name = styled(self.colour_stdout, Style::Strong, &format!("{name}:"));
-        write_stdout(format!("{name} {value}\n").as_bytes());
+        print_stdout(format!("{name} {value}\n").as_bytes());
+    }
+
+    /// Whether a person can be asked: stdin is a terminal. A person-only
+    /// command checks it before any engine call, so it is refused at once
+    /// under a script, an agent or CI (ADRs 0041 and 0069).
+    pub fn can_ask(&self) -> bool {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a person-only prompt asks whether stdin is a terminal before it asks"
+        )]
+        std::io::stdin().is_terminal()
     }
 
     /// Asks a person `question` on stderr and reads their answer, a line of
@@ -189,14 +297,14 @@ impl Human {
     /// terminal, where no person answers: a person-only prompt is then
     /// refused (ADRs 0041 and 0069). An ended stdin answers nothing.
     pub fn ask(&self, question: &str) -> Option<String> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a person-only prompt asks whether stdin is a terminal before it asks"
-        )]
-        let stdin = std::io::stdin();
-        if !stdin.is_terminal() {
+        if !self.can_ask() {
             return None;
         }
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a person-only prompt reads the person's answer from stdin"
+        )]
+        let stdin = std::io::stdin();
         let question = styled(self.colour_stderr, Style::Strong, question);
         write_stderr(format!("{question} ").as_bytes());
         let mut answer = String::new();

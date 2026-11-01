@@ -14,6 +14,8 @@ import { readFeatureIds } from "@goodfetch/test-support/features";
 import { browserCommands } from "@goodfetch/test-support/vitest-browser/commands";
 import { VITEST_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 import { lingui } from "@lingui/vite-plugin";
+import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import {
   defineConfig,
@@ -52,6 +54,86 @@ const component: TestProjectInlineConfiguration = {
       commands: browserCommands,
     },
   },
+};
+
+// Each Storybook story of the Console renders as a test through Storybook's
+// Vitest addon, which runs the a11y addon's axe pass on it, once in light
+// and once in dark (TESTING.md, Components and Accessibility): one project
+// per colour scheme, each pinning the stories' `theme` global. The addon
+// sets the project's `include` to the `stories` globs of the Storybook
+// configuration, and ignores any other. It gives no plugin when Vitest does
+// not load this file (no `VITEST` in the environment): the project is then
+// left out, so it never falls back to Vitest's default `include` and
+// collects every other project's tests.
+const storybookConfig = join(import.meta.dirname, "console", "collie", ".storybook");
+const componentStories = async (
+  theme: "light" | "dark",
+): Promise<TestProjectInlineConfiguration[]> => {
+  const plugins = await storybookTest({ configDir: storybookConfig, initialGlobals: { theme } });
+  return plugins.length === 0 ? [] : [componentStoriesProject(theme, plugins)];
+};
+const componentStoriesProject = (
+  theme: "light" | "dark",
+  plugins: Awaited<ReturnType<typeof storybookTest>>,
+): TestProjectInlineConfiguration => ({
+  extends: true,
+  plugins,
+  test: {
+    name: `component-stories-${theme}`,
+    exclude: [...outside, visualTests],
+    testTimeout: 300_000,
+    setupFiles: ["@goodfetch/test-support/vitest-browser/setup"],
+    browser: {
+      enabled: true,
+      headless: true,
+      provider: playwright(),
+      instances: [{ browser: "chromium", name: `component-stories-${theme} (chromium)` }],
+      commands: browserCommands,
+    },
+  },
+});
+
+// The Release suite renders every story again under each of the Console's
+// two pseudo-locales (ADR 0073; TESTING.md, Localization), the browser
+// context's locale, which the Console reads its catalog by: `en-XA`
+// (accented, longer, bracketed) and `ar-XB` (right to left). Once each
+// story ends, test support's setup fails it on clipped text, under `en-XA`
+// on visible text neither from the catalog nor inside `translate="no"`,
+// and under `ar-XB` on a document that does not run right to left. Stories
+// hold no assertion, so they render the same under any catalog, where the
+// screens' tests find their elements by their English names.
+const pseudoLocales = ["en-XA", "ar-XB"] as const;
+const pseudoLocaleStories = async (
+  locale: (typeof pseudoLocales)[number],
+): Promise<TestProjectInlineConfiguration[]> => {
+  const plugins = await storybookTest({
+    configDir: storybookConfig,
+    initialGlobals: { theme: "light" },
+  });
+  return plugins.length === 0
+    ? []
+    : [
+        {
+          extends: true,
+          plugins,
+          test: {
+            name: `component-stories-${locale}`,
+            exclude: [...outside, visualTests],
+            testTimeout: 300_000,
+            setupFiles: [
+              "@goodfetch/test-support/vitest-browser/setup",
+              "@goodfetch/test-support/vitest-browser/pseudo-locale",
+            ],
+            browser: {
+              enabled: true,
+              headless: true,
+              provider: playwright({ contextOptions: { locale } }),
+              instances: [{ browser: "chromium", name: `component-stories-${locale} (chromium)` }],
+              commands: browserCommands,
+            },
+          },
+        },
+      ];
 };
 
 // The Release suite reruns the Console's screens under WCAG's text-spacing
@@ -116,14 +198,18 @@ const caseTags = clientCaseTags(readClientCases(caseList));
 const coverageFolder = process.env["GOODFETCH_COVERAGE"];
 
 // The Console's components render their messages through Lingui's macros
-// and its catalog, compiled as the Console's build compiles them (ADR 0073).
+// and its catalog, compiled as the Console's build compiles them (ADR 0073),
+// and a test that imports the design system's style sheet, as a screen's
+// visual test does, gets it through Tailwind's plugin, as the build does.
 // A copy of this config in a folder without the Console, as test support's
-// own runs of it make, takes no plugin.
-const consoleMessages = join(import.meta.dirname, "console", "collie", "lingui.config.ts");
+// own runs of it make, takes no plugin. Foxhound's configuration holds
+// Collie's catalog, extracted alike, and its own, so Foxhound's screens'
+// stories load Foxhound's catalog too.
+const consoleMessages = join(import.meta.dirname, "console", "foxhound", "lingui.config.ts");
 
 const config: ViteUserConfig = defineConfig({
   plugins: existsSync(consoleMessages)
-    ? [lingui({ macroTransform: true, configPath: consoleMessages })]
+    ? [lingui({ macroTransform: true, configPath: consoleMessages }), tailwindcss()]
     : [],
   test: {
     ...(visual.update === undefined ? {} : { update: visual.update }),
@@ -138,6 +224,9 @@ const config: ViteUserConfig = defineConfig({
             exclude: [...outside, "**/generated/**"],
           },
         }),
+    // Every project extends this, so none collects a file outside the
+    // sources, such as another checkout's tests under `.claude/worktrees/`.
+    exclude: outside,
     retry: 0,
     restoreMocks: true,
     unstubEnvs: true,
@@ -181,7 +270,13 @@ const config: ViteUserConfig = defineConfig({
         },
       },
       component,
+      ...(existsSync(storybookConfig)
+        ? [...(await componentStories("light")), ...(await componentStories("dark"))]
+        : []),
       ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
+      ...(process.env["GOODFETCH_TEST_SUITE"] === "release" && existsSync(storybookConfig)
+        ? (await Promise.all(pseudoLocales.map(pseudoLocaleStories))).flat()
+        : []),
       ...visual.projects,
     ],
   },

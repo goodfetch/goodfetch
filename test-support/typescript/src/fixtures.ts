@@ -83,7 +83,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
       daemon: withDaemon ? product : undefined,
     });
     await use(started.description);
-    await started.close();
+    await started.close({ failed: task.result?.state === "fail" });
   },
   env: async ({ testEnv, product }, use) => {
     await use(productEnv(testEnv, product));

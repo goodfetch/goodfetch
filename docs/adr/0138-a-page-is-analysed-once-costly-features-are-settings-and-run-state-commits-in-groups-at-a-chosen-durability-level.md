@@ -54,14 +54,26 @@ How proven crawlers shape this work. Each was checked against its primary source
   1. the readers that see the page untouched, as ADR 0007 requires: links, `rel=canonical`, `meta refresh`, `<base href>`, the program's own selectors and XPath, and `html.raw`;
   2. the cosmetic clean-up, which removes its elements **in place on the same tree**, never on a copy or a re-serialized string;
   3. the readers of the cleaned page: the main content, the Page signature and the formats.
-- **Its result is immutable and shared.** The Page analysis returns one `Send + Sync` value shared by `Arc`: links, canonical, title, main content's text, Page signature, formats and fields. The Frontier, Datasets, learning and the writer read only that value. The tree ends with the Page analysis; no module receives a page's HTML as a string to parse.
+
+  > Note (agent decision, pending owner review), 2026-11-01, from reading the code at `85083c57b` for [#1577](https://github.com/goodfetch/goodfetch/issues/1577): the tree passes four states, and one step consumes it. It starts untouched, the clean-up removes in place, then composing the shadow roots rewrites it (only when the page holds one), and dom-smoothie takes the `Document` by value and leaves only its article. So the readers of the whole cleaned page (`html.cleaned`, tables, metadata, contacts, images, media, full Markdown) read before the main content, and the tree is copied (`Document::clone`, no parse) only when the demand plan has a reader after a step that consumes it: the main content's fallback that removes landmarks, or `fit`. At most 1 copy per page, a new register row `F1.tree_copies`. A format's string (`html.raw`, `html.cleaned`, `html.main`) is serialized once, only when asked. Markdown reads the tree too: htmd's only entry that does not parse takes an rcdom tree, so the main content's tree is walked into one with no parse, and `scraper`'s readers move to `dom_query`. F1's crate (ADR 0140, open question 1) is `goodfetch-extractor`, which Collie and Foxhound both use and which stays pure: its caller runs it on the CPU pool, and Foxhound passes its own readers of the untouched page in, built once per Run.
+- **Its result is immutable and shared.** The Page analysis returns one `Send + Sync` value shared by `Arc`: links, canonical, title, main content's text, Page signature, formats and fields. The Frontier, Datasets, learning and the writer read only that value. The tree ends with the Page analysis, unless a handler on a document tier needs it; no module receives a page's HTML as a string to parse.
+
+  > Amended on 2026-11-01 ([the sweep of ADR 0140](https://github.com/goodfetch/goodfetch/blob/claude/festive-curie-bc4545/rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md), D3, decided by the orchestrator under the owner's « fait tout ce que tu peux faire seul », open to their review; #767, #1097, #1473, #1474): **a document tier keeps the tree for its handler's life.** A handler's calls (`content`, `formats`, Locator reads, questions and waits) arrive after the analysis, one task per call, with selectors nobody knew in advance, so they read the attempt's kept tree, with its one owner on the CPU pool, and count in F1: no parse per call, selectors from the engine's cache. The kept tree stays untouched, since a program's selectors see the page untouched (ADR 0007); the clean-up and the main content run once, on a copy, and their result is kept for the attempt. Only a Label that declares a handler keeps one, and `dom_query`'s `atomic` feature, off today, makes it `Send`.
+
+- **Extractors read the tree.** ([the sweep of ADR 0140](https://github.com/goodfetch/goodfetch/blob/claude/festive-curie-bc4545/rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md), D4, same authority; #788, #814.) Neither built-in Extractor costs a second parse: dom-smoothie through `Readability::with_document`, rs-trafilatura through a document entry patched into its vendored fork (#1634, which also moves it to this workspace's `dom_query`). An Extractor Plugin crosses a process boundary, so it gets a counted allowance, only when chosen: 1 serialization and 1 parse of its answer (`F1.plugin_serializations`, `F1.plugin_answer_parses`).
 - **The browser tier takes the same path,** from the DOM's serialization.
+
+  > Note (agent decision, pending owner review), 2026-11-01: on the browser tier and in Collie, this covers formats, each read from a new `GetOuterHTML` because the DOM moves, so the unit there is one serialization read, and each counts one parse. Links, fields and Block markers stay read in the live page, as a person sees it, and the browser tier learns nothing, as today (`browser_run` never calls the Page signature).
 
 ### Work runs only when something asks for it
 
 - **A demand plan, computed before the Page analysis.** A pure function of the request (formats, fields, Datasets) and the Run's settings (`follow`, `frontier.learning`, the tier) gives the set of readers to run. Each reader declares what it produces and needs. A result several readers share, such as the main content, is computed once. A table test holds, for each combination, that no reader outside the plan runs. For example, `formats: {}` with learning off runs neither the clean-up nor readability.
 - **No tree when none is needed.** When no reader in the plan needs a tree (no format, no field, learning off), the Page analysis reads links, canonical, refresh and `<base>` in one streaming lol_html pass with precompiled selectors, as ADR 0007 already adopted lol-html for and as Spider does.
+
+  > Note (agent decision, pending owner review), 2026-11-01: the streaming path reads the same links as the tree does, trap-link judgement included, which needs each link's ancestors and the page's `aria-controls`: the pass keeps a stack of open elements and judges at its end. A reader it cannot serve puts the page on the tree, by the demand plan, never with a weaker answer. A test holds that both paths give the same links on the corpus. lol_html parses its selectors once (`Cow::Borrowed`), and builds its program per rewriter inside the library, which the instructions figure measures. A tree reader uses a kept `Matcher`, never `select("…")`, which compiles on each call.
 - **The Page signature reads the cleaned page's main content,** the same main content the formats read: one readability run per page, and a signature that a consent prompt or a paywall overlay cannot make the same on every page of a site. This amends ADR 0005's note of #851.
+
+  > Note (agent decision, pending owner review), 2026-11-01: it is the main content of the Run's chosen Extractor with its fallback, as formats read it; today it hard-codes dom-smoothie with no fallback. **ADR 0047's share** measures the main content before the rules, a second readability run on every page they touch, so by default the share becomes an estimate with no second run: the text removed over that text plus the main content left. It is an upper bound of the true share, so it can flag more and never misses one. `extraction.removal_share: exact` restores the measure at the cost of 1 copy and 1 readability run, a counted allowance when chosen.
 
 ### Run invariants are built once
 
@@ -71,6 +83,8 @@ How proven crawlers shape this work. Each was checked against its primary source
   - Settings, the Operator policy and user configuration are resolved once per Run.
   - Provenance's file and the Run index are opened once per Run.
   - Every SQLite connection keeps its prepared statements: `prepare_cached`, with a capacity that holds every statement the connection runs.
+
+    > Note (agent decision, pending owner review), 2026-11-01: this turns on rusqlite's `cache` feature in the workspace and lifts `hashlink`'s ban in `ci/deny/collie.toml`, since Collie's engine runs the same connections. A setting cannot do it: a statement cache is not a capability.
 
 ### Every costly per-page feature is a setting
 
@@ -84,6 +98,8 @@ How proven crawlers shape this work. Each was checked against its primary source
 - **`frontier.learning`,** true by default, is new. False switches off learned rules, the Page signature and readability; the fixed rules and the exact duplicate check stay. The run report says no rule was learned.
 - **Politeness and robots.txt switched off cost nothing.**
   - With `site_preferences.respect_robots_txt: false`, robots.txt is never fetched, read or stored.
+
+    > Amended on 2026-11-01 ([the sweep of ADR 0140](https://github.com/goodfetch/goodfetch/blob/claude/festive-curie-bc4545/rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md), D8, same authority as D3; #684, #1649): the Provenance mark `robots_txt: "ignored"` needs robots.txt read, so it becomes its own setting, `site_preferences.mark_robots_txt_ignored`, false by default. With it on, each origin's one copy is read and each page costs one match. The Audit log and the run report still record `respect_robots_txt: false`. `follow: sitemap` reads robots.txt for its `Sitemap` lines because the crawl asked for that, and matches no rule in it.
   - With a delay of 0 and no per-domain limit, admission does not consult the Politeness store.
   - The backoff on 429, 503 and `Retry-After` stays a separate feature with its own setting.
   - An Operator policy can still lock any of these values (ADR 0086).
@@ -96,19 +112,25 @@ How proven crawlers shape this work. Each was checked against its primary source
 |---|---|---|---|---|
 | `full` (default) | each attempt's outcome, grouped across pages, synced before anything is told outside | only attempts in flight are lost | only attempts in flight are lost | WAL; the claim commits without a sync of its own, the outcome with one |
 | `fast` | as `full`, without a sync | only attempts in flight are lost | recent commits may roll back, without corruption | WAL, `synchronous=NORMAL` |
-| `periodic` | one transaction every `run_state.commit_interval` (5 s by default), synced | the Run resumes at the last batch and redoes at most one interval | as after a process crash | WAL, `synchronous=FULL`, a savepoint per page inside the open transaction |
+| `periodic` | as `fast`, with one synced commit every `run_state.commit_interval` (5 s by default) | only attempts in flight are lost | the Run resumes at the last synced commit and redoes at most one interval, without corruption | WAL, `synchronous=NORMAL`, `FULL` for the interval's group |
 | `off` | grouped, never synced | the Run starts again from nothing | as after a process crash | WAL, `synchronous=OFF`, checkpoints never synced either |
 
+> Note (agent decision, pending owner review), 2026-11-01: `periodic` was first decided as one long open transaction, which reading `run_state` rules out. It acknowledges a write before its commit, which the writer's contract, its model test and ADR 0122 forbid; a read-only connection misses acknowledged writes, so the idle check could spin; a stale writer's transaction blocks a takeover's `BEGIN IMMEDIATE` past SQLite's busy timeout; and a failed commit would roll back an interval of acknowledged work. A commit that syncs covers every frame before it, so one synced commit every interval gives the same bound with none of these, and a process crash loses less. It writes more WAL than one long transaction; scenario 2 measures it.
+
 - **Two transactions per attempt.** The **claim**, before the fetch, admits the request and takes its Lease. The **outcome**, after it, commits learning, enqueued links, the Lease's commit, the settlement, the charge and the Records in one atomic transaction, as ADR 0103 already wants of a Record ("staged with the attempt and commits once with it"). No page is ever half written.
+
+  > Note (agent decision, pending owner review), 2026-11-01: a transaction here is one job on the writer, whatever group it commits in. The claim is one job that takes the charge's journal, the Lease and the Session draw, whose Label comes from the Lease, from the delivery loop that holds the pool. Three things stay jobs of their own, which their outcome divides by (ADR 0140): a followed redirect's check-and-set, whose answer can skip the page; a handler's `learn`, which must commit before the handler runs (ADR 0005); and a program's enqueue, whose IDs go back to it. A code-free attempt absorbs `learn` in its outcome, in a nested savepoint that keeps today's tolerance of its failure, and an attempt that fails still commits what it learned. A new link is keyed at admission, so `set_keys` leaves. A domain's hold or backoff journal joins the next group.
 - **The single writer groups transactions across pages, without a timer.** While one sync runs, the writer takes everything queued and commits it in one transaction with one sync, as LevelDB's writer queue does. Each page keeps its own savepoint, so one page's failing write rolls back alone.
 - **What `full` guarantees.** Everything the engine tells the outside has been synced before it is told: a readable Record, an outcome, `run.finish`'s answer and a Checkpoint. A claim lost to a power cut costs one more fetch, never an acknowledgement. In SQLite's WAL, the outcome's sync covers every frame written before it, so a claim committed without its own sync becomes durable with the next outcome.
+
+  > Note (agent decision, pending owner review), 2026-11-01: what is told is what ADR 0002 acknowledges. `run.progress`'s in-flight counts, a handler's request, its enqueue answers and a Provenance line go out earlier, as today, and promise nothing. **A claim's lost charge:** a power cut can lose the journal of a charge for a fetch that happened, and the ledger's reclaim would then under-charge. So after an unclean end, the reclaim counts the journal plus the requests that were in flight at `full`, and the whole Slice at any lower level: it can over-charge a Limit, never under-charge one, and the run report says so.
 - **What holds at every level:**
   - An Effect's journal entry commits before the Effect at every level, synced except at `off` (ADRs 0003 and 0010). An Effect never happens twice after a resume.
   - A clean stop (`run.pause`, an abort, a migration) writes a consistent Checkpoint. A paused Run resumes even at `off`.
   - Run state stays in a file at `off`, so ADR 0134's 8 heap bytes per URL in the Frontier still hold.
   - An `off` run file carries an "unclean" mark. Opened after a crash, it is discarded and the Run starts again.
 - **The default stays `full`** (ADRs 0002 and 0077's G5). The pass measures `full` against `fast` after grouping; if the gap stays large, the write-up says so, and the owner reopens the default at the owner test.
-- **`fast`, `periodic` and `off` weaken a guarantee.** The run report's `weakened_by` and `config explain` label them (ADR 0028), as `fast` is labelled today.
+- **`fast`, `periodic` and `off` weaken a guarantee.** The run report's `weakened` and `config explain` label them (ADR 0028), as `fast` is labelled today.
 
 ### Run-file settings
 
@@ -121,15 +143,19 @@ How proven crawlers shape this work. Each was checked against its primary source
 ### Reads leave the writer
 
 - **The writer only writes.** It stays the single actor of ADR 0002 and `STYLE.md`.
-- **Reads go through a small, bounded group of read-only connections** on the owner's blocking threads, as ADRs 0031 and 0103 already read.
+- **Reads go through a small, bounded group of kept read-only connections** on the owner's blocking threads, as ADRs 0031 and 0103 already read, though today each read opens its own.
 - **A read that must see a given write** waits for the writer's commit count to reach that write's commit, then opens its read transaction.
 - **The Frontier's hot state is not read back:** its per-domain queues, already bounded at 64, stay in memory.
 
 ### The pipeline
 
 - **One task per page carries the page from claim to outcome.** It holds the Lease, the deadline, cancellation (ADR 0038) and the outcome, as Heritrix, Scrapy, Crawlee and Spider do.
+
+  > Note (agent decision, pending owner review), 2026-11-01: the delivery loop issues the claims, which batch naturally; the page's task then carries it from its fetch to its outcome.
 - **Two shared, bounded resources** take the staged model's strengths (sizing each step on its own, and batching) without splitting an attempt across queues:
   - **A CPU pool** sized to the cores runs every Page analysis. It is a policy of `tasks` (ADR 0060), not Tokio's blocking pool, which grows to 512 threads.
+
+    > Note (agent decision, pending owner review), 2026-11-01: a method of `TaskOwner` with permits sized to the cores in front of the owner's blocking threads, so at most that many analyses run. `BlockingPolicy` stays a `Copy` value, and `Inline` runs the analysis inline, so the paused benchmark's counts stay exact.
   - **The writer** groups commits (above).
 - **A page being analysed holds no network slot.** The slot among the requests in flight is given back once the fetch ends (ADR 0004 counts only requests in flight), and the analysis waits for the CPU pool.
 - **Every channel is bounded** (`STYLE.md`).
@@ -192,6 +218,7 @@ How proven crawlers shape this work. Each was checked against its primary source
 - **A cheaper signature without readability:** rejected. It is weaker evidence, and it would redo #851's thresholds.
 - **Grouping commits alone, keeping about 8 awaited writes per page:** rejected. Each page's latency would stay 8 round trips through the writer.
 - **Asynchronous durability, with writes acknowledged before their sync and only outside acknowledgements gated on a durability watermark:** rejected for now. It gives the outside the same guarantee as two transactions with grouping, but its code and its Simulation tests (ADR 0060) are much heavier.
+- **`periodic` as one long open transaction:** rejected, for the reasons in the note under the table of Durability levels.
 - **Weakening `full` to periodic checkpoints,** as Heritrix and Scrapy do: rejected. It breaks ADR 0002's guarantee. `periodic` offers it as a choice instead.
 - **`periodic` as the default:** rejected. It would align with competitors at the price of up to 5 s of work lost on a power cut, against ADR 0077's G5.
 - **`off` with an in-memory journal or no journal:** rejected. Without WAL, readers cannot read while the writer writes, and without a journal a savepoint cannot roll back.
@@ -209,10 +236,10 @@ How proven crawlers shape this work. Each was checked against its primary source
 - **Amends ADR 0005** (the note of #851): the Page signature reads the cleaned page's main content, and `frontier.learning` switches learning off.
 - **Amends ADR 0007:** one Page analysis per page, the clean-up in place on the same tree, and the streaming path when nothing needs a tree.
 - **Amends ADR 0134:** the structural counts as ceilings, the scenario the Spider target is read on, the matrix's Foxhound cells and the rule for the 2× ceiling.
-- **Notes on ADRs 0023** (its table gains the Durability levels, `frontier.learning` and the Page signature), **0028** (`periodic`, `off` and `frontier.learning: false` join `weakened_by`), **0060** (a CPU pool policy in `tasks`), **0086** (switched off means no work) **and 0103** (at `periodic`, a reader lags by up to one interval).
+- **Notes on ADRs 0023** (its table gains the Durability levels, `frontier.learning` and the Page signature), **0028** (`periodic`, `off` and `frontier.learning: false` join `weakened_by`), **0060** (a CPU pool policy in `tasks`), **0086** (switched off means no work; `site_preferences.mark_robots_txt_ignored`) **and 0103** (at `periodic`, a Record a reader saw can be lost to a power cut, which `weakened` labels).
 - **`STYLE.md`** gains the rule above. **`TESTING.md`** gains the structural counts beside the absolute ceilings.
 - **`GLOSSARY.md` gains two terms,** added with this ADR:
   - **Page analysis:** the one step in which a fetched page is parsed and read by every reader its crawl needs, leaving one result that every later step shares. _Avoid_: parse step, pipeline stage, page processing.
   - **Durability level:** what a run's state survives: a process crash, a power cut, both or neither, chosen per run as `full`, `fast`, `periodic` or `off`. _Avoid_: persistence mode, sync mode, fsync mode.
-- **Contracts change in place.** The new values of `run_state.durability`, and the settings `run_state.commit_interval` and `frontier.learning`, are added to `goodfetch-protocol`'s types and regenerated with `xtask codegen`. Nothing is published, so no format changes version (ADR 0066).
+- **Contracts change in place.** The new values of `run_state.durability`, and the settings `run_state.commit_interval`, `frontier.learning`, `extraction.removal_share` and `site_preferences.mark_robots_txt_ignored`, are added to `goodfetch-protocol`'s types and regenerated with `xtask codegen`. Nothing is published, so no format changes version (ADR 0066).
 - **Out of scope: continuous crawling.** A Run that never ends, per-URL revisit dates, a revisit policy and feed discovery, which StormCrawler serves, are decided in ADR 0139, from their own grilling session. This ADR's one task per page with shared pools does not block them.

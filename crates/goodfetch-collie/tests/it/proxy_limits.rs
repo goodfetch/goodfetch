@@ -51,7 +51,7 @@ fn rows(file: &std::path::Path, table: &str) -> Vec<String> {
 }
 
 /// The ceiling the Politeness file holds for each proxy key, by key.
-fn ceilings(file: &std::path::Path) -> BTreeSet<(String, Option<i64>)> {
+pub(crate) fn ceilings(file: &std::path::Path) -> BTreeSet<(String, Option<i64>)> {
     let connection = Connection::open(file).unwrap();
     let mut statement = connection
         .prepare("SELECT key, ceiling FROM proxy_limits ORDER BY key")

@@ -30,6 +30,8 @@ use tokio::sync::mpsc;
 #[cfg(unix)]
 mod activation;
 mod socket_folder;
+#[cfg(test)]
+mod tests;
 mod wake;
 
 pub use socket_folder::{
@@ -275,24 +277,69 @@ fn activated_os(
     )))
 }
 
-/// `address` with a port the OS has free now in place of port 0, for a
-/// listener another process opens later, as a service manager listening on
-/// the Console's address for the Daemon it starts (ADR 0031); `address`
-/// itself when it names a port.
+/// A port the OS chose, held for the listener a service manager opens on it
+/// later, its Console socket for the Daemon it starts (ADR 0031), until
+/// dropped once that listener is open: a socket bound with port reuse that
+/// never listens. The OS refuses the port to every other socket but one of
+/// the same user that asks for port reuse on this very port, as a socket
+/// unit's `ReusePort=yes` does; it picks no held port for another port 0, and
+/// nothing connects here, since the socket never listens (#1821).
+#[derive(Debug)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+)]
+pub struct HeldPort {
+    address: std::net::SocketAddr,
+    _socket: tokio::net::TcpSocket,
+}
+
+impl HeldPort {
+    /// The host the hold was asked for, on the port held.
+    #[must_use]
+    pub fn address(&self) -> std::net::SocketAddr {
+        self.address
+    }
+}
+
+/// Holds a port the OS chooses on `host`, for a listener that opens later:
+/// never a port bound and let go, which another program could take first.
 ///
 /// # Errors
 ///
-/// When the OS refuses to listen on `address`'s host.
-pub fn free_port(address: std::net::SocketAddr) -> io::Result<std::net::SocketAddr> {
-    if address.port() != 0 {
-        return Ok(address);
-    }
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the transport module is the one place that opens sockets (ADR 0060)"
-    )]
-    let probe = std::net::TcpListener::bind(address)?;
-    probe.local_addr()
+/// When the OS refuses to bind on `host`, or has no port reuse to hold a port
+/// with (Windows, whose service has no socket).
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the transport module is the one place that opens sockets (ADR 0060)"
+)]
+pub fn hold_free_port(host: std::net::IpAddr) -> io::Result<HeldPort> {
+    let socket = if host.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseport(true)?;
+    socket.bind(std::net::SocketAddr::new(host, 0))?;
+    Ok(HeldPort {
+        address: socket.local_addr()?,
+        _socket: socket,
+    })
+}
+
+/// Holds a port the OS chooses on `host`: not on this OS, which has no port
+/// reuse to hold one with and no service socket that would listen on it.
+///
+/// # Errors
+///
+/// Always.
+#[cfg(not(unix))]
+pub fn hold_free_port(_host: std::net::IpAddr) -> io::Result<HeldPort> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "this OS has no port reuse to hold a port with",
+    ))
 }
 
 /// The Console's listener a service manager handed this process, which it

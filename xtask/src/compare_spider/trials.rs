@@ -14,7 +14,8 @@ pub(crate) const CONCURRENCY: u32 = crate::rss::crawl::CONCURRENCY;
 /// The pages of the site both tools crawl: the resident-memory check's
 /// crawl's.
 pub(crate) const SITE_PAGES: u64 = crate::rss::crawl::PAGES;
-/// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins.
+/// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
+/// (a unit test holds the two equal).
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 
 /// A tool compared.
@@ -94,3 +95,6 @@ pub(crate) struct Comparison {
     pub(crate) order_seed: u64,
     pub(crate) trials: Vec<Trial>,
 }
+
+#[cfg(test)]
+mod tests;

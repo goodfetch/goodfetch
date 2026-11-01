@@ -1755,3 +1755,116 @@ fn over_layers(layers: &Layers, key: &str) -> Result<Value, (&'static str, Strin
             (refused.code(), key.clone())
         })
 }
+
+/// O11 of the deep review (accepted by the owner on 2026-10-28): a Client
+/// acting for a model never sets `proxy.kind`, whose kinds' prices differ
+/// by an order of magnitude, so a model never picks a dearer kind with the
+/// person's money; a Recipe still sets it, as the spec has it, and the
+/// program's own code and configuration do (positive controls).
+/// Covers: story:8-93, error:setting_locked, setting:proxy.kind
+#[rstest]
+#[case::from_the_programs_own_code(SettingsLayer::Run, false, true)]
+#[case::from_a_model(SettingsLayer::Run, true, false)]
+#[case::from_a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, false)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, true)]
+#[case::from_a_recipe(SettingsLayer::Recipe, false, true)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, true)]
+fn a_model_never_sets_the_proxy_kind_a_recipe_and_the_program_do(
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] taken: bool,
+) {
+    let mut layers = only(layer, "proxy.kind", &json!("mobile"));
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+
+    let resolved = over_layers(&layers, "proxy.kind");
+
+    let expected = if taken {
+        Ok(json!("mobile"))
+    } else {
+        Err(("setting_locked", "proxy.kind".to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// O12 of the deep review (accepted by the owner on 2026-10-28): a Proxy
+/// provider's `price` comes only from user configuration and an Operator
+/// policy, since a currency Limit on `proxy_bytes` trusts it and a
+/// project's configuration is a file of its repository. A project's entry
+/// with a `price` is `setting_locked`, its fix naming `price`; one without
+/// is taken as before.
+/// Covers: setting:proxy.providers, error:setting_locked
+#[rstest]
+#[case::priced_in_user_configuration(SettingsLayer::UserConfiguration, true, true)]
+#[case::priced_in_the_operator_policy(SettingsLayer::OperatorPolicy, true, true)]
+#[case::priced_in_project_configuration(SettingsLayer::ProjectConfiguration, true, false)]
+#[case::unpriced_in_project_configuration(SettingsLayer::ProjectConfiguration, false, true)]
+fn a_proxy_providers_price_comes_only_from_user_configuration_and_the_operator_policy(
+    #[case] layer: SettingsLayer,
+    #[case] priced: bool,
+    #[case] taken: bool,
+) {
+    let mut entry =
+        json!({ "servers": [{ "server": "http://203.0.113.7:3128", "kind": "datacenter" }] });
+    if priced {
+        entry["price"] = json!("0.01 USD");
+    }
+    let providers = json!({ "list": entry });
+    let layers = only(layer, "proxy.providers", &providers);
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("proxy.providers")),
+            (true, &providers)
+        ),
+        Err(refused) => assert_eq!(
+            (
+                taken,
+                refused.code(),
+                format!("{refused:?}").contains("`price`")
+            ),
+            (false, "setting_locked", true),
+            "{refused:?}"
+        ),
+    }
+}
+
+/// O8 of the deep review (accepted by the owner on 2026-10-28): a value
+/// keeps who gave it, so a `session.source` from the project configuration
+/// a Client acting for a model sent is the model's wherever the Run reads
+/// it, whoever opens the Session; the same value from the program's own
+/// project configuration, from user configuration and from the Operator
+/// policy is not (positive controls).
+/// Covers: story:4-15, setting:session.source
+#[rstest]
+#[case::a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, true)]
+#[case::a_models_run_layer(SettingsLayer::Run, true, true)]
+#[case::the_programs_project_configuration(SettingsLayer::ProjectConfiguration, false, false)]
+#[case::the_programs_run_layer(SettingsLayer::Run, false, false)]
+#[case::user_configuration_in_a_models_run(SettingsLayer::UserConfiguration, true, false)]
+#[case::the_operator_policy_in_a_models_run(SettingsLayer::OperatorPolicy, true, false)]
+fn an_effective_value_names_whether_a_model_gave_it(
+    #[case] layer: SettingsLayer,
+    #[case] models_run: bool,
+    #[case] for_model: bool,
+) {
+    let source = json!({ "kind": "cdp_url", "url": "ws://127.0.0.1:9222/devtools/browser/1" });
+    let mut layers = only(layer, "session.source", &source);
+    if models_run {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    let effective = resolved.get("session.source").unwrap();
+    assert_eq!(
+        (effective.layer, &effective.value, effective.for_model),
+        (layer, &source, for_model)
+    );
+}

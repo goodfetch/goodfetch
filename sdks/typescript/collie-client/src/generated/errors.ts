@@ -172,7 +172,7 @@ export class BodyNotFoundError extends ProgramError {
 }
 
 /**
- * The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
+ * The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say "Request content was evicted from inspector cache". A retry finds the body gone all the same.
  */
 export class BodyUnavailableError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -235,7 +235,7 @@ export class CapabilityUnavailableError extends UnavailableError {
 }
 
 /**
- * A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user or project configuration, or give a public address.
+ * A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.
  */
 export class CDPURLNotAllowedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -496,7 +496,7 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
- * The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.
+ * Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.
  */
 export class PageEventsLostError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {

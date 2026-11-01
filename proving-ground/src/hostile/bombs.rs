@@ -36,6 +36,10 @@ const FAMILY_NUMBER: u64 = 4;
 /// Every task's page is served on this one path.
 const PATH: &str = "/";
 
+/// The path on the family's own host, `bombs.test`, of the zstd frame whose
+/// window is past RFC 9659's 8 MB.
+const PAST_THE_WINDOW: &str = "/past-the-window";
+
 /// The code a decompression bomb's refusal reports, and the setting it names
 /// (area 4's `network.max_decompression_ratio`): the two the oracle checks.
 const LIMIT_CODE: &str = "response_limit_exceeded";
@@ -50,7 +54,7 @@ const EXPANDED_BYTES: u64 = 10 * 1024 * 1024;
 const _: () = assert!(EXPANDED_BYTES > 1024 * 1024);
 
 /// The largest a zstd RLE block may regenerate (RFC 8878, section
-/// 3.1.1.2.3): 128 KiB, the frame's window.
+/// 3.1.1.2.3): 128 KiB, which is also the zstd bomb's window.
 const ZSTD_BLOCK_MAXIMUM: u32 = 128 * 1024;
 
 /// The zstd frame's `Window_Descriptor` (RFC 8878, section 3.1.1.1.2): a
@@ -71,12 +75,19 @@ pub(super) const TASKS: u32 = 6;
 /// description of what a correct tool does with it.
 struct Spec {
     content_encodings: &'static [&'static str],
+    /// Whether the task starts over `https://`: a browser offers `br` and
+    /// `zstd` only to a secure origin (Chromium offers `gzip, deflate` alone
+    /// over `http://` to any host but localhost, and fails a body coded
+    /// otherwise before reading it), so a browser reaches these bombs'
+    /// ratio limit only over TLS, which the same address serves.
+    secure: bool,
     /// The bytes of the body built for it, which the task declares. `serve`
     /// lists every task before it reports its address, and building the
     /// bodies took most of that start, so the size is written here and a
-    /// test holds it equal to the body's length: the task list names the
-    /// bytes the page really sends, and a body is built only when a bomb's
-    /// page is asked for. An encoder whose output changes fails that test.
+    /// test holds it equal to the body's length: the task's expected
+    /// result, which its digest hashes, names the bytes the page really
+    /// sends, and a body is built only when a bomb's page is asked for. An
+    /// encoder whose output changes fails that test.
     compressed_bytes: u64,
     description: &'static str,
 }
@@ -84,6 +95,7 @@ struct Spec {
 const SPECS: [Spec; (SAFE - 1) as usize] = [
     Spec {
         content_encodings: &["gzip"],
+        secure: false,
         compressed_bytes: 10_208,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             gzip decompression bomb: a few kilobytes that decode to far more, past the engine's \
@@ -92,6 +104,7 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["deflate"],
+        secure: false,
         compressed_bytes: 10_190,
         description: "Read the start page as one Record with `id` and `word`. Its body is a raw \
             deflate decompression bomb, labelled `Content-Encoding: deflate`, that decodes to \
@@ -100,13 +113,15 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["br"],
-        compressed_bytes: 27,
+        secure: true,
+        compressed_bytes: 26,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             Brotli decompression bomb that decodes to far more than it sends, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit.",
     },
     Spec {
         content_encodings: &["zstd"],
+        secure: true,
         compressed_bytes: 330,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             zstd decompression bomb that decodes to far more than it sends, past the engine's \
@@ -114,6 +129,7 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["gzip", "gzip"],
+        secure: false,
         compressed_bytes: 105,
         description: "Read the start page as one Record with `id` and `word`. Its body is gzip \
             applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both \
@@ -122,22 +138,16 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
 ];
 
-/// Every bomb's body, in [`SPECS`]' order, built once at the first request
-/// for a bomb's page: the bytes are generated here, never committed, so the
-/// source file stays small.
-static BOMBS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+/// Each bomb's body, in [`SPECS`]' order, built once at the first request
+/// for its own page: the bytes are generated here, never committed, so the
+/// source file stays small, and a request for one bomb builds no other.
+static BOMBS: [OnceLock<Vec<u8>>; SPECS.len()] = [const { OnceLock::new() }; SPECS.len()];
 
 /// The body of the bomb at `index` in [`SPECS`].
 fn bomb_body(index: usize) -> Option<&'static [u8]> {
-    BOMBS
-        .get_or_init(|| {
-            SPECS
-                .iter()
-                .map(|spec| body_for(spec.content_encodings))
-                .collect()
-        })
-        .get(index)
-        .map(Vec::as_slice)
+    let spec = SPECS.get(index)?;
+    let body = BOMBS.get(index)?;
+    Some(body.get_or_init(|| body_for(spec.content_encodings)))
 }
 
 /// The chunk [`write_filler`] streams filler in, kept small so its buffer
@@ -191,7 +201,7 @@ fn encode_filler(coding: &str) -> Vec<u8> {
                 .expect("invariant: finishing an in-memory encoder does not fail")
         }
         "br" => brotli_filler(),
-        "zstd" => zstd_rle_filler(),
+        "zstd" => zstd_rle_filler(ZstdWindow::Block),
         other => unreachable!("a bomb carries a known coding, not {other}"),
     }
 }
@@ -215,30 +225,45 @@ fn encode(coding: &str, bytes: &[u8]) -> Vec<u8> {
 /// `EXPANDED_BYTES` of filler compressed with Brotli, streamed through the
 /// encoder so its expanded size is never held at once.
 fn brotli_filler() -> Vec<u8> {
-    // Quality 11, window 2^22: the encoder's own defaults for the best ratio.
-    let mut encoder = brotli::CompressorWriter::new(Vec::new(), 4096, 11, 22);
+    // Quality 5, window 2^22: one filler byte compresses as far at quality 5
+    // as at the encoder's best, 11 (26 bytes against 27), and an
+    // unoptimized build takes 0.2 s to do it, where quality 11 took 2.7 s.
+    let mut encoder = brotli::CompressorWriter::new(Vec::new(), 4096, 5, 22);
     write_filler(&mut encoder, EXPANDED_BYTES);
     encoder.into_inner()
 }
 
+/// The window a zstd frame asks its decoder for.
+#[derive(Clone, Copy)]
+enum ZstdWindow {
+    /// One block's 128 KiB, named by its `Window_Descriptor`: within RFC
+    /// 9659's 8 MB, which Chromium and the engine enforce.
+    Block,
+    /// The frame's whole content, 10 MiB, as a single-segment frame asks:
+    /// past RFC 9659's 8 MB, so a decoder that enforces it refuses the frame
+    /// before a byte decodes.
+    Content,
+}
+
 /// A zstd frame (RFC 8878) that regenerates `EXPANDED_BYTES` of [`FILLER`]
 /// from RLE blocks, each a 3-byte header and the one byte it repeats, so the
-/// whole frame is a few hundred bytes. No zstd encoder is a dependency of the
-/// Proving ground, so the frame is written by hand, as the `content-coding`
-/// family's zstd pages are.
-fn zstd_rle_filler() -> Vec<u8> {
+/// whole frame is a few hundred bytes, asking for `window`. No zstd encoder
+/// is a dependency of the Proving ground, so the frame is written by hand, as
+/// the `content-coding` family's zstd pages are.
+fn zstd_rle_filler(window: ZstdWindow) -> Vec<u8> {
     let expanded = u32::try_from(EXPANDED_BYTES).expect("invariant: the expanded size fits u32");
     let mut frame = Vec::new();
     // Magic number (RFC 8878, section 3.1.1).
     frame.extend_from_slice(&0xFD2F_B528_u32.to_le_bytes());
     // Frame_Header_Descriptor: Frame_Content_Size of 4 bytes (flag 2, bits
-    // 7-6 = 10), not single-segment, so a Window_Descriptor follows; no
-    // checksum, no dictionary.
-    frame.push(0b1000_0000);
-    // Window_Descriptor: a window of 128 KiB (exponent 7 over 2^10, mantissa
-    // 0), within RFC 9659's 8 MB, which Chromium and the engine enforce: a
-    // single-segment frame's window is its whole content, 10 MiB.
-    frame.push(ZSTD_WINDOW_DESCRIPTOR);
+    // 7-6 = 10); no checksum, no dictionary.
+    match window {
+        // Not single-segment, so a Window_Descriptor follows: a window of
+        // 128 KiB (exponent 7 over 2^10, mantissa 0).
+        ZstdWindow::Block => frame.extend_from_slice(&[0b1000_0000, ZSTD_WINDOW_DESCRIPTOR]),
+        // Single_Segment (bit 5), so the window is the content.
+        ZstdWindow::Content => frame.push(0b1010_0000),
+    }
     frame.extend_from_slice(&expanded.to_le_bytes());
     let mut remaining = expanded;
     while remaining > 0 {
@@ -279,8 +304,15 @@ fn encoded(encodings: &[&str], body: Vec<u8>) -> Reply {
 }
 
 pub(super) fn respond(seed: u64, host: &str, request: &Request<'_>) -> Reply {
-    let Some(ordinal) = ordinal_of(host).filter(|_| request.method == Method::GET) else {
+    if request.method != Method::GET {
         return Reply::not_found();
+    }
+    let Some(ordinal) = ordinal_of(host) else {
+        return if request.path == PAST_THE_WINDOW {
+            encoded(&["zstd"], zstd_rle_filler(ZstdWindow::Content))
+        } else {
+            Reply::not_found()
+        };
     };
     if request.path != PATH {
         return Reply::not_found();
@@ -308,7 +340,15 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
     (1..=TASKS)
         .map(|ordinal| {
             let host = task::task_host(ordinal, HOST);
-            let start_url = format!("{}{PATH}", task::origin(&host, port));
+            let spec = usize::try_from(ordinal - 1)
+                .ok()
+                .and_then(|index| SPECS.get(index));
+            let origin = if spec.is_some_and(|spec| spec.secure) {
+                task::secure_origin(&host, port)
+            } else {
+                task::origin(&host, port)
+            };
+            let start_url = format!("{origin}{PATH}");
             let (description, expected) = if ordinal == SAFE {
                 let (id, word) = safe_record(seed);
                 (
@@ -360,123 +400,238 @@ mod tests {
     use std::io::Read as _;
 
     use flate2::read::{DeflateDecoder, GzDecoder};
+    use rstest::rstest;
 
     use super::*;
 
     const SEED: u64 = 312;
 
-    /// The decoded length of `body` under `coding`, for the codings a test
-    /// can decode in-process (gzip, deflate and Brotli; a zstd decoder is no
-    /// dependency of the Proving ground).
-    fn decoded_len(coding: &str, body: &[u8]) -> u64 {
-        let mut decoded = Vec::new();
-        match coding {
-            "gzip" => {
-                GzDecoder::new(body)
-                    .read_to_end(&mut decoded)
-                    .expect("the gzip body decodes");
-            }
-            "deflate" => {
-                DeflateDecoder::new(body)
-                    .read_to_end(&mut decoded)
-                    .expect("the deflate body decodes");
-            }
-            "br" => {
-                brotli::Decompressor::new(body, 4096)
-                    .read_to_end(&mut decoded)
-                    .expect("the Brotli body decodes");
-            }
-            other => unreachable!("no in-process decoder for {other}"),
-        }
-        u64::try_from(decoded.len()).expect("a decoded length fits u64")
-    }
-
-    #[test]
-    fn each_single_coding_bomb_decodes_past_the_ratio_limit() {
-        for coding in ["gzip", "deflate", "br"] {
-            let body = body_for(&[coding]);
-            let compressed = u64::try_from(body.len()).expect("fits u64");
-            assert_eq!(
-                decoded_len(coding, &body),
-                EXPANDED_BYTES,
-                "the {coding} body decodes to the declared expanded size"
-            );
-            assert!(
-                EXPANDED_BYTES / compressed > 100,
-                "the {coding} ratio is past the 100:1 the engine allows ({compressed} \
-                 compressed)"
-            );
-            assert!(
-                compressed < 256 * 1024,
-                "the {coding} compressed body is small ({compressed} bytes)"
-            );
+    /// A `GET` of `path`, with no query, cookie or body.
+    fn get(path: &str) -> Request<'_> {
+        static EMPTY: hyper::body::Bytes = hyper::body::Bytes::new();
+        Request {
+            method: &Method::GET,
+            path,
+            query: "",
+            cookies: "",
+            authorization: "",
+            body: &EMPTY,
+            peer: std::net::IpAddr::from([127, 0, 0, 1]),
         }
     }
 
-    #[test]
-    fn the_double_gzip_bomb_decodes_through_both_codings() {
-        let body = body_for(&["gzip", "gzip"]);
-        let mut once = Vec::new();
-        GzDecoder::new(&body[..])
-            .read_to_end(&mut once)
-            .expect("the outer gzip decodes");
-        assert_eq!(
-            decoded_len("gzip", &once),
-            EXPANDED_BYTES,
-            "decoding both gzip codings yields the expanded size"
-        );
-        assert!(
-            body.len() < 256 * 1024,
-            "the double-gzip compressed body is small"
-        );
+    /// The task `bombs/<ordinal>` as `serve` lists it on port 8080.
+    fn task_of(ordinal: u32) -> Task {
+        tasks(SEED, Some(8080))
+            .into_iter()
+            .find(|task| task.entry.id == format!("{FAMILY}/{ordinal}"))
+            .expect("the family lists the task")
     }
 
-    #[test]
-    fn the_zstd_frame_regenerates_the_expanded_size_from_rle_blocks() {
-        let frame = zstd_rle_filler();
-        assert_eq!(
-            &frame[..4],
-            &0xFD2F_B528_u32.to_le_bytes(),
-            "the frame begins with zstd's magic number"
-        );
-        assert_eq!(
-            frame[4], 0b1000_0000,
-            "a 4-byte content size, not single-segment"
-        );
-        let window = 1_u64 << (10 + (frame[5] >> 3));
-        assert!(
-            window <= 8 * 1024 * 1024,
-            "the frame asks for a window within RFC 9659's 8 MB ({window} bytes)"
-        );
-        assert_eq!(
-            u64::from(u32::from_le_bytes(
-                frame[6..10].try_into().expect("4 bytes")
-            )),
-            EXPANDED_BYTES,
-            "the frame declares the expanded size"
-        );
-        // Walk the RLE blocks after the 10-byte header, summing what they
-        // regenerate, and confirm the last block is flagged.
-        let mut at = 10;
+    /// The `Content-Encoding` a reply names, empty when it names none.
+    fn content_encoding(reply: &Reply) -> &str {
+        reply
+            .headers
+            .iter()
+            .find(|(name, _)| *name == "content-encoding")
+            .map_or("", |(_, value)| value.as_str())
+    }
+
+    /// What a zstd frame of raw and RLE blocks (RFC 8878) asks of its
+    /// decoder and gives it.
+    struct ZstdFrame {
+        single_segment: bool,
+        /// The window it needs: its `Window_Descriptor`'s, or its whole
+        /// content when it is single-segment.
+        window: u64,
+        /// The bytes its blocks regenerate.
+        regenerated: u64,
+    }
+
+    /// Reads `frame`, a zstd frame with no checksum or dictionary whose
+    /// blocks are raw or RLE (no zstd decoder is a dependency of the
+    /// Proving ground): a compressed block, which no frame here holds,
+    /// fails.
+    fn zstd_frame(frame: &[u8]) -> ZstdFrame {
+        assert_eq!(&frame[..4], &0xFD2F_B528_u32.to_le_bytes(), "zstd's magic");
+        let descriptor = frame[4];
+        let single_segment = descriptor & 0b0010_0000 != 0;
+        assert_eq!(descriptor & 0b0000_0111, 0, "no checksum and no dictionary");
+        let mut at = 5;
+        let window_descriptor = if single_segment {
+            None
+        } else {
+            at += 1;
+            Some(frame[5])
+        };
+        let size_bytes = match descriptor >> 6 {
+            0 => usize::from(single_segment),
+            1 => 2,
+            2 => 4,
+            _ => 8,
+        };
+        let mut size = [0_u8; 8];
+        size[..size_bytes].copy_from_slice(&frame[at..at + size_bytes]);
+        let content = u64::from_le_bytes(size) + if size_bytes == 2 { 256 } else { 0 };
+        at += size_bytes;
+        let window = window_descriptor.map_or(content, |byte| {
+            let base = 1_u64 << (10 + (byte >> 3));
+            base + base / 8 * u64::from(byte & 0b111)
+        });
         let mut regenerated = 0_u64;
-        let mut last_seen = false;
-        while at < frame.len() {
+        loop {
             let header = u32::from_le_bytes([frame[at], frame[at + 1], frame[at + 2], 0]);
-            assert_eq!((header >> 1) & 0b11, 1, "each block is an RLE block");
-            regenerated += u64::from(header >> 3);
-            last_seen = header & 1 == 1;
-            at += 4; // 3-byte header and the one repeated byte.
+            let block = u64::from(header >> 3);
+            at += 3 + match (header >> 1) & 0b11 {
+                0 => usize::try_from(block).expect("a block's size fits usize"),
+                1 => 1,
+                other => panic!("a block of type {other}, neither raw nor RLE"),
+            };
+            regenerated += block;
+            if header & 1 == 1 {
+                break;
+            }
         }
         assert_eq!(at, frame.len(), "the blocks fill the frame exactly");
-        assert!(last_seen, "the last block is flagged last");
         assert_eq!(
-            regenerated, EXPANDED_BYTES,
-            "the blocks regenerate the expanded size"
+            regenerated, content,
+            "the blocks regenerate its content size"
         );
-        let compressed = u64::try_from(frame.len()).expect("fits u64");
+        ZstdFrame {
+            single_segment,
+            window,
+            regenerated,
+        }
+    }
+
+    /// The length `body` decodes to through `content_encoding`'s codings,
+    /// the last applied undone first.
+    fn decoded_len(content_encoding: &str, body: &[u8]) -> u64 {
+        let mut bytes = body.to_vec();
+        for coding in content_encoding.rsplit(", ") {
+            if coding == "zstd" {
+                // Only ever the innermost coding here.
+                return zstd_frame(&bytes).regenerated;
+            }
+            let mut decoded = Vec::new();
+            match coding {
+                "gzip" => GzDecoder::new(&bytes[..]).read_to_end(&mut decoded),
+                "deflate" => DeflateDecoder::new(&bytes[..]).read_to_end(&mut decoded),
+                "br" => brotli::Decompressor::new(&bytes[..], 4096).read_to_end(&mut decoded),
+                other => panic!("no in-process decoder for {other}"),
+            }
+            .unwrap_or_else(|error| panic!("the {coding} body decodes: {error}"));
+            bytes = decoded;
+        }
+        u64::try_from(bytes.len()).expect("a decoded length fits u64")
+    }
+
+    /// Each bomb's page is served under its codings, small, and decodes
+    /// through them to the expanded size, far past the 100:1 the engine
+    /// allows; its task expects only the refusal at the ratio limit and
+    /// declares the codings and the bytes the page really sends.
+    #[rstest]
+    #[case::gzip(1, "gzip")]
+    #[case::deflate(2, "deflate")]
+    #[case::brotli(3, "br")]
+    #[case::zstd(4, "zstd")]
+    #[case::double_gzip(5, "gzip, gzip")]
+    fn a_bomb_is_served_small_under_its_codings_and_decodes_past_the_ratio_limit(
+        #[case] ordinal: u32,
+        #[case] codings: &str,
+    ) {
+        let reply = respond(SEED, &task::task_host(ordinal, HOST), &get(PATH));
+        let task = task_of(ordinal);
+
+        let compressed = u64::try_from(reply.body.len()).expect("fits u64");
+        assert_eq!(
+            (reply.status, content_encoding(&reply)),
+            (StatusCode::OK, codings)
+        );
+        assert_eq!(decoded_len(codings, &reply.body), EXPANDED_BYTES);
         assert!(
             EXPANDED_BYTES / compressed > 100 && compressed < 256 * 1024,
-            "the zstd frame is a small, high-ratio bomb ({compressed} bytes)"
+            "a small body far past the ratio limit ({compressed} bytes)"
+        );
+        let bomb = task
+            .expected
+            .bomb
+            .as_ref()
+            .expect("the task declares its bomb");
+        assert_eq!(
+            (
+                bomb.content_encodings.join(", "),
+                bomb.compressed_bytes,
+                bomb.expanded_bytes
+            ),
+            (codings.to_owned(), compressed, EXPANDED_BYTES),
+            "the task declares the bytes its page sends"
+        );
+        let error = task.expected.error.as_ref().expect("an expected error");
+        assert!(task.expected.refusal);
+        assert_eq!(
+            (error.code, error.setting),
+            (LIMIT_CODE, Some(RATIO_SETTING))
+        );
+    }
+
+    /// A browser offers `br` and `zstd` only to a secure origin, so the
+    /// Brotli and zstd bombs start over `https://`, and the others over
+    /// `http://`.
+    #[rstest]
+    #[case::gzip(1, "http://1.bombs.test:8080/")]
+    #[case::deflate(2, "http://2.bombs.test:8080/")]
+    #[case::brotli(3, "https://3.bombs.test:8080/")]
+    #[case::zstd(4, "https://4.bombs.test:8080/")]
+    #[case::double_gzip(5, "http://5.bombs.test:8080/")]
+    #[case::safe(6, "http://6.bombs.test:8080/")]
+    fn a_task_starts_where_a_browser_offers_its_coding(
+        #[case] ordinal: u32,
+        #[case] start_url: &str,
+    ) {
+        assert_eq!(task_of(ordinal).entry.start_url, start_url);
+    }
+
+    /// The zstd bomb's frame names a 128 KiB window, within RFC 9659's
+    /// 8 MB, so a decoder that enforces that reaches the ratio limit.
+    #[test]
+    fn the_zstd_bombs_frame_asks_for_a_window_within_eight_megabytes() {
+        let reply = respond(SEED, &task::task_host(4, HOST), &get(PATH));
+
+        let frame = zstd_frame(&reply.body);
+
+        assert_eq!(
+            (frame.single_segment, frame.window),
+            (false, u64::from(ZSTD_BLOCK_MAXIMUM))
+        );
+    }
+
+    /// `bombs.test/past-the-window` serves the same blocks in a
+    /// single-segment frame, whose window is its whole 10 MiB content, past
+    /// RFC 9659's 8 MB: a decoder that enforces it refuses the frame before
+    /// a byte decodes.
+    #[test]
+    fn the_page_past_the_window_asks_for_a_window_past_eight_megabytes() {
+        let reply = respond(SEED, HOST, &get(PAST_THE_WINDOW));
+
+        assert_eq!(
+            (reply.status, content_encoding(&reply)),
+            (StatusCode::OK, "zstd")
+        );
+        let frame = zstd_frame(&reply.body);
+        assert_eq!(
+            (frame.single_segment, frame.window, frame.regenerated),
+            (true, EXPANDED_BYTES, EXPANDED_BYTES)
+        );
+        assert!(frame.window > 8_000_000, "past RFC 9659's 8 MB");
+    }
+
+    /// The family's own host serves no bomb at a task's path.
+    #[test]
+    fn the_bombs_host_serves_nothing_at_the_tasks_path() {
+        assert_eq!(
+            respond(SEED, HOST, &get(PATH)).status,
+            StatusCode::NOT_FOUND
         );
     }
 
@@ -484,96 +639,33 @@ mod tests {
     /// them must not build the bombs: in an unoptimized build that took two
     /// seconds of every start, and a loaded host stretched it past the
     /// start deadline (ADR 0064). Each test runs in its own process
-    /// (nextest), so no other test has built them first.
+    /// (nextest), so no other test has built them first. It is the one
+    /// test that reads a private item: whether the bodies were built is
+    /// internal by nature, and no reply shows it.
     #[test]
     fn listing_the_bomb_tasks_builds_no_bomb() {
         let tasks = tasks(SEED, None);
 
         assert_eq!(tasks.len(), TASKS as usize);
-        assert!(BOMBS.get().is_none(), "the bombs were built to list them");
-    }
-
-    /// Each task declares the size of the body its page really sends.
-    #[test]
-    fn each_bomb_task_declares_the_compressed_size_of_the_body_it_serves() {
-        let tasks = tasks(SEED, None);
-        for (ordinal, spec) in (1..SAFE).zip(&SPECS) {
-            let id = format!("{FAMILY}/{ordinal}");
-            let declared = tasks
-                .iter()
-                .find(|task| task.entry.id == id)
-                .and_then(|task| task.expected.bomb.as_ref())
-                .expect("the bomb task declares its bomb");
-            let built = u64::try_from(body_for(spec.content_encodings).len()).expect("fits u64");
-            assert_eq!(declared.compressed_bytes, built, "{id}");
-            assert_eq!(declared.content_encodings, spec.content_encodings, "{id}");
-        }
-    }
-
-    #[test]
-    fn a_bomb_task_declares_its_codings_and_both_sizes() {
-        let tasks = tasks(SEED, None);
-        let gzip = tasks
-            .iter()
-            .find(|task| task.entry.id == "bombs/1")
-            .expect("the gzip bomb task");
-        let bomb = gzip
-            .expected
-            .bomb
-            .as_ref()
-            .expect("the task declares its bomb");
-        assert_eq!(bomb.content_encodings, ["gzip"]);
-        assert_eq!(bomb.expanded_bytes, EXPANDED_BYTES);
-        assert_eq!(
-            bomb.compressed_bytes,
-            u64::try_from(body_for(&["gzip"]).len()).expect("fits u64"),
-            "the declared compressed size is the bytes it really sends"
-        );
-        assert!(gzip.expected.refusal);
-        assert_eq!(
-            gzip.expected.error.as_ref().expect("an error").setting,
-            Some(RATIO_SETTING)
+        assert!(
+            BOMBS.iter().all(|body| body.get().is_none()),
+            "the bombs were built to list them"
         );
     }
 
     #[test]
     fn the_safe_page_is_served_compressed_within_the_ratio_and_kept() {
-        let request = Request {
-            method: &Method::GET,
-            path: PATH,
-            query: "",
-            cookies: "",
-            authorization: "",
-            body: &hyper::body::Bytes::new(),
-            peer: std::net::IpAddr::from([127, 0, 0, 1]),
-        };
-        let reply = respond(SEED, &task::task_host(SAFE, HOST), &request);
-        assert_eq!(reply.status, StatusCode::OK);
-        assert_eq!(reply.headers, vec![("content-encoding", "gzip".to_owned())]);
+        let reply = respond(SEED, &task::task_host(SAFE, HOST), &get(PATH));
+
         let decoded = decoded_len("gzip", &reply.body);
         let compressed = u64::try_from(reply.body.len()).expect("fits u64");
+        assert_eq!(
+            (reply.status, content_encoding(&reply)),
+            (StatusCode::OK, "gzip")
+        );
         assert!(
             decoded < 1024 * 1024 && decoded / compressed.max(1) < 100,
             "the safe page is small and well within the ratio limit"
-        );
-    }
-
-    #[test]
-    fn a_bomb_is_served_under_its_content_encoding() {
-        let request = Request {
-            method: &Method::GET,
-            path: PATH,
-            query: "",
-            cookies: "",
-            authorization: "",
-            body: &hyper::body::Bytes::new(),
-            peer: std::net::IpAddr::from([127, 0, 0, 1]),
-        };
-        let reply = respond(SEED, &task::task_host(5, HOST), &request);
-        assert_eq!(
-            reply.headers,
-            vec![("content-encoding", "gzip, gzip".to_owned())],
-            "the double-gzip bomb names both codings"
         );
     }
 

@@ -55,6 +55,12 @@ const CHUNK: usize = 4096;
 /// The number of shared-memory lock slots SQLite uses (`SQLITE_SHM_NLOCK`).
 const SHM_LOCKS: usize = 8;
 
+/// The names of a run folder's files, between `?1`, the folder's name and
+/// its `/`, and `?2`, the same with `/` raised to `0`, the next byte: a
+/// range on the primary key, which SQLite searches, never a scan of every
+/// Run's files, and no `LIKE`, whose `_` a Run ID may hold.
+const ERASED: &str = "name >= ?1 AND name < ?2";
+
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS files (name TEXT NOT NULL PRIMARY KEY, size INTEGER NOT NULL) STRICT",
@@ -145,6 +151,15 @@ impl InstallDatabase {
         )
     }
 
+    /// The folder holding the database: the filesystem of every Run's
+    /// run state in the per-install layout (ADR 0122).
+    pub fn folder(&self) -> &Path {
+        self.install
+            .path
+            .parent()
+            .expect("invariant: the install database's path names a file in a folder")
+    }
+
     /// The name of the VFS the run state opens its run files through, as
     /// [`RunStateOptions::vfs`].
     pub fn vfs(&self) -> &'static str {
@@ -198,19 +213,18 @@ impl InstallDatabase {
                 message: format!("a file of the run folder `{run_id}` is open"),
             });
         }
+        let after = format!("{run_id}0");
         let mut erased = false;
         state
             .commit(|state| {
-                // `name` is compared on its first bytes, never with `LIKE`,
-                // whose `_` a Run ID may hold.
-                let below = "substr(name, 1, length(?1)) = ?1";
-                state
-                    .connection
-                    .execute(&format!("DELETE FROM chunks WHERE {below}"), [&prefix])?;
-                erased = state
-                    .connection
-                    .execute(&format!("DELETE FROM files WHERE {below}"), [&prefix])?
-                    > 0;
+                state.connection.execute(
+                    &format!("DELETE FROM chunks WHERE {ERASED}"),
+                    [&prefix, &after],
+                )?;
+                erased = state.connection.execute(
+                    &format!("DELETE FROM files WHERE {ERASED}"),
+                    [&prefix, &after],
+                )? > 0;
                 Ok(())
             })
             .map_err(failed)?;
@@ -262,9 +276,7 @@ fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateE
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, super::SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
         .map_err(failed)?;

@@ -7,9 +7,15 @@
 //! end; and honeypot links, hidden from people in four ways and disallowed
 //! by `robots.txt`; and `/hidden-links`, which no page links, a page of
 //! every way a link hides from people (ADR 0035's trap links): the four,
-//! an `opacity` of 0, a link clipped to nothing and two invisible
-//! `nofollow` links, each under `/hp/`, beside three links a person sees,
-//! one plain, one `nofollow` and one in an ad (EasyList's `##.ad-slot`);
+//! an `opacity` of 0, a link clipped to nothing, two invisible `nofollow`
+//! links, an `aria-hidden` spaced and in capitals, a cut overflow and an
+//! invisible `nofollow` link in a navigation menu, each under `/hp/`,
+//! beside three links a person sees, one plain, one `nofollow` and one in
+//! an ad (EasyList's `##.ad-slot`), the links a person reaches by
+//! scrolling a container or the page (whose sideways overflow, hidden,
+//! goes to the viewport), positioned out of a holder that cuts its
+//! overflow or shown through `display: contents`, and the links a person
+//! reveals by opening a hover menu, a tab and a disclosure;
 //! and `/cards`, which no page links either, a page whose markup hides
 //! some links to pages a person also reaches (spec #600's trap link
 //! cases): item 3's card links it only through an image link hidden from
@@ -175,8 +181,16 @@ fn honeypots(seed: u64, page: u64) -> String {
     )
 }
 
-/// The page of `/hidden-links`: the honeypot links of every way a link
-/// hides, and the three a person sees, to items 1, 2 and 3.
+/// The page of `/hidden-links`, styled so `<html>` and `<body>` hold the
+/// viewport's height and the page's sideways overflow is hidden, which
+/// goes to the viewport: the honeypot links of every way a link hides,
+/// the three a person sees, to items 1, 2 and 3, three more honeypots
+/// (`aria-hidden` spaced and in capitals, a cut overflow, and an invisible
+/// `nofollow` link in a navigation menu), the links a person reaches by
+/// scrolling or that are positioned out of a holder that cuts its
+/// overflow, to items 4 to 9 and, below the first screen, 13, and the
+/// links a person reveals by opening a hover menu, a tab and a
+/// disclosure, to items 10, 11 and 12.
 fn hidden_links(seed: u64) -> String {
     let token = |form: u64| {
         generator::draw(
@@ -184,7 +198,11 @@ fn hidden_links(seed: u64) -> String {
             &[FAMILY_PLACE, HONEYPOT_PLACE, HIDDEN_LINKS_PAGE, form],
         ) & 0xFFFF_FFFF
     };
-    let mut body = String::from("<main>\n<h1>Hidden links</h1>\n");
+    let mut body = String::from(
+        "<style>html,body{height:100%;margin:0}body{overflow-x:hidden}\
+        .menu ul{display:none}.menu:hover ul{display:block}</style>\n\
+        <main>\n<h1>Hidden links</h1>\n",
+    );
     body.push_str(&honeypots(seed, HIDDEN_LINKS_PAGE));
     write!(
         body,
@@ -194,11 +212,33 @@ fn hidden_links(seed: u64) -> String {
         <a href=\"/hp/{:08x}\" rel=\"nofollow noopener\" style=\"position:absolute;top:-5000px\">Feeds</a>\n\
         <ul>\n<li><a href=\"/items/I-0001\">The first item</a></li>\n\
         <li><a href=\"/items/I-0002\" rel=\"nofollow\">The second item</a></li>\n</ul>\n\
-        <div class=\"ad-slot\"><a href=\"/items/I-0003\">The third item, in an ad</a></div>\n</main>\n",
+        <div class=\"ad-slot\"><a href=\"/items/I-0003\">The third item, in an ad</a></div>\n\
+        <a href=\"/hp/{:08x}\" aria-hidden=\" TRUE \">Partners</a>\n\
+        <div style=\"overflow:hidden;height:0\"><a href=\"/hp/{:08x}\">Clearance</a></div>\n\
+        <nav><a href=\"/hp/{:08x}\" rel=\"nofollow\" style=\"display:none\">Sitemap</a></nav>\n\
+        <div style=\"overflow-x:auto;white-space:nowrap;width:300px\">\
+        <a href=\"/items/I-0004\" style=\"display:inline-block;width:200px\">The fourth item</a>\
+        <a href=\"/items/I-0005\" style=\"display:inline-block;width:200px\">The fifth item</a>\
+        <a href=\"/items/I-0006\" style=\"display:inline-block;width:200px\">The sixth item</a></div>\n\
+        <div style=\"overflow:hidden;height:40px;width:200px\"><a href=\"/items/I-0007\" style=\"position:fixed;top:300px;left:10px\">Back to the seventh item</a></div>\n\
+        <div style=\"position:relative\"><div style=\"overflow:hidden;height:0\"><a href=\"/items/I-0008\" style=\"position:absolute;top:0;left:0\">The eighth item</a></div></div>\n\
+        <a href=\"/items/I-0009\" style=\"display:contents\"><span>The ninth item</span></a>\n\
+        <nav class=\"menu\"><span>Shop</span><ul><li><a href=\"/items/I-0010\">The tenth item</a></li></ul></nav>\n\
+        <div role=\"tablist\"><button role=\"tab\" aria-selected=\"true\" aria-controls=\"tab-details\">Details</button>\
+        <button role=\"tab\" aria-selected=\"false\" aria-controls=\"tab-related\">Related</button></div>\n\
+        <div role=\"tabpanel\" id=\"tab-details\"><p>Details.</p></div>\n\
+        <div role=\"tabpanel\" id=\"tab-related\" hidden><a href=\"/items/I-0011\">The eleventh item</a></div>\n\
+        <button aria-expanded=\"false\" aria-controls=\"more\">More</button>\n\
+        <div id=\"more\" hidden><a href=\"/items/I-0012\">The twelfth item</a></div>\n\
+        <div style=\"height:1500px\"></div>\n\
+        <a href=\"/items/I-0013\">The thirteenth item, below the first screen</a>\n</main>\n",
         token(5),
         token(6),
         token(7),
         token(8),
+        token(9),
+        token(10),
+        token(11),
     )
     .expect("invariant: writing to a String succeeds");
     document("Hidden links", &body)

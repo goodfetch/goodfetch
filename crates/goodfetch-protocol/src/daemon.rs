@@ -240,6 +240,13 @@ pub struct DaemonState {
     /// Where its Console is served, or why it is not.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub console: ConsoleState,
+    /// Its live heap: the bytes its own allocations hold now, as its
+    /// executable's allocator counts them, without the pages that
+    /// allocator keeps once they are freed; none where nothing counts
+    /// them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub heap: Option<u64>,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.
@@ -253,7 +260,7 @@ pub struct DaemonStopping {
 /// `daemon.status`.
 pub const STATUS: Operation = Operation {
     name: "daemon.status",
-    description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+    description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -298,8 +305,9 @@ pub enum Unready {
     /// Its Resource governor is at its last resort: memory stayed critical
     /// at the floor past `governor.last_resort_after` (ADR 0040).
     GovernorLastResort,
-    /// The filesystem holding its run state is at the `critical` storage
-    /// level, where a new Run's start is refused (ADR 0122).
+    /// The filesystem holding its run state, or the Goodfetch home's, is
+    /// at the `critical` storage level, where a new Run's start is refused
+    /// (ADR 0122).
     StorageCritical,
 }
 

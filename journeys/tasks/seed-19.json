@@ -1700,19 +1700,19 @@
     },
     {
       "description": "Read the start page as one Record with `id` and `word`. Its body is a Brotli decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
-      "digest": "9330f9d0157a95c382ede288711c08936b1f44be3a509dbe5773d87d4dd77b2c",
+      "digest": "c98fffff10d642037d11403516df2690991265e34198ad36e8410f097e958226",
       "family": "bombs",
       "id": "bombs/3",
       "kind": "extract",
-      "start_url": "http://3.bombs.test/"
+      "start_url": "https://3.bombs.test/"
     },
     {
       "description": "Read the start page as one Record with `id` and `word`. Its body is a zstd decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
-      "digest": "a67f3abecc3c08e15796e094b80728e278a3b34367293c3b4512c0aff5f54cae",
+      "digest": "13c8425a7c53c8d1f37dd5f218bfad1f53162cefe37c7c251e0011034ca57818",
       "family": "bombs",
       "id": "bombs/4",
       "kind": "extract",
-      "start_url": "http://4.bombs.test/"
+      "start_url": "https://4.bombs.test/"
     },
     {
       "description": "Read the start page as one Record with `id` and `word`. Its body is gzip applied twice, labelled `Content-Encoding: gzip, gzip`, and decodes through both codings to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",

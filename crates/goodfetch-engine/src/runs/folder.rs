@@ -61,6 +61,20 @@ impl RunRow {
     }
 }
 
+/// Records `weakened` as what the Run's report lists as weakened, in place
+/// of what its run file listed: a resume whose settings weaken more adds
+/// to it (ADR 0016).
+pub(super) fn record_weakened(
+    connection: &Connection,
+    weakened: &[WeakenedSetting],
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE run SET weakened = ?1",
+        [serde_json::to_string(weakened).expect("invariant: setting limits encode")],
+    )?;
+    Ok(())
+}
+
 /// What a start compares of a Run found under its Run ID.
 pub(super) struct Found {
     pub(super) kind: RunKind,

@@ -33,6 +33,7 @@ use super::launch::{IDENTITY_HOST, reports_once};
 use super::navigation::{call, failed_with, open, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::target::EngineTarget;
 
 /// One `page.request` case of the page suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,10 +76,11 @@ impl Case {
         })
     }
 
-    /// Runs the case on the open Connection against `site`.
+    /// Runs the case on the open Connection to `target` against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -91,7 +93,7 @@ impl Case {
             Self::CookiesStayInTheirSession => cookies(connection, site, checks),
             Self::DomainPolicyJudgesIt => domain_policy(connection, site, checks),
             Self::NoServiceWorkerAnswersIt => service_worker(connection, site, checks),
-            Self::HostileInput(case) => case.run(connection, site, checks),
+            Self::HostileInput(case) => case.run(connection, target, site, checks),
         }
     }
 }

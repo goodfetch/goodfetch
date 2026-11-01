@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use url::Url;
 
-use super::{Seen, TABLES, Trap, judge, seen_again, suspect, suspected};
+use super::{Mark, Markup, Seen, TABLES, Trap, Verdict, judge, seen_again, suspect, suspected};
 use crate::{Candidate, Declared, Patterns, Scope, ScopeStrategy, admit};
 
 const SEEN: Seen = Seen {
@@ -22,29 +22,49 @@ const SEEN: Seen = Seen {
     clipped: false,
     nofollow: false,
     cosmetic: false,
+    revealable: false,
 };
 
 /// Each fixture link, as the page reads it, and the judgement.
 ///
 /// Covers: story:8-226
 #[rstest]
-#[case::a_link_a_person_sees(SEEN, None)]
-#[case::a_visible_nofollow_link_is_followed(Seen { nofollow: true, ..SEEN }, None)]
-#[case::hidden_or_display_none_has_no_box(Seen { no_box: true, ..SEEN }, Some(Trap::Invisible))]
-#[case::moved_off_the_page(Seen { outside_page: true, ..SEEN }, Some(Trap::Invisible))]
-#[case::visibility_hidden(Seen { visibility_hidden: true, ..SEEN }, Some(Trap::Invisible))]
-#[case::opacity_zero(Seen { transparent: true, ..SEEN }, Some(Trap::Invisible))]
-#[case::in_an_aria_hidden_subtree(Seen { aria_hidden: true, ..SEEN }, Some(Trap::Invisible))]
-#[case::clipped_to_nothing(Seen { clipped: true, ..SEEN }, Some(Trap::Invisible))]
+#[case::a_link_a_person_sees(SEEN, Verdict::Seen)]
+#[case::a_visible_nofollow_link_is_followed(Seen { nofollow: true, ..SEEN }, Verdict::Seen)]
+#[case::hidden_or_display_none_has_no_box(Seen { no_box: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
+#[case::moved_off_the_page(Seen { outside_page: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
+#[case::visibility_hidden(Seen { visibility_hidden: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
+#[case::opacity_zero(Seen { transparent: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
+#[case::in_an_aria_hidden_subtree(Seen { aria_hidden: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
+#[case::clipped_to_nothing(Seen { clipped: true, ..SEEN }, Verdict::Trap(Trap::Invisible))]
 #[case::aria_hidden_and_off_the_page(
     Seen { aria_hidden: true, outside_page: true, ..SEEN },
-    Some(Trap::Invisible)
+    Verdict::Trap(Trap::Invisible)
 )]
 #[case::invisible_nofollow(
     Seen { no_box: true, nofollow: true, ..SEEN },
-    Some(Trap::InvisibleNofollow)
+    Verdict::Trap(Trap::InvisibleNofollow)
 )]
-fn a_link_a_person_cannot_see_is_a_trap(#[case] seen: Seen, #[case] expected: Option<Trap>) {
+fn a_link_a_person_cannot_see_is_a_trap(#[case] seen: Seen, #[case] expected: Verdict) {
+    assert_eq!(judge(&seen), expected);
+}
+
+/// A link hidden in a menu, a tab or a disclosure, which a person opens to
+/// see it, is followed, marked as a suspected trap; an invisible `nofollow`
+/// one there is still a trap, the signal Cloudflare's AI Labyrinth gives
+/// (ADR 0035, owner decision O26); a visible one there is seen.
+///
+/// Covers: story:8-226
+#[rstest]
+#[case::hidden_in_a_menu(Seen { no_box: true, revealable: true, ..SEEN }, Verdict::Revealable)]
+#[case::off_the_page_in_a_menu(Seen { outside_page: true, revealable: true, ..SEEN }, Verdict::Revealable)]
+#[case::aria_hidden_in_a_menu(Seen { aria_hidden: true, revealable: true, ..SEEN }, Verdict::Revealable)]
+#[case::invisible_nofollow_in_a_menu(
+    Seen { no_box: true, nofollow: true, revealable: true, ..SEEN },
+    Verdict::Trap(Trap::InvisibleNofollow)
+)]
+#[case::visible_in_a_menu(Seen { revealable: true, ..SEEN }, Verdict::Seen)]
+fn a_link_a_person_reveals_is_followed_and_marked(#[case] seen: Seen, #[case] expected: Verdict) {
     assert_eq!(judge(&seen), expected);
 }
 
@@ -62,7 +82,7 @@ fn a_link_a_cosmetic_rule_hides_is_judged_as_seen_without_the_rule(#[case] seen:
             cosmetic: true,
             ..seen
         }),
-        None
+        Verdict::Seen
     );
 }
 
@@ -73,7 +93,7 @@ fn the_pages_answer_reads_fact_by_fact() {
     let answered = json!({
         "noBox": false, "outsidePage": true, "visibilityHidden": false,
         "transparent": false, "ariaHidden": true, "clipped": false,
-        "nofollow": true, "cosmetic": false,
+        "nofollow": true, "cosmetic": false, "revealable": true,
     });
 
     assert_eq!(
@@ -82,6 +102,7 @@ fn the_pages_answer_reads_fact_by_fact() {
             outside_page: true,
             aria_hidden: true,
             nofollow: true,
+            revealable: true,
             ..SEEN
         })
     );
@@ -126,6 +147,8 @@ fn attributes(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     Seen { no_box: true, nofollow: true, ..SEEN }
 )]
 #[case::moved_off_the_page_reads_as_seen(&[("href", "/hp/8"), ("style", "position:absolute;top:-5000px")], &[], SEEN)]
+#[case::aria_hidden_spaced_and_upper_case(&[("href", "/hp/9"), ("aria-hidden", " TRUE ")], &[], Seen { aria_hidden: true, ..SEEN })]
+#[case::aria_hidden_past_a_no_break_space_is_seen(&[("href", "/x"), ("aria-hidden", "\u{a0}true")], &[], SEEN)]
 fn a_served_documents_markup_states_what_it_can_of_a_link(
     #[case] link: &[(&str, &str)],
     #[case] holder: &[(&str, &str)],
@@ -134,9 +157,63 @@ fn a_served_documents_markup_states_what_it_can_of_a_link(
     let (link, holder) = (attributes(link), attributes(holder));
 
     assert_eq!(
-        Seen::in_markup([link.as_slice(), holder.as_slice()]),
+        Seen::in_markup([
+            Markup {
+                name: "a",
+                attributes: &link,
+                controlled: false,
+            },
+            Markup {
+                name: "div",
+                attributes: &holder,
+                controlled: false,
+            },
+        ]),
         expected
     );
+}
+
+/// A link a holder's markup hides inside a menu, a tab or a disclosure is
+/// one a person reveals by opening it: a `nav` or `menu` element, a menu,
+/// navigation or tab role, a `details` element, a `popover`, a `hidden`
+/// that a find in the page opens (`until-found`), or an element another
+/// names in `aria-controls`; a hidden plain holder reveals nothing.
+///
+/// Covers: story:8-228
+#[rstest]
+#[case::a_nav("nav", &[("hidden", "")], false, true)]
+#[case::a_menu_element("menu", &[("style", "display:none")], false, true)]
+#[case::a_details("details", &[], false, true)]
+#[case::a_menu_role("ul", &[("role", "menu"), ("hidden", "")], false, true)]
+#[case::a_navigation_role_among_others("div", &[("role", "presentation Navigation"), ("hidden", "")], false, true)]
+#[case::a_tab_panel("div", &[("role", "tabpanel"), ("hidden", "")], false, true)]
+#[case::a_popover("div", &[("popover", "auto")], false, true)]
+#[case::hidden_until_found("div", &[("hidden", "UNTIL-FOUND")], false, true)]
+#[case::named_by_aria_controls("div", &[("id", "more"), ("hidden", "")], true, true)]
+#[case::a_plain_holder("div", &[("hidden", "")], false, false)]
+#[case::a_dialog_role_is_no_menu("div", &[("role", "dialog"), ("hidden", "")], false, false)]
+fn a_link_hidden_in_a_menu_tab_or_disclosure_reads_revealable(
+    #[case] name: &str,
+    #[case] holder: &[(&str, &str)],
+    #[case] controlled: bool,
+    #[case] revealable: bool,
+) {
+    let (link, holder) = (attributes(&[("href", "/x")]), attributes(holder));
+
+    let seen = Seen::in_markup([
+        Markup {
+            name: "a",
+            attributes: &link,
+            controlled: false,
+        },
+        Markup {
+            name,
+            attributes: &holder,
+            controlled,
+        },
+    ]);
+
+    assert_eq!(seen.revealable, revealable, "{seen:?}");
 }
 
 /// A run file holding the Frontier's tables and the marks, in memory, with
@@ -178,7 +255,7 @@ fn marked_run_file() -> Connection {
     )
     .unwrap();
     assert!(matches!(added, Enqueued::Added { .. }), "{added:?}");
-    suspect(&connection, "1").unwrap();
+    suspect(&connection, "1", Mark::Hidden).unwrap();
     connection
 }
 
@@ -199,7 +276,25 @@ fn a_link_a_person_sees_to_a_marked_request_clears_its_mark(
     let connection = marked_run_file();
     let base = Url::parse("https://shop.test/list").unwrap();
 
-    seen_again(&connection, href, &base, encoding_rs::UTF_8, false).unwrap();
+    seen_again(&connection, href, &base, encoding_rs::UTF_8, false, false).unwrap();
 
-    assert_eq!(suspected(&connection, "1").unwrap(), still_marked);
+    assert_eq!(
+        suspected(&connection, "1").unwrap(),
+        still_marked.then_some(Mark::Hidden)
+    );
+}
+
+/// A link a person reveals in a menu, tab or disclosure that reaches a
+/// request marked through markup alone again leaves it marked, as one a
+/// browser tier follows: it is reached through a link a person can open.
+///
+/// Covers: story:8-228
+#[test]
+fn a_link_a_person_reveals_to_a_marked_request_lets_the_browser_follow_it() {
+    let connection = marked_run_file();
+    let base = Url::parse("https://shop.test/list").unwrap();
+
+    seen_again(&connection, "/p/1", &base, encoding_rs::UTF_8, false, true).unwrap();
+
+    assert_eq!(suspected(&connection, "1").unwrap(), Some(Mark::Revealable));
 }

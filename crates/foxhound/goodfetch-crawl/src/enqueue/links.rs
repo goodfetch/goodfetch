@@ -14,8 +14,11 @@
 //! a served document has no layout, so a link its markup hides is added,
 //! and marked as a suspected trap in its work item and, once its attempt
 //! commits, in Provenance, `trap_link_suspected`: a browser tier never
-//! follows it. A link that is not suspected and reaches a marked request
-//! again clears its mark.
+//! follows it. A link hidden in a menu, a tab or a disclosure a person
+//! opens, and not `nofollow`, is added on either tier, marked alike as
+//! `revealable`, which every tier follows (owner decision O26). A link that
+//! is not suspected and reaches a marked request again clears its mark; a
+//! revealable one leaves it marked as revealable.
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace;
@@ -23,7 +26,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::PayloadRules;
-use goodfetch_frontier::trap_links::{self, Sight, Trap};
+use goodfetch_frontier::trap_links::{self, Mark, Sight, Trap, Verdict};
 use goodfetch_frontier::{Candidate, Narrowing, Patterns, Scope, Url, document_base, resolve_link};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
@@ -40,7 +43,7 @@ use serde_json::Value;
 
 use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::staging::{Answered, Staging};
+use crate::staging::{Answered, Marked, Staging};
 use crate::work_items::{self, Adding, Positions};
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
@@ -215,10 +218,7 @@ pub(crate) async fn enqueue_links(
         .into_iter()
         .enumerate()
         .map(|(at, element)| Link {
-            trap: match &element.sight {
-                Sight::Layout(seen) => trap_links::judge(seen).map(Judged::Trap),
-                Sight::Markup(seen) => trap_links::judge(seen).map(Judged::Suspected),
-            },
+            trap: Judged::of(element.sight),
             href: element.href,
             payload: match &params.payloads {
                 Some(payloads) => match &payloads[at] {
@@ -297,22 +297,76 @@ enum Judged {
     /// Its browser page's layout hides it: it is not added.
     Trap(Trap),
     /// Its served document's markup hides it, which no layout confirms: it
-    /// is added, marked as a suspected trap.
+    /// is added, marked as a suspected trap a browser tier never follows.
     Suspected(Trap),
+    /// A menu, a tab or a disclosure a person opens hides it, on either
+    /// tier: it is added, marked as a suspected trap every tier follows.
+    Revealable,
+}
+
+impl Judged {
+    /// What `trap_links` makes of the link `sight` describes; `None` for
+    /// one a person sees.
+    fn of(sight: Sight) -> Option<Self> {
+        let (seen, hidden): (_, fn(Trap) -> Self) = match sight {
+            Sight::Layout(seen) => (seen, Self::Trap),
+            Sight::Markup(seen) => (seen, Self::Suspected),
+        };
+        match trap_links::judge(&seen) {
+            Verdict::Seen => None,
+            Verdict::Revealable => Some(Self::Revealable),
+            Verdict::Trap(trap) => Some(hidden(trap)),
+        }
+    }
+
+    /// The mark of the request a link so judged added; `None` for a trap,
+    /// which adds none.
+    fn mark(self) -> Option<Mark> {
+        match self {
+            Self::Trap(_) => None,
+            Self::Suspected(_) => Some(Mark::Hidden),
+            Self::Revealable => Some(Mark::Revealable),
+        }
+    }
+
+    /// Why a person may not see the link, for traces.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Trap(trap) | Self::Suspected(trap) => trap.name(),
+            Self::Revealable => "revealable",
+        }
+    }
+}
+
+impl Link {
+    /// How the link, answered `duplicate`, reaches the request it names
+    /// again: as one a person sees (`Some(false)`), which clears its mark,
+    /// as one a person reveals (`Some(true)`), which leaves it followed on
+    /// every tier, or as a suspected trap (`None`), which leaves its mark
+    /// as it is.
+    fn reaching_again(&self) -> Option<bool> {
+        match self.trap {
+            None => Some(false),
+            Some(Judged::Revealable) => Some(true),
+            Some(Judged::Trap(_) | Judged::Suspected(_)) => None,
+        }
+    }
 }
 
 /// Marks in the Run's Provenance, `trap_link_suspected`, each request of
 /// `suspected`, with its URL, that the attempt of the request `from`
-/// committed as added through a link its served document's markup hides
-/// (ADR 0035), once that attempt committed: a discarded attempt marks
-/// nothing.
-pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[(String, String)]) {
-    for (id, url) in suspected {
+/// committed as added through a link its served document's markup hides,
+/// or that a menu, a tab or a disclosure a person opens hides
+/// (`revealable`, followed on every tier) (ADR 0035), once that attempt
+/// committed: a discarded attempt marks nothing.
+pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) {
+    for Marked { id, url, mark } in suspected {
         let entry = serde_json::json!({
             "action": trap_links::SUSPECTED_ACTION,
             "crawl_request_id": id,
             "url": url,
             "from": from,
+            "revealable": *mark == Mark::Revealable,
         });
         let written =
             run_trace::provenance(run.owner(), run.folder(), run.secrets().mask(), &entry).await;
@@ -354,14 +408,24 @@ struct Batch<'a> {
 impl Batch<'_> {
     /// Clears the mark of the request that the link `href`, one that is not
     /// suspected, reaches again as a `duplicate`: a request stays marked
-    /// only while every link that reached it was suspected (ADR 0035).
+    /// only while every link that reached it was suspected; a link a person
+    /// reveals (`revealable`) leaves it marked as one every tier follows
+    /// (ADR 0035).
     fn seen_again(
         &self,
         connection: &Connection,
         href: &str,
         keeps_fragment: bool,
+        revealable: bool,
     ) -> rusqlite::Result<()> {
-        trap_links::seen_again(connection, href, self.base, self.encoding, keeps_fragment)
+        trap_links::seen_again(
+            connection,
+            href,
+            self.base,
+            self.encoding,
+            keeps_fragment,
+            revealable,
+        )
     }
 }
 
@@ -446,16 +510,20 @@ fn add(
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;
-                        if let Some(Judged::Suspected(trap)) = link.trap {
-                            tracing::debug!(%url, trap = trap.name(), "a link a served document's markup hides was added, marked as a suspected trap");
-                            trap_links::suspect(connection, &id)?;
+                        if let Some((judged, mark)) =
+                            link.trap.and_then(|judged| Some((judged, judged.mark()?)))
+                        {
+                            tracing::debug!(%url, trap = judged.name(), "a link a person may not see was added, marked as a suspected trap");
+                            trap_links::suspect(connection, &id, mark)?;
                             suspected.push((id.clone(), url.clone()));
                         }
                         EnqueuedLink::Added { id, url }
                     }
                     Enqueued::NotAdded { reason, url } => {
-                        if reason == NotAddedReason::Duplicate && link.trap.is_none() {
-                            batch.seen_again(connection, href, keeps_fragment)?;
+                        if reason == NotAddedReason::Duplicate
+                            && let Some(revealable) = link.reaching_again()
+                        {
+                            batch.seen_again(connection, href, keeps_fragment, revealable)?;
                         }
                         EnqueuedLink::NotAdded { reason, url }
                     }

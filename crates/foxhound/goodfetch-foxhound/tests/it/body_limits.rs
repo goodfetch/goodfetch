@@ -95,9 +95,11 @@ fn ended(engine: &mut crate::crawl::Attached, run_id: &str) -> Vec<(String, Valu
 fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_tier() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    // The `body-limits` pages, and the Brotli and zstd bombs, start over
+    // `https://`.
+    let ca = proving_ground.description().ca.display().to_string();
     env.user_configuration(&format!(
-        "tls.trusted_cas.\"body-limits.test\" = ['{}']\n",
-        proving_ground.description().ca.display()
+        "tls.trusted_cas.\"body-limits.test\" = ['{ca}']\ntls.trusted_cas.\"bombs.test\" = ['{ca}']\n"
     ));
     let mut engine = engine(&env);
     let url = |task: &str| proving_ground.start_url(task).unwrap();

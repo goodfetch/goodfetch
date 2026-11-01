@@ -8,7 +8,8 @@
 //! for the next commit, and while another engine's does, as a reader on
 //! the Daemon of a Run an Attached engine crawls, it looks at the run file
 //! again every second; it answers once the Run has ended, or has no live
-//! writer anywhere, and it sent every Record.
+//! writer anywhere, and it sent every Record, or, given `through`, once it
+//! sent every Record numbered through it, whether the Run is live or not.
 
 use goodfetch_engine::run::run_error;
 use goodfetch_engine::runs::RunError;
@@ -50,15 +51,15 @@ async fn read_records(
     };
     loop {
         let live = reader.is_live().await;
-        let (dataset, after) = (params.dataset.clone(), read.last);
-        let page = reader
+        let (dataset, after, through) = (params.dataset.clone(), read.last, params.through);
+        let (page, committed) = reader
             .read(move |connection| {
-                records::read(
+                records::read_through(
                     connection,
                     Query {
                         dataset: &dataset,
                         after,
-                        through: None,
+                        through,
                         wall: params.wall,
                     },
                     PAGE,
@@ -88,7 +89,7 @@ async fn read_records(
         if full {
             continue;
         }
-        if !live {
+        if committed || !live {
             return Ok(read);
         }
         reader.changed().await;

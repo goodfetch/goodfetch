@@ -46,6 +46,7 @@ mod sniffing_tests;
 mod tiers;
 mod transports;
 mod use_signals;
+mod xpath;
 
 pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 #[doc(hidden)]
@@ -53,7 +54,7 @@ pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
-pub use document::{FieldElement, Matched, SelectorInvalid, check_selector};
+pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check_xpath};
 pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
@@ -71,8 +72,7 @@ pub use served_calls::serves as tier_serves;
 pub use sniffing::sniff;
 pub use tiers::{
     Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL,
-    Race, RaceEnd, ServedLinks, Signed, XPATH_FIELD_CALL, record_race, record_tier,
-    tier_provenance,
+    Race, RaceEnd, ServedLinks, Signed, record_race, record_tier, tier_provenance,
 };
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
@@ -81,3 +81,4 @@ pub use use_signals::{
     Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
     tdmrep_file_refusing,
 };
+pub use xpath::XpathInvalid;

@@ -28,7 +28,7 @@ The log folder is the `logs` folder of the Goodfetch home:
 In the log folder:
 
 - A Daemon writes `daemon-<major>.jsonl`, such as `daemon-1.jsonl`, one set of files across its restarts. During `0.y` previews each minor counts as a major, so the file is `daemon-0.4.jsonl`.
-- Any other process writes `goodfetch-collie-<process ID>.jsonl`.
+- Any other process writes `goodfetch-collie-<process ID>.jsonl`. When it starts, it keeps the `log.file.max_files` (5) sets of `goodfetch-collie-<process ID>` files written last, its own included, and removes the older sets.
 - When the next line would take a file past `log.file.max_size` (10 MiB), the file rotates: `daemon-1.jsonl` becomes `daemon-1.1.jsonl`, the older files move one number up, and the oldest goes. `log.file.max_files` (5) files are kept, the current one included, so a Daemon's logs stay under about 50 MiB.
 - A log write never blocks a Run. A line that cannot be written, because the writer's buffer or the disk is full, is dropped and counted, and a line with `fields.dropped` says how many were dropped before the next one.
 

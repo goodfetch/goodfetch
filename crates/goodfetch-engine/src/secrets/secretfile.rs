@@ -289,13 +289,6 @@ pub(super) fn translate(
             refused(format!("`{}` is cut short; {}.", file.display(), again()))
         }
         DecryptError::Io(error) => translate_io(&error, file),
-        other => {
-            tracing::warn!(
-                provider = "secretfile",
-                "an unrecognized failure of age decrypting an encrypted local file"
-            );
-            ProviderFailure::Unrecognized(PartyText::new(other.to_string()))
-        }
     }
 }
 

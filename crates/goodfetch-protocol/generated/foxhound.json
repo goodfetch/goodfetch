@@ -2365,6 +2365,16 @@
           "arrived_in": "0.1",
           "description": "Where it listens."
         },
+        "heap": {
+          "arrived_in": "0.1",
+          "description": "Its live heap: the bytes its own allocations hold now, as its\nexecutable's allocator counts them, without the pages that\nallocator keeps once they are freed; none where nothing counts\nthem.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "idle_timeout": {
           "arrived_in": "0.1",
           "description": "Its `daemon.idle_timeout`, in milliseconds.",
@@ -4157,7 +4167,7 @@
       "type": "object"
     },
     "FieldLocator": {
-      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression. A page a fetch tier serves from its document reads\na CSS selector; an `XPath` expression is read by the browser, to which\nthe request escalates under `fetch.tier: auto` (`browser_required`\nunder a forced cheaper tier).",
+      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression, each read alike on every tier, a page a fetch tier\nserves from its document reading it as a browser reads it.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -4181,7 +4191,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "An `XPath` 1.0 expression.",
+          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; the field reads the first node it finds in\ndocument order, when that node is an element.",
           "properties": {
             "kind": {
               "const": "xpath",
@@ -7251,7 +7261,7 @@
       "type": "object"
     },
     "PageRequest": {
-      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under the same `request_id`.",
+      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under its own `request_id`, as Playwright's\n`redirectedFrom()` and `redirectedTo()` tell them apart.",
       "properties": {
         "failure": {
           "anyOf": [
@@ -7270,12 +7280,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers as the browser sent them.",
+          "description": "Its headers as the browser sent them, their names in lowercase, as\nPlaywright gives them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -7304,14 +7314,22 @@
           },
           "type": "array"
         },
+        "redirected_from": {
+          "arrived_in": "0.1",
+          "description": "The `request_id` of the hop whose redirect led to it, Playwright's\n`redirectedFrom()`; none at a request's first hop.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for it, which `response.body` takes.",
+          "description": "The engine's ID for this hop, which `response.body` takes: the\nbrowser's ID for the request at its first hop, and that ID with\n`#` and the hop's number after each redirect.",
           "type": "string"
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "The browser's name for what it loads, such as `Document` or\n`Fetch`.",
+          "description": "What it loads, as Playwright's `resourceType()` names it: the\nbrowser's name in lowercase, such as `document`, `fetch` or `xhr`.",
           "type": "string"
         },
         "url": {
@@ -7420,7 +7438,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for its request, which `response.body` takes.",
+          "description": "The engine's ID for its request's hop, which `response.body` takes:\nits request's `request_id`.",
           "type": "string"
         },
         "status": {
@@ -7873,7 +7891,7 @@
       "type": "object"
     },
     "Position": {
-      "description": "An event's position among every event of one engine, which only goes up.",
+      "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
       "type": "integer"
     },
@@ -8782,7 +8800,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The request, by the browser's ID.",
+          "description": "The request's hop, by the engine's ID for it.",
           "type": "string"
         },
         "timeout": {
@@ -8858,7 +8876,7 @@
         },
         "runs": {
           "arrived_in": "0.1",
-          "description": "The axes of each Run the engine knows, live or ended.",
+          "description": "The axes of each live Run the engine knows. A Run it leaves out\nended, and `run.list` gives its axes.",
           "items": {
             "$ref": "#/$defs/RunAxes"
           },
@@ -9143,12 +9161,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers, as the page sent them.",
+          "description": "Its headers, as the page sent them, their names in lowercase, as\nPlaywright gives them; as a route before replaced them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -9166,7 +9184,7 @@
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",
+          "description": "What the page loads with it, as Playwright's `resourceType()` names\nit: the browser's name in lowercase, such as `document`, `script`\nor `xhr`.",
           "type": "string"
         },
         "url": {
@@ -10122,6 +10140,16 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record to read, such as the last one\ncommitted when the reader began (`dataset.page`'s `through`): the\ncall answers once it sent every Record numbered through it, waiting\non a live Run for those not committed yet. Absent, it follows a live\nRun until the Run ends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "wall": {
           "arrived_in": "0.1",
@@ -12497,7 +12525,7 @@
         },
         {
           "const": "cloud",
-          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
           "type": "string"
         },
         {
@@ -12943,7 +12971,7 @@
         },
         {
           "const": "storage_critical",
-          "description": "The filesystem holding its run state is at the `critical` storage\nlevel, where a new Run's start is refused (ADR 0122).",
+          "description": "The filesystem holding its run state, or the Goodfetch home's, is\nat the `critical` storage level, where a new Run's start is refused\n(ADR 0122).",
           "type": "string"
         }
       ]
@@ -13862,7 +13890,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+      "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -13942,7 +13970,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user or project configuration, or give a public address.",
+      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -14332,7 +14360,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.",
+      "description": "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -14964,7 +14992,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
+      "description": "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of \"Needs you\", from which the stream continues.",
       "name": "events.resync",
       "payload": {
         "$ref": "#/$defs/Resync"
@@ -14988,7 +15016,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.",
+      "description": "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Sent on each `page.on` call that listens to `close`, just before that call answers.",
       "name": "page.close",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15000,7 +15028,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.",
+      "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Sent on each `page.on` call that listens to `console`, the only time the engine reads the page's console.",
       "name": "page.console",
       "payload": {
         "$ref": "#/$defs/ConsoleMessage"
@@ -15012,7 +15040,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.",
+      "description": "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Sent on each `page.on` call that listens to `crash`.",
       "name": "page.crash",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15024,7 +15052,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.",
+      "description": "The document of the page's main frame fired `DOMContentLoaded`. Sent on each `page.on` call that listens to `dom_content_loaded`.",
       "name": "page.dom_content_loaded",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15048,7 +15076,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.",
+      "description": "The document of the page's main frame fired `load`. Sent on each `page.on` call that listens to `load`.",
       "name": "page.load",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15060,7 +15088,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "An exception the page did not catch, `WebError`: its name, message and stack. Published while `page.on` listens to `page_error`.",
+      "description": "An exception the page did not catch, `WebError`: its name, message and stack. Sent on each `page.on` call that listens to `page_error`.",
       "name": "page.page_error",
       "payload": {
         "$ref": "#/$defs/WebError"
@@ -15084,7 +15112,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
+      "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Sent on each `page.on` call that listens to `request`; a service worker's own requests are never a page's.",
       "name": "page.request",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15096,7 +15124,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Published while `page.on` listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
+      "description": "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Sent on each `page.on` call that listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
       "name": "page.request_failed",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15108,7 +15136,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page got its whole response, its body included. Published while `page.on` listens to `request_finished`.",
+      "description": "A request of the page got its whole response, its body included. Sent on each `page.on` call that listens to `request_finished`.",
       "name": "page.request_finished",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15120,7 +15148,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Published while `page.on` listens to `response`.",
+      "description": "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Sent on each `page.on` call that listens to `response`.",
       "name": "page.response",
       "payload": {
         "$ref": "#/$defs/PageExchange"
@@ -15132,7 +15160,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Published, with those, while `page.on` listens to `web_socket`.",
+      "description": "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Sent, with those, on each `page.on` call that listens to `web_socket`.",
       "name": "page.web_socket",
       "payload": {
         "$ref": "#/$defs/PageWebSocket"
@@ -16123,7 +16151,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap.",
       "events": [],
       "kind": "round_trip",
       "name": "daemon.status",
@@ -16860,7 +16888,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.",
+      "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.",
       "events": [
         "page.console",
         "page.page_error",
@@ -17029,7 +17057,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_request_finished",
@@ -17086,7 +17114,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
+      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
       "events": [],
       "kind": "round_trip",
       "name": "response.body",
@@ -17494,7 +17522,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "sequence",
       "name": "run.records",
@@ -19957,7 +19985,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 5,
-      "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+      "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
       "name": "log.file.max_files",
       "product": "collie",
       "products": [
@@ -20517,10 +20545,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_by_model",
       "clearable": true,
       "default": null,
-      "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it.",
+      "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays.",
       "name": "proxy.kind",
       "product": "collie",
       "products": [
@@ -20575,10 +20603,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "configuration",
+      "authority": "configuration_project_limited",
       "clearable": false,
       "default": {},
-      "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+      "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
       "name": "proxy.providers",
       "product": "collie",
       "products": [
@@ -20636,6 +20664,22 @@
             "username": {
               "description": "The account's username.",
               "type": "string"
+            },
+            "zones": {
+              "additionalProperties": {
+                "pattern": "^[A-Za-z0-9_]+$",
+                "type": "string"
+              },
+              "description": "The zone of each proxy kind, for `bright_data` only: a kind left out is the zone of its own name.",
+              "propertyNames": {
+                "enum": [
+                  "datacenter",
+                  "isp",
+                  "residential",
+                  "mobile"
+                ]
+              },
+              "type": "object"
             }
           },
           "type": "object"

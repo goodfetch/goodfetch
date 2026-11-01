@@ -66,6 +66,7 @@ mod scope;
 mod serve;
 mod sitemap_seed;
 mod sitemaps;
+mod sites;
 mod statuses;
 #[cfg(unix)]
 mod stop;

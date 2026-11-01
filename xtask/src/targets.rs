@@ -68,6 +68,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             startup::measure(
                 &environment.path(&arguments.tools),
                 &environment.path(&arguments.out),
+                &environment.goodfetch_variables,
             )?;
         }
         Command::Report(arguments) => {
@@ -76,6 +77,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 &folder,
                 &environment.path(&arguments.spider),
                 &environment.path(&arguments.gaps),
+                &target::Target::ALL.map(|(target, _)| target.name()),
             )?;
             let rows = target::rows(&measured);
             let markdown = report::write(&folder, &rows, &measured)?;

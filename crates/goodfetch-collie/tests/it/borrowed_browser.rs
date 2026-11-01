@@ -68,6 +68,15 @@ const POPUP: &str = "/popup";
 /// The site's large page: a plain-text body of [`LARGE_BYTES`].
 const LARGE: &str = "/large";
 
+/// The person's own tab, which they open themselves.
+const MINE: &str = "/mine";
+
+/// How long the site waits before it answers [`MINE`]: the tab's
+/// navigation is still on its way when the person first reaches the tab,
+/// so a script they send at once would run in the blank document the
+/// navigation then replaces.
+const MINE_DELAY: Duration = Duration::from_millis(500);
+
 /// The large page's bytes: 20 MiB, whose Base64 in one CDP message passes
 /// tungstenite's default frame cap of 16 MiB.
 const LARGE_BYTES: usize = 20 * 1024 * 1024;
@@ -77,7 +86,8 @@ const LARGE_BYTES: usize = 20 * 1024 * 1024;
 const HOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What `cdp_url_not_allowed` asks for.
-const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
+const FIX: &str =
+    "set the address in Operator policy or in user configuration, or give a public address";
 
 /// A Chrome for Testing the test started with a debugging port, which a
 /// Session borrows through its `cdp_url`.
@@ -225,6 +235,9 @@ fn answer(
     if let Some(redirect) = redirects.lock().unwrap().get(path) {
         let _ = stream.write_all(redirect.as_bytes());
         return;
+    }
+    if path == MINE {
+        std::thread::sleep(MINE_DELAY);
     }
     if path == LARGE {
         let _ = write!(
@@ -469,6 +482,76 @@ fn a_body_past_sixteen_mebibytes_reads_on_a_borrowed_browser_and_the_session_goe
         ),
         (&json!(200), &json!(200)),
         "{read}"
+    );
+}
+
+/// The project configuration `run.start` sends whose `session.source` is
+/// the `cdp_url` `url`.
+fn project_source(url: &str) -> Value {
+    json!({
+        "path": "goodfetch.toml",
+        "settings": { "session": { "source": { "kind": "cdp_url", "url": url } } },
+    })
+}
+
+/// O8 of the deep review (accepted by the owner on 2026-10-28): a Client
+/// acting for a model sends the project configuration itself, so a
+/// loopback `cdp_url` there is the model's and the Run's default Session
+/// is refused with `cdp_url_not_allowed` naming the project layer, before
+/// any connection: the stand-in at that address accepts none. The same
+/// project configuration from the program's own code opens its default
+/// Session on the browser there (positive control).
+///
+/// Covers: story:4-15, error:cdp_url_not_allowed, operation:run.new_page
+#[test]
+fn a_loopback_cdp_url_in_a_models_project_configuration_is_refused() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let (port, accepted) = stand_in();
+    let stand_in_url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
+
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let started = program.call(
+        "run.start",
+        &json!({ "run_id": "own", "project": project_source(&lent.cdp_url) }),
+    );
+    let own = program.call("run.new_page", &json!({ "run_id": "own" }));
+    program.finish("own");
+    let mut model = Program::start(&env, &cache, "mcp");
+    let model_started = model.call(
+        "run.start",
+        &json!({ "run_id": "model", "project": project_source(&stand_in_url) }),
+    );
+    let refused = model.call("run.new_page", &json!({ "run_id": "model" }));
+    model.finish("model");
+    lent.stop();
+
+    assert_eq!(
+        (
+            started.get("result").is_some(),
+            own["result"]["page_id"].is_string(),
+            model_started.get("result").is_some(),
+            error(&refused),
+            accepted.load(Ordering::SeqCst),
+        ),
+        (
+            true,
+            true,
+            true,
+            (
+                json!("cdp_url_not_allowed"),
+                json!({
+                    "url": stand_in_url,
+                    "layer": "project_configuration",
+                    "rule": "loopback",
+                    "address": "127.0.0.1",
+                    "fix": FIX,
+                })
+            ),
+            0,
+        ),
+        "{started} {own} {model_started}"
     );
 }
 
@@ -730,6 +813,79 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
     );
 }
 
+/// A name no resolver answers, which the test's browser still resolves to
+/// the site, as a remote browser's network may resolve an intranet name.
+const UNRESOLVED: &str = "intranet.invalid";
+
+/// O9 of the deep review (accepted by the owner on 2026-10-28): a name the
+/// engine cannot resolve is refused at interception on a Borrowed browser
+/// whose `cdp_url` is not loopback, naming `network.resolve`, and no
+/// request for it reaches the site, while a name the engine finds public
+/// still loads there; on the same browser borrowed at its loopback
+/// address, the name is left to the browser, which reaches the site with
+/// it (positive control). The browser elsewhere is the test's own, at
+/// `0.0.0.0`, which only connects to this machine but is no loopback
+/// address, set in the Operator policy, where it is an Operator-configured
+/// endpoint.
+///
+/// Covers: story:4-14, error:egress_refused, setting:network.resolve
+#[test]
+fn a_name_the_engine_cannot_resolve_is_refused_on_a_borrowed_browser_not_on_loopback() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    operator_policy(&env, &lent.cdp_url.replace("127.0.0.1", "0.0.0.0"), false);
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    program.run("unresolved", &[(SITE, &[PUBLIC])]);
+
+    let elsewhere = opened(&program.call("run.new_page", &json!({ "run_id": "unresolved" })))
+        .page_id
+        .0;
+    let public = program.goto(&elsewhere, &site.url(SITE, "/"));
+    let refused = program.goto(&elsewhere, &site.url(UNRESOLVED, "/"));
+    let refused_requests = site
+        .hosts()
+        .iter()
+        .filter(|host| *host == UNRESOLVED)
+        .count();
+    let on_loopback = program.borrow("unresolved", &lent.cdp_url);
+    let local = program.new_page(&on_loopback["result"]["session_id"]);
+    let passed = program.goto(&local, &site.url(UNRESOLVED, "/"));
+    let requests = site
+        .hosts()
+        .iter()
+        .filter(|host| *host == UNRESOLVED)
+        .count();
+    program.finish("unresolved");
+    lent.stop();
+
+    assert_eq!(
+        (
+            &public["result"]["response"]["status"],
+            error(&refused),
+            refused_requests,
+            &passed["result"]["response"]["status"],
+            requests > 0,
+        ),
+        (
+            &json!(200),
+            (
+                json!("egress_refused"),
+                json!({
+                    "url": site.url(UNRESOLVED, "/"),
+                    "rule": "domain_policy",
+                    "setting": "network.resolve",
+                })
+            ),
+            0,
+            &json!(200),
+            true,
+        ),
+        "{refused} {on_loopback} {passed}"
+    );
+}
+
 /// A local address belongs to this machine (ADR 0044): a Run that sets
 /// `egress.local_addresses` refuses a Session on a Borrowed browser it lent
 /// and one on a third-party CDP browser at a public address with
@@ -985,6 +1141,9 @@ fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
 struct Person {
     socket: tungstenite::WebSocket<TcpStream>,
     next_id: u64,
+    /// The events the browser sent while a command waited for its reply,
+    /// oldest first, which [`Self::event`] has not taken yet.
+    events: Vec<Value>,
 }
 
 impl Person {
@@ -1000,7 +1159,11 @@ impl Person {
             .set_read_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         let socket = tungstenite::client(cdp_url, stream).unwrap().0;
-        Self { socket, next_id: 0 }
+        Self {
+            socket,
+            next_id: 0,
+            events: Vec::new(),
+        }
     }
 
     /// The result of the CDP command `method` with `params`, on the target
@@ -1015,12 +1178,45 @@ impl Person {
             .send(tungstenite::Message::text(command.to_string()))
             .unwrap();
         loop {
-            if let tungstenite::Message::Text(text) = self.socket.read().unwrap() {
-                let reply: Value = serde_json::from_str(&text).unwrap();
-                if reply["id"] == json!(self.next_id) {
-                    assert!(reply.get("error").is_none(), "{method}: {reply}");
-                    return reply["result"].clone();
-                }
+            let reply = self.message(method);
+            if reply["id"] == json!(self.next_id) {
+                assert!(reply.get("error").is_none(), "{method}: {reply}");
+                return reply["result"].clone();
+            }
+            if reply.get("method").is_some() {
+                self.events.push(reply);
+            }
+        }
+    }
+
+    /// The first event on the target session `session` that `wanted`
+    /// holds of, among those already received or the next ones.
+    fn event(&mut self, session: &str, wanted: impl Fn(&Value) -> bool) -> Value {
+        let of = |event: &Value| event["sessionId"] == json!(session) && wanted(event);
+        if let Some(index) = self.events.iter().position(of) {
+            return self.events.remove(index);
+        }
+        loop {
+            let event = self.message("an event");
+            if of(&event) {
+                return event;
+            }
+            if event.get("method").is_some() {
+                self.events.push(event);
+            }
+        }
+    }
+
+    /// The next message from the browser, read for `awaited`, within the
+    /// socket's 30 s read timeout.
+    fn message(&mut self, awaited: &str) -> Value {
+        loop {
+            let message = self
+                .socket
+                .read()
+                .unwrap_or_else(|error| panic!("waiting for {awaited}: {error}"));
+            if let tungstenite::Message::Text(text) = message {
+                return serde_json::from_str(&text).unwrap();
             }
         }
     }
@@ -1060,7 +1256,9 @@ fn at(target: &Value, path: &str) -> bool {
 /// The person's own tabs stay theirs while a Session borrows their browser
 /// (ADR 0056): the tab already open, one they open and one their own tab
 /// opens are each let go of at once, with no engine session left on them,
-/// while the Session's own page keeps the engine's (positive control).
+/// while the Session's own page keeps the engine's (positive control). The
+/// person's script runs in their tab's own page, in the context the browser
+/// names once the tab's navigation is in.
 ///
 /// Covers: story:4-14, operation:run.new_session, operation:session.new_page
 #[test]
@@ -1078,7 +1276,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
     let mut person = Person::connect(&lent.cdp_url);
     let mine = person.send(
         "Target.createTarget",
-        &json!({ "url": site.url(SITE, "/mine") }),
+        &json!({ "url": site.url(SITE, MINE) }),
         None,
     )["targetId"]
         .clone();
@@ -1090,10 +1288,28 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         .as_str()
         .unwrap()
         .to_owned();
+    // The tab is still on its way to `MINE` (`MINE_DELAY`): its script runs
+    // in the context the browser names once that document is in, which no
+    // later navigation replaces, never in the blank one the navigation ends.
+    person.send("Runtime.enable", &json!({}), Some(&attached));
+    let origin = site.url(SITE, "");
+    let context = person.event(&attached, |event| {
+        let context = &event["params"]["context"];
+        event["method"] == "Runtime.executionContextCreated"
+            && context["origin"] == json!(origin)
+            && context["auxData"]["frameId"] == mine
+            && context["auxData"]["isDefault"] == json!(true)
+    })["params"]["context"]["id"]
+        .clone();
     let opened = person.send(
         "Runtime.evaluate",
         &json!({
-            "expression": format!("window.open({:?}) !== null", site.url(SITE, "/opened")),
+            "expression": format!(
+                "[location.pathname, window.open({:?}) !== null]",
+                site.url(SITE, "/opened")
+            ),
+            "contextId": context,
+            "returnByValue": true,
             "userGesture": true,
         }),
         Some(&attached),
@@ -1102,7 +1318,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         pages.iter().any(|target| at(target, "/opened"))
             && pages
                 .iter()
-                .filter(|target| !at(target, "/mine") && !at(target, "/session"))
+                .filter(|target| !at(target, MINE) && !at(target, "/session"))
                 .all(|target| target["attached"] == false)
     });
     program.finish("tabs");
@@ -1124,7 +1340,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
         ),
         (
             &json!(200),
-            &json!(true),
+            &json!([MINE, true]),
             Some(json!(false)),
             Some(json!(false)),
             Some(json!(true)),

@@ -632,7 +632,11 @@ class FieldLocator1(BaseModel):
 
 
 class FieldLocator2(BaseModel):
-    """An `XPath` 1.0 expression."""
+    """
+    An `XPath` 1.0 expression that finds nodes, with no namespace
+    prefix and no variable; the field reads the first node it finds in
+    document order, when that node is an element.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -646,10 +650,8 @@ class FieldLocator(RootModel[FieldLocator1 | FieldLocator2]):
     root: FieldLocator1 | FieldLocator2
     """
     What finds a field's element, named by `kind`: a CSS selector or an
-    `XPath` expression. A page a fetch tier serves from its document reads
-    a CSS selector; an `XPath` expression is read by the browser, to which
-    the request escalates under `fetch.tier: auto` (`browser_required`
-    under a forced cheaper tier).
+    `XPath` expression, each read alike on every tier, a page a fetch tier
+    serves from its document reading it as a browser reads it.
     """
 
 
@@ -1271,6 +1273,14 @@ class RunRecordsParams(BaseModel):
     """The Dataset's name."""
     run_id: RunId
     """The crawl's Run."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record to read, such as the last one
+    committed when the reader began (`dataset.page`'s `through`): the
+    call answers once it sent every Record numbered through it, waiting
+    on a live Run for those not committed yet. Absent, it follows a live
+    Run until the Run ends.
+    """
     wall: bool | None = None
     """
     `true` reads only the Records whose page was read past a Wall,

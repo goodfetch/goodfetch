@@ -27,8 +27,8 @@ use std::collections::BTreeSet;
 use std::sync::mpsc;
 
 use goodfetch_test_support::{
-    Canaries, Canary, Hit, Output, ProvingGround, ReceivedRequests, SecretKind, TestEnv,
-    browser_cache, cli, pty, robots_txt_read,
+    Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
+    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, pty, robots_txt_read,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -184,7 +184,7 @@ fn a_client_acting_for_a_model_sets_no_proxy_through_the_project_configuration_i
 const SEED: u64 = 708;
 
 /// The variable the engine's environment holds a proxy password in.
-const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
+pub(crate) const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// The address of the Proving ground's proxy `name`.
 fn proxy_address(proving_ground: &ProvingGround, name: &str) -> String {
@@ -1075,24 +1075,34 @@ fn carried_by(proving_ground: &ProvingGround, kind: &str) -> u64 {
         .sum()
 }
 
-/// Whether the Proving ground's proxies relayed the browser's last request
-/// for a page of `scope.test`, its `/favicon.ico`, which Chrome asks for
-/// once the page loaded since the page names no icon, and ended every
-/// relay: a relay's bytes are recorded when it ends, and each received at
-/// least the request it is for.
+/// The requests a page of `scope.test` makes after its document's that no
+/// load waits for: the `/favicon.ico` Chrome asks for once the page loaded,
+/// since the page names no icon, and the engine's own read of the site's
+/// `/robots.txt`, which starts once the document's response arrived and
+/// which nothing the page does waits for. Either may come last.
+const AFTER_THE_LOAD: [&str; 2] = ["/favicon.ico", "/robots.txt"];
+
+/// Whether the Proving ground's proxies relayed each of a page of
+/// `scope.test`'s requests [`AFTER_THE_LOAD`] and ended every relay: a
+/// relay's bytes are recorded when it ends, and each received at least the
+/// request it is for.
 fn page_load_relayed(observations: &Value) -> bool {
     let relays = observations["relays"].as_array().unwrap();
-    relays.iter().any(|relay| {
-        relay["target"]
-            .as_str()
-            .is_some_and(|target| target.ends_with("/favicon.ico"))
-    }) && relays
+    let paths: BTreeSet<String> = relays
         .iter()
-        .all(|relay| relay["bytes"]["received"].as_u64() > Some(0))
+        .filter_map(|relay| relay["target"].as_str())
+        .filter_map(|target| url::Url::parse(target).ok())
+        .map(|target| target.path().to_owned())
+        .collect();
+    AFTER_THE_LOAD.iter().all(|path| paths.contains(*path))
+        && relays
+            .iter()
+            .all(|relay| relay["bytes"]["received"].as_u64() > Some(0))
 }
 
 /// Waits until [`page_load_relayed`], a minute at most, so no byte of the
-/// page's load is under way when the Run ends.
+/// page's load, nor of the engine's robots.txt read beside it, is under
+/// way when the Run ends.
 fn page_load_settled(proving_ground: &ProvingGround) {
     for _ in 0..600 {
         if page_load_relayed(&proving_ground.observations().unwrap()) {
@@ -1104,6 +1114,37 @@ fn page_load_settled(proving_ground: &ProvingGround) {
         "the page's load was still under way after a minute: {}",
         proving_ground.observations().unwrap()["relays"]
     );
+}
+
+/// A relay of `target` on `scope.test` that the Proving ground's isp proxy
+/// recorded: ended, with the bytes it carried, or still under way, with
+/// none recorded yet.
+fn relay_of(target: &str, ended: bool) -> Value {
+    let bytes = if ended {
+        json!({ "received": 500, "sent": 200 })
+    } else {
+        json!({ "received": 0, "sent": 0 })
+    };
+    json!({ "kind": "isp", "target": format!("http://scope.test:8080{target}"), "bytes": bytes })
+}
+
+#[rstest]
+// The order a failing run of the counted test met (#1788): Chrome's icon
+// relayed before the engine's own read of the site's robots.txt reached
+// the proxy, so the Run ended under it.
+#[case::before_the_robots_txt_read_reached_the_proxy(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/favicon.ico", true)], false)]
+#[case::while_the_robots_txt_read_is_under_way(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/favicon.ico", true), ("/robots.txt", false)], false)]
+#[case::before_the_icon_reached_the_proxy(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/robots.txt", true)], false)]
+#[case::once_the_icon_and_the_robots_txt_read_ended(&[("/storage?mark=counted", true), ("/storage/found?mark=none", true), ("/robots.txt", true), ("/favicon.ico", true)], true)]
+fn a_page_load_is_relayed_once_its_icon_and_the_engines_robots_txt_read_ended(
+    #[case] relays: &[(&str, bool)],
+    #[case] relayed: bool,
+) {
+    let observations = json!({
+        "relays": relays.iter().map(|(target, ended)| relay_of(target, *ended)).collect::<Vec<_>>()
+    });
+
+    assert_eq!(page_load_relayed(&observations), relayed, "{observations}");
 }
 
 /// Covers: story:8-92, setting:proxy.providers, operation:run.usage
@@ -1624,7 +1665,7 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
 /// User configuration declaring the adapter `name` on the Proving ground's
 /// proxy account, its `endpoint` the Proving ground's residential proxy,
 /// which reads every provider's sticky username.
-fn adapter_configuration(proving_ground: &ProvingGround, name: &str) -> String {
+pub(crate) fn adapter_configuration(proving_ground: &ProvingGround, name: &str) -> String {
     let credentials = &proving_ground.description().fixtures.proxy_credentials;
     format!(
         "[settings.proxy.providers.{name}]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nendpoint = \"http://{}\"\n",
@@ -1655,7 +1696,7 @@ fn session_page(engine: &mut Attached, position: i64, run_id: &str, own: &Value)
 
 /// Visits `/storage?mark=<mark>` of `scope.test` in `page`, as the
 /// `position`-th call.
-fn visit_marked(
+pub(crate) fn visit_marked(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
     position: i64,
@@ -1674,7 +1715,7 @@ fn visit_marked(
 
 /// The relayed requests whose target holds `marker`: each one's sticky
 /// session as the proxy read it, and the exit it left from.
-fn sticky_relays(proving_ground: &ProvingGround, marker: &str) -> Vec<(Value, Value)> {
+pub(crate) fn sticky_relays(proving_ground: &ProvingGround, marker: &str) -> Vec<(Value, Value)> {
     proving_ground.observations().unwrap()["relays"]
         .as_array()
         .unwrap()
@@ -1823,4 +1864,418 @@ fn a_session_that_outlives_its_sticky_lifetime_is_named_by_proxy_exit_may_change
         (vec![json!([short])], vec![json!(1), json!(1440)]),
         "{finished}"
     );
+}
+
+/// The Sessions a Run's end closes, its default Session and one the program
+/// left open, are named by `proxy_exit_may_change` once they outlived their
+/// sticky lifetime, though no page opened or Session closed after it: the
+/// check runs as the Run stops.
+///
+/// Covers: story:8-90, setting:proxy.sticky_lifetime, operation:run.finish
+#[cfg(unix)]
+#[test]
+fn sessions_that_outlive_their_sticky_lifetime_and_end_with_their_run_are_named_by_proxy_exit_may_change()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, "oxylabs");
+    let lifetime = std::time::Duration::from_secs(2);
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "ended-with-run",
+        &configuration,
+        &json!({ "proxy": {
+            "provider": "oxylabs",
+            "sticky_lifetime": u64::try_from(lifetime.as_millis()).unwrap(),
+        } }),
+        &[],
+    );
+
+    let default = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "ended-with-run" }),
+    ));
+    let (left_open, left_open_page) = session_page(&mut engine, 3, "ended-with-run", &json!({}));
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        5,
+        &json!(default.page_id.0),
+        "default",
+    );
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        6,
+        &left_open_page,
+        "left-open",
+    );
+    // Both Sessions outlive their lifetime before the Run finishes; a
+    // navigation is no check (ADR 0021's #891 note).
+    std::thread::sleep(lifetime + std::time::Duration::from_millis(500));
+    visit_marked(&mut engine, &proving_ground, 7, &left_open_page, "again");
+    let finished = call(
+        &mut engine,
+        10,
+        "run.finish",
+        &json!({ "run_id": "ended-with-run" }),
+    );
+    let _ = engine.finish();
+
+    let warned: BTreeSet<String> = finished["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|warning| warning["code"] == json!("proxy_exit_may_change"))
+        .flat_map(|warning| warning["sessions"].as_array().cloned().unwrap_or_default())
+        .filter_map(|session| session.as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        warned,
+        BTreeSet::from([
+            default.session_id.0,
+            left_open.as_str().unwrap_or_default().to_owned()
+        ]),
+        "{finished}"
+    );
+}
+
+/// Two Sessions of one hosted provider's account each build their own
+/// sticky username, yet hold the account's one limit, under the provider
+/// and the configured username (ADR 0088; the deep review's 599-4).
+///
+/// Covers: story:5-90, setting:proxy.provider, setting:proxy.providers
+#[cfg(unix)]
+#[test]
+fn the_sessions_of_one_providers_account_share_its_proxy_limit() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, "oxylabs");
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "one-account",
+        &configuration,
+        &json!({ "proxy": { "provider": "oxylabs" } }),
+        &[],
+    );
+
+    let (_, first) = session_page(&mut engine, 2, "one-account", &json!({}));
+    let (_, second) = session_page(&mut engine, 4, "one-account", &json!({}));
+    visit_marked(&mut engine, &proving_ground, 6, &first, "first");
+    visit_marked(&mut engine, &proving_ground, 7, &second, "second");
+    let _ = call(
+        &mut engine,
+        8,
+        "run.finish",
+        &json!({ "run_id": "one-account" }),
+    );
+    let _ = engine.finish();
+
+    let stickies: BTreeSet<String> = sticky_relays(&proving_ground, "mark=")
+        .iter()
+        .map(|(sticky, _)| sticky["session"].to_string())
+        .collect();
+    let username = &proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .username;
+    assert_eq!(
+        (
+            stickies.len(),
+            crate::proxy_limits::ceilings(&env.home().join("politeness.sqlite")),
+        ),
+        (
+            2,
+            BTreeSet::from([(format!("provider oxylabs {username}"), None)]),
+        )
+    );
+}
+
+/// A hosted provider that refuses the account's credentials raises
+/// `proxy_auth_failed` naming the provider's own keys, never `proxy.username`
+/// and `proxy.password`, which are refused beside `proxy.provider` (the
+/// deep review's 599-6).
+///
+/// Covers: story:8-89, setting:proxy.providers, error:proxy_auth_failed
+#[cfg(unix)]
+#[test]
+fn a_provider_refusing_the_accounts_credentials_names_its_own_keys() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    env.user_configuration(&adapter_configuration(&proving_ground, "oxylabs"));
+    let settings = json!({ "proxy": { "provider": "oxylabs" } });
+    let mut engine = crate::page::started_after(
+        &env,
+        &cache,
+        &proving_ground,
+        "refused",
+        settings.as_object().unwrap(),
+        |command| {
+            command.env(PASSWORD_VARIABLE, "not-the-accounts-password");
+        },
+        &[],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "refused" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=refused") }),
+    );
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "refused" }),
+    );
+    let _ = engine.finish();
+
+    let message = navigated["error"]["message"].as_str().unwrap_or_default();
+    assert_eq!(
+        (
+            &navigated["error"]["data"]["code"],
+            message.contains("`proxy.providers.oxylabs.username`")
+                && message.contains("`proxy.providers.oxylabs.password`"),
+            message.contains("`proxy.username`"),
+        ),
+        (&json!("proxy_auth_failed"), true, false),
+        "{navigated}"
+    );
+}
+
+/// An install Limit on `proxy_bytes` far above what the test carries, so
+/// the Run holds Slices of it and the ledger traces every charge.
+fn a_bytes_limit() -> (&'static str, Value) {
+    (
+        "usage.set",
+        json!({ "scope": "install", "usage_kind": "proxy_bytes", "amount": 1_000_000_000_000_u64 }),
+    )
+}
+
+/// The ledger's trace lines, in `stderr`, that charged or reserved
+/// `proxy_bytes`: one per charge before, one per allowance (two when
+/// priced) since.
+fn proxy_bytes_charges(stderr: &str) -> usize {
+    stderr
+        .lines()
+        .filter(|line| {
+            line.contains("goodfetch::ledger")
+                && line.contains("proxy_bytes")
+                && (line.contains("reserve") || line.contains("charge"))
+        })
+        .count()
+}
+
+/// A provider Session's upload is charged ahead, in allowances that grow to
+/// a MiB, so 8 MiB costs a few dozen ledger writes rather than one per
+/// 16 KiB, and its bytes all count; their price, a millionth of a dollar a
+/// GB, is rounded up once for the Session, not once per allowance (the deep
+/// review's 599-12 and 599-10).
+///
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once() {
+    let env = TestEnv::new();
+    env.log_level(&format!(
+        "info,{DISPATCH_TARGET}=trace,{OUTCOME_TARGET}=trace,goodfetch::ledger=trace"
+    ));
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let (address, sunk) = sink();
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nprice = \"0.000001 USD\"\nservers = [{{ server = \"http://{address}\", kind = \"isp\" }}]\n"
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "allowances",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "allowances" }),
+    ));
+    let zeros = "A".repeat(usize::try_from(UPLOAD / 3 * 4).unwrap());
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "page.request",
+        "params": {
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/upload"),
+            "method": "POST",
+            "post_data": zeros,
+        },
+    }));
+    // The sink never answers: the Run's end answers the request once the
+    // whole upload reached it.
+    let mut read = 0;
+    while read < UPLOAD {
+        match sunk.recv_timeout(BROWSER_DEADLINE).unwrap() {
+            Sunk::Read(bytes) => read += bytes,
+            Sunk::Opened(_) | Sunk::Ended => {}
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 4, "method": "run.finish", "params": { "run_id": "allowances" },
+    }));
+    let finished = std::iter::from_fn(|| engine.next())
+        .find(|answer| answer["id"] == json!(4))
+        .unwrap();
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "allowances" }),
+    );
+    let (_, stderr) = engine.finish_with_stderr();
+    let read = sunk_once_ended(address, &sunk, read);
+
+    let charges = proxy_bytes_charges(&stderr);
+    assert_eq!(
+        (
+            finished.get("result").is_some(),
+            &used["result"]["proxy_bytes"],
+            &used["result"]["proxy_price"],
+            charges > 0 && charges < 64,
+        ),
+        (
+            true,
+            &json!(read),
+            &json!([{ "currency": "USD", "amount": 1 }]),
+            true
+        ),
+        "{charges} ledger charges of proxy_bytes: {used}"
+    );
+}
+
+/// A `list` provider's SOCKS5 server: the relay charges its handshake, its
+/// tunnel and the page's bytes ahead and lets every one pass, so the page
+/// loads and `proxy_bytes` counts what the proxy carried.
+///
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nservers = [{{ server = \"socks5://{}\", kind = \"isp\" }}]\n",
+        credentials.username,
+        proxy_address(&proving_ground, "socks5"),
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "socks-counted",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "socks-counted" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=socks-counted") }),
+    );
+    tunnels_settled(&proving_ground);
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let _ = engine.finish();
+
+    let carried = carried_by_every_relay(&proving_ground);
+    assert_eq!(
+        (
+            navigated["result"]["response"]["status"].clone(),
+            carried > 0,
+            &used["result"]["proxy_bytes"],
+        ),
+        (json!(200), true, &json!(carried)),
+        "{navigated} {used}"
+    );
+}
+
+/// Waits until the site received the page, its robots.txt and the icon
+/// Chromium asks for, a minute at most, and the SOCKS5 proxy ended a relay
+/// for each: the site answers each with `Connection: close`, so a relay
+/// ends once the browser read its whole answer, and no byte is under way
+/// when the Run ends. A SOCKS5 tunnel names no path, so the relays alone
+/// cannot tell the page's last request, as [`page_load_relayed`] does.
+fn tunnels_settled(proving_ground: &ProvingGround) {
+    for _ in 0..600 {
+        let observations = proving_ground.observations().unwrap();
+        let requests = ReceivedRequests::of(&observations);
+        let targets: BTreeSet<String> = requests
+            .every()
+            .filter_map(|request| request["target"].as_str())
+            .map(|target| target.split('?').next().unwrap_or_default().to_owned())
+            .collect();
+        let relays = observations["relays"].as_array().unwrap().len();
+        if ["/storage", "/robots.txt", "/favicon.ico"]
+            .iter()
+            .all(|target| targets.contains(*target))
+            && relays == requests.every().count()
+        {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!(
+        "the page's tunnels had not all ended after a minute: {}",
+        proving_ground.observations().unwrap()
+    );
+}
+
+/// What the Proving ground's proxies carried, in bytes, on every relay
+/// that ended.
+fn carried_by_every_relay(proving_ground: &ProvingGround) -> u64 {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| {
+            relay["bytes"]["received"].as_u64().unwrap() + relay["bytes"]["sent"].as_u64().unwrap()
+        })
+        .sum()
 }

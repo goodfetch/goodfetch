@@ -167,6 +167,9 @@ pub struct Effective {
     pub layer: SettingsLayer,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave it: in the run layer, or
+    /// in the project configuration it sent (ADR 0092).
+    pub for_model: bool,
     /// The layer that locked it.
     pub locked_by: Option<SettingsLayer>,
     /// The Operator policy's cap on it.
@@ -349,6 +352,7 @@ impl Resolved {
                 effective.value = cap.clone();
                 effective.layer = SettingsLayer::OperatorPolicy;
                 effective.origin = None;
+                effective.for_model = false;
             }
         }
         capped.policy_version.clone_from(&policy.version);
@@ -527,6 +531,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             value: default.clone(),
             layer: SettingsLayer::Default,
             origin: None,
+            for_model: false,
             locked_by: None,
             cap: None,
             product: key.product,
@@ -711,6 +716,7 @@ fn take(
     state.effective.value = value.clone();
     state.effective.layer = layer;
     state.effective.origin = given.origin;
+    state.effective.for_model = given.for_model;
     Ok(())
 }
 
@@ -751,9 +757,23 @@ fn authority(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),
         )),
-        Authority::Configuration if above_configuration => Err(configuration_only()),
+        Authority::Configuration | Authority::ConfigurationProjectLimited(_)
+            if above_configuration =>
+        {
+            Err(configuration_only())
+        }
         Authority::ConfigurationExcept(allowed) if above_configuration && !allowed(value) => {
             Err(configuration_only())
+        }
+        Authority::ConfigurationProjectLimited(allowed)
+            if layer == SettingsLayer::ProjectConfiguration && !allowed(value) =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a project's configuration gives `{name}` without what only the machine's own layers set, such as a Proxy provider's `price`, which a currency Limit trusts: set the provider's entry, its `price` included, in user configuration or an Operator policy"
+                ),
+            ))
         }
         Authority::NotByRecipe | Authority::NotByRecipeOrModel
             if layer == SettingsLayer::Recipe =>
@@ -763,7 +783,11 @@ fn authority(
                 format!("a Recipe never sets `{name}`; it may only expose it"),
             ))
         }
-        Authority::NotByRecipeOrModel | Authority::NotByModelRecipeAllowedBy(_) if for_model => {
+        Authority::NotByRecipeOrModel
+        | Authority::NotByModel
+        | Authority::NotByModelRecipeAllowedBy(_)
+            if for_model =>
+        {
             Err(refused(
                 current.clone(),
                 format!(
@@ -795,8 +819,10 @@ fn authority(
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
+        | Authority::ConfigurationProjectLimited(_)
         | Authority::NotByRecipe
         | Authority::NotByRecipeOrModel
+        | Authority::NotByModel
         | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
     }

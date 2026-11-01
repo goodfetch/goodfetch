@@ -17,9 +17,9 @@ members = [
   "proving-ground",
   "xtask",
 ]
-# Goodfetch's fork of `wreq`, which `[patch.crates-io]` below carries: a
-# crate of its own, not a member.
-exclude = ["vendor/wreq"]
+# Goodfetch's forks of `wreq` and `wreq-util`, which `[patch.crates-io]`
+# below carries: crates of their own, not members.
+exclude = ["vendor/wreq", "vendor/wreq-util"]
 
 [workspace.package]
 version = "0.0.0"
@@ -42,8 +42,13 @@ publish = false
 adblock = { version = "0.13.3", default-features = false, features = ["css-validation", "embedded-domain-resolver", "full-regex-handling"] }
 aho-corasick = { version = "1.1.5", default-features = false, features = ["std", "perf-literal"] }
 # The encrypted local file, `secretfile:` (spec #564): an age file encrypted
-# to an X25519 identity, read binary or armored.
-age = { version = "0.12.1", default-features = false, features = ["armor"] }
+# to an X25519 identity, read binary or armored. The 0.11 line, which age
+# still fixes (0.11.5 has 0.12.1's armor fixes): 0.12 adds the `tag`
+# recipients, which take p256 0.13 and hpke 0.12 and through them
+# crypto-bigint 0.5, with RUSTSEC-2026-0387 (timing variability), fixed only
+# in crypto-bigint 0.7.6, which p256 0.14 takes and no age release does
+# (#1785). Move to age's newest line once a release takes p256 0.14.
+age = { version = "0.11.5", default-features = false, features = ["armor"] }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 # The OS keychain, `keychain:` (ADR 0015): keyring-core's API and its
 # stores for the login keychain on macOS and the Credential Manager on
@@ -80,6 +85,9 @@ expectrl = { version = "0.9.0", default-features = false }
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
 dom_query = { version = "0.28.0", default-features = false }
+# Its CSS tokenizer, on which the fetch tiers find the selector extensions
+# dom_query reads and a browser refuses; the version dom_query links.
+cssparser = { version = "0.37.0", default-features = false }
 htmd = { version = "0.5.6", default-features = false }
 # Chrome's `<meta>` prescan of a crawl page's document tokenizes it as
 # Blink's HTMLMetaCharsetParser does, with the HTML standard's tokenizer
@@ -239,7 +247,7 @@ hyper-util = { version = "0.1.21", default-features = false }
 loona-hpack = { version = "0.4.3", default-features = false }
 # The Proving ground's certificate authority, made from its seed (ADR 0059):
 # rcgen writes the certificates, p256 derives the keys and signs (RFC 6979).
-p256 = { version = "0.13.2", default-features = false }
+p256 = { version = "0.14.0", default-features = false }
 rcgen = { version = "0.14.10", default-features = false }
 rustls = { version = "0.23.46", default-features = false }
 tokio-rustls = { version = "0.26.4", default-features = false }
@@ -424,8 +432,22 @@ undocumented_unsafe_blocks = "deny"
 # change is offered upstream. Drop this patch, the folder and the `exclude`
 # above when a `wreq` release contains it, and move the `wreq` pin to that
 # release. `goodfetch-fetch-tier`'s fuzz crate carries the same patch.
+#
+# Both forks declare `rust-version = "1.97"`, the workspace's MSRV (ADR 0030),
+# where upstream declares 1.98: they compile on 1.97, as `just msrv` proves.
+#
+# And of `wreq-util` 0.2.0, carried in `vendor/wreq-util` as version
+# `0.2.0+goodfetch.1`: upstream's commit
+# de0dc6349bc2d4d1bd0bbbaa059b45ab1df3b0fd (its `.cargo_vcs_info.json`) with
+# its `zstd` requirement at 0.14.3, as upstream's 4d21e3b65d (wreq-util#130)
+# has it, for zstd 0.13's RUSTSEC-2026-0391 and zstd-safe 7's
+# RUSTSEC-2026-0395 to RUSTSEC-2026-0406 (#1785); its examples and tests are
+# left out. Drop this patch, the folder and its `exclude` above when a
+# `wreq-util` release takes zstd 0.14.3 or newer, and move the `wreq-util`
+# pin to that release. The fuzz crate carries this patch too.
 [patch.crates-io]
 wreq = { path = "vendor/wreq" }
+wreq-util = { path = "vendor/wreq-util" }
 
 # Build profiles (ADRs 0057, 0061 and 0071). `dev` and `test` stay Cargo's,
 # but for SHA-256: every launch checks its browser build's digest, some

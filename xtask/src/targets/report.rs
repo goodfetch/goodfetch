@@ -101,8 +101,9 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
         text,
         "\nStartup to `hello` is hyperfine's median after {WARMUP} warm-up runs and {RUNS} runs, \
          each from the engine's start to its exit once `hello` on its input is answered and its \
-         input ends. Idle RSS is the resident-memory check's scenario. The crawl figures are \
-         Foxhound's medians in the latest `just compare-spider` report{}.\n",
+         input ends. Every resident-memory figure, idle and the crawl's peak, is the median of \
+         the resident-memory check's scenario's peaks (`xtask rss measure`). Only the crawl's \
+         pages per second is Foxhound's median in the latest `just compare-spider` report{}.\n",
         if measured.spider.is_some() {
             ""
         } else {

@@ -42,7 +42,10 @@ mod ends;
 mod life;
 mod lifecycle;
 mod memory;
+pub(crate) mod robots_txt;
 mod session_pages;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -83,7 +86,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::borrowed::{CdpUrl, resolve_of};
+use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::driver::{PageDriver, SessionEgress, Visibility};
@@ -93,7 +96,7 @@ use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
-use crate::page_value::{HandlerPages, PageValue};
+use crate::page_value::{HandlerPages, PageValue, PooledSession};
 use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
 use crate::recovery::Checking;
@@ -229,8 +232,9 @@ enum Opener {
     Default,
     /// A crawl's Session pool, which keeps its Sessions itself: a resumed
     /// Run reopens none of them, the pool opening each again at its next
-    /// page.
-    Pool,
+    /// page. Its egress relay binds the rotation position the pool gave
+    /// it, when it gave one.
+    Pool { address_ordinal: Option<u64> },
 }
 
 /// The Provenance action of a Session held to the policy by interception
@@ -395,61 +399,53 @@ impl Sessions {
         let settings = own_settings(&params.settings, &run, context)?;
         let borrowed = opening_source(&run, params.source, context)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
-        // Its proxy is drawn for the position it is about to take, which a
-        // Session opening at the same moment may take first.
         self.reach(&run, context).await?;
-        let (next, pool) = {
-            let mut state = self.state.lock().await;
-            let runs = reached(&mut state, &run)?;
-            (runs.last + 1, runs.pool.clone())
-        };
-        let proxy = open_proxy(&run, &settings, context, next).await?;
+        let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
+        let proxy = open_proxy(&run, &settings, context, position).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
         let relay = open_relay(
             &run,
             proxy.as_ref(),
             borrowed.is_some(),
             &pool,
-            next,
+            rotation_ordinal(position),
             context,
         )
         .await?;
-        let (position, seat) = {
+        let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
+        // It goes into the table under the lock, while its Run is there:
+        // once the Run stops, its clean-up has taken the Run out, and a
+        // Session put in after it would hold the Run forever (#1763).
+        let (session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run)?;
-            runs.last += 1;
             let seat = match &borrowed {
                 Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
                 None => runs
                     .pool
                     .seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
             };
-            (runs.last, seat)
+            let session = session_id(run.id(), position);
+            let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
+            let open = Arc::new(Session {
+                run: run.clone(),
+                position,
+                seat,
+                settings: settings.clone(),
+                life: life.clone(),
+                proxy,
+                egress_marked: OnceCell::new(),
+                relay,
+                reopen_failed: None,
+                held_frames: borrowed
+                    .as_ref()
+                    .map(|_| session_pages::HeldFrames::default()),
+                injections: Injections::default(),
+            });
+            state.sessions.insert(session.clone(), Arc::clone(&open));
+            self.open_in_interception(&session, &run, borrowed.as_ref());
+            (session, life, open)
         };
-        let session = session_id(run.id(), position);
-        let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
-        let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
-        let open = Arc::new(Session {
-            run: run.clone(),
-            position,
-            seat,
-            settings: settings.clone(),
-            life: life.clone(),
-            proxy,
-            egress_marked: OnceCell::new(),
-            relay,
-            reopen_failed: None,
-            held_frames: borrowed
-                .as_ref()
-                .map(|_| session_pages::HeldFrames::default()),
-            injections: Injections::default(),
-        });
-        self.state
-            .lock()
-            .await
-            .sessions
-            .insert(session.clone(), Arc::clone(&open));
-        self.open_in_interception(&session, &run, borrowed.is_some());
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
@@ -514,33 +510,29 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<u32, CallError> {
         no_local_address_on(run, source_of(borrowed))?;
-        let (next, pool) = {
-            let mut state = self.state.lock().await;
-            let runs = reached(&mut state, run)?;
-            (runs.last + 1, runs.pool.clone())
-        };
-        let proxy = open_proxy(run, &Values::default(), context, next).await?;
+        let (position, pool) = taken(&mut *self.state.lock().await, run)?;
+        let proxy = open_proxy(run, &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
+        // A pool Session's relay binds the position its pool gave it, which
+        // its HTTP requests leave from too (ADR 0044's #682 note).
+        let address_ordinal = match opener {
+            Opener::Pool {
+                address_ordinal: Some(ordinal),
+            } => ordinal,
+            Opener::Default | Opener::Pool { .. } => rotation_ordinal(position),
+        };
         let relay = open_relay(
             run,
             proxy.as_ref(),
             borrowed.is_some(),
             &pool,
-            next,
+            address_ordinal,
             context,
         )
         .await?;
-        let (position, seat) = {
-            let mut state = self.state.lock().await;
-            let runs = reached(&mut state, run)?;
-            runs.last += 1;
-            let seat = match borrowed {
-                Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
-                None => runs
-                    .pool
-                    .seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
-            };
-            (runs.last, seat)
+        let seat = match borrowed {
+            Some(cdp_url) => pool.borrowed_seat(cdp_url.clone()),
+            None => pool.seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
         };
         if let Opener::Default = opener {
             self.record(run, position, true, &Values::default(), borrowed, context)
@@ -549,11 +541,16 @@ impl Sessions {
         let attributes = match (opener, borrowed.is_some()) {
             (Opener::Default, false) => FRESH,
             (Opener::Default, true) => BORROWED,
-            (Opener::Pool, false) => POOL,
-            (Opener::Pool, true) => POOL_BORROWED,
+            (Opener::Pool { .. }, false) => POOL,
+            (Opener::Pool { .. }, true) => POOL_BORROWED,
         };
         let session = session_id(run.id(), position);
-        self.state.lock().await.sessions.insert(
+        // The Run may have stopped while its record was written: a Session
+        // goes into the table only while its Run is there, under the lock
+        // its clean-up takes it out under (#1763).
+        let mut state = self.state.lock().await;
+        reached(&mut state, run)?;
+        state.sessions.insert(
             session.clone(),
             Arc::new(Session {
                 run: run.clone(),
@@ -569,7 +566,7 @@ impl Sessions {
                 injections: Injections::default(),
             }),
         );
-        self.open_in_interception(&session, run, borrowed.is_some());
+        self.open_in_interception(&session, run, borrowed);
         Ok(position)
     }
 
@@ -650,50 +647,44 @@ impl Sessions {
 
     /// Opens a page in the Session a crawl's Session pool names `pooled`
     /// in the live Run `run_id`, opening that Session first when it has no
-    /// browser context yet: from `source`, `Some(None)` for a fresh one,
-    /// or else from the Run's `session.source` (ADR 0093). The Session is
-    /// the pool's (ADR 0088): only [`Sessions::retire`] ends it, besides
-    /// its Run; `closed` once it is retired.
-    #[expect(
-        clippy::option_option,
-        reason = "a setting's three states (ADR 0083): the Run's, `null` for a fresh Session, a source"
-    )]
+    /// browser context yet: from its source, `Some(None)` for a fresh one,
+    /// or else from the Run's `session.source` (ADR 0093), its egress relay
+    /// bound to the rotation position the pool gave it. The Session is the
+    /// pool's (ADR 0088): only [`Sessions::retire`] ends it, besides its
+    /// Run; `closed` once it is retired.
     pub(crate) async fn new_pool_page(
         &self,
         run_id: &RunId,
-        pooled: &SessionId,
-        source: Option<Option<SessionSource>>,
+        pooled: &PooledSession,
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
-        let session = self.pool_session(run_id, pooled, source, context).await?;
+        let session = self.pool_session(run_id, pooled, context).await?;
         self.new_page(&session, &Map::new(), context).await
     }
 
     /// The Session a crawl's Session pool names `pooled` in the live Run
     /// `run_id`, opened as [`Sessions::new_pool_page`] opens it when it has
     /// no browser context yet.
-    #[expect(
-        clippy::option_option,
-        reason = "a setting's three states (ADR 0083): the Run's, `null` for a fresh Session, a source"
-    )]
     pub(crate) async fn pool_session(
         &self,
         run_id: &RunId,
-        pooled: &SessionId,
-        source: Option<Option<SessionSource>>,
+        pooled: &PooledSession,
         context: &CallContext,
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
-        let borrowed = opening_source(&run, source, context)?;
+        let borrowed = opening_source(&run, pooled.source.clone(), context)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
             reached(&mut *self.state.lock().await, &run)?
                 .pooled
-                .entry(pooled.clone())
+                .entry(pooled.id.clone())
                 .or_default(),
         );
+        let opener = Opener::Pool {
+            address_ordinal: pooled.address_ordinal,
+        };
         let position = *cell
-            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), Opener::Pool, context))
+            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), opener, context))
             .await?;
         Ok(session_id(run.id(), position))
     }
@@ -796,7 +787,10 @@ impl Sessions {
         for (page_id, page) in self.pages_of(session).await {
             match page.life.end(&Ending::Closed(ClosedValue::Session))? {
                 PageEffect::Close => closing.push((page_id, page)),
-                effect => self.page_ended(&page_id, &open.run, effect).await,
+                effect => {
+                    self.page_ended(&page_id, &open.run, &page.life, effect)
+                        .await;
+                }
             }
         }
         open.seat.close().await;
@@ -804,7 +798,8 @@ impl Sessions {
             // The context's disposal destroyed each target: the close the
             // engine sent is confirmed (P29).
             let effect = page.life.end(&Ending::Destroyed)?;
-            self.page_ended(page_id, &open.run, effect).await;
+            self.page_ended(page_id, &open.run, &page.life, effect)
+                .await;
         }
         if crashed {
             self.hiding.close(session).await;
@@ -904,6 +899,21 @@ impl Sessions {
             in_browser: Some(in_browser),
             run: open.run.clone(),
         })
+    }
+
+    /// Whether the open Session `session` serves the engine's own page for
+    /// a page carrying `value` now, with no wait: it is open and serves
+    /// calls, and `value`'s lease holds. A fetch from its engine's page that
+    /// failed while it no longer did failed in the engine, not at the site.
+    pub(crate) async fn serves(&self, session: &SessionId, value: &PageValue) -> bool {
+        let serving = self
+            .state
+            .lock()
+            .await
+            .sessions
+            .get(session)
+            .is_some_and(|open| open.reopen_failed.is_none() && open.life.serves());
+        serving && lease_holds(value).is_ok()
     }
 
     /// The page `page_id` this engine holds; `page_crashed` again for a
@@ -1028,7 +1038,7 @@ impl Sessions {
                     FRESH,
                 ),
             };
-            reopened.push(Session {
+            let held = Session {
                 run: run.clone(),
                 position,
                 seat,
@@ -1042,15 +1052,16 @@ impl Sessions {
                     .as_ref()
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
-            });
+            };
+            reopened.push((held, borrowed));
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.id()) {
             return Ok(());
         }
-        for open in reopened {
+        for (open, borrowed) in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, run, open.held_frames.is_some());
+            self.open_in_interception(&session, run, borrowed.as_ref());
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1061,7 +1072,8 @@ impl Sessions {
         Ok(())
     }
 
-    /// Takes the Run's Sessions and pages out once it stops.
+    /// Takes the Run's Sessions and pages out once it stops, warning the
+    /// Run of each Session that outlived its proxy's sticky lifetime.
     fn leave_with(&self, run: &Run) {
         let sessions = self.clone();
         let stopping = run.cancellation().clone();
@@ -1088,11 +1100,22 @@ impl Sessions {
                     true
                 }
             });
-            for session in &gone {
-                state.sessions.remove(session);
-            }
+            let ended: Vec<(&SessionId, Arc<Session>)> = gone
+                .iter()
+                .filter_map(|session| Some((session, state.sessions.remove(session)?)))
+                .collect();
             state.crashed.retain(|_, (run, _)| run != &run_id);
             drop(state);
+            // Each Session ends with its Run: one that outlived its proxy's
+            // sticky lifetime is named in the Run report, which is written
+            // once the Run's tasks, this one among them, have ended (ADR
+            // 0021's #882 note).
+            for (session, open) in &ended {
+                if let Some(proxy) = &open.proxy {
+                    proxy.warn_if_outlived(&open.run, session).await;
+                }
+            }
+            drop(ended);
             for session in &gone {
                 let pages = pages.remove(session).unwrap_or_default();
                 sessions.events.close(&pages);
@@ -1104,14 +1127,18 @@ impl Sessions {
     }
 
     /// Puts the Session `session` of `run` under the interception; one on
-    /// a Borrowed browser, `borrowed`, by interception alone, its
-    /// requests' hosts resolved through the Run's `network.resolve`.
-    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: bool) {
+    /// a Borrowed browser at `borrowed` by interception alone, its
+    /// requests' hosts resolved through the Run's `network.resolve`, and a
+    /// name the engine cannot resolve judged by where that browser is.
+    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: Option<&CdpUrl>) {
         self.interception.open_session(session);
-        if borrowed {
+        if let Some(cdp_url) = borrowed {
             self.interception.hold_by_interception_only(
                 session,
-                resolve_of(run.settings().map(RunSettings::resolved)),
+                Lookups::new(
+                    resolve_of(run.settings().map(RunSettings::resolved)),
+                    cdp_url.clone(),
+                ),
             );
         }
     }
@@ -1177,7 +1204,7 @@ fn own_settings(
         return Ok(Values::default());
     }
     let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?
+        .map_err(|error| settings_error(&error, context))?
         .from_origin(RunOrigin::Settings);
     if context.surface().acts_for_model() {
         values = values.from_model();
@@ -1205,7 +1232,7 @@ fn own_settings(
                 layer: SettingsLayer::Run,
                 fix: fix.to_owned(),
             },
-            context.identity(),
+            context,
         ));
     }
     not_locked(values, run, "Session", context)
@@ -1239,7 +1266,7 @@ fn not_locked(
                 ),
                 limit,
             },
-            context.identity(),
+            context,
         )),
         None => Ok(values),
     }
@@ -1260,7 +1287,7 @@ fn page_settings(
         return Ok(Values::default());
     }
     let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?
+        .map_err(|error| settings_error(&error, context))?
         .from_origin(RunOrigin::Settings);
     if context.surface().acts_for_model() {
         values = values.from_model();
@@ -1272,7 +1299,7 @@ fn page_settings(
                 layer: SettingsLayer::Run,
                 fix: "set it on the page's Session or its Run, whose pages all take it".to_owned(),
             },
-            context.identity(),
+            context,
         ));
     }
     not_locked(values, run, "page", context)
@@ -1298,7 +1325,7 @@ async fn open_proxy(
                     layer: SettingsLayer::Run,
                     fix: "start the Run with its settings".to_owned(),
                 },
-                context.identity(),
+                context,
             )),
             None => Ok(None),
         };
@@ -1309,7 +1336,7 @@ async fn open_proxy(
         settings
             .resolved()
             .beneath(own)
-            .map_err(|error| settings_error(&error, context.identity()))?
+            .map_err(|error| settings_error(&error, context))?
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).
@@ -1374,8 +1401,8 @@ fn recorded_settings(
 /// `source` when it gave one (`null` for a fresh Session), else the Run's
 /// `session.source`. A fresh Session, or a Borrowed browser at a `cdp_url`
 /// (ADRs 0056 and 0115), whose address is judged when it opens, by who
-/// gave it: the layer, and whether the call that opens it acts for a
-/// model. Any other kind raises `capability_unavailable` naming it, until
+/// gave it: the layer, and whether a Client acting for a model gave it or
+/// makes the call that opens it (O8 of the deep review). Any other kind raises `capability_unavailable` naming it, until
 /// the ticket of that kind builds its reader, and so does a `cdp_url` with
 /// `headers`, whose Secret references the `cdp_url` Session resolves
 /// (#743).
@@ -1388,15 +1415,22 @@ fn opening_source(
     own: Option<Option<SessionSource>>,
     context: &CallContext,
 ) -> Result<Option<CdpUrl>, CallError> {
+    let opener_for_model = context.surface().acts_for_model();
     let source = match own {
-        Some(own) => own.map(|source| (source, SettingsLayer::Run)),
+        Some(own) => own.map(|source| (source, SettingsLayer::Run, opener_for_model)),
         None => run
             .settings()
             .and_then(|settings| settings.resolved().get(SESSION_SOURCE.name))
             .and_then(|effective| {
                 serde_json::from_value::<SessionSource>(effective.value.clone())
                     .ok()
-                    .map(|source| (source, effective.layer))
+                    .map(|source| {
+                        (
+                            source,
+                            effective.layer,
+                            effective.for_model || opener_for_model,
+                        )
+                    })
             }),
     };
     match source {
@@ -1406,14 +1440,15 @@ fn opening_source(
                 url, headers: None, ..
             },
             layer,
+            acting_for_model,
         )) => Ok(Some(CdpUrl {
             url,
             origin: CdpUrlOrigin {
                 layer,
-                acting_for_model: context.surface().acts_for_model(),
+                acting_for_model,
             },
         })),
-        Some((source, layer)) => {
+        Some((source, layer, _)) => {
             let kind = source.kind();
             let what = if matches!(source, SessionSource::CdpUrl { .. }) {
                 "a `cdp_url` Session source with `headers`".to_owned()
@@ -1528,7 +1563,16 @@ async fn reopened_egress(
         Ok(proxy) => proxy,
         Err(error) => return (None, None, Some(error)),
     };
-    match open_relay(run, proxy.as_ref(), false, pool, position, context).await {
+    match open_relay(
+        run,
+        proxy.as_ref(),
+        false,
+        pool,
+        rotation_ordinal(position),
+        context,
+    )
+    .await
+    {
         Ok(relay) => (proxy, relay, None),
         Err(error) => (proxy, None, Some(error)),
     }
@@ -1542,8 +1586,9 @@ fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -
     }
 }
 
-/// The egress relay of the Session at `position` of `run` whose upstream
-/// proxy is `proxy`, while `security.raw_cdp_egress_proxy` is on, the
+/// The egress relay of a Session of `run`, bound to the addresses of the
+/// `address_ordinal`-th position of the Run's local-address rotation, whose
+/// upstream proxy is `proxy`, while `security.raw_cdp_egress_proxy` is on, the
 /// Run's `pool` has the relay's certificate authority, for its certificate
 /// exceptions, or the Run sets `egress.local_addresses`, its connections
 /// then bound to the Session's addresses, none of which the switch ever
@@ -1562,13 +1607,13 @@ async fn open_relay(
     proxy: Option<&Arc<SessionProxy>>,
     borrowed: bool,
     pool: &Pool,
-    position: u32,
+    address_ordinal: u64,
     context: &CallContext,
 ) -> Result<Option<Arc<EgressRelay>>, CallError> {
     if borrowed {
         return Ok(None);
     }
-    let local = match pool.local(position).await {
+    let local = match pool.local(address_ordinal).await {
         Ok(local) => local,
         Err(LocalFailure::Unavailable(unavailable)) => return Err(unavailable.into()),
         Err(LocalFailure::Unreadable(error)) => return Err(unavailable(run, &error, context)),
@@ -1673,6 +1718,26 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         format!("No live Run has the Run ID `{run_id}`: {error}"),
         &details,
     ))
+}
+
+/// The next position of `run`, taken in the table `state` before anything
+/// is drawn for it, so a Session opening at the same moment takes the one
+/// after: its proxy, its sticky session and its local addresses are drawn
+/// for its own (#882, #891), as its Run's resume draws them again. A
+/// failed open leaves its position unused. Answers it with the Run's
+/// browser pool; `run_not_found` once the Run stopped.
+fn taken(state: &mut State, run: &Run) -> Result<(u32, Pool), CallError> {
+    let runs = reached(state, run)?;
+    runs.last += 1;
+    Ok((runs.last, runs.pool.clone()))
+}
+
+/// The position of the Run's local-address rotation that the program's
+/// Session, or the Run's default one, at `position` binds: they take the
+/// rotation's positions in their order, the first the first (ADR 0044's
+/// #638 note).
+fn rotation_ordinal(position: u32) -> u64 {
+    u64::from(position.saturating_sub(1))
 }
 
 /// The Sessions the table holds of `run`, which [`Sessions::reach`]

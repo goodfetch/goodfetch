@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::time::SystemTime;
 
+use serde_json::json;
+
+use crate::exercise::{AnsweredCalls, COMMAND_RECORD};
 use crate::locales::LocaleTableError;
 use crate::variables::Variables;
 
@@ -295,6 +298,7 @@ fn user_configuration_turns_on_the_engines_json_log_with_the_dispatch_and_outcom
     assert_eq!(
         user_configuration(&env),
         "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\nlog.output = \"file\"\n\
+         log.file.max_files = 10000\n\
          log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n"
     );
 }
@@ -309,7 +313,7 @@ fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
     assert_eq!(
         user_configuration(&env),
         "version = \"0.1\"\n\n[settings]\nlog.level = \"trace\"\nconsole.address = \"127.0.0.1:0\"\n\
-         daemon.idle_timeout = 500\nlog.output = \"none\"\n"
+         log.file.max_files = 10000\ndaemon.idle_timeout = 500\nlog.output = \"none\"\n"
     );
 }
 
@@ -340,7 +344,7 @@ fn a_log_level_set_while_an_engine_reads_the_user_configuration_never_cuts_it() 
     assert_eq!(
         user_configuration(&env),
         "version = \"0.1\"\n\n[settings]\nlog.level = \"trace\"\nconsole.address = \"127.0.0.1:0\"\n\
-         log.output = \"file\"\n"
+         log.output = \"file\"\nlog.file.max_files = 10000\n"
     );
 }
 
@@ -409,6 +413,73 @@ fn dropping_the_value_copies_the_engines_logs_of_its_home_into_the_tests_exercis
             r#"{"target":"goodfetch::rpc::dispatch","fields":{"method":"hello"}}"#,
         ]
     );
+}
+
+/// The calls a Client read answered reach the exercise record from the
+/// answer record, after the command record and before the engines' logs:
+/// each request's method, and its Error code when it failed; a reply to the
+/// engine's own request, a notification and an answer to no request sent
+/// are no call (#1779).
+#[test]
+fn dropping_the_value_copies_the_calls_its_clients_read_answered_into_the_tests_exercise_record() {
+    let records = tempfile::tempdir().unwrap();
+    let env = TestEnv::create("store::keeps_a_value", &recording(records.path())).unwrap();
+    std::fs::write(
+        env.folder().join(COMMAND_RECORD),
+        "{\"target\":\"goodfetch::test::command\",\"fields\":{\"command\":\"attached-engine\",\"exit_code\":null}}\n",
+    )
+    .unwrap();
+    let logs = env.home().join("logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::write(
+        logs.join("goodfetch-foxhound-7.jsonl"),
+        "{\"target\":\"goodfetch::rpc::dispatch\",\"fields\":{\"method\":\"hello\"}}\n",
+    )
+    .unwrap();
+    let mut answered = AnsweredCalls::default();
+    for (sent, read) in [
+        (
+            json!({ "jsonrpc": "2.0", "id": "export", "method": "run.export", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": "export", "result": {} }),
+        ),
+        (
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "run.report", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": 2, "error": { "code": -32001, "message": "no", "data": { "code": "run_not_found" } } }),
+        ),
+        (
+            json!({ "jsonrpc": "2.0", "id": 9, "result": {} }),
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "crawl_request.handle", "params": {} }),
+        ),
+        (
+            json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 2 } }),
+            json!({ "jsonrpc": "2.0", "id": "never", "result": {} }),
+        ),
+    ] {
+        answered.sent(&sent);
+        answered.read(&read);
+    }
+    answered.record_in(env.folder()).unwrap();
+    let seen = env.exercise_lines();
+
+    drop(env);
+
+    let dispatched = |fields: serde_json::Value| json!({ "target": "goodfetch::rpc::dispatch", "fields": fields });
+    let expected = vec![
+        json!({ "test": "sample::it store::keeps_a_value" }),
+        json!({ "target": "goodfetch::test::command", "fields": { "command": "attached-engine", "exit_code": null } }),
+        dispatched(
+            json!({ "message": "request answered, as its Client read it", "method": "run.export" }),
+        ),
+        dispatched(
+            json!({ "message": "request failed, as its Client read it", "method": "run.report", "error_code": "run_not_found" }),
+        ),
+        dispatched(json!({ "method": "hello" })),
+    ];
+    let lines: Vec<serde_json::Value> = record_lines(records.path())
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!((lines, seen), (expected.clone(), expected[1..].to_vec()));
 }
 
 #[test]

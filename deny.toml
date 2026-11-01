@@ -64,6 +64,16 @@ ignore = [
   # unreleased); removed with the release that carries it. Agent decision of
   # #616, pending owner review.
   { id = "RUSTSEC-2026-0374", reason = "build-time only, through age's i18n-embed-fl; removed by cargo-i18n#176's release" },
+  # proc-macro-error2, unmaintained with no successor release (no patched
+  # version): a proc-macro that runs only at build time, in age 0.11's
+  # localization macro (i18n-embed-fl 0.9). age stays on its 0.11 line
+  # because 0.12's p256 0.13 brings crypto-bigint 0.5's RUSTSEC-2026-0387,
+  # which no age release fixes yet (#1785, Cargo.toml); i18n-embed-fl 0.10,
+  # which age 0.12 takes, has no proc-macro-error2. Its `pub use
+  # proc_macro` draws a future-incompatibility warning (E0365) from Cargo,
+  # not an error. Removed when age moves to a release that takes p256 0.14
+  # (age's main has it). Agent decision of #1785, pending owner review.
+  { id = "RUSTSEC-2026-0173", reason = "build-time proc-macro only, through age 0.11's i18n-embed-fl 0.9; removed when age moves to a release that takes p256 0.14" },
   # atomic-polyfill, unmaintained: heapless 0.7's `cas` feature, which
   # postcard 1.1's default `heapless-cas` turns on, and postcard is how the
   # phonenumber crate stores libphonenumber's metadata (#787, the page

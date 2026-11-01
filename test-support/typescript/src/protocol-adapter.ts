@@ -1,8 +1,10 @@
 // The in-memory adapter of the protocol (ADR 0068; spec #326): the engine a
 // Console component or screen test passes to the Console's Client as its
 // transport and body fetcher. It answers each operation with the value the
-// test set, in whatever order the screen calls, and refuses, failing the
-// test, anything the engine could never send or take: every message the
+// test set, in whatever order the screen calls, answers `hello`,
+// `events.subscribe` and, unless the test set an answer, `engine.info`
+// itself, as the engine does, and refuses, failing the test, anything the
+// engine could never send or take: every message the
 // Client sends and every answer the test sets is checked against the
 // committed JSON Schema bundle and catalog. It is not the Scripted engine
 // (ADR 0069), which plays one ordered script.
@@ -118,6 +120,9 @@ const PRODUCT_VERSION = "0.1.0";
 /** The command that installs Foxhound, which `not_in_product`'s fix names: npm's, the channel of the TypeScript SDK (ADR 0090). */
 const FOXHOUND_INSTALL = "npm install @goodfetch/foxhound";
 
+/** The major of the Product version the adapter answers `hello` with, which `engine.info` names. */
+const PRODUCT_MAJOR = 0;
+
 /** One event of a `$/events` batch. */
 interface EventEnvelope {
   readonly position: number;
@@ -166,6 +171,16 @@ function runIdOf(data: unknown): string | undefined {
     : undefined;
 }
 
+/** The `lifecycle` an event's payload names, if it names one. */
+function lifecycleOf(data: unknown): string | undefined {
+  return typeof data === "object" &&
+    data !== null &&
+    "lifecycle" in data &&
+    typeof data.lifecycle === "string"
+    ? data.lifecycle
+    : undefined;
+}
+
 /**
  * The in-memory adapter of the protocol. Create it inside a test (or a
  * fixture), through {@link createProtocolAdapter}.
@@ -194,7 +209,7 @@ export class ProtocolAdapter<
   #last = 0;
   /** The last position no longer kept: a subscription resumes after any position from it to `#last`. */
   #floor = 0;
-  /** Each Run's axes as `run.axes_changed` last reported them, which a resync gives. */
+  /** Each live Run's axes as `run.axes_changed` last reported them, which a resync gives. */
   readonly #runs = new Map<string, unknown>();
   /** Each "Needs you" item `needs_you.changed` left listed, by ID, which a resync gives. */
   readonly #needsYou = new Map<string, NeedsYouItem>();
@@ -259,7 +274,12 @@ export class ProtocolAdapter<
     this.#last = position;
     const runId = runIdOf(data);
     if (name === "run.axes_changed" && runId !== undefined) {
-      this.#runs.set(runId, data);
+      // As the engine's: a Run leaves the resync once it ends (#1768).
+      if (lifecycleOf(data) === "running") {
+        this.#runs.set(runId, data);
+      } else {
+        this.#runs.delete(runId);
+      }
     }
     if (name === "needs_you.changed") {
       this.#foldNeedsYou(data);
@@ -334,7 +354,7 @@ export class ProtocolAdapter<
   /**
    * Forgets every position pushed so far, as an engine whose kept events
    * moved on: a subscription that resumes after one of them starts with
-   * `events.resync`, the axes of every Run pushed, then the stream.
+   * `events.resync`, the axes of every live Run pushed, then the stream.
    */
   forgetPositions(): void {
     this.#retained = [];
@@ -615,7 +635,7 @@ export class ProtocolAdapter<
       this.#subscribe(connection, id, after);
       return;
     }
-    const answer = this.#answers.get(message.method);
+    const answer = this.#answers.get(message.method) ?? this.#ownAnswer(message.method);
     if (answer === undefined) {
       this.#violation(
         "call_unanswered",
@@ -624,6 +644,24 @@ export class ProtocolAdapter<
       return;
     }
     void this.#settle(connection, id, message.method, answer, params);
+  }
+
+  /**
+   * What the adapter answers `method` with when the test set no answer:
+   * for `engine.info`, the engine `hello` names, as the engine answers it.
+   * The Console Client's stall watchdog asks it of a Connection silent for
+   * a stall timeout (`console/collie/src/client/client.ts`), so any test
+   * that runs that long calls it (#1794).
+   */
+  #ownAnswer(method: string): CollieOperationTypes["engine.info"]["result"] | undefined {
+    return method === "engine.info"
+      ? {
+          product: this.#contract.product,
+          product_major: PRODUCT_MAJOR,
+          product_version: PRODUCT_VERSION,
+          protocol_version: this.#contract.protocolVersion,
+        }
+      : undefined;
   }
 
   /**

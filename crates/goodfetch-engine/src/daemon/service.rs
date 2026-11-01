@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
@@ -31,7 +32,7 @@ use goodfetch_protocol::daemon::{InstalledService, ServiceManager};
 use sha2::{Digest as _, Sha256};
 
 use crate::home::{Home, major_name};
-use crate::transport::{LAUNCHD_CONSOLE_SOCKET, LAUNCHD_SOCKETS};
+use crate::transport::{HeldPort, LAUNCHD_CONSOLE_SOCKET, LAUNCHD_SOCKETS, hold_free_port};
 
 /// The deployment variables a service passes on to the Daemon it starts:
 /// where Goodfetch home and the Browser cache are. Where its logs go is
@@ -79,6 +80,54 @@ pub fn service_name(manager: ServiceManager, home: &Home, version: &ProductVersi
     }
 }
 
+/// The Console's address a service manager listens on for the Daemon it
+/// starts (ADR 0031), which must outlive the registration: a port chosen
+/// for port 0 stays held until the manager listens on it, so keep this until
+/// [`ServicePlan::register`]'s commands have returned.
+#[derive(Debug)]
+pub struct ConsoleSocket {
+    address: SocketAddr,
+    hold: Option<HeldPort>,
+}
+
+impl ConsoleSocket {
+    /// What `manager` listens on for `console.address`. A named port is taken
+    /// as it is, and nothing shares it: a second listener is refused as with
+    /// any port. Port 0 takes a port held for systemd, whose socket unit joins
+    /// the hold (#1821). launchd has no such key and neither chooses a port it
+    /// can report, so port 0 gets none from it, the Console's address left to
+    /// the Daemon; nor does a manager that activates no socket.
+    ///
+    /// # Errors
+    ///
+    /// When no port can be held on the address's host.
+    pub fn of(manager: ServiceManager, address: SocketAddr) -> std::io::Result<Option<Self>> {
+        if !activates_sockets(manager) {
+            return Ok(None);
+        }
+        if address.port() != 0 {
+            return Ok(Some(Self {
+                address,
+                hold: None,
+            }));
+        }
+        if manager != ServiceManager::Systemd {
+            return Ok(None);
+        }
+        let hold = hold_free_port(address.ip())?;
+        Ok(Some(Self {
+            address: hold.address(),
+            hold: Some(hold),
+        }))
+    }
+
+    /// The address, with the port held in place of port 0.
+    #[must_use]
+    pub fn address(&self) -> SocketAddr {
+        self.address
+    }
+}
+
 /// What a service is registered from.
 #[derive(Clone, Copy, Debug)]
 pub struct ServiceRequest<'a> {
@@ -98,7 +147,7 @@ pub struct ServiceRequest<'a> {
     /// The Console's address the service manager also listens on, with
     /// socket activation, so the first visit to the Console starts the
     /// Daemon too (ADR 0031); none for no Console.
-    pub console: Option<std::net::SocketAddr>,
+    pub console: Option<&'a ConsoleSocket>,
     /// The environment `main` read, whose `HOME` (and `XDG_CONFIG_HOME` on
     /// Linux) say where the service manager reads its files, and whose
     /// [`PASSED_VARIABLES`] the Daemon gets.
@@ -194,7 +243,10 @@ pub fn plan(request: &ServiceRequest<'_>) -> Result<ServicePlan, ServiceError> {
         socket: socket.map(unicode).transpose()?,
         console: socket
             .and(request.console)
-            .map(|address| address.to_string()),
+            .map(|console| console.address().to_string()),
+        console_held: request
+            .console
+            .is_some_and(|console| console.hold.is_some()),
     };
     let (files, register) = match request.manager {
         ServiceManager::Launchd => launchd(request, &definition)?,
@@ -224,6 +276,8 @@ struct Definition<'a> {
     socket: Option<String>,
     /// The Console's `host:port`, which the service manager listens on too.
     console: Option<String>,
+    /// Whether that port is held for the service manager to join.
+    console_held: bool,
 }
 
 /// The program and arguments the service starts: the versioned copy's
@@ -323,6 +377,7 @@ fn systemd(
                     &definition.description,
                     definition.socket.as_deref().unwrap_or_default(),
                     definition.console.as_deref(),
+                    definition.console_held,
                 )
                 .into_bytes(),
             },
@@ -614,11 +669,19 @@ fn systemd_argument(argument: &str) -> String {
 /// The user socket unit: a Unix socket, mode `0600`, and the Console's
 /// `host:port` when given, passed in that order; one service for every
 /// connection (`Accept=no`), removed when it stops, enabled with the
-/// user's sockets.
-pub fn systemd_socket(description: &str, socket: &str, console: Option<&str>) -> String {
+/// user's sockets. A port `held` for it takes `ReusePort=yes`, so systemd
+/// can bind beside the hold; never a named port, which a second listener
+/// would then share rather than being refused.
+pub fn systemd_socket(
+    description: &str,
+    socket: &str,
+    console: Option<&str>,
+    held: bool,
+) -> String {
     let console = console.map_or_else(String::new, |console| {
         format!("ListenStream={}\n", systemd_value(console))
     });
+    let reuse_port = if held { "ReusePort=yes\n" } else { "" };
     format!(
         concat!(
             "[Unit]\n",
@@ -626,6 +689,7 @@ pub fn systemd_socket(description: &str, socket: &str, console: Option<&str>) ->
             "\n",
             "[Socket]\n",
             "ListenStream={}\n",
+            "{}",
             "{}",
             "SocketMode=0600\n",
             "Accept=no\n",
@@ -636,7 +700,8 @@ pub fn systemd_socket(description: &str, socket: &str, console: Option<&str>) ->
         ),
         systemd_value(description),
         systemd_value(socket),
-        console
+        console,
+        reuse_port
     )
 }
 

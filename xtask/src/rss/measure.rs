@@ -139,11 +139,13 @@ fn run_probe(
 
 /// Runs `command` as this process's only child, driven by the scenario if
 /// one is given, the crawl against the Proving ground at `address`, and
-/// returns its peak resident memory in bytes.
+/// returns its peak resident memory in bytes. A scenario's child runs
+/// without `goodfetch_variables`, this process's Goodfetch variables.
 pub(crate) fn probe(
     scenario: Option<(Scenario, Product)>,
     address: Option<&str>,
     command: &[OsString],
+    goodfetch_variables: &[OsString],
 ) -> Result<u64> {
     let (program, arguments) = command.split_first().context("the probe needs a command")?;
     let mut child = Command::new(program);
@@ -155,19 +157,15 @@ pub(crate) fn probe(
     // A scenario measures the executable as shipped, with its own data
     // folder and its default logging.
     let home = tempfile::tempdir().context("creating the engine's data folder")?;
-    super::scenario::as_shipped(&mut child, home.path());
+    super::scenario::as_shipped(&mut child, home.path(), goodfetch_variables);
+    super::scenario::configure(scenario, home.path())?;
     child.stdin(Stdio::piped()).stdout(Stdio::piped());
     peak::of(&mut child, |child| {
-        let stdin = child.stdin.take().context("the engine's stdin is piped")?;
-        let stdout = child
-            .stdout
-            .take()
-            .context("the engine's stdout is piped")?;
         let site = address.map(|address| Site {
             address,
             pages: crawl::PAGES,
             concurrency: crawl::CONCURRENCY,
         });
-        scenario.drive(needs, site.as_ref(), stdin, stdout)
+        scenario.drive(needs, site.as_ref(), child)
     })
 }

@@ -13,9 +13,8 @@
 //! refusal only as a network error of its own, so a request that failed is
 //! the proxy's when its error is one of those, and the site's otherwise.
 
-/// The header an intermediary names its own errors in (RFC 9209), as the
-/// browser gives a response's headers, lower-cased.
-pub(crate) const PROXY_STATUS: &str = "proxy-status";
+pub(crate) use crate::proxy_status::PROXY_STATUS;
+use crate::proxy_status::{name, nearest, parameter};
 
 /// Who answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,19 +103,6 @@ pub(crate) fn proxy_error(field: &str) -> Option<String> {
     parameter(nearest(field)?, "error")
 }
 
-/// The last member of a `Proxy-Status` field: the intermediary nearest the
-/// browser appends its own (RFC 9209).
-fn nearest(field: &str) -> Option<&str> {
-    split_outside_quotes(field, ',').pop()
-}
-
-/// A member's intermediary name, its item before any parameter.
-fn name(member: &str) -> &str {
-    split_outside_quotes(member, ';')
-        .first()
-        .map_or("", |item| item.trim())
-}
-
 /// Whether Chromium's network error `error` is the proxy's own: one it
 /// gives when the proxy cannot be reached, its TLS fails, or it answers the
 /// tunnel's `CONNECT` or the SOCKS handshake with a refusal.
@@ -132,63 +118,6 @@ fn tunnel_failure(error: &str) -> bool {
     ]
     .iter()
     .any(|prefix| name.starts_with(prefix))
-}
-
-/// The value of the parameter `name` of one member of a structured field
-/// list (RFC 8941): its item, then `;key=value` parameters, a value a token
-/// or a quoted string.
-fn parameter(member: &str, name: &str) -> Option<String> {
-    split_outside_quotes(member, ';')
-        .into_iter()
-        .skip(1)
-        .find_map(|parameter| {
-            let (key, value) = parameter.split_once('=')?;
-            (key.trim() == name).then(|| unquoted(value.trim()))
-        })
-        .filter(|value| !value.is_empty())
-}
-
-/// `text` split at each `separator` outside a quoted string.
-fn split_outside_quotes(text: &str, separator: char) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut quoted = false;
-    let mut escaped = false;
-    for (at, character) in text.char_indices() {
-        match character {
-            _ if escaped => escaped = false,
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            _ if character == separator && !quoted => {
-                parts.push(&text[start..at]);
-                start = at + character.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    parts.push(&text[start..]);
-    parts
-}
-
-/// A token as it is, or a quoted string without its quotes and escapes.
-fn unquoted(value: &str) -> String {
-    let Some(inner) = value
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-    else {
-        return value.to_owned();
-    };
-    let mut text = String::with_capacity(inner.len());
-    let mut escaped = false;
-    for character in inner.chars() {
-        if escaped || character != '\\' {
-            text.push(character);
-            escaped = false;
-        } else {
-            escaped = true;
-        }
-    }
-    text
 }
 
 #[cfg(test)]

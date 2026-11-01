@@ -3130,6 +3130,16 @@
           "arrived_in": "0.1",
           "description": "Where it listens."
         },
+        "heap": {
+          "arrived_in": "0.1",
+          "description": "Its live heap: the bytes its own allocations hold now, as its\nexecutable's allocator counts them, without the pages that\nallocator keeps once they are freed; none where nothing counts\nthem.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "idle_timeout": {
           "arrived_in": "0.1",
           "description": "Its `daemon.idle_timeout`, in milliseconds.",
@@ -4559,7 +4569,7 @@
         "id": {
           "$ref": "#/$defs/RequestId",
           "arrived_in": "0.1",
-          "description": "The id of the subscription's `events.subscribe` call."
+          "description": "The id of the streaming call whose events it carries: a\nsubscription's `events.subscribe` call, or a `page.on` call, whose\npage's events go only to it."
         }
       },
       "required": [
@@ -5267,7 +5277,7 @@
       "type": "object"
     },
     "FieldLocator": {
-      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression. A page a fetch tier serves from its document reads\na CSS selector; an `XPath` expression is read by the browser, to which\nthe request escalates under `fetch.tier: auto` (`browser_required`\nunder a forced cheaper tier).",
+      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression, each read alike on every tier, a page a fetch tier\nserves from its document reading it as a browser reads it.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -5291,7 +5301,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "An `XPath` 1.0 expression.",
+          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; the field reads the first node it finds in\ndocument order, when that node is an element.",
           "properties": {
             "kind": {
               "const": "xpath",
@@ -5780,6 +5790,18 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "client_surface": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Surface"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "On a gateway's `hello` (surface `cloud`), the surface of the Client\nwhose Connection it relays, such as `mcp` for a model's: the engine\nholds the Connection to that surface's rules, a model's settings\nincluded (ADR 0092), and the gateway's mark only words\n`not_in_product` (ADR 0095). None on the gateway's own Connection;\nany other surface names none."
         },
         "form": {
           "anyOf": [
@@ -9278,7 +9300,7 @@
       "type": "object"
     },
     "PageRequest": {
-      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under the same `request_id`.",
+      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under its own `request_id`, as Playwright's\n`redirectedFrom()` and `redirectedTo()` tell them apart.",
       "properties": {
         "failure": {
           "anyOf": [
@@ -9297,12 +9319,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers as the browser sent them.",
+          "description": "Its headers as the browser sent them, their names in lowercase, as\nPlaywright gives them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -9331,14 +9353,22 @@
           },
           "type": "array"
         },
+        "redirected_from": {
+          "arrived_in": "0.1",
+          "description": "The `request_id` of the hop whose redirect led to it, Playwright's\n`redirectedFrom()`; none at a request's first hop.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for it, which `response.body` takes.",
+          "description": "The engine's ID for this hop, which `response.body` takes: the\nbrowser's ID for the request at its first hop, and that ID with\n`#` and the hop's number after each redirect.",
           "type": "string"
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "The browser's name for what it loads, such as `Document` or\n`Fetch`.",
+          "description": "What it loads, as Playwright's `resourceType()` names it: the\nbrowser's name in lowercase, such as `document`, `fetch` or `xhr`.",
           "type": "string"
         },
         "url": {
@@ -9447,7 +9477,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for its request, which `response.body` takes.",
+          "description": "The engine's ID for its request's hop, which `response.body` takes:\nits request's `request_id`.",
           "type": "string"
         },
         "status": {
@@ -9992,7 +10022,7 @@
       "type": "object"
     },
     "Position": {
-      "description": "An event's position among every event of one engine, which only goes up.",
+      "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
       "type": "integer"
     },
@@ -11159,7 +11189,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The request, by the browser's ID.",
+          "description": "The request's hop, by the engine's ID for it.",
           "type": "string"
         },
         "timeout": {
@@ -11268,7 +11298,7 @@
         },
         "runs": {
           "arrived_in": "0.1",
-          "description": "The axes of each Run the engine knows, live or ended.",
+          "description": "The axes of each live Run the engine knows. A Run it leaves out\nended, and `run.list` gives its axes.",
           "items": {
             "$ref": "#/$defs/RunAxes"
           },
@@ -11553,12 +11583,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers, as the page sent them.",
+          "description": "Its headers, as the page sent them, their names in lowercase, as\nPlaywright gives them; as a route before replaced them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -11576,7 +11606,7 @@
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",
+          "description": "What the page loads with it, as Playwright's `resourceType()` names\nit: the browser's name in lowercase, such as `document`, `script`\nor `xhr`.",
           "type": "string"
         },
         "url": {
@@ -12589,6 +12619,16 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record to read, such as the last one\ncommitted when the reader began (`dataset.page`'s `through`): the\ncall answers once it sent every Record numbered through it, waiting\non a live Run for those not committed yet. Absent, it follows a live\nRun until the Run ends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "wall": {
           "arrived_in": "0.1",
@@ -15359,7 +15399,7 @@
         },
         {
           "const": "cloud",
-          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
           "type": "string"
         },
         {
@@ -15958,7 +15998,7 @@
         },
         {
           "const": "storage_critical",
-          "description": "The filesystem holding its run state is at the `critical` storage\nlevel, where a new Run's start is refused (ADR 0122).",
+          "description": "The filesystem holding its run state, or the Goodfetch home's, is\nat the `critical` storage level, where a new Run's start is refused\n(ADR 0122).",
           "type": "string"
         }
       ]
@@ -17487,7 +17527,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max_files": {
-                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -18822,7 +18862,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max_files": {
-                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -19166,7 +19206,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it."
+                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays."
                   },
                   "password": {
                     "anyOf": [
@@ -19243,11 +19283,27 @@
                         "username": {
                           "description": "The account's username.",
                           "type": "string"
+                        },
+                        "zones": {
+                          "additionalProperties": {
+                            "pattern": "^[A-Za-z0-9_]+$",
+                            "type": "string"
+                          },
+                          "description": "The zone of each proxy kind, for `bright_data` only: a kind left out is the zone of its own name.",
+                          "propertyNames": {
+                            "enum": [
+                              "datacenter",
+                              "isp",
+                              "residential",
+                              "mobile"
+                            ]
+                          },
+                          "type": "object"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
                     "type": "object"
                   },
                   "server": {
@@ -21435,7 +21491,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max_files": {
-                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -21779,7 +21835,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it."
+                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays."
                   },
                   "password": {
                     "anyOf": [
@@ -21856,11 +21912,27 @@
                         "username": {
                           "description": "The account's username.",
                           "type": "string"
+                        },
+                        "zones": {
+                          "additionalProperties": {
+                            "pattern": "^[A-Za-z0-9_]+$",
+                            "type": "string"
+                          },
+                          "description": "The zone of each proxy kind, for `bright_data` only: a kind left out is the zone of its own name.",
+                          "propertyNames": {
+                            "enum": [
+                              "datacenter",
+                              "isp",
+                              "residential",
+                              "mobile"
+                            ]
+                          },
+                          "type": "object"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
                     "type": "object"
                   },
                   "server": {
@@ -24064,7 +24136,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max_files": {
-                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+                        "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -24408,7 +24480,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it."
+                    "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays."
                   },
                   "password": {
                     "anyOf": [
@@ -24485,11 +24557,27 @@
                         "username": {
                           "description": "The account's username.",
                           "type": "string"
+                        },
+                        "zones": {
+                          "additionalProperties": {
+                            "pattern": "^[A-Za-z0-9_]+$",
+                            "type": "string"
+                          },
+                          "description": "The zone of each proxy kind, for `bright_data` only: a kind left out is the zone of its own name.",
+                          "propertyNames": {
+                            "enum": [
+                              "datacenter",
+                              "isp",
+                              "residential",
+                              "mobile"
+                            ]
+                          },
+                          "type": "object"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+                    "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
                     "type": "object"
                   },
                   "server": {

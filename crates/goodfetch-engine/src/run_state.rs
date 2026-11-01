@@ -14,12 +14,16 @@
 //! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
-//! committed state waits on for more, never holding the writer back.
+//! committed state waits on for more, never holding the writer back. The
+//! writer stops once every handle on it is gone, or once its last write
+//! commits, as a Run's end writes its record: whatever any handle queues
+//! after that is refused (#1763).
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
 //! as a crawl's work items.
 
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::ProtocolVersion;
@@ -34,6 +38,10 @@ pub mod install;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
+
+/// How long the writer's switch of a new file to WAL waits while another
+/// connection holds the file.
+const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
@@ -233,6 +241,12 @@ type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 type QueuedWrite =
     Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
 
+/// A write in the writer's queue, and whether it is the writer's last.
+struct Queued {
+    write: QueuedWrite,
+    last: bool,
+}
+
 /// `work` as a write the writer's actor runs in its next commit, and the
 /// answer it sends once that commit ends.
 fn queued<T, F>(work: F) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
@@ -264,7 +278,7 @@ where
 
 /// A place [`RunState::reserve`] took in the writer's queue; dropped
 /// unused, it frees the place.
-pub struct ReservedWrite(mpsc::OwnedPermit<QueuedWrite>);
+pub struct ReservedWrite(mpsc::OwnedPermit<Queued>);
 
 impl std::fmt::Debug for ReservedWrite {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -277,8 +291,9 @@ impl std::fmt::Debug for ReservedWrite {
 impl ReservedWrite {
     /// Queues `work` in the place, at once, as [`RunState::write`] would
     /// have queued it, and answers the future of what it returns once its
-    /// commit is acknowledged, with [`RunState::write`]'s errors. Dropping
-    /// that future does not withdraw the write.
+    /// commit is acknowledged, with [`RunState::write`]'s errors: `Closed`
+    /// too once the writer stopped without running it, after its last
+    /// write. Dropping that future does not withdraw the write.
     pub fn write<T, F>(
         self,
         work: F,
@@ -287,9 +302,17 @@ impl ReservedWrite {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let (job, answered) = queued(work);
-        self.0.send(job);
-        async move { answered.await.map_err(|_| RunStateError::Closed)? }
+        let (write, answered) = queued(work);
+        let mailbox = self.0.send(Queued { write, last: false });
+        async move {
+            // A write the writer ran answers before its mailbox goes; one
+            // sent once it went waits in no mailbox.
+            tokio::select! {
+                biased;
+                answered = answered => answered.map_err(|_| RunStateError::Closed)?,
+                () = mailbox.closed() => Err(RunStateError::Closed),
+            }
+        }
     }
 }
 
@@ -297,7 +320,7 @@ impl ReservedWrite {
 /// clone and send writes to.
 #[derive(Clone, Debug)]
 pub struct RunState {
-    mailbox: mpsc::Sender<QueuedWrite>,
+    mailbox: mpsc::Sender<Queued>,
     path: PathBuf,
     epoch: u64,
     watched: std::sync::Arc<Watched>,
@@ -315,7 +338,8 @@ impl RunState {
     /// Opens the run file at `path` as its writer under run epoch `epoch`,
     /// creating it and the tables of `tables` when it does not exist, its
     /// actor one of `owner`'s. The writer stops once every handle is
-    /// dropped, and `owner` waits for it.
+    /// dropped, or once [`RunState::write_last`] committed, and `owner`
+    /// waits for it.
     ///
     /// # Errors
     ///
@@ -343,12 +367,23 @@ impl RunState {
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
         owner
-            .actor("run-state-writer", jobs, move |group: Vec<QueuedWrite>| {
+            .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
                 let signals = Signals {
                     commits: &committed,
                     failures: &failed,
                 };
+                let last = group.iter().position(|queued| queued.last);
+                let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
+                let group = group.into_iter().map(|queued| queued.write).collect();
                 commit_group(&mut connection, &actor_path, epoch, group, &signals);
+                for queued in refused {
+                    (queued.write)(None).0(Err(RunStateError::Closed));
+                }
+                if last.is_some() {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
             })
             .map_err(|error| sqlite_error(&path, &error))?;
         Ok(Self {
@@ -401,9 +436,42 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let (job, answered) = queued(work);
+        self.queue(work, false).await
+    }
+
+    /// Runs `work` as [`RunState::write`] does, as the writer's last write:
+    /// once its commit ends, the writer stops, though other handles still
+    /// hold it, and every write queued after it, through any handle,
+    /// answers `Closed`, as does every later one. A Run's end writes its
+    /// record so, which no handle left outside its tasks can keep waiting
+    /// or write after (#1763).
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s: once queued, the writer stops after it
+    /// whether or not its answer is awaited.
+    pub async fn write_last<T, F>(&self, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.queue(work, true).await
+    }
+
+    /// Queues `work`, the writer's last write when `last`, and answers what
+    /// it returned once its commit is acknowledged.
+    async fn queue<T, F>(&self, work: F, last: bool) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (write, answered) = queued(work);
         self.mailbox
-            .send(job)
+            .send(Queued { write, last })
             .await
             .map_err(|_| RunStateError::Closed)?;
         answered.await.map_err(|_| RunStateError::Closed)?
@@ -555,9 +623,7 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", options.durability.synchronous())
         .map_err(failed)?;

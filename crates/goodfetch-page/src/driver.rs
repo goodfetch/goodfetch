@@ -22,11 +22,13 @@
 //!
 //! Size: one page's driver, whose commands, navigations and turns all read
 //! the page's one connection and state; its navigation tracking, worlds,
-//! targets, service workers, encoding reads, endings and permit waits are
-//! in their own modules.
+//! targets, service workers, encoding reads, endings, permit waits and the
+//! rule that tells a finished load cut (`cut_loads`) are in their own
+//! modules.
 
 mod carry;
 mod children;
+mod cut_loads;
 mod encoding;
 mod ending;
 mod functions;
@@ -36,6 +38,8 @@ mod identity;
 mod navigation;
 mod permit_waits;
 mod popups;
+#[cfg(test)]
+mod replay;
 mod service_workers;
 mod targets;
 mod world;
@@ -46,7 +50,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
-    Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
+    Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
     SubscriptionEnd,
 };
 use goodfetch_engine::CallError;
@@ -68,11 +72,12 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
+pub(crate) use self::cut_loads::{bodiless, encoded_bytes, from_the_network, lost_its_failure};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 use self::functions::{evaluation, page_function_world};
-pub(crate) use self::navigation::{Arrived, response_of};
-use self::navigation::{Ended, Expected, Navigation};
+pub(crate) use self::navigation::{Arrived, browser_id, hop_id, response_of};
+use self::navigation::{Ended, Expected, Followed, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
@@ -232,6 +237,33 @@ impl HiddenPages {
     /// the list.
     async fn take(&self, context: &browser::BrowserContextID) -> BTreeSet<target::TargetID> {
         self.0.lock().await.remove(context).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+impl Browser {
+    /// A browser no Run holds, over `connection`, under the timeouts'
+    /// declared defaults, as a test plays one in process.
+    fn played(connection: Connection) -> Self {
+        Self {
+            connection,
+            log: CommandLog::unwritten(),
+            exit: watch::channel(None).1,
+            executable: "played".to_owned(),
+            identity: None,
+            process: None,
+            closing: CancellationToken::new(),
+            launched: false,
+            service_workers: Arc::default(),
+            popups: Arc::default(),
+            hidden: Arc::default(),
+            lease: None,
+            deadlines: Arc::new(Deadlines {
+                navigation: Deadline::declared(&TIMEOUT_NAVIGATION),
+                action: Deadline::declared(&TIMEOUT_ACTION),
+                close: Deadline::declared(&TIMEOUT_CLOSE),
+            }),
+        }
     }
 }
 
@@ -1593,22 +1625,7 @@ impl PageDriver {
                             &call,
                         )
                         .await?;
-                    match (navigated.error_text, navigated.loader_id) {
-                        // A `javascript:` URL runs in the document, which
-                        // the browser answers as an aborted navigation:
-                        // no document loads.
-                        (Some(_), None) if navigation::runs_a_script(&url) => Ok(None),
-                        (Some(error), loader) => navigation::refused(
-                            &NetError::of(&error),
-                            loader,
-                            navigated.is_download == Some(true),
-                            superseded(),
-                        )
-                        .map(Some),
-                        (None, Some(loader)) => Ok(Some(Expected::Loader(loader))),
-                        // Within the document: no document loads.
-                        (None, None) => Ok(None),
-                    }
+                    navigation::navigated(&url, navigated, superseded())
                 }
                 Step::Reload => {
                     self.browser
@@ -1849,30 +1866,13 @@ impl PageDriver {
         superseded: impl Fn() -> bool,
     ) -> Result<Result<Arrived, Ended>, CallError> {
         let mut navigation = Navigation::of(self.frame.clone());
-        let mut command = std::pin::pin!(command);
-        let mut expected = None;
-        let mut reading = true;
-        let outcome = loop {
-            if let Some(expected) = &expected
-                && let Some(outcome) = navigation.outcome(expected, wait_until, superseded())
-            {
-                break outcome;
-            }
-            tokio::select! {
-                answered = &mut command, if expected.is_none() => match answered? {
-                    Ok(Some(answered)) => expected = Some(answered),
-                    Ok(None) => return Ok(Ok(Arrived::Document(None))),
-                    Err(ended) => break Err(ended),
-                },
-                event = events.next(), if reading => match event {
-                    Some(event) => navigation.feed(&event),
-                    // A target the browser detached sends nothing more, and
-                    // the command in flight on it failed with it: its answer
-                    // says how the navigation ended.
-                    None if expected.is_none() && detached(events) => reading = false,
-                    None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
-                },
-                else => return Err(self.browser.failed(call, &Failure::Disconnected).await),
+        let (outcome, expected) = match navigation
+            .follow(command, events, wait_until, &superseded)
+            .await?
+        {
+            Followed::Ended { outcome, expected } => (outcome, expected),
+            Followed::Disconnected => {
+                return Err(self.browser.failed(call, &Failure::Disconnected).await);
             }
         };
         match outcome {

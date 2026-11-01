@@ -56,6 +56,10 @@ const WAKES: usize = 256;
 /// another run counts it as in flight meanwhile.
 const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long a statement waits while another engine's connection holds the
+/// file, its switch to WAL included.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
 
@@ -772,12 +776,8 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    connection.busy_timeout(BUSY_TIMEOUT).map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "OFF")
         .map_err(failed)?;

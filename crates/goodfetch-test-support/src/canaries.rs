@@ -221,8 +221,10 @@ pub enum Encoding {
     Raw,
     /// Inside a JSON string: `"`, `\` and control characters escaped.
     JsonEscaped,
-    /// Percent-encoded: every byte but `A-Z a-z 0-9 - . _ ~`, in uppercase
-    /// hex.
+    /// Percent-encoded, in uppercase hex: every byte but `A-Z a-z 0-9 - . _
+    /// ~`; as a browser encodes a form, keeping `*` and writing a space `+`;
+    /// or as JavaScript's `encodeURIComponent` does, keeping `! ~ * ' ( )`
+    /// too.
     UrlEncoded,
     /// Base64, standard or URL-safe, at any alignment inside a longer
     /// encoded run (such as a password in a Basic `Authorization` header).
@@ -345,7 +347,20 @@ impl Canary {
             Encoding::JsonEscaped,
             json_escaped(&self.value).into_bytes(),
         );
-        add(Encoding::UrlEncoded, url_encoded(value).into_bytes());
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, UNRESERVED).into_bytes(),
+        );
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, FORM_KEPT)
+                .replace("%20", "+")
+                .into_bytes(),
+        );
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, URI_COMPONENT_KEPT).into_bytes(),
+        );
         for alphabet in [
             &data_encoding::BASE64_NOPAD,
             &data_encoding::BASE64URL_NOPAD,
@@ -837,11 +852,22 @@ fn json_escaped(value: &str) -> String {
     quoted[1..quoted.len() - 1].to_owned()
 }
 
-/// `value` percent-encoded, every byte but the unreserved ones (RFC 3986).
-fn url_encoded(value: &[u8]) -> String {
+/// The marks RFC 3986 leaves unreserved.
+const UNRESERVED: &[u8] = b"-._~";
+
+/// The marks a browser keeps as it encodes a form
+/// (`application/x-www-form-urlencoded`), which writes a space `+`.
+const FORM_KEPT: &[u8] = b"*-._";
+
+/// The marks JavaScript's `encodeURIComponent` keeps.
+const URI_COMPONENT_KEPT: &[u8] = b"-_.!~*'()";
+
+/// `value` percent-encoded, every byte but the ASCII letters, digits and
+/// `kept`.
+fn url_encoded(value: &[u8], kept: &[u8]) -> String {
     let mut encoded = String::new();
     for byte in value {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(byte) {
+        if byte.is_ascii_alphanumeric() || kept.contains(byte) {
             encoded.push(char::from(*byte));
         } else {
             write!(encoded, "%{byte:02X}").expect("invariant: writing to a String succeeds");

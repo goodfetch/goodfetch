@@ -185,7 +185,7 @@ _Avoid_: scraping, scraper, bot
 ## Execution
 
 **Run**:
-One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage. The unit of isolation, resumption and counting.
+One piece of work the engine carries out from start to finish, with its own inputs, state, limits and usage; a Continuous crawl's finish comes only when it is told to end. The unit of isolation, resumption and counting.
 _Avoid_: job, execution, session (for a whole run)
 
 **Run ID**:
@@ -237,7 +237,7 @@ The most memory an engine and its children may use, the tightest of its own cgro
 _Avoid_: memory budget, memory limit (alone)
 
 **Run report**:
-What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
+What a run states about itself when it ends, and a Continuous crawl also while it goes on: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended and, for a Continuous crawl, its Freshness.
 _Avoid_: run result, summary, statistics, stats
 
 **Browser cache**:
@@ -288,6 +288,10 @@ _Avoid_: actor, app, pack, script
 A named value that shapes how a Product works, such as a timeout, a retry count or a Sink's guarantee, resolved through layers from its built-in default to the run itself, where a lower layer can cap or lock it.
 _Avoid_: config key, knob, preference, option (for a setting)
 
+**Preset**:
+A named set of default Settings for one use case, laid over the built-in defaults so that each value it sets can still be changed.
+_Avoid_: profile (a Session's Identity profile), template (a Recipe to copy), mode
+
 **Deployment variable**:
 One of the few environment variables a Product reads for its own configuration, each holding a value that differs by machine rather than by program, such as the Goodfetch home or the address of an Exposed Daemon.
 _Avoid_: env setting, config variable
@@ -303,6 +307,10 @@ _Avoid_: cost, consumption, credits
 **Checkpoint**:
 A consistent, self-contained copy of a run's state from which the run can resume, on the same machine or another one.
 _Avoid_: snapshot, savepoint, backup
+
+**Durability level**:
+What a run's state survives: a process crash, a power cut, both or neither, chosen per run as `full`, `fast`, `periodic` or `off`.
+_Avoid_: persistence mode, sync mode, fsync mode
 
 **Limit**:
 A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.
@@ -339,7 +347,7 @@ One way a crawl request's document is fetched, from the cheapest up: an HTTP req
 _Avoid_: fetch mode, fetcher, backend (for a tier)
 
 **Frontier**:
-The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
+The URLs a run has discovered but not yet visited, with the list of those already visited, when each is due again in a Continuous crawl, and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
 
 **Page signature**:
@@ -361,6 +369,26 @@ _Avoid_: userData, user_data, meta, cb_kwargs, context
 **Crawl request**:
 One request a crawl's Frontier admitted (its method, URL and body), with its Label and Payload: the work item one handler processes, which ends in exactly one outcome.
 _Avoid_: `Request` (the type or identifier is a page's network request), item, task, job
+
+**Continuous crawl**:
+A crawl whose run does not end when its Frontier empties: it revisits each URL when its Revisit policy says and reads its sources again, until it is told to end.
+_Avoid_: recrawl, standing crawl, monitor, never-ending run
+
+**Revisit**:
+A Continuous crawl's next visit to a URL it already visited, which first checks whether the page changed.
+_Avoid_: recrawl, refetch, re-visit, retry (for a revisit)
+
+**Revisit policy**:
+The rule, set per Label, that decides when a Continuous crawl visits a URL again: never, at a fixed interval, adapting to the changes seen, from an estimate of how often it changes, or by a source's rate of new entries.
+_Avoid_: schedule, fetch interval, refresh rate
+
+**Freshness**:
+How far a Continuous crawl's revisits keep up with their due dates, overall and per domain; never part of Completeness.
+_Avoid_: staleness, lag (for the whole measure), recency
+
+**Syndication feed**:
+An RSS or Atom document listing a site's recent entries, which a crawl reads as a source of URLs.
+_Avoid_: feed (alone, a Subscription's word), news feed, RSS (for Atom too)
 
 **Politeness**:
 The per-domain and per-proxy limits on how hard a user's runs press one site or one proxy, shared by those runs.
@@ -525,6 +553,10 @@ _Avoid_: injected code, user script
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion
+
+**Page analysis**:
+The one step in which a fetched page is parsed and read by every reader its crawl needs, leaving one result that every later step shares.
+_Avoid_: parse step, pipeline stage, page processing
 
 **Dataset**:
 The append-only collection of a run's Records, named by the crawl that fills it, which may give it a schema and the fields that identify one Record.
@@ -807,6 +839,22 @@ _Avoid_: SLO, goal, budget (for a target)
 **Performance series**:
 The timed measurements of Goodfetch's latest code taken every night on one controlled machine, read for lasting shifts and never used to fail a single change.
 _Avoid_: nightly benchmark, perf dashboard
+
+**Shared path**:
+The route every unit of one kind takes through Goodfetch, such as a fetched page, a CDP command, a protocol message or an Audit entry, which most features add work to and one module owns.
+_Avoid_: hot path, pipeline, code path
+
+**Counted work**:
+Work whose amount repeats exactly from run to run, such as a parse, a compilation, a statement prepared, a file opened, a transaction, a sync or a configuration read, so that a count of it can fail a change where a duration cannot.
+_Avoid_: overhead, cost (alone), system calls (for counted work)
+
+**Cost contract**:
+The most Counted work one unit of a Shared path may cost, which is part of the interface of the module that owns the path.
+_Avoid_: performance budget (for a contract), budget (alone), SLA
+
+**Quality register**:
+The written record of Goodfetch's quality bar: the rules every change keeps, the limits that fail a merge, the figures that may only improve and the exceptions that expire.
+_Avoid_: constraints file, quality gate (for the record), CONSTRAINTS.md
 
 **Quick suite**:
 The tests and checks of Goodfetch that run in-process, on what a change touches or on everything, run after every edit.

@@ -22,6 +22,7 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -502,15 +503,57 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
 /// The host of the service worker page, a secure context over plain HTTP.
 const SERVICE_WORKER_HOST: &str = "access.localhost";
 
+/// The domain key of [`SERVICE_WORKER_HOST`]'s requests: not the crawl
+/// request's, so each navigation of its page takes a Permit of its own.
+const SERVICE_WORKER_KEY: &str = SERVICE_WORKER_HOST;
+
 /// The delay between starts the service worker cases set.
 const SERVICE_WORKER_DELAY: Duration = Duration::from_secs(3);
 
-/// Crawls one page as `run_id`, its handler going to the service worker
-/// page whose worker treats navigations as `navigations` says, waiting
-/// until the worker controls it, then reloading it; answers how long the
-/// reload took and the arrival times, in microseconds, of each request
-/// for the page.
-fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
+/// What the navigation gate took of a domain key in the Politeness file
+/// (ADR 0086).
+#[derive(Debug, PartialEq, Eq)]
+struct Taken {
+    /// How many Permits of the key were taken: those held, and those given
+    /// back, which the file counts as it deletes each.
+    permits: i64,
+    /// The key's last start, in milliseconds since the epoch: every
+    /// request of the key the gate admits takes or records one.
+    last_start: Option<i64>,
+}
+
+/// What the gate took of `key` so far in the Politeness file of `env`'s
+/// home, read in one statement. A give-back deletes its Permit and counts
+/// it in one transaction, so a Permit counts once whether it is still held
+/// or was given back.
+fn taken(env: &TestEnv, key: &str) -> Taken {
+    let file = Connection::open_with_flags(
+        env.home().join("politeness.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    file.busy_timeout(Duration::from_secs(10)).unwrap();
+    file.query_row(
+        "SELECT (SELECT count(*) FROM permits WHERE key = ?1)
+             + coalesce((SELECT generation FROM returns WHERE key = ?1), 0),
+             (SELECT last_start FROM domain_limits WHERE key = ?1)",
+        [key],
+        |row| {
+            Ok(Taken {
+                permits: row.get(0)?,
+                last_start: row.get(1)?,
+            })
+        },
+    )
+    .unwrap()
+}
+
+/// Crawls one page, its handler going to the service worker page whose
+/// worker treats navigations as `navigations` says, waiting until the
+/// worker controls it, then reloading it. Answers what the gate had taken
+/// of [`SERVICE_WORKER_KEY`] right before the reload and once it answered,
+/// and the arrival times, in microseconds, of each request for the page.
+fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u64>) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -519,7 +562,7 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
         "politeness": { "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() } },
     });
 
-    let mut took = None;
+    let mut reload = None;
     let report = crawl_with(
         &mut engine,
         navigations,
@@ -539,9 +582,12 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
                 );
                 std::thread::sleep(Duration::from_millis(100));
             }
-            let started = Instant::now();
+            // The gate takes a navigation's Permit and start before its
+            // request leaves, and the reload answers once its document
+            // arrived: what the reload took is in the file by then.
+            let before = taken(&env, SERVICE_WORKER_KEY);
             let reloaded = inside.call("page.reload", &json!({ "page_id": page_id }));
-            took = Some(started.elapsed());
+            reload = Some((before, taken(&env, SERVICE_WORKER_KEY)));
             assert_eq!(reloaded["result"]["response"]["status"], 200, "{reloaded}");
             json!({ "result": { "records": [] } })
         },
@@ -552,45 +598,47 @@ fn reloaded_under_a_service_worker(navigations: &str) -> (Duration, Vec<u64>) {
         .into_iter()
         .map(|(_, at)| at)
         .collect();
-    (took.unwrap(), arrived)
+    (reload.unwrap(), arrived)
 }
 
 /// A service worker's request carrying a navigation of a handler's page,
 /// its `navigate`-mode request or its `cors` refetch of the pending
-/// navigation's URL, takes that navigation's permit: it reaches the site
-/// no sooner than the delay between starts after the page's first load.
+/// navigation's URL, takes that navigation's permit, once: the reload takes
+/// one Permit of its domain, and its request reaches the site no sooner
+/// than the delay between starts after the page's first load.
 ///
 /// Covers: story:5-134, story:5-112, operation:page.reload
 #[rstest::rstest]
 #[case::its_navigate_mode_request("pass")]
 #[case::its_refetch_of_a_pending_navigation("refetch")]
 fn a_service_workers_navigation_request_takes_the_permit(#[case] navigations: &str) {
-    let (_, arrived) = reloaded_under_a_service_worker(navigations);
+    let ((before, after), arrived) = reloaded_under_a_service_worker(navigations);
 
     let least = u64::try_from(SERVICE_WORKER_DELAY.as_micros() * 9 / 10).unwrap();
     assert_eq!(
         (
+            after.permits - before.permits,
             arrived.len(),
             arrived.windows(2).all(|pair| pair[1] - pair[0] >= least)
         ),
-        (2, true),
-        "{arrived:?}"
+        (1, 2, true),
+        "{before:?} {after:?} {arrived:?}"
     );
 }
 
 /// A navigation a service worker answers from its own cache sends nothing
 /// to the site and takes no permit: the reload neither reaches the site
-/// nor waits for the delay between starts.
+/// nor takes a Permit or a start of its domain, whose first load took one.
 ///
 /// Covers: story:5-134, operation:page.reload
 #[test]
 fn a_navigation_a_service_worker_answers_from_its_cache_takes_no_permit() {
-    let (took, arrived) = reloaded_under_a_service_worker("cache");
+    let ((before, after), arrived) = reloaded_under_a_service_worker("cache");
 
     assert_eq!(
-        (arrived.len(), took < SERVICE_WORKER_DELAY / 2),
-        (1, true),
-        "the reload took {took:?}"
+        (arrived.len(), before.permits, &after),
+        (1, 1, &before),
+        "{before:?} {after:?}"
     );
 }
 
@@ -921,6 +969,279 @@ fn a_handlers_goto_to_a_reserved_document_loads_unless_the_signals_are_honoured_
         (&went["result"]["response"]["status"], &text),
         (&json!(200), &json!(true)),
         "{went}"
+    );
+}
+
+/// The `access-policy` family's Content-Signal task's host, whose
+/// robots.txt says `Content-Signal: … ai-train=no` to every crawler.
+const CONTENT_SIGNAL_HOST: &str = "3.access-policy.test";
+
+/// The `access-policy` family's TDMRep-file task's host, whose
+/// `/.well-known/tdmrep.json` reserves `/catalog*`.
+const TDMREP_FILE_HOST: &str = "4.access-policy.test";
+
+/// What a handler's calls on the page its tier serves, the request's own
+/// on `fetch.tier: http`, answered, under `site_preferences`: each of the
+/// `calls` made for the Proving ground, a method and its params beside the
+/// page's ID, then whether the
+/// page then holds no element at all, a blank document, as
+/// `locator.wait_for_count` answers it, and the paths of `host` the site
+/// received that are no robots.txt or signal file.
+fn on_the_served_page(
+    seed: (&str, &str),
+    calls: &dyn Fn(&ProvingGround) -> Vec<(&'static str, Value)>,
+    site_preferences: &Value,
+    host: &str,
+) -> (Vec<Value>, Value, Vec<String>) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": site_preferences });
+    let calls = calls(&proving_ground);
+
+    let (mut answers, mut blank) = (Vec::new(), Value::Null);
+    let report = crawl_with(
+        &mut engine,
+        "served",
+        &[json!({ "url": proving_ground.url(seed.0, seed.1), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = &handle["page_id"];
+            for (method, params) in &calls {
+                let mut params = params.clone();
+                params["page_id"] = page_id.clone();
+                answers.push(inside.call(method, &params));
+            }
+            let counted = inside.call(
+                "locator.wait_for_count",
+                &json!({
+                    "locator": { "page_id": page_id, "selector": "body *" },
+                    "count": { "max": 0 },
+                }),
+            );
+            blank = json!(counted["result"]["count"] == json!(0));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let mut sent: Vec<String> = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.split(':').next() == Some(host))
+        })
+        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|target| target != "/robots.txt" && !target.starts_with("/.well-known/"))
+        .collect();
+    sent.sort();
+    (answers, blank, sent)
+}
+
+/// The code and the reason of a call's refusal, or its response's status.
+fn refused_or_status(answer: &Value) -> Value {
+    match answer.get("error") {
+        Some(error) => json!([error["data"]["code"], error["data"]["reason"]]),
+        None => answer["result"]["response"]["status"].clone(),
+    }
+}
+
+/// On a page a document tier serves, the request's own on `http`, the
+/// document a handler's `goto` reaches is judged as a browser page's is
+/// (ADR 0093): one whose response's `TDMRep` header refuses the Purpose
+/// raises `site_preferences_refused` with `use_signals` and leaves the page
+/// blank, and a `page.request` its response refuses raises the same.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.request, operation:locator.wait_for_count
+#[test]
+fn a_served_pages_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused_blank() {
+    let reserved = |method: &'static str| {
+        move |proving_ground: &ProvingGround| {
+            vec![(
+                method,
+                json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/2") }),
+            )]
+        }
+    };
+    let honoured = json!({ "respect_use_signals": true, "purpose": "ai-input" });
+    let (requested, _, _) = on_the_served_page(
+        (TDMREP_HOST, "/catalog/1"),
+        &reserved("page.request"),
+        &honoured,
+        TDMREP_HOST,
+    );
+    let (went, blank, _) = on_the_served_page(
+        (TDMREP_HOST, "/catalog/1"),
+        &reserved("page.goto"),
+        &honoured,
+        TDMREP_HOST,
+    );
+
+    let refused = json!(["site_preferences_refused", "use_signals"]);
+    assert_eq!(
+        (
+            refused_or_status(&went[0]),
+            blank,
+            refused_or_status(&requested[0])
+        ),
+        (refused.clone(), json!(true), refused),
+        "{went:?} {requested:?}"
+    );
+}
+
+/// A handler's `goto` to a host that declared, before any request, that
+/// the Purpose is refused, its robots.txt's `Content-Signal` line or
+/// `TDMRep`'s well-known file, is refused with `use_signals` before it is
+/// sent, as a crawl request is (ADR 0093), on a served page as on a
+/// browser page.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto
+#[rstest::rstest]
+#[case::a_content_signal_on_a_served_page(CONTENT_SIGNAL_HOST, "ai-train", false)]
+#[case::a_tdmrep_file_on_a_served_page(TDMREP_FILE_HOST, "collect", false)]
+/// Covers: operation:run.new_page
+#[case::a_content_signal_on_a_browser_page(CONTENT_SIGNAL_HOST, "ai-train", true)]
+fn a_handlers_goto_to_a_host_whose_declared_signals_refuse_the_purpose_is_never_sent(
+    #[case] host: &str,
+    #[case] purpose: &str,
+    #[case] browser: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": { "respect_use_signals": true, "purpose": purpose } });
+    let target = proving_ground.url(host, "/catalog/1");
+
+    let mut went = Value::Null;
+    let report = crawl_with(
+        &mut engine,
+        "declared",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = if browser {
+                json!(new_page(inside, handle))
+            } else {
+                handle["page_id"].clone()
+            };
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": target }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+
+    assert_eq!(
+        (
+            refused_or_status(&went),
+            requested(&proving_ground, host, "/catalog/1")
+        ),
+        (json!(["site_preferences_refused", "use_signals"]), 0),
+        "{went}"
+    );
+}
+
+/// With `site_preferences.respect_use_signals` off, the default, a
+/// handler's `goto` to a host whose `TDMRep` file reserves the page loads
+/// and the gate reads no signal file; with robots.txt not respected either,
+/// the page's own request is all the host receives, counted once the Run
+/// finished, so a later robots.txt read could not be missed.
+///
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.respect_robots_txt, operation:page.goto
+#[rstest::rstest]
+#[case::a_served_page_respecting_robots_txt(true, false, 1)]
+#[case::a_served_page(false, false, 0)]
+/// Covers: operation:run.new_page
+#[case::a_browser_page(false, true, 0)]
+fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
+    #[case] respect_robots_txt: bool,
+    #[case] browser: bool,
+    #[case] robots_txt_reads: usize,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": { "respect_robots_txt": respect_robots_txt } });
+    let target = proving_ground.url(TDMREP_FILE_HOST, "/catalog/1");
+
+    let mut went = Value::Null;
+    let report = crawl_with(
+        &mut engine,
+        "unhonoured",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = if browser {
+                json!(new_page(inside, handle))
+            } else {
+                handle["page_id"].clone()
+            };
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": target }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+
+    assert_eq!(
+        (
+            refused_or_status(&went),
+            requested(&proving_ground, TDMREP_FILE_HOST, "/catalog/1"),
+            proving_ground
+                .received_requests()
+                .unwrap()
+                .every()
+                .filter(|request| request["host"] == TDMREP_FILE_HOST
+                    && request["target"] == "/robots.txt")
+                .count(),
+            requested(
+                &proving_ground,
+                TDMREP_FILE_HOST,
+                "/.well-known/tdmrep.json"
+            ),
+        ),
+        (json!(200), 1, robots_txt_reads, 0),
+        "{went}"
+    );
+}
+
+/// A handler's `goto` on a served page to a refresh stub is given the
+/// stub, its tier running no refresh (ADR 0118): only the browser runs one,
+/// and the stub's target is never requested.
+///
+/// Covers: story:5-125, operation:page.goto
+#[test]
+fn a_served_pages_goto_to_a_refresh_stub_is_given_the_stub() {
+    let (went, _, sent) = on_the_served_page(
+        (FETCH_EDGE, "/redirect/hops/0"),
+        &|proving_ground| {
+            vec![(
+                "page.goto",
+                json!({ "url": proving_ground.url(FETCH_EDGE, "/refresh/meta/0") }),
+            )]
+        },
+        &json!({}),
+        FETCH_EDGE,
+    );
+
+    let url = went[0]["result"]["response"]["url"]
+        .as_str()
+        .unwrap_or_default();
+    assert_eq!(
+        (
+            refused_or_status(&went[0]),
+            url.ends_with("/refresh/meta/0"),
+            sent
+        ),
+        (
+            json!(200),
+            true,
+            vec!["/redirect/hops/0".to_owned(), "/refresh/meta/0".to_owned()]
+        ),
+        "{went:?}"
     );
 }
 
@@ -1449,12 +1770,28 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
 /// Session's first request through the egress relay, in milliseconds.
 const RELAY_DELAY_MILLISECONDS: u64 = 1_000;
 
+/// How much sooner than the delay the second navigation of the fresh-relay
+/// case may arrive after the first, in microseconds: the first one's way
+/// to the site after the send the gate counts from, which the second, on
+/// the tunnel the first left open, has no part of. After its credentials
+/// the browser opens the relay's tunnel again, the relay dials the site,
+/// and the TLS handshake follows. On loopback under load it once came to
+/// 0.94 ms (#1735: a gap of 999,056 µs; the handshake alone measured
+/// 0.11 ms), while a gate counting from the first request's admission or
+/// from the command that first sent it on comes short by the relay's `407`
+/// and its credentials: 4 ms to 50 ms in #1613's measurements, 270 ms
+/// under heavier load.
+const RELAY_TRANSIT_MICROSECONDS: u64 = 2_000;
+
 /// A handler's navigations of one domain reach it the delay between starts
 /// apart, on the Proving ground's arrival times, the first included, its
 /// Session's first request through its egress relay: the browser sends it
 /// only once the relay answered `407` and got the Session's credentials,
 /// so its delay counts from that send, never from its admission, nor from
-/// the command that first sent it on (ADR 0086).
+/// the command that first sent it on (ADR 0086). The gate's sends are what
+/// it holds the delay apart; the arrival after the first may come sooner
+/// by that first request's own way to the site after its send
+/// ([`RELAY_TRANSIT_MICROSECONDS`]).
 ///
 /// Covers: story:5-134, setting:politeness.domain.delay, operation:page.goto, operation:run.new_page
 #[test]
@@ -1496,11 +1833,13 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
         .windows(2)
         .map(|pair| pair[1].1 - pair[0].1)
         .collect();
-    // The gap after the relay's first request is held to the whole delay:
-    // a gate counting from that request's admission, or from the command
-    // that first sent it on, lets the second arrive short of it by the
-    // relay's `407` and its credentials. Between two later navigations, the
-    // arrivals may come a little closer than the sends (`too_soon`).
+    // The gap after the relay's first request is held to the delay, short
+    // of it only by that request's way to the site after its send
+    // (`RELAY_TRANSIT_MICROSECONDS`): a gate counting from its admission,
+    // or from the command that first sent it on, lets the second arrive
+    // short of it by the relay's `407` and its credentials. Between two
+    // later navigations, the arrivals may come a little closer than the
+    // sends (`too_soon`).
     let delay = RELAY_DELAY_MILLISECONDS * 1_000;
     let least = delay * 9 / 10;
     assert_eq!(
@@ -1508,7 +1847,8 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
             &report["result"]["lifecycle"],
             statuses,
             arrived.len(),
-            gaps.first().map(|relay_gap| *relay_gap >= delay),
+            gaps.first()
+                .map(|relay_gap| *relay_gap >= delay - RELAY_TRANSIT_MICROSECONDS),
             gaps.iter().skip(1).filter(|gap| **gap < least).count(),
         ),
         (&json!("finished"), vec![json!(200); 3], 3, Some(true), 0),

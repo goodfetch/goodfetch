@@ -35,8 +35,8 @@
 //! that blocking may have broken is loaded once more with blocking off
 //! (`blocking_off`, ADR 0047), the Product's classifier telling its Block
 //! cause (`blocks`); on a page a program opened, Provenance records what
-//! its robots.txt says of each document, never gating it (`robots_txt`,
-//! ADR 0086).
+//! its robots.txt says of each document and of each `page.request`'s
+//! response, never gating it (the Sessions' `robots_txt`, ADR 0086).
 //!
 //! Size: one table of the page API's handlers over the engine's shared
 //! pages, each call opening its page through one `open` that raises what
@@ -116,7 +116,6 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
-mod robots_txt;
 mod waits;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
@@ -296,26 +295,30 @@ fn max_redirects_option(surface: Surface) -> &'static str {
 }
 
 /// Adds the handlers of `page.on`, each listening from when its call
-/// arrives until the call goes, of `page.wait_for_request_finished`, armed
-/// when its call arrives, and of `response.body`.
+/// arrives until the call goes and sending its events on the call itself,
+/// of `page.wait_for_request_finished`, armed when its call arrives, and
+/// of `response.body`.
 fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let table = &pages.events;
     let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
     let (finishing, reading_pages) = (pages.clone(), pages.clone());
     contribution
-        .with_handler(Handler::new(
-            &PAGE_ON,
-            move |params: PageOnParams, _context: CallContext| {
-                let listened = listening
-                    .get(&params.page_id)
-                    .map(|events| events.listen(params.event, Clock::system().wall()));
-                async move {
-                    let (armed, runtime) = listened?;
-                    armed.until_gone(runtime).await?;
-                    Ok::<PageOnEnded, CallError>(PageOnEnded {})
-                }
-            },
-        ))
+        .with_handler(
+            Handler::new(
+                &PAGE_ON,
+                move |params: PageOnParams, context: CallContext| {
+                    let listened = listening
+                        .get(&params.page_id)
+                        .map(|events| events.listen(params.event, Clock::system().wall()));
+                    async move {
+                        let (armed, runtime) = listened?;
+                        armed.serve(context.stream(), runtime).await?;
+                        Ok::<PageOnEnded, CallError>(PageOnEnded {})
+                    }
+                },
+            )
+            .streaming(),
+        )
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST_FINISHED,
             move |params: WaitForRequestFinishedParams, context: CallContext| {
@@ -820,7 +823,7 @@ impl BrowserPages for Opener {
             let opened = self
                 .pages
                 .sessions
-                .new_pool_page(run_id, &pooled.id, pooled.source.clone(), context)
+                .new_pool_page(run_id, pooled, context)
                 .await?;
             let page_id = opened.page_id;
             let page = self.pages.sessions.page(&page_id).await?;
@@ -896,7 +899,7 @@ impl BrowserPages for Opener {
             let session = self
                 .pages
                 .sessions
-                .pool_session(run_id, &pooled.id, pooled.source.clone(), context)
+                .pool_session(run_id, pooled, context)
                 .await?;
             let (run, own) = self.pages.sessions.own_settings(&session).await?;
             let steps = self
@@ -1097,17 +1100,6 @@ impl Pages {
         let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
             return Ok(Navigated { response: None });
         };
-        // A page a program opened records what its document's robots.txt
-        // says, beside the navigation, never before it (ADR 0086).
-        if page.driver.value().gate().is_none() {
-            robots_txt::read(
-                &self.sessions,
-                self.interception.engine_requests(page_id)?,
-                page_id,
-                &page,
-                &response.url,
-            );
-        }
         // Every document a Session's navigation reached is judged: its Block
         // cause first, which raises `blocked` (ADRs 0088 and 0092), unless
         // it checks the browser and the Filter lists touched its
@@ -1232,6 +1224,17 @@ impl Pages {
         let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
         engine_page.close().await;
         let fetched = fetched.map_err(|error| page.life.withheld(error))?;
+        // A page a program opened records what the response's robots.txt
+        // says, beside the call, never before it (ADR 0086).
+        if let Some(reader) = sessions::robots_txt::Reader::of(
+            &self.sessions,
+            &params.page_id,
+            &page.session,
+            page.driver.value(),
+            &page.run,
+        ) {
+            reader.read(steps, &fetched.response.url);
+        }
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
                 let handle = page.run.store_body(bytes.into()).await.map_err(|error| {

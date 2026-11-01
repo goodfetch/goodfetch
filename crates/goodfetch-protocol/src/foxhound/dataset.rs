@@ -103,6 +103,14 @@ pub struct RunRecordsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub after: Option<u64>,
+    /// The number of the last Record to read, such as the last one
+    /// committed when the reader began (`dataset.page`'s `through`): the
+    /// call answers once it sent every Record numbered through it, waiting
+    /// on a live Run for those not committed yet. Absent, it follows a live
+    /// Run until the Run ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub through: Option<u64>,
     /// `true` reads only the Records whose page was read past a Wall,
     /// `false` only the others; absent, every Record (ADR 0052).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -161,7 +169,7 @@ pub struct RecordsRead {
 /// `run.records`.
 pub const RUN_RECORDS: Operation = Operation {
     name: "run.records",
-    description: "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. With `through`, such as the number `dataset.page` answers as the last committed, it reads no Record numbered past it and answers once it sent every Record through it, a live Run's included. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`.",
     class: OperationClass::Read,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,

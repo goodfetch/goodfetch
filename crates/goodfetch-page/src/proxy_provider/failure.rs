@@ -6,6 +6,8 @@
 //! `proxy_provider_unavailable` as area 7's code has it.
 
 use goodfetch_engine::CallError;
+
+use crate::proxy_status;
 use goodfetch_protocol::page::proxy::{
     PROXY_PROVIDER_UNAVAILABLE, ProxyProviderFailure, ProxyProviderUnavailableDetails, ProxyServer,
 };
@@ -27,6 +29,14 @@ impl ProviderAnswer {
             .iter()
             .find(|(header, _)| header == name)
             .map(|(_, value)| value.trim())
+    }
+
+    /// The parameter `name` of the provider's own member of the answer's
+    /// `Proxy-Status` field (RFC 9209), the last, which the intermediary
+    /// nearest the relay appends: such as `error` or `details`.
+    pub(crate) fn proxy_status(&self, name: &str) -> Option<String> {
+        let member = proxy_status::nearest(self.header(proxy_status::PROXY_STATUS)?)?;
+        proxy_status::parameter(member, name)
     }
 }
 

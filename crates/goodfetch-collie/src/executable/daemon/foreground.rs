@@ -39,7 +39,7 @@ use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::rpc::Authorities;
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
@@ -421,7 +421,7 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
 /// When `daemon.address` is invalid, or the token cannot be read.
 pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
     let configured = configured(machine).map_err(|Refused(error)| Failure::Refused {
-        error: settings_error(&error, machine.identity).to_error_object(),
+        error: local_settings_error(&error, machine.identity).to_error_object(),
         operation: None,
     })?;
     let token = machine.files().read_token().map_err(|error| {

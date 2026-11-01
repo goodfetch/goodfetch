@@ -1,9 +1,11 @@
-//! The Stub gateway as a browser and the Console's Client reach it (ADR
-//! 0096): Foxhound's Console build under the production headers and the
-//! content origin, a sign-in token swapped for a cookie, `run.list` from
-//! its own index, each run on an Attached engine of the executable its
-//! Product needs, and every other call forwarded to the engine that owns
-//! the run, which takes the gateway's `hello` as Goodfetch Cloud's.
+//! The Stub gateway as a browser, the Console's Client and a program reach
+//! it (ADR 0096): Foxhound's Console build under the production headers and
+//! the content origin, a sign-in token swapped for a browser's cookie or
+//! presented in a program's `hello`, `run.list` from its own index, each
+//! run on an Attached engine of the executable its Product needs, one per
+//! Run ID however many starts name it at once, and every other call
+//! forwarded to the engine that owns the run, which takes the gateway's
+//! `hello` as Goodfetch Cloud's.
 #![expect(
     clippy::disallowed_types,
     reason = "a test opens its own WebSocket to the gateway, outside the engine (ADR 0060)"
@@ -34,6 +36,9 @@ pub(crate) const TOKEN: &str = "stub-gateway-sign-in";
 
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How long an interrupted gateway has to stop its engines and exit.
+const STOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A started gateway and the addresses its ready file reports.
 pub(crate) struct Gateway {
@@ -99,22 +104,32 @@ impl Gateway {
         cookie.split(';').next().unwrap().to_owned()
     }
 
-    /// The Console's Connection, signed in, after its `hello`.
-    fn connection(&self) -> Connection {
-        let cookie = self.signed_in();
+    /// A WebSocket at `/protocol`: a browser's, on the Console's origin
+    /// with a sign-in's cookie, or else a program's, with neither.
+    pub(crate) fn socket(&self, browser: bool) -> WebSocket<TcpStream> {
         let address = self.console.trim_start_matches("http://");
         let mut request = format!("ws://{address}/protocol")
             .into_client_request()
             .unwrap();
-        let headers = request.headers_mut();
-        headers.insert("Origin", self.console.parse().unwrap());
-        headers.insert("Cookie", cookie.parse().unwrap());
+        if browser {
+            let cookie = self.signed_in();
+            let headers = request.headers_mut();
+            headers.insert("Origin", self.console.parse().unwrap());
+            headers.insert("Cookie", cookie.parse().unwrap());
+        }
         let stream = TcpStream::connect(address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
-        let (socket, _) = tungstenite::client(request, stream).unwrap();
-        let mut connection = Connection { socket, next: 0 };
+        tungstenite::client(request, stream).unwrap().0
+    }
+
+    /// The Console's Connection, signed in, after its `hello`.
+    fn connection(&self) -> Connection {
+        let mut connection = Connection {
+            socket: self.socket(true),
+            next: 0,
+        };
         let hello = connection.call(
             "hello",
             &json!({
@@ -131,8 +146,11 @@ impl Gateway {
 }
 
 impl Drop for Gateway {
+    /// Interrupts the gateway, which kills and reaps its engines before it
+    /// exits, and reaps it: an engine shares the test's stderr, which
+    /// nextest counts as leaked until every holder has closed it.
     fn drop(&mut self) {
-        let _ = self.process.stop();
+        let _ = self.process.interrupt_and_wait(STOP_DEADLINE);
     }
 }
 
@@ -146,21 +164,41 @@ impl Connection {
     /// The reply to a request of `method` with `params`, skipping
     /// notifications.
     fn call(&mut self, method: &str, params: &Value) -> Value {
+        let id = self.send(method, params);
+        self.reply(id)
+    }
+
+    /// Sends a request of `method` with `params`, answering its ID.
+    fn send(&mut self, method: &str, params: &Value) -> u64 {
         self.next += 1;
         let id = self.next;
         let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         self.socket
             .send(Message::text(request.to_string()))
             .unwrap();
-        loop {
+        id
+    }
+
+    /// The reply to the request `id`, skipping notifications.
+    fn reply(&mut self, id: u64) -> Value {
+        let [reply] = self.replies([id]);
+        reply
+    }
+
+    /// The replies to the requests `ids`, in that order, in whichever
+    /// order they arrive, skipping notifications.
+    fn replies<const N: usize>(&mut self, ids: [u64; N]) -> [Value; N] {
+        let mut replies = [const { None }; N];
+        while replies.iter().any(Option::is_none) {
             let Message::Text(text) = self.socket.read().unwrap() else {
                 continue;
             };
             let reply: Value = serde_json::from_str(&text).unwrap();
-            if reply["id"] == json!(id) {
-                return reply;
+            if let Some(slot) = ids.iter().position(|id| reply["id"] == json!(id)) {
+                replies[slot] = Some(reply);
             }
         }
+        replies.map(|reply| reply.expect("every reply was read"))
     }
 
     /// The Run ID of a run the Console starts with `method` and `params`.
@@ -351,4 +389,119 @@ fn run_list_answers_every_run_its_index_holds_on_either_engine() {
     let mut expected = vec![on_collie.as_str(), on_foxhound.as_str()];
     expected.sort_unstable();
     assert_eq!(run_ids, expected);
+}
+
+/// A program's `hello`, presenting `token`.
+fn programs_hello(token: &str) -> Message {
+    Message::text(
+        json!({"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {
+            "protocol_version": PROTOCOL_VERSION.to_string(),
+            "surface": "rust",
+            "token": token,
+            "needs": "collie",
+            "product_version": VERSION,
+        }})
+        .to_string(),
+    )
+}
+
+/// A program signs in with the token its `hello` presents (spec #586's
+/// duty 8): one that presents another is closed unanswered, as an engine
+/// closes it.
+#[rstest::rstest]
+#[case::the_configured_token(TOKEN, true)]
+#[case::another_token("another-token", false)]
+fn a_program_signs_in_with_the_token_its_hello_presents(
+    #[case] token: &str,
+    #[case] answered: bool,
+) {
+    let env = TestEnv::new();
+    let gateway = Gateway::start(&env);
+    let mut socket = gateway.socket(false);
+    socket.send(programs_hello(token)).unwrap();
+
+    let reply = match socket.read() {
+        Ok(Message::Text(text)) => Some(serde_json::from_str::<Value>(&text).unwrap()),
+        _ => None,
+    };
+
+    assert_eq!(
+        reply.is_some_and(|reply| reply["result"]["product"] == json!("collie")),
+        answered
+    );
+}
+
+/// `run.start` is an idempotent write: two starts of one new Run ID sent at
+/// once reach one engine, which starts the run once and answers the other
+/// with the run it already has.
+///
+/// Covers: story:12-232
+#[test]
+fn two_starts_of_one_new_run_id_at_once_start_one_run() {
+    let env = TestEnv::new();
+    let gateway = Gateway::start(&env);
+    let mut console = gateway.connection();
+    let params = json!({"run_id": "a-run-started-twice"});
+    let (first, second) = (
+        console.send("run.start", &params),
+        console.send("run.start", &params),
+    );
+
+    let mut started_as = console.replies([first, second]).map(|reply| {
+        reply["result"]["started_as"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the start failed: {reply}"))
+            .to_owned()
+    });
+
+    started_as.sort_unstable();
+    assert_eq!(started_as, ["existing", "new"]);
+}
+
+/// Interrupted, the gateway kills each engine it started and exits only
+/// once it has reaped them, so no engine outlives it holding the test's
+/// stderr.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_interrupted_gateway_exits_once_it_has_reaped_its_engines() {
+    let env = TestEnv::new();
+    let gateway = Gateway::start(&env);
+    let mut console = gateway.connection();
+    console.start("run.start", &json!({}));
+    console.start("crawl.start", &crawl_of_nothing());
+    let engines = children_of(gateway.process.child().id());
+
+    let status = gateway.process.interrupt_and_wait(STOP_DEADLINE).unwrap();
+
+    let left: Vec<u32> = engines
+        .iter()
+        .copied()
+        .filter(|engine| Path::new(&format!("/proc/{engine}")).exists())
+        .collect();
+    assert_eq!(
+        (engines.len(), status.success(), left),
+        (2, true, Vec::new())
+    );
+}
+
+/// The processes whose parent is `pid`, from each process's `stat`.
+#[cfg(target_os = "linux")]
+fn children_of(pid: u32) -> Vec<u32> {
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|entry| {
+            let child: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
+            let stat = std::fs::read_to_string(format!("/proc/{child}/stat")).ok()?;
+            // The parent's ID is the second field after the command's
+            // closing parenthesis.
+            let parent: u32 = stat
+                .rsplit_once(')')?
+                .1
+                .split_whitespace()
+                .nth(1)?
+                .parse()
+                .ok()?;
+            (parent == pid).then_some(child)
+        })
+        .collect()
 }

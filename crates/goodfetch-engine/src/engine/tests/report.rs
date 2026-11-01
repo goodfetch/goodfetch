@@ -8,18 +8,23 @@
 //! operations act on a live Run as an area does: `test.hand_over` charges
 //! Usage, hands over warnings and `nothingDone`, asks a stop or fails the
 //! Run; `test.drive` starts a Run its driver ends only once stopped, after
-//! a minute of its clock when `slow`.
+//! a minute of its clock when `slow`; `test.cancelled_stop` drops a
+//! `run.stop` at its first await, as a Client's cancel does; `test.stray`
+//! holds a handle on a live Run outside its tasks, writes through it and
+//! lets it go, as a holder that missed the Run's clean-up does.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{
-    AxisReason, EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RecordingReport,
-    RunId, RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect, Verdict,
+    AxisReason, EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP,
+    RecordingReport, RunId, RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect,
+    Verdict,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -29,7 +34,8 @@ use serde_json::{Value, json};
 use super::run::{call, run_folder};
 use super::{Client, attached_on, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
-use crate::runs::{EndedBy, Ending, ReportPart, Start, Started};
+use crate::run_state::RunStateError;
+use crate::runs::{EndedBy, Ending, ReportPart, Run, Start, Started};
 
 /// Acts on a live Run as an area does.
 const HAND_OVER: Operation = Operation {
@@ -53,6 +59,54 @@ const DRIVE: Operation = Operation {
     description: "Starts a Run its driver ends once stopped.",
     ..HAND_OVER
 };
+
+/// Starts a `run.stop` and drops it at its first await.
+const CANCELLED_STOP: Operation = Operation {
+    name: "test.cancelled_stop",
+    description: "Drops a `run.stop` at its first await.",
+    ..HAND_OVER
+};
+
+/// Holds a handle on a live Run outside its tasks, writes through it, or
+/// lets it go.
+const STRAY: Operation = Operation {
+    name: "test.stray",
+    description: "Holds, writes through or lets go a stray handle on a live Run.",
+    ..HAND_OVER
+};
+
+/// The stray handle `test.stray` holds.
+type Held = Arc<tokio::sync::Mutex<Option<Run>>>;
+
+/// `test.stray`: `hold` takes a handle on the live Run `run_id`, `write`
+/// writes its progress message through that handle's run state, answering
+/// whether the writer refused it as stopped, and `release` lets it go.
+async fn stray(held: Held, params: Value, context: CallContext) -> Result<Value, CallError> {
+    let mut held = held.lock().await;
+    match params["action"].as_str().unwrap() {
+        "hold" => {
+            let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+            *held = Some(context.runs().live(run_id).await.unwrap());
+            Ok(json!({}))
+        }
+        "write" => {
+            let run = held.as_ref().unwrap();
+            let written = run
+                .state()
+                .write(|connection| {
+                    connection
+                        .execute("UPDATE run SET progress_message = 'late'", [])
+                        .map(drop)
+                })
+                .await;
+            Ok(json!({ "refused": matches!(written, Err(RunStateError::Closed)) }))
+        }
+        _ => {
+            *held = None;
+            Ok(json!({}))
+        }
+    }
+}
 
 async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallError> {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
@@ -102,8 +156,7 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
     } else {
         false
     };
-    // The Run's end waits for every holder of its writer, as a driver lets
-    // its Run go once it ends.
+    // A driver lets its Run go once it ends.
     drop(run);
     if ends {
         context.runs().ended(run_id).await.ok();
@@ -151,6 +204,18 @@ async fn drive(params: Value, context: CallContext) -> Result<Value, CallError> 
         }
     });
     Ok(json!({ "run_id": run.id() }))
+}
+
+/// Polls the engine's own `run.stop` of `params` once, as its call's task
+/// does before it sees its Client's cancel, then drops it; answers whether
+/// it answered at once.
+async fn cancelled_stop(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let stop = crate::run::handlers()
+        .into_iter()
+        .find(|handler| handler.operation().name == RUN_STOP.name)
+        .expect("invariant: the engine handles `run.stop`");
+    let answered = stop.call(params, context).now_or_never();
+    Ok(json!({ "answered": answered.is_some() }))
 }
 
 /// What areas not built yet supply, for a Run whose ID begins `seeded`:
@@ -224,6 +289,11 @@ fn reporting() -> Contribution {
     Contribution::new("test-report")
         .with_handler(Handler::new(&HAND_OVER, hand_over))
         .with_handler(Handler::new(&DRIVE, drive))
+        .with_handler(Handler::new(&CANCELLED_STOP, cancelled_stop))
+        .with_handler(Handler::new(&STRAY, {
+            let held = Held::default();
+            move |params, context| stray(Arc::clone(&held), params, context)
+        }))
         .with_report_part(Arc::new(Seeded))
 }
 
@@ -361,6 +431,72 @@ fn a_stop_past_its_wait_fails_the_wait_and_the_run_still_stops(
             &limit,
             &json!({ "kind": "abort", "by": "program" }),
         )
+    );
+}
+
+/// A `run.stop` its Client cancels at its first await, before the Run's
+/// `timeout.close` is read, still stops the Run: only its wait ends with the
+/// call (#1743). The test calls `run.stop`'s handler itself, so no
+/// dispatch records the operation.
+/// Covers: story:3-153
+#[test]
+fn a_stop_cancelled_at_its_first_await_still_stops_the_run() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        &[
+            ("test.drive", json!({ "run_id": "cancelled" })),
+            ("test.cancelled_stop", json!({ "run_id": "cancelled" })),
+            (
+                "run.finish",
+                json!({ "run_id": "cancelled", "timeout": 60_000 }),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        (
+            &replies[1]["result"]["answered"],
+            &replies[2]["result"]["stop_reason"],
+        ),
+        (&json!(false), &json!({ "kind": "abort", "by": "program" }))
+    );
+}
+
+/// A handle on the Run held outside its tasks past its end, as a holder
+/// that missed the Run's clean-up holds it, keeps neither its end nor its
+/// stop's wait from answering, and a write through it afterwards is refused
+/// as its writer stopped, so nothing reaches the run file after its end
+/// (#1763, #1736).
+/// Covers: story:3-153, operation:run.stop
+#[test]
+fn a_run_ends_while_a_stray_handle_holds_it_and_the_handles_later_write_is_refused() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        &[
+            ("test.drive", json!({ "run_id": "strayed" })),
+            (
+                "test.stray",
+                json!({ "action": "hold", "run_id": "strayed" }),
+            ),
+            ("run.stop", json!({ "run_id": "strayed" })),
+            ("test.stray", json!({ "action": "write" })),
+            ("test.stray", json!({ "action": "release" })),
+        ],
+    );
+
+    let report = &replies[2]["result"];
+    assert_eq!(
+        (
+            &replies[2]["error"]["data"]["code"],
+            &report["lifecycle"],
+            &report["checkpoint"]["run_epoch"],
+            &replies[3]["result"]["refused"],
+        ),
+        (&Value::Null, &json!("stopped"), &json!(1), &json!(true))
     );
 }
 

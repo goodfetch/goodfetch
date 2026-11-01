@@ -12,16 +12,25 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command};
+use goodfetch_test_support::{
+    AnsweredCalls, MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command,
+};
 use serde_json::{Value, json};
 
 /// A running Attached engine of Collie's executable, started in a test's
-/// setup.
+/// setup. When it ends without exiting by itself, killed or left to the
+/// test's teardown, it records the calls it read answered in the test's
+/// answer record: the killed engine's log loses the dispatch records its
+/// writer's thread had not written yet (ADR 0122), which the exercise audit
+/// reads (#1779).
 pub(crate) struct Attached<'env> {
     env: &'env TestEnv,
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
+    answered: AnsweredCalls,
+    /// Whether the engine exited by itself, its log written whole.
+    exited: bool,
 }
 
 impl<'env> Attached<'env> {
@@ -73,10 +82,13 @@ impl<'env> Attached<'env> {
             process,
             stdin,
             stdout,
+            answered: AnsweredCalls::default(),
+            exited: false,
         }
     }
 
     pub(crate) fn send(&mut self, message: &Value) {
+        self.answered.sent(message);
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -88,6 +100,7 @@ impl<'env> Attached<'env> {
     pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
+        self.answered.read(&message);
         Some(message)
     }
 
@@ -97,7 +110,8 @@ impl<'env> Attached<'env> {
     }
 
     /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
-    /// or a crash ends it.
+    /// or a crash ends it; the calls it answered go to the test's answer
+    /// record.
     #[cfg_attr(
         not(unix),
         expect(
@@ -120,6 +134,7 @@ impl<'env> Attached<'env> {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        self.exited = status.success();
         record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, status.success())
     }
@@ -133,8 +148,22 @@ impl<'env> Attached<'env> {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        self.exited = status.success();
         record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, self.stdout.stderr_to_end())
+    }
+}
+
+impl Drop for Attached<'_> {
+    fn drop(&mut self) {
+        if self.exited {
+            return;
+        }
+        if let Err(error) = self.answered.record_in(self.env.folder())
+            && !std::thread::panicking()
+        {
+            panic!("the test's answer record cannot be written: {error}");
+        }
     }
 }
 
@@ -277,6 +306,7 @@ fn an_operation_only_foxhound_carries_is_refused_naming_foxhound_and_its_install
                 "needs": "foxhound",
                 "requested": "sample.crawl",
                 "fix": "Run it with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`), or connect to a Foxhound engine.",
+                "install": "cargo install goodfetch-foxhound --locked --features executable",
             },
         })
     );

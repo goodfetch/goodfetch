@@ -249,6 +249,76 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
     );
 }
 
+/// Two redirect chains that reach one key at once, each hop checked
+/// before either chain's document arrived, both pass their hop's check;
+/// the chain whose document arrives first records the key, and the other
+/// is a duplicate at its chain's end, the key left the first's (ADR 0120's
+/// #832 note, closed at the chain's end).
+///
+/// Covers: story:6-220
+#[test]
+fn of_two_chains_reaching_one_key_at_once_the_second_to_arrive_is_a_duplicate() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let slug = Url::parse("http://shop.test/product/1-slug").unwrap();
+    // Requests A and B, which both redirect to the slug no request holds.
+    for (id, url) in [
+        ("A", "http://shop.test/p?id=1"),
+        ("B", "http://shop.test/product/1"),
+    ] {
+        admit(
+            &connection,
+            &Scope::default(),
+            &every_host(),
+            Candidate::Seed {
+                url,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                    keeps_fragment: false,
+                },
+            },
+            |_| Ok(id.to_owned()),
+        )
+        .unwrap();
+    }
+    let hop = |crawl_request: &str| {
+        redirect_hop(
+            &connection,
+            &Scope::read(&connection).unwrap(),
+            &every_host(),
+            crawl_request,
+            &slug,
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+    let reached = |crawl_request: &str| {
+        redirect_reached(&connection, crawl_request, &slug, &get, None).unwrap()
+    };
+
+    let checked = (hop("A"), hop("B"));
+    let arrived = (reached("A"), reached("B"), reached("A"));
+    let visitor: String = connection
+        .query_row(
+            "SELECT crawl_request FROM visited WHERE identity LIKE '%1-slug'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(
+        (checked, arrived, visitor),
+        (
+            (Hop::Follow, Hop::Follow),
+            (Hop::Follow, Hop::Duplicate, Hop::Follow),
+            "A".to_owned()
+        )
+    );
+}
+
 /// A redirect hop leaving the crawl's scope ends the request `skipped`
 /// with `out_of_scope` before any other check, a hop to a key admitted for
 /// another request included, while one inside it is followed (ADR 0093;

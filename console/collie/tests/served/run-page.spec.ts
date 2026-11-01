@@ -1,15 +1,18 @@
 // A run's page served by Collie's executable (spec #592; ADRs 0029, 0102
-// and 0122), each test with its own Daemon and home on port 0: the
+// and 0122), each test with its own Daemon and home on a named port: the
 // `consoleUrl` of a Run report opens it, an unknown Run ID says the Run
 // index does not list it, a live run's page writes a Checkpoint and stops
 // the run, then copies the command that resumes it, a run whose Daemon was
 // killed shows no writer and its resume command, and, on a size-capped
 // filesystem, the page shows the worst storage level with its folder and
 // free space as the level changes.
-import { appendFile, readdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
+
+// The test of a killed Daemon starts it again under its page's address.
+test.use({ namedConsolePort: true });
 
 /** Runs the executable's `args` in the test's home, answering what it printed; a failure fails the test unless its exit code is `allowed`. */
 async function run(daemon: ServedDaemon, args: readonly string[], allowed = 0): Promise<string> {
@@ -122,7 +125,7 @@ test(
   },
 );
 
-/** Kills the test's Daemon, as a crash does, then starts it again on the port its Console had. */
+/** Kills the test's Daemon, as a crash does, then starts it again on its Console's named port. */
 async function crashedAndRestarted(daemon: ServedDaemon): Promise<void> {
   const pid = Number(fieldOf(await run(daemon, ["daemon", "status", "--json"]), "pid"));
   expect(pid).toBeGreaterThan(0);
@@ -132,19 +135,6 @@ async function crashedAndRestarted(daemon: ServedDaemon): Promise<void> {
   await expect
     .poll(async () => fieldOf(await run(daemon, ["daemon", "status", "--json"]), "pid"))
     .toBeNull();
-  for (const major of await readdir(daemon.home)) {
-    const file = join(daemon.home, major, "configuration.toml");
-    const text = await readFile(file, "utf8").catch(() => undefined);
-    if (text?.includes("console.address") === true) {
-      await writeFile(
-        file,
-        text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${String(daemon.port)}"`,
-        ),
-      );
-    }
-  }
   await run(daemon, ["daemon", "start"]);
 }
 

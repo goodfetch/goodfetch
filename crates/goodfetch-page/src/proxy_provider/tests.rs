@@ -6,6 +6,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod ahead;
+
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::PriceValue;
@@ -17,7 +19,7 @@ use serde_json::json;
 
 use super::failure::{ProviderAnswer, ProviderFailure};
 use super::{
-    Chosen, Endpoint, Offer, ProxyDriver, ProxyProvider, Refusal, Sticky, Tally, Wanted, apify,
+    Chosen, Endpoint, Offer, ProxyDriver, ProxyProvider, Refusal, Sticky, Wanted, apify,
     bright_data, list, oxylabs, priced,
 };
 
@@ -71,7 +73,7 @@ fn country(code: &str) -> CountryCode {
 }
 
 fn fake() -> ProxyDriver {
-    ProxyDriver::new("fake", Box::new(Fake::new()))
+    ProxyDriver::new("fake", Fake::new())
 }
 
 fn wanted(kind: Option<ProxyKind>, country_code: Option<&str>) -> Wanted {
@@ -171,7 +173,7 @@ fn listed(servers: &serde_json::Value) -> ProxyDriver {
         "servers": servers,
     }))
     .unwrap();
-    ProxyDriver::new("list", Box::new(list::List::new(&configuration)))
+    ProxyDriver::new("list", list::List::new(&configuration))
 }
 
 /// What a Session opened `ordinal`-th was given: its server, kind and
@@ -319,28 +321,6 @@ fn an_https_endpoint_is_refused_as_an_https_list_server_is(
     );
 }
 
-/// Covers: story:8-92
-#[test]
-fn a_tally_charges_bytes_and_their_price_rounded_up_never_twice() {
-    let mut tally = Tally::new(PriceValue::parse("5 USD"));
-
-    let added: Vec<_> = [100_000_000, 100_000_000, 1, 1, 199_999_998]
-        .into_iter()
-        .map(|bytes| tally.add(bytes))
-        .collect();
-
-    assert_eq!(
-        added,
-        vec![
-            (100_000_000, Some(500_000)),
-            (100_000_000, Some(500_000)),
-            (1, Some(1)),
-            (1, Some(0)),
-            (199_999_998, Some(999_999)),
-        ]
-    );
-}
-
 /// The SHA-256 of `run.session-1`, its first 16 hex digits: the sticky
 /// session every adapter names for it.
 const SESSION_ONE: &str = "79f5a6526323bee7";
@@ -361,13 +341,14 @@ fn account(account: Option<&str>, extra: &serde_json::Value) -> ProxyProviderCon
 /// `extra` fields.
 fn adapter(name: &str, extra: &serde_json::Value) -> ProxyDriver {
     let configuration = account(Some("me"), extra);
-    let provider: Box<dyn ProxyProvider> = match name {
-        bright_data::NAME => Box::new(bright_data::BrightData::new(&configuration).unwrap()),
-        oxylabs::NAME => Box::new(oxylabs::Oxylabs::new(&configuration).unwrap()),
-        apify::NAME => Box::new(apify::Apify::new(&configuration)),
+    match name {
+        bright_data::NAME => {
+            ProxyDriver::new(name, bright_data::BrightData::new(&configuration).unwrap())
+        }
+        oxylabs::NAME => ProxyDriver::new(name, oxylabs::Oxylabs::new(&configuration).unwrap()),
+        apify::NAME => ProxyDriver::new(name, apify::Apify::new(&configuration)),
         other => panic!("no adapter `{other}`"),
-    };
-    ProxyDriver::new(name, provider)
+    }
 }
 
 /// What a Session was given: its server, kind, username and lifetime in
@@ -394,6 +375,18 @@ fn sticky_given(chosen: &Chosen) -> (String, ProxyKind, Option<String>, Option<u
     json!({}),
     wanted(Some(ProxyKind::Isp), Some("DE")),
     ("http://brd.superproxy.io:33335", ProxyKind::Isp, format!("brd-customer-me-zone-isp-country-de-session-{SESSION_ONE}"), 300)
+)]
+#[case::bright_data_through_the_zone_its_customer_named(
+    "bright_data",
+    json!({ "zones": { "residential": "residential_proxy1" } }),
+    wanted(None, Some("FR")),
+    ("http://brd.superproxy.io:33335", ProxyKind::Residential, format!("brd-customer-me-zone-residential_proxy1-country-fr-session-{SESSION_ONE}"), 300)
+)]
+#[case::bright_data_of_a_kind_its_zones_leave_out(
+    "bright_data",
+    json!({ "zones": { "residential": "residential_proxy1" } }),
+    wanted(Some(ProxyKind::Datacenter), None),
+    ("http://brd.superproxy.io:33335", ProxyKind::Datacenter, format!("brd-customer-me-zone-datacenter-session-{SESSION_ONE}"), 300)
 )]
 #[case::oxylabs_by_default(
     "oxylabs",
@@ -517,6 +510,11 @@ const UNKNOWN_TEXT: &str = "zq-unheard-of-refusal";
 #[case::bright_data_usage_limit("bright_data", answer(502, &[("x-brd-err-code", "client_10100"), ("x-brd-error", "Zone has reached usage limit")]), "quota_exhausted")]
 #[case::bright_data_session_ip_gone("bright_data", answer(502, &[("x-brd-err-code", "client_10064")]), "sticky_session_expired")]
 #[case::bright_data_unknown("bright_data", answer(502, &[("x-brd-err-code", "client_19999"), ("x-brd-error", UNKNOWN_TEXT)]), "unrecognized")]
+#[case::bright_data_usage_limit_in_proxy_status("bright_data", answer(502, &[("proxy-status", "brd.superproxy.io; received-status=502; error=http_request_denied; details=\"client_10100: Zone has reached usage limit\"")]), "quota_exhausted")]
+#[case::bright_data_session_ip_gone_in_proxy_status("bright_data", answer(502, &[("proxy-status", "brd.superproxy.io; error=destination_unavailable; details=\"client_10064: The IP assigned to this session is unavailable\"")]), "sticky_session_expired")]
+#[case::bright_data_suspended_account_in_proxy_status("bright_data", answer(407, &[("proxy-status", "brd.superproxy.io; error=http_request_denied; details=\"client_10020: Account is suspended\"")]), "quota_exhausted")]
+#[case::bright_data_zone_not_found_in_proxy_status("bright_data", answer(407, &[("proxy-status", "brd.superproxy.io; error=http_request_denied; details=\"client_10002: Zone not found\"")]), "bad_credentials")]
+#[case::bright_data_unknown_in_proxy_status("bright_data", answer(502, &[("proxy-status", "brd.superproxy.io; error=http_request_error; details=\"client_19999: zq\"")]), "unrecognized")]
 #[case::oxylabs_authentication("oxylabs", answer(407, &[("x-error-description", "Authentication failed")]), "bad_credentials")]
 #[case::oxylabs_traffic_limit("oxylabs", answer(407, &[("x-error-description", "Traffic limit exhausted")]), "quota_exhausted")]
 #[case::oxylabs_session_ended("oxylabs", answer(502, &[("x-error-description", "Exit node not found: session ended")]), "sticky_session_expired")]

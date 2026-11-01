@@ -76,6 +76,9 @@ pub(crate) enum Reply {
     Blocked(&'static str),
     /// Never answers.
     Silent,
+    /// Answers as the inner reply says once this much of the paused clock
+    /// passed, as a handler that took that long.
+    After(Duration, Box<Reply>),
     /// Sends these calls to the engine from inside the attempt, each
     /// method with its params, waiting for each reply, which
     /// [`Client::replies`] keeps, then answers as the inner reply says.
@@ -125,6 +128,39 @@ impl Client {
         Some(serde_json::from_str(&line).unwrap())
     }
 
+    /// The reply a handler request gets once `reply`'s calls were sent,
+    /// each waiting for its own reply, and its waits waited.
+    async fn answering(&mut self, mut reply: Reply) -> Reply {
+        loop {
+            reply = match reply {
+                Reply::Calls(calls, then) => {
+                    for (method, params) in calls {
+                        let inside = format!("inside-{}", self.replies.len());
+                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
+                            .await;
+                        loop {
+                            let message = self
+                                .read()
+                                .await
+                                .expect("the engine closed before replying");
+                            if message["id"] == json!(inside) {
+                                self.replies.push(message);
+                                break;
+                            }
+                            self.early.push_back(message);
+                        }
+                    }
+                    *then
+                }
+                Reply::After(took, then) => {
+                    tokio::time::sleep(took).await;
+                    *then
+                }
+                reply => return reply,
+            };
+        }
+    }
+
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
@@ -163,26 +199,7 @@ impl Client {
             } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
             {
                 self.handled.push(message["params"].clone());
-                let mut reply = handler(&message["params"]);
-                while let Reply::Calls(calls, then) = reply {
-                    for (method, params) in calls {
-                        let inside = format!("inside-{}", self.replies.len());
-                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
-                            .await;
-                        loop {
-                            let message = self
-                                .read()
-                                .await
-                                .expect("the engine closed before replying");
-                            if message["id"] == json!(inside) {
-                                self.replies.push(message);
-                                break;
-                            }
-                            self.early.push_back(message);
-                        }
-                    }
-                    reply = *then;
-                }
+                let reply = self.answering(handler(&message["params"])).await;
                 match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records
@@ -227,7 +244,9 @@ impl Client {
                         .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
-                    Reply::Calls(..) => unreachable!("invariant: the calls were sent above"),
+                    Reply::Calls(..) | Reply::After(..) => {
+                        unreachable!("invariant: the calls were sent and the waits waited above")
+                    }
                 }
             } else if message["id"] == json!(id) {
                 return message;

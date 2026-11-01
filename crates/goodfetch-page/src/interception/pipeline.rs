@@ -22,7 +22,8 @@ use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
-use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::http_client;
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
@@ -47,9 +48,10 @@ use super::hops;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
+use crate::borrowed::Lookups;
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
-use crate::page_events::{Refusals, post_data};
+use crate::page_events::{self, Refusals, is_navigation, post_data, resource_type};
 use crate::page_value::{
     DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
     SiteResponse,
@@ -127,10 +129,11 @@ pub(super) struct PageContext {
     /// navigation for its latest hop, a program's own included, and that
     /// navigation's network ID, held as `permit` is (ADRs 0053 and 0088).
     proxy_permit: Mutex<Option<(Option<network::RequestId>, ProxyPermit)>>,
-    /// On a Borrowed browser, the Run's `network.resolve` mapping, through
-    /// which the engine resolves each request's host itself and judges its
-    /// answers, since no relay is under that browser (ADR 0056).
-    lookups: Option<Arc<Resolve>>,
+    /// On a Borrowed browser, its lookups, through which the engine
+    /// resolves each request's host itself, the Run's `network.resolve`
+    /// mapping first, and judges its answers, since no relay is under that
+    /// browser (ADR 0056).
+    lookups: Option<Arc<Lookups>>,
     /// The Run trace's request log, where a refusal no page's event
     /// reports is recorded.
     log: Arc<RequestLog>,
@@ -223,7 +226,7 @@ impl PageContext {
 
     /// The same, on a Borrowed browser whose requests' hosts the engine
     /// resolves through `lookups`, when it is one.
-    pub(super) fn with_lookups(self, lookups: Option<Arc<Resolve>>) -> Self {
+    pub(super) fn with_lookups(self, lookups: Option<Arc<Lookups>>) -> Self {
         Self { lookups, ..self }
     }
 }
@@ -302,6 +305,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         };
         let at_response =
             paused.response_status_code.is_some() || paused.response_error_reason.is_some();
+        context.received(&paused);
         if at_response && let Some(waiting) = lock(&context.responses).remove(&paused.request_id) {
             let _ = waiting.response.send(paused);
             continue;
@@ -352,28 +356,26 @@ impl Held {
         self.overrides = std::mem::take(&mut self.overrides).then(overrides);
     }
 
-    /// The request as a route sees it: without the Session's cookies.
-    fn view(&self) -> RouteRequest {
+    /// The request as a route sees it, with Playwright's values (ADR
+    /// 0085's #703 note): without the Session's cookies, its body masked
+    /// with `masks` as the page's events mask it.
+    fn view(&self, masks: &Masks) -> RouteRequest {
         let headers = self.overrides.headers.clone().unwrap_or_else(|| {
-            self.paused
-                .request
-                .headers
-                .iter()
-                .filter(|(name, _)| !name.eq_ignore_ascii_case(COOKIE))
-                .map(|(name, value)| (name.clone(), header_value(value)))
-                .collect()
+            let mut headers = page_events::headers(&self.paused.request.headers);
+            headers.remove(COOKIE);
+            headers
         });
         RouteRequest {
             url: self.url().to_owned(),
             method: self.method().to_owned(),
             headers,
             resource_type: resource_type(self.paused.resource_type),
-            is_navigation_request: self.navigation,
+            is_navigation_request: is_navigation(Some(self.paused.resource_type)),
             post_data: self
                 .overrides
                 .post_data
                 .clone()
-                .or_else(|| post_data(&self.paused.request)),
+                .or_else(|| post_data(&self.paused.request, masks)),
         }
     }
 }
@@ -396,21 +398,6 @@ fn answer_auth(
         username: credentials.map(|(username, _)| username.to_owned()),
         password: credentials.map(|(_, password)| password.to_owned()),
     }
-}
-
-/// A header's value as the browser gives it.
-fn header_value(value: &serde_json::Value) -> String {
-    value
-        .as_str()
-        .map_or_else(|| value.to_string(), str::to_owned)
-}
-
-/// The name the browser gives `resource_type`, such as `Document`.
-fn resource_type(resource_type: network::ResourceType) -> String {
-    serde_json::to_value(resource_type)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "Other".to_owned())
 }
 
 /// What a route did with a request.
@@ -503,6 +490,33 @@ impl PageContext {
         }
     }
 
+    /// Hands the document whose response is paused at `paused` to the page
+    /// whose main frame receives it, this pipeline's own or the one whose
+    /// navigation a service worker's request carried, when a program opened
+    /// it (ADR 0086): a response the site answered, whatever started the
+    /// navigation and whatever a route then does with it, a redirect's
+    /// excepted, whose last hop is the document.
+    fn received(&self, paused: &fetch::RequestPausedEvent) {
+        let Some(status) = paused.response_status_code else {
+            return;
+        };
+        if (300..400).contains(&status) {
+            return;
+        }
+        let state = if self.main_document(paused) {
+            Some(Arc::clone(&self.state))
+        } else {
+            lock(&self.carried)
+                .get(&paused.request_id)
+                .and_then(Weak::upgrade)
+        };
+        if let Some(state) = state
+            && let Some(on_document) = &state.on_document
+        {
+            on_document.received(&paused.request.url, &state.engine_requests);
+        }
+    }
+
     /// Whether `paused` is a request, or a response, of the document of
     /// the page's main frame: a service worker has none.
     fn main_document(&self, paused: &fetch::RequestPausedEvent) -> bool {
@@ -547,7 +561,7 @@ impl PageContext {
             id: route.call.clone(),
             route_id: route_id.clone(),
             page_id: self.sender.page_id().cloned(),
-            request: held.view(),
+            request: held.view(self.run.secrets().mask().masks()),
         };
         let Ok(mut sent) = route
             .client
@@ -798,7 +812,11 @@ impl PageContext {
     /// Watches the handler that answered `held` until it ends: one that
     /// fails then still loses its route and leaves its failure.
     fn watch(&self, route: &Arc<Route>, held: &Held, mut sent: Sent<RouteHandled>) {
-        let (route, state, url) = (Arc::clone(route), Arc::clone(&self.state), held.view().url);
+        let (route, state, url) = (
+            Arc::clone(route),
+            Arc::clone(&self.state),
+            held.url().to_owned(),
+        );
         self.run.spawn(async move {
             if let Err(ClientRequestError::Failed { message, .. }) = sent.answer().await {
                 route.fail(handler_failed(&url, &message));
@@ -812,7 +830,7 @@ impl PageContext {
     /// `route`'s handler failed on `held`: its route goes, its subscription
     /// ends, and its failure waits for the page's next call.
     fn handler_failed(&self, route: &Arc<Route>, held: &Held, message: &str) {
-        let url = held.view().url;
+        let url = held.url().to_owned();
         route.fail(handler_failed(&url, message));
         self.remove(route);
         self.state.leave(handler_failed(&url, message));
@@ -1050,12 +1068,15 @@ impl PageContext {
     /// host of `url` to, as the browser would connect to them (ADR 0056):
     /// the browser resolves names itself, so an answer that changes after
     /// this lookup reaches it, the rebinding gap Provenance records. A
-    /// name the engine cannot resolve is left to the browser, which
-    /// resolves it itself.
+    /// name the engine cannot resolve is left to a browser on the engine's
+    /// machine, which resolves it as the engine would, and refused on one
+    /// elsewhere, whose network may resolve it to an intranet host or a
+    /// cloud's metadata service (O9 of the deep review).
     ///
     /// # Errors
     ///
-    /// [`Refused`] naming the first address a page may not reach.
+    /// [`Refused`] naming the first address a page may not reach, or
+    /// `network.resolve` for a name the engine cannot resolve.
     async fn judged_addresses(&self, url: &str) -> Result<(), Refused> {
         let Some(lookups) = &self.lookups else {
             return Ok(());
@@ -1071,14 +1092,16 @@ impl PageContext {
         let Some(port) = parsed.port_or_known_default() else {
             return Ok(());
         };
-        match http_client::lookup(&host, port, lookups).await {
+        match http_client::lookup(&host, port, lookups.resolve()).await {
             Ok(addresses) => egress::judge_addresses(url, &addresses, &self.policy),
             Err(failure) => {
+                let location = lookups.location().await;
                 tracing::debug!(
                     ?failure,
+                    ?location,
                     "the engine resolved no address for a Borrowed browser's request"
                 );
-                Ok(())
+                egress::judge_unresolved(url, &self.policy, location)
             }
         }
     }

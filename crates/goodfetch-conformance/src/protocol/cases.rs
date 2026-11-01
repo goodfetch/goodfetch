@@ -310,15 +310,23 @@ impl Site {
         let (_, port) = self.proving_ground.address().rsplit_once(':')?;
         Some(format!("http://{host}:{port}{path}"))
     }
+
+    /// [`Site::named_url`] over TLS, which the same port serves.
+    fn named_secure_url(&self, host: &str, path: &str) -> Option<String> {
+        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
+        Some(format!("https://{host}:{port}{path}"))
+    }
 }
 
 /// The Proving ground's host names that belong to no task and that a case
 /// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
 /// scope family's site and off-site host the route cases load, the
 /// Clean-up pages' two hosts and the payment script's (ADR 0047), the
-/// consent pages' two hosts (ADR 0048), and the `body-limits` family's host
-/// whose robots.txt is past the size limit (ADR 0067).
-const NAMED_HOSTS: [&str; 9] = [
+/// consent pages' two hosts (ADR 0048), the `body-limits` family's host
+/// whose robots.txt is past the size limit, the `access-policy` family's
+/// host whose robots.txt answers late, and the `bombs` family's own
+/// host, whose zstd frame asks for a window past 8 MB (ADR 0067).
+const NAMED_HOSTS: [&str; 11] = [
     "fetch-edge.test",
     "scope.test",
     "elsewhere.test",
@@ -328,6 +336,8 @@ const NAMED_HOSTS: [&str; 9] = [
     consent::HOST,
     consent::FRAME_HOST,
     robots_txt::PAST_THE_SIZE_HOST,
+    robots_txt::SLOW_ROBOTS_HOST,
+    hostile_input::BOMBS_HOST,
 ];
 
 /// The host name of an `http` URL.
@@ -510,7 +520,7 @@ impl Case {
                 navigation::past_its_deadline(connection, site, checks)
             }
             Self::FetchEdge(case) => case.run(connection, site, checks),
-            Self::PageRequest(case) => case.run(connection, site, checks),
+            Self::PageRequest(case) => case.run(connection, target, site, checks),
             Self::Dialog(case) => case.run(connection, site, checks),
             Self::Popup(case) => case.run(connection, site, checks),
             Self::PageFunction(case) => case.run(connection, target, site, checks),
@@ -766,6 +776,7 @@ fn fabricated_hello(
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .expect("invariant: the workspace's version is a Product version"),
         log_level: None,
+        client_surface: None,
     };
     let refused = (|| {
         let id = other.request(

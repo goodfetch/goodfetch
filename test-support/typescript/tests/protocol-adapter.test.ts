@@ -337,6 +337,51 @@ describe("ProtocolAdapter hello", () => {
   });
 });
 
+// The Console Client's stall watchdog asks a silent Connection
+// `engine.info`, so any screen test that runs past two stall timeouts
+// calls it (#1794).
+describe("ProtocolAdapter engine.info", () => {
+  test.for(["collie", "foxhound"] as const)(
+    "answers it itself on %s's engine, naming the engine hello names",
+    async (product) => {
+      const adapter = createProtocolAdapter({ product });
+      const client = new TinyClient(adapter.transport);
+      const hello = await client.call(0, "hello", {
+        protocol_version: "0.1",
+        surface: "console",
+        needs: product,
+        product_version: "0.1.0",
+      });
+
+      const reply = await client.call(1, "engine.info", {});
+
+      const greeted = hello["result"];
+      expect(reply["result"]).toEqual({
+        product,
+        product_major: 0,
+        product_version: isFields(greeted) ? greeted["product_version"] : undefined,
+        protocol_version: isFields(greeted) ? greeted["protocol_version"] : undefined,
+      });
+    },
+  );
+
+  test("answers it with the test's own answer once the test set one", async () => {
+    const adapter = createProtocolAdapter();
+    const set = {
+      product: "collie",
+      product_major: 2,
+      product_version: "2.4.1",
+      protocol_version: "0.1",
+    } as const;
+    adapter.answer("engine.info", set);
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(1, "engine.info", {});
+
+    expect(reply["result"]).toEqual(set);
+  });
+});
+
 describe("ProtocolAdapter events", () => {
   test("streams pushed events to a subscription, never more than its credits", async () => {
     const adapter = createProtocolAdapter();
@@ -373,28 +418,30 @@ describe("ProtocolAdapter events", () => {
     ]);
   });
 
-  test("after forgetPositions(), a resumed subscription restarts from events.resync", async () => {
+  test("after forgetPositions(), a resumed subscription restarts from events.resync of the live runs", async () => {
     const adapter = createProtocolAdapter();
     const first = new TinyClient(adapter.transport);
     const instance = await first.hello(0);
     first.subscribe(1, {}, 1);
     adapter.push(axes("one", "running"), 1);
     adapter.push(axes("one", "finished"), 2);
+    adapter.push(axes("live", "running"), 3);
     await first.eventsUntil(1, 1);
     adapter.drop();
     adapter.forgetPositions();
 
     const resumed = new TinyClient(adapter.transport);
     resumed.subscribe(1, { after: { engine_instance: instance, position: 1 } }, 10);
-    adapter.push(axes("two", "running"), 4);
+    adapter.push(axes("two", "running"), 5);
 
+    // As the engine's: a run that ended leaves the resync (#1768).
     expect(await resumed.eventsUntil(1, 2)).toEqual([
       {
-        position: 3,
+        position: 4,
         event: "events.resync",
-        data: { runs: [{ run_id: "one", lifecycle: "finished" }], needs_you: [] },
+        data: { runs: [{ run_id: "live", lifecycle: "running" }], needs_you: [] },
       },
-      { position: 4, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
+      { position: 5, event: "run.axes_changed", data: { run_id: "two", lifecycle: "running" } },
     ]);
   });
 

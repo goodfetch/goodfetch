@@ -34,9 +34,11 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
+use super::robots_txt;
 use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
+use crate::interception::OnDocument;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
 use crate::page_value::{Observer, Reader};
@@ -65,9 +67,9 @@ pub(super) struct Adopting {
 /// fails, or its future is dropped (a tier race's navigation that lost
 /// while its page opened), its events, dialogs and interception are taken
 /// out and its target closes, as an [`EnginePage`](super::EnginePage)'s
-/// does. Each of those parts holds the page's driver, and so its browser's
-/// handle on the Run trace's CDP log, whose writer the Run's end waits
-/// for: one left behind kept the Run from ever ending.
+/// does. Each of those parts holds the page's driver, and so its browser
+/// and its Run: one left behind would keep them past the Run's end, though
+/// the end no longer waits for it (#1763).
 struct TakenIn<'a> {
     sessions: &'a Sessions,
     page: PageId,
@@ -321,9 +323,14 @@ impl Sessions {
         settings: &Values,
         (refusals, in_frames): (Refusals, Vec<OnChild>),
     ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
+        // A page a program opened reads robots.txt for each document its
+        // main frame receives, beside its navigation, never before it (ADR
+        // 0086).
+        let reader = robots_txt::Reader::of(self, page, session, driver.value(), run)
+            .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
-            .start(page, session, driver, run, settings, refusals)
+            .start(page, session, driver, run, settings, (refusals, reader))
             .await?;
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
@@ -406,19 +413,17 @@ impl Sessions {
             .await;
         match adopted {
             Ok(popup) => {
-                opener_events
-                    .publish(
-                        PageEventName::Popup,
-                        &PAGE_POPUP,
-                        &PagePopup {
-                            page_id: opener_id,
-                            popup: PageOpened {
-                                page_id: popup,
-                                session_id: session.clone(),
-                            },
+                opener_events.publish(
+                    PageEventName::Popup,
+                    &PAGE_POPUP,
+                    &PagePopup {
+                        page_id: opener_id,
+                        popup: PageOpened {
+                            page_id: popup,
+                            session_id: session.clone(),
                         },
-                    )
-                    .await;
+                    },
+                );
                 true
             }
             Err(error) => {
@@ -507,10 +512,12 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.run, effect).await;
+                self.page_ended(page_id, &page.run, &page.life, effect)
+                    .await;
             }
             effect => {
-                self.page_ended(page_id, &page.run, effect).await;
+                self.page_ended(page_id, &page.run, &page.life, effect)
+                    .await;
             }
         }
         Ok(())

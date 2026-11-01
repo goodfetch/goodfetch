@@ -12,6 +12,7 @@
 
 use std::io::Write as _;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_test_support::TestEnv;
@@ -124,5 +125,69 @@ fn a_log_file_opened_again_goes_on_from_its_size() {
     assert_eq!(
         counts,
         vec![("daemon-0.0.1.jsonl", 3), ("daemon-0.0.jsonl", 1)]
+    );
+}
+
+/// Makes the empty file `name` in `folder`, last written `age` seconds ago.
+fn aged(folder: &Path, name: &str, age: u64) {
+    let file = std::fs::File::create(folder.join(name)).unwrap();
+    file.set_modified(SystemTime::now() - Duration::from_secs(age))
+        .unwrap();
+}
+
+/// A process other than the Daemon writes a set of its own,
+/// `<executable>-<process ID>.jsonl` and its rotated files. At its start
+/// the newest `max_files` sets of its executable are kept, its own
+/// included, by when each set was last written, and the rest go, so the
+/// folder stays bounded. The Daemon's set, another executable's and any
+/// other file are left as they are.
+///
+/// Covers: row:RT-17, setting:log.file.max_files
+#[test]
+fn a_process_keeps_the_newest_sets_of_its_executable_at_its_start() {
+    let env = TestEnv::new();
+    let folder = env.folder().join("logs");
+    std::fs::create_dir_all(&folder).unwrap();
+    for (name, age) in [
+        ("collie-11.jsonl", 500),
+        ("collie-11.1.jsonl", 600),
+        ("collie-12.jsonl", 100),
+        ("collie-12.1.jsonl", 200),
+        ("collie-13.jsonl", 400),
+        ("collie-14.1.jsonl", 50),
+        ("collie-14.jsonl", 300),
+        ("daemon-0.0.jsonl", 900),
+        ("collie-cli-15.jsonl", 900),
+        ("notes.txt", 900),
+    ] {
+        aged(&folder, name, age);
+    }
+
+    let log = LogFile::open_of_process(
+        &folder,
+        "collie",
+        99,
+        Rotation {
+            max_size: 100,
+            max_files: 3,
+        },
+        Clock::system(),
+    )
+    .unwrap();
+    written(&log, 1, 30);
+
+    let names: Vec<String> = files(&folder).into_iter().map(|(name, _)| name).collect();
+    assert_eq!(
+        names,
+        [
+            "collie-12.1.jsonl",
+            "collie-12.jsonl",
+            "collie-14.1.jsonl",
+            "collie-14.jsonl",
+            "collie-99.jsonl",
+            "collie-cli-15.jsonl",
+            "daemon-0.0.jsonl",
+            "notes.txt",
+        ]
     );
 }

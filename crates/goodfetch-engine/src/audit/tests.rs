@@ -260,6 +260,29 @@ fn two_engines_append_to_one_chain() {
     );
 }
 
+/// An engine that makes a home's Audit log while another engine writes the
+/// new file records its entry once the other's write ends (#1773): its
+/// switch of the file to WAL waits, as SQLite answers that switch busy at
+/// once.
+///
+/// Covers: story:4-69
+#[test]
+fn an_engine_making_the_log_beside_another_engines_write_records_its_entry() {
+    let env = TestEnv::new();
+    let log = log(&env);
+
+    let recorded = crate::sqlite_wal::tests::opened_beside_a_write(log.path(), || {
+        log.record(
+            &origin(),
+            &SECRET_REFERENCE_USED,
+            json!({ "by": "second" }),
+            now(),
+        )
+    });
+
+    assert_eq!(recorded.map(drop), Ok(()));
+}
+
 /// Covers: story:4-70
 #[test]
 fn a_removed_head_file_breaks_the_log_past_its_last_entry() {

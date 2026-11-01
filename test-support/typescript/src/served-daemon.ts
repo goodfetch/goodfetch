@@ -129,7 +129,7 @@ export interface ServedDaemon extends DaemonDescription, Omit<ServedConsole, "ur
   readonly home: string;
   /** The served Console's URL, `http://127.0.0.1:<port>/`. */
   readonly url: string;
-  /** The served Console's port, bound on port 0. */
+  /** The served Console's port: the one the OS chose for port 0, unless the test named one with `consolePort`. */
   readonly port: number;
   /** The Proving ground started on the test's seed, if it asked for one. */
   readonly provingGround: ProvingGroundDescription | undefined;
@@ -160,6 +160,8 @@ export interface ServedDaemonStart {
   readonly oidc: OidcClient;
   /** The size in bytes of a filesystem of its own to put the test's folder on, when given (Linux only). */
   readonly sizeCapped?: number | undefined;
+  /** The named port the Daemon's Console keeps across its restarts (`reserveNamedPort`), when given; else the OS chooses one at each start. */
+  readonly consolePort?: number | undefined;
 }
 
 /** A started served Daemon. */
@@ -191,6 +193,7 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       program: mounting?.program,
       provingGroundSeed: start.provingGroundSeed,
       daemon: start.product,
+      consolePort: start.consolePort,
     });
   } catch (error) {
     await mounting?.close();

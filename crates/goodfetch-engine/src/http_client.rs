@@ -1207,7 +1207,9 @@ async fn open_tls(
         (Some(_), None) => Some(Arc::new(tls::Seen::default())),
         (None, _) => None,
     };
-    let config = network.trust.connection_config(seen.clone(), client);
+    let config = network
+        .trust
+        .connection_config(seen.clone(), client, network.clock);
     let tls = match tokio_rustls::TlsConnector::from(Arc::new(config))
         .connect(server_name, tcp)
         .await

@@ -179,8 +179,9 @@ pub struct SessionPool {
     tiers: BTreeMap<String, StoredTier>,
     /// How many attempts each Session drawn serves now.
     serving: BTreeMap<SessionId, u64>,
-    /// The retired Sessions an attempt still holds.
-    retiring: BTreeSet<SessionId>,
+    /// The retired Sessions an attempt still holds, each with its rotation
+    /// position, which a block one of those attempts meets still blocks.
+    retiring: BTreeMap<SessionId, Option<u64>>,
     /// The retired Sessions no attempt holds, not yet taken.
     closable: Vec<SessionId>,
     changes: Changes,
@@ -225,7 +226,7 @@ impl SessionPool {
             pools,
             tiers: stored.tiers,
             serving: BTreeMap::new(),
-            retiring: BTreeSet::new(),
+            retiring: BTreeMap::new(),
             closable: Vec::new(),
             changes: Changes::default(),
             local: None,
@@ -257,15 +258,22 @@ impl SessionPool {
         session: &SessionId,
     ) -> Option<Result<SessionAddresses, Unavailable>> {
         let local = self.local.as_ref()?;
+        Some(local.at(self.address_ordinal(session)?))
+    }
+
+    /// The position of the Run's rotation the open Session `session` takes
+    /// its local addresses from, which its browser context's egress relay
+    /// binds too, so each of its requests leaves from one address: `None`
+    /// without `egress.local_addresses`.
+    pub fn address_ordinal(&self, session: &SessionId) -> Option<u64> {
+        self.local.as_ref()?;
         let (pool, position) = key(session);
-        let ordinal = self
-            .pools
+        self.pools
             .get(&pool)?
             .open
             .get(&position)?
             .stored
-            .address_ordinal?;
-        Some(local.at(ordinal))
+            .address_ordinal
     }
 
     /// The Sessions that rotated within a block since the last call, each
@@ -422,7 +430,7 @@ impl SessionPool {
         };
         if left == 0 {
             self.serving.remove(session);
-            if self.retiring.remove(session) {
+            if self.retiring.remove(session).is_some() {
                 self.closable.push(session.clone());
             }
         }
@@ -509,7 +517,7 @@ impl SessionPool {
         domain_key: &str,
     ) -> u64 {
         let position = self.pools.get(pool).map_or(0, |sessions| sessions.opened) + 1;
-        let address_ordinal = self.address_ordinal(&id(pool, position), domain_key);
+        let address_ordinal = self.opening_ordinal(&id(pool, position), domain_key);
         let sessions = self.pools.entry(pool.clone()).or_default();
         sessions.opened = position;
         let stored = StoredSession {
@@ -536,7 +544,7 @@ impl SessionPool {
     /// next one whose addresses lie outside every block blocked there,
     /// within [`SEARCHED`] positions, or the next one, noted as rotating
     /// within a block, when none does.
-    fn address_ordinal(&mut self, session: &SessionId, domain_key: &str) -> Option<u64> {
+    fn opening_ordinal(&mut self, session: &SessionId, domain_key: &str) -> Option<u64> {
         let local = self.local.as_ref()?;
         if local.proxied
             && let Some(ordinal) = self.replaced.remove(domain_key)
@@ -567,20 +575,23 @@ impl SessionPool {
         Some(ordinal)
     }
 
-    /// Keeps what a block on `domain_key` that retires the open Session at
-    /// `position` of `pool` means for its replacement's local addresses:
-    /// through a proxy, its position, which the replacement keeps; else
-    /// its addresses' blocks, blocked on the domain for the rest of the
-    /// run.
+    /// Keeps what a block on `domain_key` met by the Session at `position`
+    /// of `pool`, open or retired while an attempt held it, means for its
+    /// replacement's local addresses: through a proxy, its position, which
+    /// the replacement keeps; else its addresses' blocks, blocked on the
+    /// domain for the rest of the run.
     fn blocked_on(&mut self, pool: &PoolKey, position: u64, domain_key: &str) {
         let Some(local) = self.local.as_ref() else {
             return;
         };
-        let Some(ordinal) = self
+        let open = self
             .pools
             .get(pool)
             .and_then(|sessions| sessions.open.get(&position))
-            .and_then(|open| open.stored.address_ordinal)
+            .map(|open| open.stored.address_ordinal);
+        let Some(ordinal) = open
+            .or_else(|| self.retiring.get(&id(pool, position)).copied())
+            .flatten()
         else {
             return;
         };
@@ -622,12 +633,13 @@ impl SessionPool {
             return;
         };
         open.stored.retired_because = Some(retirement.as_str());
+        let address_ordinal = open.stored.address_ordinal;
         self.changes
             .sessions
             .insert((pool.clone(), position), open.stored);
         let session = id(pool, position);
         if self.serving.contains_key(&session) {
-            self.retiring.insert(session);
+            self.retiring.insert(session, address_ordinal);
         } else {
             self.closable.push(session);
         }

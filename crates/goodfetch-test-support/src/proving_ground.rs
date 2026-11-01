@@ -31,6 +31,10 @@ use crate::tools::{Tool, ToolsError, tools};
 /// nextest's slow timeout rather than as an unnamed test timeout (ADR 0064).
 pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
 
+/// How long a Proving ground has to exit once asked to stop: it closes its
+/// connections and undoes its network shaping first.
+const STOP_DEADLINE: Duration = Duration::from_secs(10);
+
 /// The file name of the certificate authority, in its instance's folder.
 const CERTIFICATE_AUTHORITY_FILE: &str = "certificate-authority.pem";
 
@@ -115,7 +119,9 @@ struct ServeLine {
 }
 
 /// The commit's Proving ground, serving one seed for one test. Its process
-/// joins the test's record, and it is stopped when dropped.
+/// joins the test's record, and it is stopped when dropped: with `SIGINT`,
+/// as [`ProvingGround::stop`] does, and killed only when it outlasts the
+/// deadline.
 pub struct ProvingGround {
     process: Process,
     address: SocketAddr,
@@ -350,18 +356,32 @@ impl ProvingGround {
     }
 }
 
+impl ProvingGround {
+    /// Stops it as Ctrl-C does, with `SIGINT`, so that it ends its
+    /// connections and undoes its network shaping, and answers how it
+    /// exited once reaped. One that outlasts the deadline is killed. On
+    /// Windows, it is killed.
+    ///
+    /// # Errors
+    ///
+    /// When the signal, the kill or the wait fails, or when it outlasted
+    /// the deadline.
+    pub fn stop(self) -> io::Result<std::process::ExitStatus> {
+        self.process.interrupt_and_wait(STOP_DEADLINE)
+    }
+}
+
 impl Drop for ProvingGround {
     fn drop(&mut self) {
         stop(&self.process);
     }
 }
 
-/// Kills a process that may already have exited, and reaps it.
+/// Stops a process that may already have exited, and reaps it.
 fn stop(process: &Process) {
-    let mut child = process.child();
-    // Best effort: a process that already exited needs only its wait.
-    let _ = child.kill();
-    let _ = child.wait();
+    // Best effort: a Proving ground that fails to stop is killed and reaped
+    // all the same, and the test's teardown checks that none is left.
+    let _ = process.interrupt_and_wait(STOP_DEADLINE);
 }
 
 /// Why a Proving ground did not start.

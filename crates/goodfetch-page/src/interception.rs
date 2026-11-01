@@ -87,11 +87,11 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
+use goodfetch_clean_up_rules::removal::Selectors;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
-use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -115,6 +115,7 @@ use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::borrowed::Lookups;
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
@@ -159,6 +160,10 @@ struct Shared {
     /// The domains each live Run learned blocking off for, while any of its
     /// pages holds them.
     learned: Mutex<BTreeMap<RunId, Weak<Learned>>>,
+    /// The cosmetic rules' selectors each live Run's documents were read
+    /// with, parsed, while any of its pages or its served documents' rules
+    /// hold them: a Run parses each selector once, not once a page (#1765).
+    selectors: Mutex<BTreeMap<RunId, Weak<Selectors>>>,
     /// The cosmetic rules each live Run's served documents are read with,
     /// held until the Run ends: a Run whose pages a fetch tier serves may
     /// hold no Session that keeps its Filter lists loaded, and without
@@ -183,6 +188,19 @@ impl Shared {
         learned.retain(|_, held| held.strong_count() > 0);
         let held = Arc::new(Learned::default());
         learned.insert(run.clone(), Arc::downgrade(&held));
+        held
+    }
+
+    /// The selectors `run`'s documents are read with, which its pages and
+    /// its served documents share.
+    fn selectors(&self, run: &RunId) -> Arc<Selectors> {
+        let mut selectors = lock(&self.selectors);
+        if let Some(held) = selectors.get(run).and_then(Weak::upgrade) {
+            return held;
+        }
+        selectors.retain(|_, held| held.strong_count() > 0);
+        let held = Arc::new(Selectors::default());
+        selectors.insert(run.clone(), Arc::downgrade(&held));
         held
     }
 }
@@ -240,9 +258,9 @@ struct Tables {
     /// The Sessions whose Run was warned that `browser.block_resources`
     /// shows.
     warned: BTreeSet<SessionId>,
-    /// The Sessions on a Borrowed browser, each with the Run's
-    /// `network.resolve` mapping its requests' hosts are resolved through.
-    interception_only: BTreeMap<SessionId, Arc<Resolve>>,
+    /// The Sessions on a Borrowed browser, each with the lookups its
+    /// requests' hosts are resolved through.
+    interception_only: BTreeMap<SessionId, Arc<Lookups>>,
     /// Each Session's own failure slot: where a Session route's handler
     /// that failed on a service worker's request leaves its failure, for
     /// the next call on any page of the Session.
@@ -286,6 +304,19 @@ pub(super) struct PageState {
     lists_blocked: AtomicU64,
     /// The domains its Run learned blocking off for.
     learned: Arc<Learned>,
+    /// What it does with each document its main frame receives, when a
+    /// program opened it; none for a service worker's own.
+    on_document: Option<Arc<dyn OnDocument>>,
+}
+
+/// What a page a program opened does with each document its main frame
+/// receives from the site, whatever started its navigation: its Session's
+/// side reads its origin's robots.txt for it (ADR 0086). A handler's page
+/// has none: its navigation gate judges its documents (ADR 0087).
+pub(crate) trait OnDocument: Send + Sync {
+    /// The main frame received the document at `url`, its response arrived;
+    /// `steps` are its Session's steps 3 to 8 for the engine's own requests.
+    fn received(&self, url: &str, steps: &EngineRequests);
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -358,12 +389,19 @@ pub(crate) struct Cosmetic {
     pub(crate) version: String,
     /// What the Session's settings choose of them.
     pub(crate) choices: Choices,
+    /// Their selectors as the page's Run parsed them.
+    pub(crate) selectors: Arc<Selectors>,
 }
 
 impl Cosmetic {
     /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
-    /// version `version`, when any list is on.
-    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+    /// version `version`, when any list is on, their selectors parsed
+    /// through `selectors`.
+    fn of(
+        blocking: &steps::Blocking,
+        version: Option<String>,
+        selectors: impl FnOnce() -> Arc<Selectors>,
+    ) -> Option<Self> {
         blocking
             .lists
             .as_ref()
@@ -372,6 +410,7 @@ impl Cosmetic {
                 lists: Arc::clone(lists),
                 version,
                 choices: blocking.choices.clone(),
+                selectors: selectors(),
             })
     }
 }
@@ -450,21 +489,22 @@ impl Interception {
 
     /// Holds the Session `session`, on a Borrowed browser, to the policy by
     /// interception alone (ADR 0056): no relay is under that browser, so
-    /// each request's host is resolved by the engine through `resolve`,
-    /// the Run's `network.resolve` mapping, and its answers judged before
-    /// it is sent on.
-    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, resolve: Resolve) {
+    /// each request's host is resolved by the engine through `lookups`,
+    /// the Run's `network.resolve` mapping first, and its answers judged
+    /// before it is sent on.
+    pub(crate) fn hold_by_interception_only(&self, session: &SessionId, lookups: Lookups) {
         lock(&self.shared.tables)
             .interception_only
-            .insert(session.clone(), Arc::new(resolve));
+            .insert(session.clone(), Arc::new(lookups));
     }
 
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
-    /// each refusal left in `refusals` for the request's failure to carry.
-    /// It answers what the Session chose of the Clean-up rules beside its
+    /// each refusal left in `refusals` for the request's failure to carry,
+    /// each document its main frame receives handed to `on_document`. It
+    /// answers what the Session chose of the Clean-up rules beside its
     /// requests' blocking, and what becomes of the page's children: each
     /// out-of-process frame's requests pass the page's pipeline too, from
     /// before it runs. The responses a response observer keeps are the
@@ -486,7 +526,7 @@ impl Interception {
         driver: &PageDriver,
         run: &Run,
         own: &Values,
-        refusals: Refusals,
+        (refusals, on_document): (Refusals, Option<Arc<dyn OnDocument>>),
     ) -> Result<HeldPage, CallError> {
         let policy = policy_of(run)?;
         let resolved = run.settings().map(RunSettings::resolved);
@@ -495,7 +535,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version),
+            cosmetic: Cosmetic::of(&blocking, version, || self.shared.selectors(run.id())),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -527,6 +567,7 @@ impl Interception {
                     policy: policy.clone(),
                     blocking: blocking.clone(),
                 },
+                on_document,
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             (state, lookups)
@@ -601,7 +642,7 @@ impl Interception {
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
         run: &Run,
-        (policy, lookups): (Policy, Option<Arc<Resolve>>),
+        (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnChild {
         let (page_id, state, page, run) = (
@@ -672,7 +713,7 @@ impl Interception {
         (session, worker): (&SessionId, Worker),
         page: &PageDriver,
         run: &Run,
-        (policy, lookups): (Policy, Option<Arc<Resolve>>),
+        (policy, lookups): (Policy, Option<Arc<Lookups>>),
         blocking: steps::Blocking,
     ) -> OnWorker {
         // The browser keeps this choice, so it holds no driver of the
@@ -734,6 +775,7 @@ impl Interception {
                         policy: policy.clone(),
                         blocking: blocking.clone(),
                     },
+                    on_document: None,
                 });
                 let context = Arc::new(
                     PageContext::new(
@@ -839,7 +881,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version)
+            Cosmetic::of(&blocking, version, || self.shared.selectors(run.id()))
         })
         .await
         .clone()

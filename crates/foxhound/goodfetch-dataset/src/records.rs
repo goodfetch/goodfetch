@@ -260,6 +260,31 @@ pub fn read(
     selected(connection, RECORD_COLUMNS, query, most, dataset_record)
 }
 
+/// The committed Records `query` takes, at most `most`, in number order,
+/// and whether every Record numbered through `query.through` has
+/// committed (`false` without one), both read in one transaction, so from
+/// one state of the run file: when it has and fewer than `most` came, the
+/// page holds the last Record through it, however the writer commits
+/// meanwhile.
+///
+/// # Errors
+///
+/// As [`read`].
+pub(crate) fn read_through(
+    connection: &Connection,
+    query: Query<'_>,
+    most: usize,
+) -> rusqlite::Result<(Vec<DatasetRecord>, bool)> {
+    let transaction = connection.unchecked_transaction()?;
+    let page = read(&transaction, query, most)?;
+    let committed = match query.through {
+        Some(through) => last_number(&transaction, query.dataset)? >= through,
+        None => false,
+    };
+    transaction.finish()?;
+    Ok((page, committed))
+}
+
 /// The columns of `records` [`dataset_record`] reads, in its order.
 pub(crate) const RECORD_COLUMNS: &str = "number, data, work_item, url, committed_at, provenance";
 
@@ -289,3 +314,6 @@ fn json_column<T: serde::de::DeserializeOwned>(column: usize, text: &str) -> rus
         )
     })
 }
+
+#[cfg(test)]
+mod tests;

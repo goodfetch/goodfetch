@@ -248,6 +248,10 @@ pub(crate) fn enqueue(urls: usize) -> usize {
     let folder = tempfile::tempdir().expect("invariant: a temporary folder is created");
     let mut connection = Connection::open(folder.path().join("run.sqlite"))
         .expect("invariant: SQLite opens a run file in a new folder");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the bench's own new run file, which no other connection opens"
+    )]
     connection
         .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
         .expect("invariant: the run file takes WAL");

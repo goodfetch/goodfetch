@@ -20,6 +20,8 @@ Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For 
 
 Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch.
 
+The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner.
+
 Traps that break things, each explained in `STYLE.md`:
 
 - Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Two test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069) and `goodfetch-test-env` (ADR 0062) write their own stdout, and neither ships in a Product.

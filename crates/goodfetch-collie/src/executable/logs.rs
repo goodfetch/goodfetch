@@ -177,24 +177,30 @@ pub(super) fn file_of(
         max_size: count(LOG_FILE_MAX_SIZE.name, 10 << 20),
         max_files: count(LOG_FILE_MAX_FILES.name, 5),
     };
-    let stem = match process {
-        Process::DaemonRun | Process::DaemonLaunched => format!("daemon-{}", major_name(version)),
-        Process::Other => format!("{binary}-{}", std::process::id()),
-    };
     let home = home.ok_or_else(|| Refused {
         code: SETTING_NOT_APPLICABLE.name,
         message: "`log.output` is `file`, and no Goodfetch home holds a log folder".to_owned(),
     })?;
     let folder = home.logs();
-    LogFile::open(&folder, &stem, rotation, clock)
-        .map(Some)
-        .map_err(|error| Refused {
-            code: SETTING_NOT_APPLICABLE.name,
-            message: format!(
-                "the log file cannot be opened in `{}`: {error}",
-                folder.display()
-            ),
-        })
+    match process {
+        Process::DaemonRun | Process::DaemonLaunched => LogFile::open(
+            &folder,
+            &format!("daemon-{}", major_name(version)),
+            rotation,
+            clock,
+        ),
+        Process::Other => {
+            LogFile::open_of_process(&folder, binary, std::process::id(), rotation, clock)
+        }
+    }
+    .map(Some)
+    .map_err(|error| Refused {
+        code: SETTING_NOT_APPLICABLE.name,
+        message: format!(
+            "the log file cannot be opened in `{}`: {error}",
+            folder.display()
+        ),
+    })
 }
 
 /// A subscriber's writer whose every writer passes its lines through the

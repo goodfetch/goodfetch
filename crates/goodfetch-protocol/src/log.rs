@@ -196,7 +196,7 @@ pub const LOG_FILE_MAX_SIZE: Setting = Setting {
 /// `log.file.max_files` (ADR 0122).
 pub const LOG_FILE_MAX_FILES: Setting = Setting {
     name: "log.file.max_files",
-    description: "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. Read when the process starts; set in user configuration or an Operator policy only.",
+    description: "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
     kind: ValueKind::Count,
     default: five,
     clearable: false,

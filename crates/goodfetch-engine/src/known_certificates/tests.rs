@@ -201,6 +201,29 @@ fn a_lookup_answers_while_another_connection_holds_the_stores_write_lock(#[case]
     assert_eq!(answered, Ok(()));
 }
 
+/// An engine that makes the new store while another engine writes the new
+/// file pins its key once that write ends: its switch of the file to WAL
+/// waits, as SQLite answers that switch busy at once (#1773's class).
+///
+/// Covers: story:4-35, format:known-certificates
+#[test]
+fn an_engine_making_the_store_beside_another_engines_write_pins_its_key() {
+    let env = TestEnv::new();
+    let store = store(&env);
+
+    let pinned = crate::sqlite_wal::tests::opened_beside_a_write(store.path(), || {
+        store.pin(
+            "os_user",
+            "expired.certificates.test",
+            &key(1),
+            Some(&run("first")),
+            now(),
+        )
+    });
+
+    assert_eq!(pinned, Ok(Pinned::First));
+}
+
 /// A moment an hour after [`now`], when a change is seen or accepted.
 fn later() -> Timestamp {
     "2026-01-05T10:00:00Z".parse().unwrap()

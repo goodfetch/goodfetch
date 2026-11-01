@@ -9,6 +9,8 @@
 
 mod model;
 
+use std::time::Duration;
+
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
@@ -101,6 +103,36 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     });
 
     assert_eq!(pragmas, ("wal".to_owned(), "2".to_owned()));
+}
+
+/// A writer opens a new run file another connection writes once that write
+/// ends: its switch of the file to WAL waits, as SQLite answers that switch
+/// busy at once (#1773's class).
+///
+/// Covers: story:3-25
+#[test]
+fn a_writer_opens_a_new_run_file_beside_another_write_of_it() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let opened = crate::sqlite_wal::tests::opened_beside_a_write(&path, || {
+        goodfetch_test_support::runtime().block_on(async {
+            let owner = TaskOwner::root(BlockingPolicy::Inline);
+            let opened = RunState::open(
+                path.clone(),
+                &RunStateOptions::default(),
+                vec![ITEMS],
+                1,
+                &owner,
+            )
+            .await
+            .map(drop);
+            owner.wait().await;
+            opened
+        })
+    });
+
+    assert_eq!(opened, Ok(()));
 }
 
 /// `run_state.durability = fast` trades the power-cut guarantee for speed:
@@ -294,6 +326,55 @@ fn a_write_whose_read_meets_a_damaged_disk_fails_its_group_as_a_storage_failure(
         ),
         (true, true, true, Vec::<i64>::new()),
         "{answers:?}"
+    );
+}
+
+/// A last write stops the writer once it commits, though other handles
+/// still hold it: a write through one of them afterwards, or through a
+/// place one reserved before, is refused as `Closed`, and the file holds
+/// every write queued up to the last and nothing after it (#1763).
+/// Covers: story:3-153
+#[test]
+fn a_last_write_stops_the_writer_while_other_handles_hold_it_and_refuses_later_writes() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let (stopped, later, reserved) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            path.clone(),
+            &RunStateOptions::default(),
+            vec![ITEMS],
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        let stray = state.clone();
+        let place = stray.reserve().await.unwrap();
+        state.write(insert(1)).await.unwrap();
+        state.write_last(insert(2)).await.unwrap();
+        let stopped = tokio::time::timeout(Duration::from_mins(1), owner.wait())
+            .await
+            .is_ok();
+        let later = stray.write(insert(3)).await;
+        let reserved = place.write(insert(4)).await;
+        (stopped, later, reserved)
+    });
+
+    assert_eq!(
+        (
+            stopped,
+            later,
+            reserved,
+            items(&open_reader(&path, None).unwrap()).unwrap(),
+        ),
+        (
+            true,
+            Err(RunStateError::Closed),
+            Err(RunStateError::Closed),
+            vec![1, 2],
+        )
     );
 }
 

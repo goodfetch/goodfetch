@@ -258,10 +258,8 @@ pub struct ExtractionField {
 }
 
 /// What finds a field's element, named by `kind`: a CSS selector or an
-/// `XPath` expression. A page a fetch tier serves from its document reads
-/// a CSS selector; an `XPath` expression is read by the browser, to which
-/// the request escalates under `fetch.tier: auto` (`browser_required`
-/// under a forced cheaper tier).
+/// `XPath` expression, each read alike on every tier, a page a fetch tier
+/// serves from its document reading it as a browser reads it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FieldLocator {
@@ -271,7 +269,9 @@ pub enum FieldLocator {
         #[schemars(extend("arrived_in" = "0.1"))]
         selector: String,
     },
-    /// An `XPath` 1.0 expression.
+    /// An `XPath` 1.0 expression that finds nodes, with no namespace
+    /// prefix and no variable; the field reads the first node it finds in
+    /// document order, when that node is an element.
     Xpath {
         /// The expression.
         #[schemars(extend("arrived_in" = "0.1"))]

@@ -29,6 +29,98 @@ fn a_kept_folder_is_listed_on_failure() {
     assert!(Path::new(kept).starts_with(env.folder()), "{kept}");
 }
 
+/// A failed in-memory test's folder is kept in the temporary folder on
+/// disk, not on the memory file system, where every kept folder would hold
+/// RAM until someone deletes it (TESTING.md, Shared helpers).
+#[cfg(target_os = "linux")]
+#[test]
+fn an_in_memory_folder_of_a_failed_test_is_kept_on_disk() {
+    let env = TestEnv::new();
+
+    let output = probe(&env, "probe::fails_with_an_in_memory_test_env")
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let kept = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("goodfetch-test-folder-kept="))
+        .map_or_else(|| panic!("no kept folder listed: {stderr}"), Path::new);
+    let name = kept.file_name().unwrap();
+    let left_in_memory = Path::new("/dev/shm").join(name);
+    let still_there = left_in_memory.exists();
+    if still_there {
+        std::fs::remove_dir_all(&left_in_memory).unwrap();
+    }
+    assert!(!output.status.success());
+    assert!(
+        !still_there,
+        "{} is left in memory",
+        left_in_memory.display()
+    );
+    assert!(kept.starts_with(env.folder()), "{}", kept.display());
+    assert_eq!(
+        std::fs::read_to_string(kept.join("evidence.txt")).unwrap(),
+        "kept"
+    );
+}
+
+/// A test killed on its timeout runs no teardown, so its in-memory folder
+/// stays: the next in-memory setup finds its owner gone and moves it to
+/// the temporary folder on disk.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_in_memory_folder_a_killed_test_left_is_moved_to_disk_by_the_next_setup() {
+    let mut exited = std::process::Command::new("true").spawn().unwrap();
+    let gone = exited.id();
+    exited.wait().unwrap();
+    let name = format!("probe-killed é pid{gone}-left-by-{}", std::process::id());
+    let left = Path::new("/dev/shm").join(&name);
+    std::fs::create_dir(&left).unwrap();
+    std::fs::write(left.join("evidence.txt"), "kept").unwrap();
+
+    let _env = TestEnv::in_memory();
+
+    let moved = std::env::temp_dir().join(&name);
+    let still_left = left.exists();
+    let evidence = std::fs::read_to_string(moved.join("evidence.txt"));
+    let _ = std::fs::remove_dir_all(&left);
+    let _ = std::fs::remove_dir_all(&moved);
+    assert!(!still_left, "{} is left in memory", left.display());
+    assert_eq!(evidence.unwrap(), "kept");
+}
+
+/// A child that ignores `SIGINT` is killed at the deadline and reaped, so a
+/// teardown that interrupts its process first still leaves none alive.
+#[cfg(unix)]
+#[test]
+fn a_child_that_ignores_sigint_is_killed_at_the_deadline_and_reaped() {
+    use std::io::BufRead as _;
+
+    let env = TestEnv::new();
+    let mut command = env.process_command("/bin/sh");
+    command.args(["-c", "trap '' INT; echo ignoring; read line"]);
+    let process = env.spawn(&mut command).unwrap();
+    // The interrupt waits for the child's word that its `trap` is set: one
+    // sent before it would stop the shell, not reach the deadline.
+    let stdout = process.child().stdout.take().unwrap();
+    let mut said = String::new();
+    std::io::BufReader::new(stdout)
+        .read_line(&mut said)
+        .unwrap();
+    assert_eq!(said, "ignoring\n");
+
+    let stopped = process.interrupt_and_wait(std::time::Duration::from_millis(300));
+
+    assert_eq!(
+        (
+            stopped.map_err(|error| error.kind()).err(),
+            process.child().try_wait().unwrap().is_some()
+        ),
+        (Some(std::io::ErrorKind::TimedOut), true)
+    );
+}
+
 #[test]
 fn a_child_left_alive_after_teardown_fails_the_test() {
     let outer = TestEnv::new();

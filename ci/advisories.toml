@@ -6,7 +6,7 @@
 # what its commit changed. `xtask advisories fetch` keeps the snapshot in
 # target/advisories/, downloading only what is missing or differs.
 #
-# RustSec's commit taken on 2026-10-31 (#1785), OSV's databases on 2026-10-22.
+# RustSec's commit taken on 2026-10-31 (#1785), OSV's databases on 2026-11-01.
 #
 # To refresh it, in one pull request, from the repository root (with the
 # fix that answers a failing live audit, or at any time):
@@ -37,10 +37,10 @@ commit = "2295466c4e9df26647fd67d8fa1c705ac2fc7f81"
 # ecosystem as OSV spells it.
 [[osv]]
 name = "npm.zip"
-release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-10-22", asset = "osv-npm-2026-10-22.zip" }
-sha256 = "52a54f5afaa6689b58c9ae664ec591dea6e13ea63f5662cb99ee5ea9d01faa97"
+release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-11-01", asset = "osv-npm-2026-11-01.zip" }
+sha256 = "1b6e2af7b66b05bb56b4e0994477c17f3bb1ca4dd544e7361775cc39d67dac88"
 
 [[osv]]
 name = "PyPI.zip"
-release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-10-22", asset = "osv-PyPI-2026-10-22.zip" }
-sha256 = "2bee3e8b490b2a9050fb714f0fad9e60ec4a2700ac465badd8d2900fbfc32a2e"
+release = { repository = "goodfetch/goodfetch", tag = "advisories-2026-11-01", asset = "osv-PyPI-2026-11-01.zip" }
+sha256 = "8fd7138ad08c733316d229a05ac5a8a9fdcba4f6439d80cdab97fe4e18445dde"

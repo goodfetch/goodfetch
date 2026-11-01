@@ -10,6 +10,9 @@
 //! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
 //! description names its socket and token, and at teardown it is stopped
 //! with its executable's `daemon stop` and must leave no runtime file.
+//! `--console-port <port>` has its Console serve on that port, which a test
+//! that restarts the Daemon names so that no other program can take it in
+//! between, instead of one the OS chooses.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
@@ -61,6 +64,9 @@ struct Arguments {
         default_missing_value = "collie"
     )]
     daemon: Option<Product>,
+    /// The port the Daemon's Console serves on, instead of one the OS chooses.
+    #[arg(long, value_name = "PORT", requires = "daemon")]
+    console_port: Option<u16>,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -193,6 +199,9 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     };
     let daemon = match arguments.daemon {
         Some(product) => {
+            if let Some(port) = arguments.console_port {
+                env.user_configuration(&format!("console.address = \"127.0.0.1:{port}\"\n"));
+            }
             // Its process joins the TestEnv's record too.
             let started =
                 Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;

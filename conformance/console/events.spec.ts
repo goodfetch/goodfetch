@@ -23,6 +23,9 @@ import {
   startRun,
 } from "./target.ts";
 
+// The page of the case of a restart stays open across it.
+test.use({ namedConsolePort: true });
+
 /** How long a page may take to reconnect to a restarted Daemon: its waits between attempts go up to 10 s. */
 const RECONNECTED = 30_000;
 

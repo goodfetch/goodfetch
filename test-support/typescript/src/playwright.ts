@@ -57,6 +57,7 @@ import { readAxeExceptions } from "./axe-exceptions.ts";
 import { refuseBypassCSP } from "./bypass-csp.ts";
 import { refuseUnknownCovers } from "./features.ts";
 import { startOidcProvider, type OidcClient } from "./oidc-provider.ts";
+import { reserveNamedPort } from "./named-port.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import {
@@ -84,6 +85,7 @@ export {
   type AxeException,
 } from "./axe-exceptions.ts";
 export { refuseBypassCSP, type CspOptions } from "./bypass-csp.ts";
+export { reserveNamedPort, type NamedPort } from "./named-port.ts";
 export { refuseStorageState, type StorageStateOptions } from "./storage-state.ts";
 export { noRunningAnimations } from "./reduced-motion.ts";
 export { reflow } from "./reflow.ts";
@@ -142,6 +144,14 @@ export interface ServedOptions {
   engine: string | undefined;
   /** The size in bytes of a filesystem of its own the test's folder is on, a tmpfs on Linux (ADR 0122); the machine's disk when unset. */
   sizeCapped: number | undefined;
+  /**
+   * Whether the test's Console keeps one port across its Daemon's restarts,
+   * for a test with a page or an address that outlives one: a named port
+   * no other program can take while the Daemon is down (#2035). Unset, the
+   * OS chooses a port at each start. Never restart a Daemon on a port the OS
+   * chose: another program can take it in between.
+   */
+  namedConsolePort: boolean;
 }
 
 /** What a served test's worker shares between its tests. */
@@ -180,6 +190,7 @@ export const test: TestType<
   toolManifest: [process.env["GOODFETCH_TEST_TOOLS"], { option: true }],
   engine: [undefined, { option: true }],
   sizeCapped: [undefined, { option: true }],
+  namedConsolePort: [false, { option: true }],
   oidcProvider: [
     // oxlint-disable-next-line no-empty-pattern -- Playwright reads a fixture's dependencies from its first parameter's pattern; this one has none.
     async ({}, use) => {
@@ -199,11 +210,13 @@ export const test: TestType<
       engine,
       oidcProvider,
       sizeCapped,
+      namedConsolePort,
     },
     use,
     testInfo,
   ) => {
     const processes = new ProcessRecord();
+    const named = namedConsolePort ? await reserveNamedPort() : undefined;
     try {
       const started = await startServedDaemon({
         processes,
@@ -222,6 +235,7 @@ export const test: TestType<
         consoleServer,
         oidc: oidcProvider,
         sizeCapped,
+        consolePort: named?.port,
       });
       await use(started.daemon);
       try {
@@ -235,6 +249,7 @@ export const test: TestType<
       }
     } finally {
       await processes.close();
+      await named?.release();
     }
   },
   signIn: async ({ context, daemon, oidcProvider }, use) => {

@@ -1,16 +1,18 @@
 // One Console for both Products (spec #591, stories 2 and 122; ADRs 0066
 // and 0098), with Collie's and Foxhound's executables built from the
 // commit, a Daemon and home of its own: the test's Collie Daemon serves the
-// Console, whose port the user configuration then pins, as a release's
-// fixed port is. Foxhound's `console` records Foxhound as installed, so the
+// Console, on a named port, as a release's fixed port is. Foxhound's
+// `console` records Foxhound as installed, so the
 // Collie Daemon, idle but for the open Console, hands over to its major's
 // new pick, Foxhound's Daemon, on the same port. The open Console
 // reconnects by itself, and `console` of either executable opens that same
 // port, the sign-in kept.
 import { spawn } from "node:child_process";
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
+
+// The open Console keeps its address across the handover.
+test.use({ namedConsolePort: true });
 
 /** How long a handover may take: the old Daemon stops, then the pick's copy is placed and started. */
 const HANDOVER = 60_000;
@@ -69,27 +71,6 @@ async function consoleOf(daemon: ServedDaemon, executable: string): Promise<URL>
   return link;
 }
 
-/** Pins the Console's address in the test's user configuration to the port it serves on now. */
-async function pinConsolePort(daemon: ServedDaemon): Promise<void> {
-  for (const entry of await readdir(daemon.home, { withFileTypes: true })) {
-    const file = join(daemon.home, entry.name, "configuration.toml");
-    if (
-      entry.isDirectory() &&
-      (await readdir(join(daemon.home, entry.name))).includes("configuration.toml")
-    ) {
-      const text = await readFile(file, "utf8");
-      const pinned = text.replace(
-        'console.address = "127.0.0.1:0"',
-        `console.address = "127.0.0.1:${String(daemon.port)}"`,
-      );
-      expect(pinned).not.toBe(text);
-      await writeFile(file, pinned);
-      return;
-    }
-  }
-  throw new Error("the test's home holds no user configuration");
-}
-
 test(
   "the open Console reconnects after the Daemon hands over to Foxhound, and either executable's console opens the same port, signed in",
   {
@@ -102,7 +83,6 @@ test(
   async ({ page, context, daemon, signIn, failOnErrors }) => {
     test.setTimeout(4 * HANDOVER);
     const foxhound = await foxhoundExecutable();
-    await pinConsolePort(daemon);
     await signIn.withLink(page);
     await expect(page.getByRole("main").getByRole("status")).toHaveText(
       /^Connected to Collie \d+\.\d+\.\d+\S*\.$/,

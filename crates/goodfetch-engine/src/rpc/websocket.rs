@@ -24,7 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{StatusCode, header};
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::framing::{Frame, MAX_MESSAGE_BYTES};
@@ -48,13 +48,52 @@ impl Authorities {
         }
     }
 
-    fn admits_host(&self, host: &str) -> bool {
+    /// The rule a request or handshake with `host` and `origin` breaks,
+    /// if any: its `Host` first, then its `Origin`.
+    pub(crate) fn refusal(&self, host: Option<&str>, origin: Option<&str>) -> Option<Refusal> {
+        if !host.is_some_and(|host| self.admits_host(host)) {
+            return Some(Refusal::HostForeign);
+        }
+        match origin {
+            None => Some(Refusal::OriginMissing),
+            Some(origin) if !self.admits_origin(origin) => Some(Refusal::OriginForeign),
+            Some(_) => None,
+        }
+    }
+
+    /// These names and `name`, as `host:port`, or `host` for a default
+    /// port.
+    #[must_use]
+    pub(crate) fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.names.push(name.into());
+        self
+    }
+
+    /// Only `name`, as `host:port`, or `host` for a default port.
+    pub(crate) fn only(name: impl Into<String>) -> Self {
+        Self {
+            names: vec![name.into()],
+        }
+    }
+
+    /// The origins of these names over `http`, as a CSP source list does.
+    pub(crate) fn origins(&self) -> Vec<String> {
+        self.names
+            .iter()
+            .map(|name| format!("http://{name}"))
+            .collect()
+    }
+
+    /// Whether `host`, a request's `Host`, is one of these names.
+    pub(crate) fn admits_host(&self, host: &str) -> bool {
         self.names
             .iter()
             .any(|name| name.eq_ignore_ascii_case(host))
     }
 
-    fn admits_origin(&self, origin: &str) -> bool {
+    /// Whether `origin`, a request's `Origin`, is one of these names over
+    /// `http`.
+    pub(crate) fn admits_origin(&self, origin: &str) -> bool {
         origin
             .strip_prefix("http://")
             .is_some_and(|authority| self.admits_host(authority))
@@ -63,7 +102,7 @@ impl Authorities {
 
 /// Why a handshake was refused, by its endpoint table's rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Refusal {
+pub(crate) enum Refusal {
     HostForeign,
     OriginMissing,
     OriginForeign,
@@ -71,7 +110,7 @@ pub(super) enum Refusal {
 
 impl Refusal {
     /// The rule's name, which the refusal's log record carries.
-    pub(super) fn reason(self) -> &'static str {
+    pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::HostForeign => "host_foreign",
             Self::OriginMissing => "origin_missing",
@@ -197,9 +236,8 @@ pub(super) async fn accept(
             }
         }
     };
-    let config = WebSocketConfig::default()
-        .max_message_size(Some(MAX_MESSAGE_BYTES))
-        .max_frame_size(Some(MAX_MESSAGE_BYTES));
+    let config = config();
+    let stream: Carried = Box::new(stream);
     let opened = tokio_tungstenite::accept_hdr_async_with_config(stream, check, Some(config)).await;
     match (opened, refused) {
         (Ok(socket), _) => {
@@ -211,6 +249,48 @@ pub(super) async fn accept(
     }
 }
 
+/// A WebSocket's limits: one JSON-RPC message per message, at most
+/// [`MAX_MESSAGE_BYTES`] long.
+fn config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(MAX_MESSAGE_BYTES))
+}
+
+/// The bytes a WebSocket runs over: a Connection rejoined, or the
+/// connection an HTTP server upgraded.
+pub(crate) trait Duplex: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> Duplex for T {}
+
+type Carried = Box<dyn Duplex>;
+
+/// A WebSocket the Console's server opened on its own origin, its
+/// handshake already accepted and its sign-in already checked, which the
+/// Daemon serves as a Connection (ADR 0031).
+pub(crate) struct ConsoleSocket {
+    pub(super) reader: MessageReader,
+    pub(super) writer: MessageWriter,
+}
+
+impl ConsoleSocket {
+    /// The WebSocket on `upgraded`, the connection whose handshake the
+    /// Console's server answered with `101`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future drops the connection.
+    pub(crate) async fn opened(upgraded: impl Duplex + 'static) -> Self {
+        let carried: Carried = Box::new(upgraded);
+        let socket = WebSocketStream::from_raw_socket(carried, Role::Server, Some(config())).await;
+        let (sink, stream) = socket.split();
+        Self {
+            reader: MessageReader(stream),
+            writer: MessageWriter(sink),
+        }
+    }
+}
+
 /// The rule `request` breaks, if any: its `Host` first, then its `Origin`.
 fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {
     let value = |name| {
@@ -219,18 +299,11 @@ fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {
             .get(name)
             .and_then(|value| value.to_str().ok())
     };
-    if !value(header::HOST).is_some_and(|host| authorities.admits_host(host)) {
-        return Some(Refusal::HostForeign);
-    }
-    match value(header::ORIGIN) {
-        None => Some(Refusal::OriginMissing),
-        Some(origin) if !authorities.admits_origin(origin) => Some(Refusal::OriginForeign),
-        Some(_) => None,
-    }
+    authorities.refusal(value(header::HOST), value(header::ORIGIN))
 }
 
 /// The messages a WebSocket's Client sends.
-pub(super) struct MessageReader(SplitStream<WebSocketStream<Rejoined>>);
+pub(super) struct MessageReader(SplitStream<WebSocketStream<Carried>>);
 
 impl MessageReader {
     /// Reads the next message and appends its JSON-RPC message to
@@ -263,7 +336,7 @@ impl MessageReader {
 }
 
 /// What the engine sends a WebSocket's Client.
-pub(super) struct MessageWriter(SplitSink<WebSocketStream<Rejoined>, Message>);
+pub(super) struct MessageWriter(SplitSink<WebSocketStream<Carried>, Message>);
 
 impl MessageWriter {
     /// Queues `line`, one JSON-RPC message and its newline, as one text

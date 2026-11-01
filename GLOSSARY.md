@@ -40,6 +40,14 @@ _Avoid_: platform, Goodfetch (for the hosted service)
 The web interface for operating a Product, served locally by its engine or by Goodfetch Cloud.
 _Avoid_: dashboard, inspector, app
 
+**Needs you**:
+The Console's one list of everything waiting for a person across every run in the Run index and the stores beside it, each item of a kind whose source, a domain crate's value, fills it, and gone once resolved or dismissed.
+_Avoid_: inbox, to-do list, attention list
+
+**Content origin**:
+The Console's second origin, which shows a run's scraped HTML, screenshots, DOM snapshots and page bodies only to an address the Console signed for that one file, valid 5 minutes, carrying no cookie, under a sandbox policy that runs no script.
+_Avoid_: preview domain, sandbox origin, file server
+
 **Client**:
 Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
@@ -216,6 +224,14 @@ _Avoid_: shard
 The folder holding one user's Goodfetch data, caches and configuration on a machine, shared by both Products: the operating system's usual folders unless the user names another.
 _Avoid_: data dir, app folder, install folder
 
+**Resource governor**:
+The one part of each engine process that admits HTTP fetches, browser pages and model calls for all its runs, each kind between its floor and its ceiling, sized from the memory, CPU and Tokio saturation it measures and shared fairly between the runs.
+_Avoid_: autoscaled pool, concurrency manager
+
+**Memory allowance**:
+The most memory an engine and its children may use, the tightest of its own cgroup's limit, its Windows Job object's, `governor.memory_allowance` and half of physical memory, against which its Resource governor judges pressure.
+_Avoid_: memory budget, memory limit (alone)
+
 **Run report**:
 What a run states about itself when it ends: its Lifecycle, Verdict and Completeness, its Usage, every safeguard it ran without and, for a crawl, how its requests ended.
 _Avoid_: run result, summary, statistics, stats
@@ -238,7 +254,11 @@ _Avoid_: billing, meter, spend log
 
 **Slice**:
 A part of a Limit one run takes from the Usage ledger in one transaction, the smaller of 1 % of the Limit and what is left over twice the live runs, against which it charges the Usage it measures; it gives back what is left when it ends, and the next engine to open the ledger reclaims the Slices of a run whose engine died, from what the run journaled.
-_Avoid_: lease (for a Slice), reservation, quota, chunk
+_Avoid_: lease, reservation (both for a Slice), quota, chunk
+
+**Reservation**:
+The worst case of a cost a run is about to pay, such as a model call or a paid solve, which it takes from its Slices and journals before the cost is sent, and settles at what it cost once known; one still open when the run ends, or when a reclaimer finds it, stays charged at its worst case.
+_Avoid_: pre-authorization, escrow, Slice (for a Reservation)
 
 **Effect**:
 An action of a run that changes something on a website or third-party service, such as submitting a form or placing an order; a program's own actions are Effects only when it declares them. A resumed run checks whether an effect already happened instead of repeating it, and reports it as uncertain when it cannot tell.
@@ -288,6 +308,10 @@ _Avoid_: budget, quota, spending cap
 The most model Usage one run, or one Partitioned crawl, may spend, past which its model calls are refused while it goes on; part of its own task, not a Limit.
 _Avoid_: model budget, model Limit, AI quota
 
+**Path budget**:
+An entry of `crawl.path_budgets`: a glob matched against a URL's path and query, and the most requests a crawl admits whose URL it matches first, past which one is not added with `path_budget` and the Run ends `incomplete` (CO-08); a bound on a section of a site, not a Limit on Usage.
+_Avoid_: path limit, section quota
+
 **Price table**:
 The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
 _Avoid_: price list, cost map, rate card
@@ -306,9 +330,21 @@ _Avoid_: account, organization, user (for a customer)
 
 ## Collection
 
+**Fetch tier**:
+One way a crawl request's document is fetched, from the cheapest up: an HTTP request, the site's own API, a request sent from a browser page, a browser without layout, or the full browser page; a crawl uses the cheapest whose results match the browser's, or the one its settings force.
+_Avoid_: fetch mode, fetcher, backend (for a tier)
+
 **Frontier**:
 The URLs a run has discovered but not yet visited, with the list of those already visited and the rules that decide when two URLs are the same page.
 _Avoid_: queue, request list, to-do list
+
+**Page signature**:
+The SHA-256 of a fetched page's title and the text of its main content, white space collapsed, by which the Frontier tells whether two URLs serve one page.
+_Avoid_: fingerprint, content hash, signature (alone)
+
+**Learned rule**:
+A rule the Frontier learns on one host from the pages a crawl fetched and the redirects it followed (a query parameter with no effect, an equivalent form such as `www.` or a trailing slash, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report; a parameter or form a contradicting pair of pages later shows wrong stops merging, and the report says so.
+_Avoid_: canonicalization rule, URL filter
 
 **Label**:
 The name a crawl gives one kind of request, which picks the handler that processes it, the shape of its Payload and the Hooks scoped to it.
@@ -350,6 +386,26 @@ _Avoid_: tab, target (for a page)
 A glob or a regular expression that a wait, a route or a kept response matches URLs against, in the engine, so that it matches the same URLs from every SDK; a predicate is no URL pattern, since it runs in the program.
 _Avoid_: URL filter, URL match
 
+**Route**:
+A program's handler for the requests of a page, or of every page of a Session, whose URL its URL pattern matches: it answers each by sending it on, answering it with a response of its own, failing it, or passing it to the route armed before; one that answers nothing passes it on (ADR 0085).
+_Avoid_: interceptor, request handler
+
+**Interception**:
+The engine's one pipeline that every request of a page passes, in one written order: routes, the egress check and the domain policy, the Filter lists, the Response cache, the navigation gate and lease check, then the engine's own additions, such as the Session's cookies, which no route sees (ADR 0085).
+_Avoid_: middleware, request interception (for Playwright's routing)
+
+**Navigation gate**:
+What Foxhound sets on a crawl handler's page to admit, at the Interception's step 6, each main-frame navigation and hop, each `page.request` and each service worker's request carrying a navigation, holding one with a permit or refusing it for a site's preferences, and to judge a document once its response arrives; a page a program opens has none (ADRs 0087 and 0093).
+_Avoid_: politeness hook, admission hook, gatekeeper
+
+**Lease check**:
+What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives (ADRs 0003 and 0087).
+_Avoid_: lease guard, lease hook
+
+**Response observer**:
+What Foxhound registers on a crawl handler's Session to receive the responses its pages observe whose URLs its URL patterns match, each body up to a byte cap, those a service worker answered included (ADR 0110).
+_Avoid_: response hook, response listener, sniffer
+
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level
@@ -357,6 +413,10 @@ _Avoid_: profile, access profile, stealth level
 **Identity profile**:
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
+
+**HTTP profile**:
+The part of an Identity profile a Session's HTTP-only requests present: the TLS ClientHello, HTTP/2 settings, header order and client hints of the browser it claims.
+_Avoid_: impersonation profile, TLS profile
 
 **Fingerprint method**:
 How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
@@ -385,6 +445,10 @@ _Avoid_: proxy level, proxy class
 **Saved identity**:
 A Session's identity, cookies and storage, kept under a name so that later runs can reuse them.
 _Avoid_: profile, context, login
+
+**Browser data folder**:
+The folder a browser the engine launched for a Run keeps its data in while it runs, in the Run's folder, one per browser of the Run's browser pool: Chrome's data directory (`--user-data-dir`), fresh for each launch and removed once the browser exited, never a person's Profile directory.
+_Avoid_: profile (alone), user data dir
 
 **Profile directory**:
 A browser's own folder of a person's browsing data, on which the engine can launch that browser in place; for the Chromium family, the data directory (Chrome's `--user-data-dir`), not the profile folder inside it that Chrome's `--profile-directory` names.
@@ -450,6 +514,10 @@ _Avoid_: element handle, query, selector (for the value)
 The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
 _Avoid_: actionability check, auto-wait
 
+**Page function**:
+JavaScript source a program runs in a page with one explicit JSON argument, its result crossing back as JSON, in the page's main world by default or in an isolated world; an init script is one run before each document's own scripts.
+_Avoid_: injected code, user script
+
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.
 _Avoid_: contract, validator, assertion
@@ -461,6 +529,10 @@ _Avoid_: results table, output, items
 **Record**:
 One unit of structured data in a Dataset, committed once with the work that produced it.
 _Avoid_: row, document, item (an item is a unit of work)
+
+**SQL tab**:
+The read-only SQL query over the runs a person selects, each run's tables a table function that reads its run file, with no write, attach, install or outside read and with time, memory and row limits (`dataset.query`).
+_Avoid_: SQL console, query editor, DuckDB tab
 
 **Key-value store**:
 A run's named storage for files, blobs and the user's own state.
@@ -692,6 +764,10 @@ _Avoid_: browser roll, Chromium bump (for the pull request)
 The Goodfetch Chromium's source tree at the same revision, built with the same arguments but without Goodfetch's patches, against which the Chromium build gate tells a patch's failure from an upstream one.
 _Avoid_: baseline build, vanilla build, reference build
 
+**Time budget**:
+The longest median (p50) duration a suite, a CI job or a whole "all green" run may take over its last 20 runs in its tier, as `TESTING.md`'s table gives them; a breach opens an issue (`xtask budgets`), and nothing fails.
+_Avoid_: budget (alone), timeout (a job's hard stop)
+
 **Size budget**:
 The largest size each released file of a Product may reach on each platform, and the growth a single change may add without an explicit, recorded acceptance.
 _Avoid_: size limit (alone), quota, bloat check
@@ -703,6 +779,10 @@ _Avoid_: golden files, legacy fixtures, test data (for these files)
 **Scripted engine**:
 A stand-in for the engine used only in tests, which plays one script of protocol messages to a Client and fails on any message it did not expect or any step left unused.
 _Avoid_: fake engine, mock engine, mock server
+
+**Recording gate**:
+A stand-in, used only in the engine's own tests, for what Foxhound sets on a crawl handler's page: a navigation gate, lease check and response observer that record each call the page makes to them and refuse, hold or end as the test sets, so the page's call sites are tested without Foxhound.
+_Avoid_: mock gate, fake gate, spy
 
 **Testing kit**:
 The public module of each Product's SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.

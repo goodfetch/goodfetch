@@ -123,6 +123,22 @@ pub struct Check {
     /// A Proving ground task the oracle must answer `verified` for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<TaskId>,
+    /// The surfaces of the variants the check belongs to, when it belongs
+    /// to some only, such as an SDK package's install checks; every variant
+    /// when empty. A `foxhound-cli` variant takes the `cli` variant's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<String>,
+}
+
+impl Check {
+    /// Whether the check belongs to the variant on `surface`.
+    pub fn belongs_to(&self, surface: &str) -> bool {
+        self.surfaces.is_empty()
+            || self
+                .surfaces
+                .iter()
+                .any(|listed| listed == surface || (surface == "foxhound-cli" && listed == "cli"))
+    }
 }
 
 /// `journeys/catalog.toml`.

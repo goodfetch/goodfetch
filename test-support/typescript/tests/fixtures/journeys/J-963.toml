@@ -1,0 +1,30 @@
+#:schema ../../../../../journeys/journey.schema.json
+# A Foxhound Journey outside the catalog, for the Journey helpers' own tests:
+# its two checks name one task, `catalog/2`, each judged on its own read.
+id = "J-963"
+title = "Read a product page twice"
+goal = "A person reads a product page twice. Both Records MUST be the page's product."
+area = 12
+product = "foxhound"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 963
+tasks = [
+  { id = "catalog/2", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+console = "M1"
+
+[[steps]]
+text = "Read the product page of the task twice"
+
+[[expect]]
+text = "The oracle verifies the first read's Record"
+task = "catalog/2"
+
+[[expect]]
+text = "The oracle verifies the second read's Record"
+task = "catalog/2"

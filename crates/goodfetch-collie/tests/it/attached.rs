@@ -1,7 +1,7 @@
 //! An Attached engine over stdio: `hello`, refused before any other message
 //! and then closed, `engine.info`, `$/cancel` and every failure's shape,
-//! read through `StrictStdout` with the engine's logs at `trace`, so a log
-//! line on stdout fails the test (ADRs 0024, 0066 and 0095).
+//! read through `StrictStdout` with the engine's `log.level` at `trace`,
+//! so a log line on stdout fails the test (ADRs 0024, 0066 and 0095).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -12,16 +12,25 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command};
+use goodfetch_test_support::{
+    AnsweredCalls, MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command,
+};
 use serde_json::{Value, json};
 
 /// A running Attached engine of Collie's executable, started in a test's
-/// setup.
+/// setup. When it ends without exiting by itself, killed or left to the
+/// test's teardown, it records the calls it read answered in the test's
+/// answer record: the killed engine's log loses the dispatch records its
+/// writer's thread had not written yet (ADR 0122), which the exercise audit
+/// reads (#1779).
 pub(crate) struct Attached<'env> {
     env: &'env TestEnv,
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
+    answered: AnsweredCalls,
+    /// Whether the engine exited by itself, its log written whole.
+    exited: bool,
 }
 
 impl<'env> Attached<'env> {
@@ -42,13 +51,30 @@ impl<'env> Attached<'env> {
         deadline: Duration,
         configure: impl FnOnce(&mut Command),
     ) -> Self {
+        Self::start_logging(env, deadline, "trace", configure)
+    }
+
+    /// Starts it as [`Attached::start_waiting`] does, its `log.level` at
+    /// `level` rather than `trace`.
+    pub(crate) fn start_logging(
+        env: &'env TestEnv,
+        deadline: Duration,
+        level: &str,
+        configure: impl FnOnce(&mut Command),
+    ) -> Self {
+        env.log_level(level);
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
-        command
-            .arg("attached-engine")
-            .env("GOODFETCH_LOG", "trace")
-            .stderr(Stdio::piped());
+        command.arg("attached-engine");
         configure(&mut command);
-        let process = env.spawn(&mut command).unwrap();
+        Self::spawned(env, deadline, &mut command)
+    }
+
+    /// Starts `command`, which runs Collie's `attached-engine` as its last
+    /// arguments, such as inside a cgroup a service manager made, each
+    /// message awaited for up to `deadline`.
+    pub(crate) fn spawned(env: &'env TestEnv, deadline: Duration, command: &mut Command) -> Self {
+        command.stderr(Stdio::piped());
+        let process = env.spawn(command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap().within(deadline);
         Self {
@@ -56,10 +82,13 @@ impl<'env> Attached<'env> {
             process,
             stdin,
             stdout,
+            answered: AnsweredCalls::default(),
+            exited: false,
         }
     }
 
     pub(crate) fn send(&mut self, message: &Value) {
+        self.answered.sent(message);
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
@@ -71,6 +100,7 @@ impl<'env> Attached<'env> {
     pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
+        self.answered.read(&message);
         Some(message)
     }
 
@@ -80,12 +110,13 @@ impl<'env> Attached<'env> {
     }
 
     /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
-    /// or a crash ends it.
+    /// or a crash ends it; the calls it answered go to the test's answer
+    /// record.
     #[cfg_attr(
-        not(target_os = "linux"),
+        not(unix),
         expect(
             dead_code,
-            reason = "only the LazyFS power cut, on Linux, kills the engine"
+            reason = "only the LazyFS power cut, on Linux, and the Sessions' resume, on Unix, kill the engine"
         )
     )]
     pub(crate) fn kill(self) {
@@ -103,6 +134,7 @@ impl<'env> Attached<'env> {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        self.exited = status.success();
         record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, status.success())
     }
@@ -116,8 +148,22 @@ impl<'env> Attached<'env> {
             rest.push(message);
         }
         let status = self.process.child().wait().unwrap();
+        self.exited = status.success();
         record_command(self.env, &["attached-engine"], status.code()).unwrap();
         (rest, self.stdout.stderr_to_end())
+    }
+}
+
+impl Drop for Attached<'_> {
+    fn drop(&mut self) {
+        if self.exited {
+            return;
+        }
+        if let Err(error) = self.answered.record_in(self.env.folder())
+            && !std::thread::panicking()
+        {
+            panic!("the test's answer record cannot be written: {error}");
+        }
     }
 }
 
@@ -260,6 +306,7 @@ fn an_operation_only_foxhound_carries_is_refused_naming_foxhound_and_its_install
                 "needs": "foxhound",
                 "requested": "sample.crawl",
                 "fix": "Run it with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`), or connect to a Foxhound engine.",
+                "install": "cargo install goodfetch-foxhound --locked --features executable",
             },
         })
     );
@@ -284,6 +331,35 @@ fn cancel_of_a_finished_call_leaves_the_connection_answering() {
         (&reply["id"], &reply["result"]["product"]),
         (&json!(2), &json!("collie"))
     );
+    assert_eq!(engine.finish(), (vec![], true));
+}
+
+/// How many calls [`an_id_is_free_again_once_its_call_was_answered`] sends
+/// under one id: enough that a reply written before its call left the
+/// engine's calls in flight shows up on most runs of the multi-threaded
+/// runtime.
+const REUSES: usize = 5_000;
+
+/// A call's id is free again once its answer arrived (JSON-RPC 2.0): a
+/// Client that sends each call under the id of the one it just got the
+/// answer of, as the SDKs' and the tests' Clients do, gets every call
+/// answered, never refused as still in flight.
+/// Covers: story:3-1
+#[test]
+fn an_id_is_free_again_once_its_call_was_answered() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+
+    let refused: Vec<Value> = (0..REUSES)
+        .filter_map(|_| {
+            engine.send(&request(1, "engine.info"));
+            engine.next().unwrap().get("error").cloned()
+        })
+        .collect();
+
+    assert_eq!(refused, Vec::<Value>::new());
     assert_eq!(engine.finish(), (vec![], true));
 }
 

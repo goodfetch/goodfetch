@@ -2,8 +2,8 @@
 //! folder, with two engines' handles sharing one file (spec #213's Seam 4):
 //! the combined count under a key against each run's own cap, waiters woken
 //! in turn through their wake endpoints, a woken waiter still refused
-//! passing the wake on, the Permits of a gone Run reclaimed, and the file's
-//! format.
+//! passing the wake on, the Permits of a gone Run reclaimed, the file's
+//! format, and a take whose transaction meets a full disk.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test reads the wall clock as its rules' reading, and opens the file to look at it"
@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_test_support::TestEnv;
-use rusqlite::Connection;
+use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
+use rusqlite::{Connection, OpenFlags};
 use tokio::sync::broadcast;
 
 use super::{
@@ -93,7 +93,8 @@ async fn engine(env: &TestEnv, name: &str, owner: &TaskOwner) -> Politeness {
 fn granted(taken: Taken) -> Permit {
     match taken {
         Taken::Granted(permit) => permit,
-        Taken::Wait(until) => panic!("refused until {until:?}"),
+        Taken::Wait(until) => panic!("held until {until:?}"),
+        Taken::Refused(until) => panic!("refused, unsent, until {until:?}"),
     }
 }
 
@@ -120,6 +121,42 @@ fn run<T>(test: impl AsyncFnOnce(&TaskOwner) -> T) -> T {
         owner.cancel();
         answer
     })
+}
+
+/// An engine whose first Run opens the user's new Politeness file while
+/// another engine writes it opens the file once that write ends and takes
+/// its Permit (#1774): its switch of the file to WAL waits, as SQLite
+/// answers that switch busy at once, where a Run starting beside another
+/// on a new home failed `database is locked`.
+///
+/// Covers: story:3-80
+#[test]
+fn an_engine_opening_the_new_file_beside_another_engines_write_takes_its_permit() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let taken = crate::sqlite_wal::tests::opened_beside_a_write(
+        &env.home().join("politeness.sqlite"),
+        || {
+            run(async |owner| {
+                let politeness = Politeness::open(
+                    env.home().join("politeness.sqlite"),
+                    &PolitenessOptions::default(),
+                    Vec::new(),
+                    gone_unless_live,
+                    "second".to_owned(),
+                    owner,
+                )
+                .await?;
+                politeness
+                    .take("shop.test", &holder(&env, "second"), cap(1), now)
+                    .await
+                    .map(|taken| matches!(taken, Taken::Granted(_)))
+            })
+        },
+    );
+
+    assert_eq!(taken, Ok(true));
 }
 
 /// Covers: story:3-80, story:3-81
@@ -157,6 +194,74 @@ fn a_run_admits_only_while_the_combined_count_under_its_key_is_below_its_own_cap
     });
 
     assert_eq!(answers, (Taken::Wait(None), true, true));
+}
+
+/// A take whose transaction meets the crash VFS's full disk is rolled back
+/// and never acknowledged: it fails with `Storage`, the file's storage
+/// failures say so, which stop the Runs taking its Permits, it holds no
+/// Permit for it, and `PRAGMA integrity_check` passes (ADR 0122).
+///
+/// Covers: row:RT-03
+#[test]
+fn a_take_that_meets_a_full_disk_is_rolled_back_and_reported_as_a_storage_failure() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("politeness-full"), env.seed()).unwrap();
+    let file = env.home().join("politeness.sqlite");
+    let now = SystemTime::now();
+
+    let (failed, reported) = run(async |owner| {
+        let politeness = Politeness::open(
+            file.clone(),
+            &PolitenessOptions {
+                vfs: Some(vfs.name().to_owned()),
+            },
+            Vec::new(),
+            gone_unless_live,
+            "engine".to_owned(),
+            owner,
+        )
+        .await
+        .unwrap();
+        let _held = granted(
+            politeness
+                .take("shop.test", &holder(&env, "first"), cap(4), now)
+                .await
+                .unwrap(),
+        );
+        vfs.fail_at(vfs.operations(), IoFault::Full);
+        let failed = politeness
+            .take("shop.test", &holder(&env, "second"), cap(4), now)
+            .await;
+        let reported = politeness.storage_failures().borrow().is_some();
+        (failed, reported)
+    });
+
+    let connection = Connection::open_with_flags_and_vfs(
+        &file,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        vfs.name(),
+    )
+    .unwrap();
+    let holders: Vec<String> = connection
+        .prepare("SELECT run_id FROM permits ORDER BY permit_id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let integrity: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        (
+            matches!(failed, Err(PolitenessError::Storage { .. })),
+            reported,
+            holders,
+            integrity,
+        ),
+        (true, true, vec!["first".to_owned()], "ok".to_owned()),
+        "{failed:?}"
+    );
 }
 
 /// Covers: story:3-80
@@ -199,6 +304,34 @@ fn a_permit_given_back_wakes_the_waiter_whose_turn_it_is_through_its_wake_endpoi
         (woken, others),
         ("waiting-first@shop.test".to_owned(), Vec::<String>::new())
     );
+}
+
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn a_permit_given_back_to_a_runs_own_politeness_wakes_its_waiter_within_the_engine() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let woken = run(async |owner| {
+        let own = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let mut wakes = own.wakes();
+        let held = granted(
+            own.take("proxy", &holder(&env, "own"), cap(1), now)
+                .await
+                .unwrap(),
+        );
+        own.take("proxy", &holder(&env, "own-waiting"), cap(1), now)
+            .await
+            .unwrap();
+
+        own.give_back(held, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+
+        received(&mut wakes)
+    });
+
+    assert_eq!(woken, vec!["own-waiting@proxy".to_owned()]);
 }
 
 /// Covers: story:3-81

@@ -1,0 +1,65 @@
+set = "clean-up-rules"
+
+# The embedded Clean-up rules' inputs (ADRs 0018, 0047 and 0057), each kept
+# in this crate as its authors publish it, which the build compiles into the
+# executable: only lists whose licences allow embedding. The GPL lists
+# (uBlock filters, AdGuard's) and uBlock Origin's resources are never here:
+# they are downloaded only, and none is downloaded yet.
+#
+# EasyList, EasyPrivacy and Fanboy Annoyance are `rules/easylist.txt`,
+# `rules/easyprivacy.txt` and `rules/fanboy-annoyance.txt`, each assembled
+# from its template at the pinned commit by expanding every `%include%`
+# line, Fanboy Annoyance's `easylist_cookie/` includes left out (ADR 0047). Their licence is GPLv3+ or CC BY-SA 3.0+, credited to "The
+# EasyList authors" (https://easylist.to/pages/licence.html); the compiled
+# form is an adaptation under CC BY-SA.
+
+[[input]]
+name = "EasyList"
+version = "c03f85fabd939aa5be9c2d9c00a8f505fa5165f2"
+license = "GPL-3.0-or-later OR CC-BY-SA-3.0"
+source = "https://github.com/easylist/easylist/blob/c03f85fabd939aa5be9c2d9c00a8f505fa5165f2/easylist.template"
+use = "compiled-filter-list"
+
+[[input]]
+name = "EasyPrivacy"
+version = "c03f85fabd939aa5be9c2d9c00a8f505fa5165f2"
+license = "GPL-3.0-or-later OR CC-BY-SA-3.0"
+source = "https://github.com/easylist/easylist/blob/c03f85fabd939aa5be9c2d9c00a8f505fa5165f2/easyprivacy.template"
+use = "compiled-filter-list"
+
+[[input]]
+name = "Fanboy Annoyance"
+version = "c03f85fabd939aa5be9c2d9c00a8f505fa5165f2"
+license = "GPL-3.0-or-later OR CC-BY-SA-3.0"
+source = "https://github.com/easylist/easylist/blob/c03f85fabd939aa5be9c2d9c00a8f505fa5165f2/fanboy-annoyance.template"
+use = "compiled-filter-list"
+
+[[input]]
+name = "Brave's unbreak list"
+version = "ff303c3097335fc3bb913439e2a9cef0d0d686bb"
+license = "MPL-2.0"
+source = "https://github.com/brave/adblock-lists/blob/ff303c3097335fc3bb913439e2a9cef0d0d686bb/brave-unbreak.txt"
+use = "compiled-filter-list"
+
+# `stand-ins/*.js` and its LICENSE.md, unmodified; they carry parts of
+# Mozilla's web-compatibility shims and of uBlock Origin's google-ima.js,
+# both under MPL-2.0, as its LICENSE.md says.
+[[input]]
+name = "DuckDuckGo's tracker surrogates"
+version = "2575c6e058fb02420399fe459418319af2fb93a7"
+license = "Apache-2.0 AND MPL-2.0"
+source = "https://github.com/duckduckgo/tracker-surrogates/tree/2575c6e058fb02420399fe459418319af2fb93a7/surrogates"
+use = "unmodified"
+
+# `consent/autoconsent/`: autoconsent's CommonJS library and heuristics
+# (`dist/autoconsent.cjs.js`, `dist/heuristics.cjs.js`), its compact rules
+# (`rules/compact-rules.json`) and its LICENSE, unmodified from the npm
+# package (integrity sha512-nxPJ53k7PsgtZndm+vGAxkfGCXPXTDJZOWzsUdJDhebKWtTAjAFlS1nVmp0x5p5XuO730/6Vy+uVyxVcpmzWdQ==,
+# commit 39dba9ea267ce98037a4cec7fea38abfc50b3d3d); the build bundles them with
+# Goodfetch's own runner and snippet table (ADR 0048).
+[[input]]
+name = "autoconsent"
+version = "16.52.0"
+license = "MPL-2.0"
+source = "https://registry.npmjs.org/@duckduckgo/autoconsent/-/autoconsent-16.52.0.tgz"
+use = "unmodified"

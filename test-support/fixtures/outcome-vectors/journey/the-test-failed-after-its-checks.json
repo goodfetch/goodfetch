@@ -1,0 +1,8 @@
+{
+  "description": "A test that failed once its steps and checks had passed, on a page error or an accessibility violation, fails the variant",
+  "steps": ["passed"],
+  "checks": ["passed"],
+  "tasks": ["verified"],
+  "test_errors": ["page_errors: console error: boom"],
+  "outcome": "failed"
+}

@@ -4,7 +4,7 @@
 // another Product's and is never read here.
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { EngineNotFoundError } from "@goodfetch/collie-client";
+import { EngineNotFoundError, SettingInvalidError } from "@goodfetch/collie-client";
 
 /** The variable naming Collie's executable (ADR 0090). */
 export const ENGINE_PATH_VARIABLE = "GOODFETCH_COLLIE_ENGINE_PATH";
@@ -21,11 +21,19 @@ export interface EngineLocation {
 
 /**
  * The executable `env` names, or the platform package's; `engine_not_found`
- * when neither exists.
+ * when neither exists, and `setting_invalid` when the variable is set but
+ * empty.
  */
 export function locateEngine(env: Readonly<Record<string, string>>): EngineLocation {
   const named = env[ENGINE_PATH_VARIABLE];
-  if (named !== undefined && named !== "") {
+  if (named === "") {
+    // An empty value is never taken for unset (ADR 0083).
+    throw new SettingInvalidError(`${ENGINE_PATH_VARIABLE} is set but empty`, {
+      fix: `Set ${ENGINE_PATH_VARIABLE} to Collie's executable, ${EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,
+      details: { key: ENGINE_PATH_VARIABLE, reason: "an empty value names no executable" },
+    });
+  }
+  if (named !== undefined) {
     return {
       path: named,
       notFoundFix: `${ENGINE_PATH_VARIABLE} names ${named}, which is no executable file: point it at Collie's executable, ${EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,

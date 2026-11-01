@@ -12,12 +12,12 @@
 )]
 
 use std::io::{Read as _, Write as _};
-use std::net::{IpAddr, TcpStream, UdpSocket};
+use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
 use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
 /// A client configuration that trusts only `authority` (PEM) and offers
@@ -36,6 +36,30 @@ pub(crate) fn trusting(authority: &str, alpn: &[&str]) -> Arc<ClientConfig> {
             .with_root_certificates(roots)
             .with_no_client_auth();
     config.alpn_protocols = alpn.iter().map(|name| name.as_bytes().to_vec()).collect();
+    Arc::new(config)
+}
+
+/// As [`trusting`], for a client that presents `certificate` (PEM) with
+/// its private `key` (PEM) when a server asks for one.
+pub(crate) fn presenting(authority: &str, certificate: &str, key: &str) -> Arc<ClientConfig> {
+    let mut roots = RootCertStore::empty();
+    for anchor in CertificateDer::pem_slice_iter(authority.as_bytes()) {
+        roots
+            .add(anchor.expect("a PEM certificate"))
+            .expect("a root certificate");
+    }
+    let chain = CertificateDer::pem_slice_iter(certificate.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .expect("a PEM client certificate");
+    let key = PrivateKeyDer::from_pem_slice(key.as_bytes()).expect("a PEM private key");
+    let mut config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("the default versions")
+            .with_root_certificates(roots)
+            .with_client_auth_cert(chain, key)
+            .expect("the key signs");
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
     Arc::new(config)
 }
 
@@ -139,6 +163,12 @@ pub(crate) fn connection_refused(address: &str) -> bool {
         .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
 }
 
+/// A listener on `address`, opened as any other program on the machine
+/// opens one (the standard library's, which reuses addresses on Unix).
+pub(crate) fn listen(address: &str) -> std::io::Result<TcpListener> {
+    TcpListener::bind(address)
+}
+
 /// Writes `request` as it is on a new plain connection and reads the
 /// response until the server closes it (send `Connection: close`).
 pub(crate) fn raw(address: &str, request: &[u8]) -> Exchange {
@@ -154,6 +184,25 @@ pub(crate) fn raw(address: &str, request: &[u8]) -> Exchange {
         read: stream.read,
         source: stream.source(),
     }
+}
+
+/// Writes `request` as [`raw`] does and reads the response until the server
+/// ends its side, then keeps the connection open: the stream is returned,
+/// and the connection closes once it is dropped.
+pub(crate) fn raw_kept_open(address: &str, request: &[u8]) -> (Exchange, TcpStream) {
+    let mut stream = connect(address);
+    stream.write_all(request).expect("the request is written");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the response is read");
+    let exchange = Exchange {
+        response,
+        written: stream.written,
+        read: stream.read,
+        source: stream.source(),
+    };
+    (exchange, stream.stream)
 }
 
 /// Writes `request` on a new TLS connection to `host`, then reads the
@@ -278,6 +327,85 @@ pub(crate) struct Tunnel {
     pub(crate) exchange: Option<Exchange>,
 }
 
+/// Where a SOCKS5 exchange stopped short of its tunnel: the step and the
+/// code the proxy answered it with.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Socks5Refusal {
+    /// It took none of the methods offered.
+    Method(u8),
+    /// It refused the credentials.
+    Credentials(u8),
+    /// It refused the `CONNECT`.
+    Connect(u8),
+}
+
+/// Asks the SOCKS5 proxy at `proxy` (RFC 1928), with `username` and
+/// `password` (RFC 1929), for a tunnel to the domain `host` on `port`, then
+/// writes `request` through it as it is and reads the response until the
+/// server closes it.
+pub(crate) fn socks5(
+    proxy: &str,
+    (username, password): (&str, &str),
+    (host, port): (&str, u16),
+    request: &[u8],
+) -> Result<Exchange, Socks5Refusal> {
+    let mut stream = connect(proxy);
+    let mut answer = [0; 2];
+    stream
+        .write_all(&[5, 1, 2])
+        .expect("the greeting is written");
+    stream
+        .read_exact(&mut answer)
+        .expect("the method is answered");
+    if answer != [5, 2] {
+        return Err(Socks5Refusal::Method(answer[1]));
+    }
+    let mut credentials = vec![
+        1,
+        u8::try_from(username.len()).expect("a username of at most 255 bytes"),
+    ];
+    credentials.extend_from_slice(username.as_bytes());
+    credentials.push(u8::try_from(password.len()).expect("a password of at most 255 bytes"));
+    credentials.extend_from_slice(password.as_bytes());
+    stream
+        .write_all(&credentials)
+        .expect("the credentials are written");
+    stream
+        .read_exact(&mut answer)
+        .expect("the credentials are answered");
+    if answer != [1, 0] {
+        return Err(Socks5Refusal::Credentials(answer[1]));
+    }
+    let mut connect = vec![
+        5,
+        1,
+        0,
+        3,
+        u8::try_from(host.len()).expect("a host of at most 255 bytes"),
+    ];
+    connect.extend_from_slice(host.as_bytes());
+    connect.extend_from_slice(&port.to_be_bytes());
+    stream.write_all(&connect).expect("the request is written");
+    let mut reply = [0; 10];
+    stream
+        .read_exact(&mut reply)
+        .expect("the request is answered");
+    if reply[1] != 0 {
+        return Err(Socks5Refusal::Connect(reply[1]));
+    }
+    stream.write_all(request).expect("the request is written");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the response is read");
+    Ok(Exchange {
+        response,
+        written: stream.written,
+        read: stream.read,
+        source: stream.source(),
+    })
+}
+
 /// Asks the proxy at `proxy` for a tunnel to `authority` (with
 /// `authorization` as its `Proxy-Authorization`, if any), then writes
 /// `request` over TLS to `host` through it and reads the response until the
@@ -353,6 +481,14 @@ pub(crate) struct DnsAnswer {
 
 /// Asks the DNS server at `server` for `name`'s records of one type, over
 /// UDP, as a stub resolver does (RFC 1035).
+/// Sends one datagram of `bytes` to `server` from a socket of its own, and
+/// returns the address it was sent from.
+pub(crate) fn udp_datagram(server: &str, bytes: &[u8]) -> std::net::SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("a UDP socket");
+    socket.send_to(bytes, server).expect("the datagram is sent");
+    socket.local_addr().expect("the socket's address")
+}
+
 pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> DnsAnswer {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("a UDP socket");
     socket

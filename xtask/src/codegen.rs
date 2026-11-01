@@ -5,6 +5,8 @@
 //! the commands `goodfetch-cli` generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
+//! the Console's operation map from Collie's projection (spec #592) and
+//! Foxhound's Console's from Foxhound's (spec #593),
 //! each registered format's refusal cases (ADR 0066), the Journey files'
 //! schema on its own, `journeys/journey.schema.json`, for
 //! editors and the TypeScript and Python helpers (ADR 0063), and the result
@@ -14,6 +16,9 @@
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
 //! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
 //! bindings, from the pinned Chromium's protocol file (spec #577).
+//! It writes the resolved-address classification's table into
+//! `goodfetch-protocol`, from IANA's special-purpose registries committed
+//! beside it with their date (ADR 0067).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -30,6 +35,7 @@
 
 mod cdp;
 mod cli;
+mod console;
 mod deny;
 mod digest;
 mod emitter;
@@ -40,6 +46,7 @@ mod names;
 mod naming;
 mod projection;
 mod python;
+mod special_purpose;
 mod test_support;
 mod typescript;
 
@@ -211,9 +218,14 @@ impl External {
             Generator::Json2ts => &JSON2TS_OPTIONS,
             Generator::DatamodelCodegen => &python::DATAMODEL_CODEGEN_OPTIONS,
         };
+        let rewrites: &[&str] = match self.generator {
+            Generator::Json2ts => &[],
+            Generator::DatamodelCodegen => &[python::model_defaults::REWRITE],
+        };
         let mut recipe = self.input.clone();
         for part in options
             .iter()
+            .chain(rewrites)
             .copied()
             .chain([self.header.as_str(), &self.prefix])
         {
@@ -271,6 +283,8 @@ impl Plan {
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
+            console::FOLDER,
+            console::FOXHOUND_FOLDER,
         ]
         .into_iter()
         .chain(PACKAGES.iter().map(|package| package.folder))
@@ -321,6 +335,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(special_purpose::generate(root)?);
     files.extend(cli::namespaces(root)?);
     let sources = features::Sources {
         root,
@@ -367,6 +382,9 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         test_support::canary_rule(cargo, root)?,
     );
     files.extend(cdp::generate(root)?);
+    for (path, text) in console::all_files(root, &collie, &foxhound, &foxhound_names)? {
+        files.insert(path, text.into_bytes());
+    }
 
     let mut externals = Vec::new();
     for package in &PACKAGES {
@@ -596,11 +614,61 @@ fn run_generator(
             String::from_utf8_lossy(&result.stderr)
         );
     }
-    let generated = std::fs::read(&output)
+    let mut generated = std::fs::read(&output)
         .with_context(|| format!("reading what the generator of {} wrote", external.output))?;
+    if let Generator::DatamodelCodegen = external.generator {
+        let text = String::from_utf8(generated)
+            .with_context(|| format!("reading {}'s generated text", external.output))?;
+        generated = match python::model_defaults::rewrite(&text) {
+            Some(rewritten) => {
+                ruff_format(&generators.datamodel_codegen, root, scratch, &rewritten)
+                    .with_context(|| format!("formatting {} again", external.output))?
+            }
+            None => text.into_bytes(),
+        };
+    }
     let mut contents = external.prefix.clone().into_bytes();
     contents.extend_from_slice(&generated);
     Ok(contents)
+}
+
+/// `text`, Python, formatted by the ruff beside `datamodel_codegen`, run in
+/// `scratch` as `datamodel-code-generator` runs it, so its settings are the
+/// same.
+fn ruff_format(
+    datamodel_codegen: &Path,
+    root: &Path,
+    scratch: &Path,
+    text: &str,
+) -> Result<Vec<u8>> {
+    use std::io::Write as _;
+    let ruff = std::path::absolute(root.join(datamodel_codegen.with_file_name("ruff")))?;
+    let mut child = Command::new(&ruff)
+        .args(["format", "--stdin-filename", "models.py", "-"])
+        .current_dir(scratch)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "running {}; install the tools with `uv sync`",
+                ruff.display()
+            )
+        })?;
+    child
+        .stdin
+        .take()
+        .context("ruff's standard input")?
+        .write_all(text.as_bytes())?;
+    let result = child.wait_with_output()?;
+    if !result.status.success() {
+        bail!(
+            "ruff format failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    Ok(result.stdout)
 }
 
 /// `xtask codegen`'s arguments.

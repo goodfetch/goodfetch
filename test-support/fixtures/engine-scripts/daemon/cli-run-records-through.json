@@ -1,0 +1,88 @@
+{
+  "description": "Foxhound's CLI built from this commit runs run records --through 1 without --follow on the Daemon: given its own bound, it calls run.records through it at once, reading no last committed number first; the Daemon sends the one Record and answers how many it sent.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.records",
+        "params": {
+          "run_id": "first",
+          "dataset": "pages",
+          "through": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 1,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 1,
+            "record": {
+              "number": 1,
+              "value": {
+                "markdown": "# First"
+              },
+              "request_id": "1",
+              "url": "https://example.com/",
+              "committed_at": "2026-10-30T12:00:00Z",
+              "provenance": {
+                "request_id": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 1,
+          "credits": 1
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "count": 1,
+          "last": 1
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

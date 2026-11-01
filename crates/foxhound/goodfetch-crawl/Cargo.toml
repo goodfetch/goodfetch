@@ -9,20 +9,45 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+encoding_rs.workspace = true
+fixed_decimal.workspace = true
+# `join_all`: the delivery settles the attempts that ended together, so
+# their run-state writes queue as one group.
+futures-util = { workspace = true, features = ["alloc"] }
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
+icu_calendar.workspace = true
+icu_datetime.workspace = true
+icu_decimal.workspace = true
+icu_locale_core.workspace = true
+icu_normalizer.workspace = true
+jiff.workspace = true
+regex.workspace = true
 rusqlite.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 tracing.workspace = true
+writeable.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+# The work-item metrics' test reads what a crawl records through the SDK and
+# the Prometheus exporter the executables use (src/start/tests/metrics.rs).
+opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
+# The staging's tests read the statements an admission runs (trace_v2).
+rusqlite = { workspace = true, features = ["trace"] }
 tokio = { workspace = true, features = ["io-util"] }
 tracing-subscriber.workspace = true
 

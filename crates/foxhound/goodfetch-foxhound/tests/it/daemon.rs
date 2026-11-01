@@ -58,10 +58,7 @@ fn json_of(executable: &Path, env: &TestEnv, arguments: &[&str]) -> Value {
 /// The running Daemon's Product and PID, as `daemon status` says.
 fn running(env: &TestEnv) -> (Value, Value) {
     let status = json_of(FOXHOUND.as_ref(), env, &["daemon", "status", "--json"]);
-    (
-        status["daemon"]["product"].clone(),
-        status["daemon"]["pid"].clone(),
-    )
+    (status["product"].clone(), status["pid"].clone())
 }
 
 fn explain(executable: &Path, env: &TestEnv) -> goodfetch_test_support::CliOutput {
@@ -134,6 +131,10 @@ fn a_foxhound_client_meeting_an_idle_collie_daemon_gets_a_foxhound_daemon() {
     );
 }
 
+/// A busy Collie Daemon refuses a Foxhound Client under `--daemon` with
+/// `not_in_product`, which exits `11`, as a refused protocol version does,
+/// since the same `daemon restart` ends both (ticket #1183).
+///
 /// Covers: story:3-5, story:3-137, story:3-138, error:not_in_product, command:daemon.restart
 #[test]
 fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_restart_runs() {
@@ -148,15 +149,14 @@ fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_rest
     drop(busy);
 
     assert_eq!(
-        (refused.exit, restarted["daemon"]["product"].clone()),
-        (Some(10), json!("foxhound")),
+        (refused.exit, restarted["product"].clone()),
+        (Some(11), json!("foxhound")),
         "{}",
         refused.stderr
     );
-    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
-    settings.add_filter(&regex_escape(FOXHOUND), "[FOXHOUND]");
-    settings.bind(|| {
-        insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stderr.trim());
+    let values = SnapshotValues::of(&env).with_path(FOXHOUND, "[FOXHOUND]");
+    snapshot_settings(&values).bind(|| {
+        insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stdout.trim());
     });
 }
 
@@ -214,9 +214,8 @@ fn a_refused_collie_client_is_told_to_install_foxhound_while_a_foxhound_is_the_p
     daemon.child().wait().unwrap();
 
     assert_eq!(refused.exit, Some(11), "{}", refused.stderr);
-    let mut settings = snapshot_settings(&SnapshotValues::of(&env));
-    settings.add_filter(&regex_escape(&collie().display().to_string()), "[COLLIE]");
-    settings.bind(|| {
+    let values = SnapshotValues::of(&env).with_path(&collie().display().to_string(), "[COLLIE]");
+    snapshot_settings(&values).bind(|| {
         insta::assert_snapshot!(
             "refused_collie_told_to_install_foxhound",
             refused.stderr.trim()
@@ -224,11 +223,42 @@ fn a_refused_collie_client_is_told_to_install_foxhound_while_a_foxhound_is_the_p
     });
 }
 
-fn regex_escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            let escaped = "\\.+*?()|[]{}^$".contains(character);
-            escaped.then_some('\\').into_iter().chain([character])
-        })
-        .collect()
+/// Under `--daemon`, a Daemon of another Product that refuses the command
+/// by Product and cannot hand over ends it with exit `11` and a `fix`
+/// naming this executable's `daemon restart` by its path, read from the
+/// Scripted engine playing a busy Collie Daemon (ticket #1183, ADR 0098).
+///
+/// Covers: story:11-213, command:run.start, error:not_in_product
+#[test]
+fn under_daemon_a_daemon_of_another_product_fails_with_exit_11_and_its_daemon_restart() {
+    let env = TestEnv::new();
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedEngine)
+        .unwrap()
+        .to_owned();
+    let mut command = env.process_command(scripted);
+    command
+        .arg("--script")
+        .arg(engine_script("daemon/cli-hello-refused-product.json"))
+        .args(["--mode", "socket"])
+        .stderr(Stdio::null());
+    let daemon = env.spawn(&mut command).unwrap();
+    reported_address(&mut daemon.child()).unwrap();
+
+    let refused = cli(&env, FOXHOUND)
+        .args(["run", "start", "--run-id", "first", "--daemon"])
+        .run()
+        .unwrap();
+    daemon.child().wait().unwrap();
+
+    assert_eq!(
+        (refused.exit, refused.stdout.as_str()),
+        (Some(11), ""),
+        "{refused}"
+    );
+    let values = SnapshotValues::of(&env).with_path(FOXHOUND, "[FOXHOUND]");
+    snapshot_settings(&values).bind(|| {
+        insta::assert_snapshot!("run_start_refused_by_product", refused.stderr.trim());
+    });
 }

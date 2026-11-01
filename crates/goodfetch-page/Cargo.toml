@@ -11,17 +11,56 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+# The egress relay's terminating mode (ADRs 0042 and 0124): BoringSSL
+# through the fork `wreq` uses, upstream with a ClientHello rebuilt from the
+# browser's and toward the browser with the in-memory authority's leaf.
+btls.workspace = true
+# The BoringSSL functions `btls` has no method for: the browser's
+# `trust_anchors` request, the ALPS payload and resuming a session.
+btls-sys.workspace = true
+foreign-types.workspace = true
+# The certificates the browser's ClientHello may ask compressed (RFC 8879):
+# Brotli and zlib, decoded only.
+brotli-decompressor.workspace = true
+# Bodies are `Bytes`, read once and never copied (STYLE.md).
+bytes.workspace = true
+data-encoding.workspace = true
+flate2.workspace = true
+# Drives a Borrowed browser's CDP WebSocket's stream of messages and its
+# sink (ADR 0056).
+futures-util.workspace = true
 goodfetch-cdp.workspace = true
+goodfetch-clean-up-rules.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
+# The egress relay's request heads (the `egress_relay` module).
+httparse.workspace = true
 jiff.workspace = true
+# A domain as ADR 0004 keys it, which blocking is learned off for (ADR 0047).
+psl.workspace = true
+# The relay's certificate authority, made at each Run's first launch and
+# held in memory only, name-constrained to the listed hosts (ADR 0042).
+rcgen = { workspace = true, features = ["ring"] }
 regex.workspace = true
 regex-syntax.workspace = true
+rusqlite.workspace = true
+# A Session's proxy password, held until the Session's proxy goes.
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The name of a Session's sticky session at a Proxy provider: a digest of
+# its Session ID, so the provider never sees the Run's own ID.
+sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["process", "sync", "time", "macros"] }
+# `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
+tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }
+tokio-btls.workspace = true
+# A Borrowed browser's CDP WebSocket at its `cdp_url` (ADRs 0056 and 0115).
+tokio-tungstenite.workspace = true
+# The relay's stop, when its Session's proxy goes; a browser of the pool
+# closes on its own token, a child of its Run's.
+tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
 
@@ -32,11 +71,17 @@ libc.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
+# The integration tests' adapter of the page's value and response observer
+# (ADR 0125); never the unit tests', which would link two copies of this
+# crate.
+goodfetch-recording-gate.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The verifier that proves the relay's authority name-constrained.
+rustls = { workspace = true, features = ["ring", "std"] }
 tokio = { workspace = true, features = ["io-util", "rt"] }
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.

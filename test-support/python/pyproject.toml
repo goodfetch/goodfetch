@@ -11,6 +11,18 @@ dependencies = ["jsonschema>=4.26.0", "pydantic>=2.14.1,<3", "pytest>=9.1.1"]
 [project.entry-points.pytest11]
 goodfetch_test_support = "goodfetch_test_support.plugin"
 
+# Its tests start the Proving ground, both Products' executables,
+# `goodfetch-conformance` and test support's own executables through the test
+# tool manifest, so a change to any runs them (`xtask affected`, TESTING.md).
+[tool.goodfetch]
+runs = [
+  "goodfetch-collie",
+  "goodfetch-conformance",
+  "goodfetch-foxhound",
+  "goodfetch-proving-ground",
+  "goodfetch-test-support",
+]
+
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10"]
 build-backend = "uv_build"

@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::jsonrpc::META;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -95,6 +96,11 @@ pub(super) struct ErrorGroup {
     pub(super) description: String,
     /// The JSON-RPC error code the wire carries for the group's codes.
     pub(super) json_rpc_class: i64,
+    /// The CLI's exit code for the group's codes without a row of their own:
+    /// the group's row of ADR 0069's table, which the projection lists as
+    /// `exit_codes`; `None` when it lists none, as the codegen fixture's.
+    #[serde(skip)]
+    pub(super) exit_code: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +110,9 @@ pub(super) struct ErrorCode {
     pub(super) description: String,
     pub(super) group: String,
     pub(super) retryable: bool,
+    /// The code's own row of ADR 0069's exit-code table, when it has one.
+    #[serde(default)]
+    pub(super) exit_code: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,12 +190,23 @@ struct Projection {
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
+    /// ADR 0069's exit-code table; absent from the codegen fixture's.
+    #[serde(default)]
+    exit_codes: Vec<ExitCodeRow>,
     plugin_kinds: Vec<PluginKind>,
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
+}
+
+/// A row of ADR 0069's exit-code table: an outcome's, a group's or an Error
+/// code's exit code, by its name.
+#[derive(Deserialize)]
+struct ExitCodeRow {
+    name: String,
+    code: u8,
 }
 
 /// One SDK package's layer.
@@ -219,8 +239,9 @@ impl Layer {
         foxhound: &Value,
         product: Product,
     ) -> Result<Self> {
-        let collie: Projection =
+        let mut collie: Projection =
             Projection::deserialize(collie).context("reading Collie's projection")?;
+        without_meta(&mut collie.definitions);
         match product {
             Product::Collie => {
                 let mut definitions = collie.definitions;
@@ -234,8 +255,16 @@ impl Layer {
                         definitions.insert(name, schema.clone());
                     }
                 }
+                without_meta(&mut definitions);
                 definitions.sort_keys();
                 let shared_types = shared_types(&collie.shared_type_values, |_| true, |_| false);
+                for group in &mut collie.error_groups {
+                    group.exit_code = collie
+                        .exit_codes
+                        .iter()
+                        .find(|row| row.name == group.name)
+                        .map(|row| row.code);
+                }
                 Ok(Self {
                     product,
                     protocol_version: collie.protocol_version,
@@ -254,8 +283,9 @@ impl Layer {
                 })
             }
             Product::Foxhound => {
-                let all: Projection =
+                let mut all: Projection =
                     Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
+                without_meta(&mut all.definitions);
                 let own = |entry_product: Product| entry_product == Product::Foxhound;
                 let operations: Vec<Operation> = all
                     .operations
@@ -338,6 +368,20 @@ impl Layer {
             "$defs": definitions,
         });
         (input, replaced)
+    }
+}
+
+/// `definitions` without `_meta`, the Trace context the bundle adds to
+/// every request's params: an envelope field each SDK's runtime fills in,
+/// to which no generator gives a member (ADRs 0099 and 0132).
+fn without_meta(definitions: &mut Map<String, Value>) {
+    for definition in definitions.values_mut() {
+        if let Some(properties) = definition
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+        {
+            properties.remove(META);
+        }
     }
 }
 
@@ -451,6 +495,82 @@ mod tests {
                 vec!["widget.spin".to_owned(), "widget.lend".to_owned()],
                 vec!["crawl.spin".to_owned()]
             )
+        );
+    }
+
+    /// Raising a Limit is a person's answer (ADRs 0029 and 0041): the
+    /// committed catalog marks `usage.raise` person-only, and neither
+    /// Product's SDK layer offers it, so no program or agent is generated a
+    /// way to lift the cap that stopped it.
+    ///
+    /// Covers: story:12-100
+    #[test]
+    fn no_sdk_layer_offers_the_raising_of_a_limit() {
+        let generated = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../crates/goodfetch-protocol/generated");
+        let read = |name: &str| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(generated.join(name)).unwrap()).unwrap()
+        };
+        let (bundle, collie, foxhound) = (
+            read("bundle.json"),
+            read("collie.json"),
+            read("foxhound.json"),
+        );
+        let reach = collie["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|operation| operation["name"] == "usage.raise")
+            .map(|operation| operation["reach"].clone());
+        let offers = |product| {
+            Layer::new(&bundle, &collie, &foxhound, product)
+                .unwrap()
+                .operations
+                .iter()
+                .any(|operation| operation.name == "usage.raise")
+        };
+
+        assert_eq!(
+            (reach, offers(Product::Collie), offers(Product::Foxhound)),
+            (Some(json!("person_only")), false, false)
+        );
+    }
+
+    /// Covers: story:3-146
+    #[test]
+    fn no_sdk_layer_gives_a_requests_trace_context_a_member() {
+        let params = json!({
+            "type": "object",
+            "properties": {
+                "size": { "type": "integer" },
+                "_meta": { "$ref": "#/$defs/TraceContext" },
+            },
+        });
+        let mut collie = projection(&[operation("widget.spin", "collie", "all_surfaces")]);
+        collie["$defs"]["Empty"] = params.clone();
+        let mut crawl = operation("crawl.spin", "foxhound", "all_surfaces");
+        crawl["params"] = json!({ "$ref": "#/$defs/CrawlSpinParams" });
+        let mut foxhound = projection(&[crawl]);
+        foxhound["$defs"]["CrawlSpinParams"] = params;
+        for projection in [&mut collie, &mut foxhound] {
+            projection["$defs"]["TraceContext"] = json!({ "type": "object" });
+        }
+        let bundle = json!({ "$defs": {} });
+
+        let members = |product, name: &str| {
+            let layer = Layer::new(&bundle, &collie, &foxhound, product).unwrap();
+            let (input, _) = layer.generator_input("Layer", |name| ("import", name.to_owned()));
+            input["$defs"][name]["properties"]
+                .as_object()
+                .map(|properties| properties.keys().cloned().collect::<Vec<_>>())
+        };
+
+        assert_eq!(
+            (
+                members(Product::Collie, "Empty"),
+                members(Product::Foxhound, "CrawlSpinParams")
+            ),
+            (Some(vec!["size".to_owned()]), Some(vec!["size".to_owned()]))
         );
     }
 }

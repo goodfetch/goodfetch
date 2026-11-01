@@ -8,15 +8,10 @@
 //! and the Permits of an engine killed mid-request are reclaimed once its
 //! Run's writer lock is free. The handlers are the test's: a request is in
 //! flight from its `crawl_request.handle` until the test answers it.
-use std::time::Duration;
-
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-
-/// How long an engine must send nothing for a request to count as held.
-const QUIET: Duration = Duration::from_secs(1);
 
 fn one_at_a_time() -> Value {
     json!({ "politeness": { "domain": { "concurrency": 1 } } })
@@ -56,6 +51,53 @@ fn next_request(engine: &mut Attached) -> Value {
     }
 }
 
+/// The first of `held`, the requests `engine` sent that are not taken
+/// yet, or else the next it sends.
+fn taken(engine: &mut Attached, held: &mut Vec<Value>) -> Value {
+    if held.is_empty() {
+        next_request(engine)
+    } else {
+        held.remove(0)
+    }
+}
+
+/// Follows the progress (`run.progress`) of `run_id` on `engine` until its
+/// due request settles: it waits for the site under `domain_concurrency`,
+/// the Politeness file having refused its Permit and listed it as a waiter
+/// (ADR 0053), or nothing is pending any more, each handler request that
+/// comes meanwhile kept in `held`. Answers how many requests that value
+/// shows waiting for the site, and how many handled.
+fn settled(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> (u64, u64) {
+    let mut params = json!({ "run_id": run_id });
+    loop {
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": "progress", "method": "run.progress", "params": params,
+        }));
+        let progress = loop {
+            let message = engine.next().expect("the engine answers its progress");
+            if message["method"] == "crawl_request.handle" {
+                held.push(message);
+            } else if message["id"] == "progress" {
+                break message["result"].clone();
+            }
+        };
+        let waiting = progress["waiting"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|group| group["reason"] == "domain_concurrency")
+            .and_then(|group| group["count"].as_u64());
+        let requests = &progress["requests"];
+        if waiting.is_some() || requests["pending"] == 0 || progress["last"] == true {
+            return (
+                waiting.unwrap_or(0),
+                requests["handling"].as_u64().unwrap_or(0),
+            );
+        }
+        params["after"] = progress["position"].clone();
+    }
+}
+
 fn url(request: &Value) -> String {
     request["params"]["crawl_request"]["url"]
         .as_str()
@@ -81,12 +123,18 @@ fn finish(engine: &mut Attached, run_id: &str) -> Value {
 /// flight on it together than its cap of one. The waiters take turns in
 /// the order they began to wait: the first crawl, whose second request
 /// waited from its first's admission, goes again, and the second crawl,
-/// quiet meanwhile, is woken through its wake endpoint once that ends.
+/// waiting meanwhile, is woken through its wake endpoint once that ends.
+/// Each crawl's progress says when its request waits for the site.
 ///
 /// Covers: story:3-80, story:3-81, setting:politeness.domain.concurrency, operation:crawl.start, format:politeness-file
 #[test]
 fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() {
     let env = TestEnv::new();
+    // The first crawl's second request waits for the site from its first's
+    // admission only if the governor admits both at once: a governor under
+    // pressure lowers its HTTP target towards its floor, one by default
+    // (ADR 0040), and the second request would wait for the governor.
+    env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
     let mut first = Attached::start(&env);
     let mut second = Attached::start(&env);
 
@@ -96,22 +144,21 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
         &["https://shop.test/1", "https://shop.test/2"],
         &one_at_a_time(),
     );
-    if held.is_empty() {
-        held.push(next_request(&mut first));
-    }
-    let first_one = held.remove(0);
-    let none_yet = start(
+    let first_waits = settled(&mut first, "first", &mut held);
+    let first_one = taken(&mut first, &mut held);
+    let mut none_yet = start(
         &mut second,
         "second",
         &["https://www.shop.test/1"],
         &one_at_a_time(),
     );
-    let quiet_behind_one = none_yet.is_empty() && second.is_quiet_for(QUIET);
+    let behind_one = settled(&mut second, "second", &mut none_yet);
     answer(&mut first, &first_one);
-    let first_two = next_request(&mut first);
-    let quiet_behind_two = second.is_quiet_for(QUIET);
+    let first_two = taken(&mut first, &mut held);
+    let behind_two = settled(&mut second, "second", &mut none_yet);
+    let sent_early = none_yet.len();
     answer(&mut first, &first_two);
-    let second_one = next_request(&mut second);
+    let second_one = taken(&mut second, &mut none_yet);
     answer(&mut second, &second_one);
     let reports = (
         finish(&mut first, "first")["result"]["lifecycle"].clone(),
@@ -123,7 +170,7 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
     assert_eq!(
         (
             [url(&first_one), url(&first_two), url(&second_one)],
-            (quiet_behind_one, quiet_behind_two),
+            (first_waits, behind_one, behind_two, sent_early),
             reports,
         ),
         (
@@ -132,7 +179,7 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
                 "https://shop.test/2".to_owned(),
                 "https://www.shop.test/1".to_owned(),
             ],
-            (true, true),
+            ((1, 1), (1, 0), (1, 0), 0),
             (json!("finished"), json!("finished")),
         )
     );
@@ -175,10 +222,10 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
     assert!(second.finish());
 
     assert_eq!(
-        (url(&own[0]), &report["result"]["weakened_by"]),
+        (url(&own[0]), &report["result"]["weakened"]),
         (
             "https://shop.test/2".to_owned(),
-            &json!([{ "key": "politeness.sharing", "value": "run", "layer": "run" }])
+            &json!([{ "key": "politeness.sharing", "value": "run", "layer": "run", "origin": "settings" }])
         )
     );
 }

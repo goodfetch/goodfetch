@@ -1,0 +1,57 @@
+[package]
+name = "goodfetch-dataset"
+description = "A Foxhound crawl's Datasets and their Records: each Dataset's declaration, schema and key, the checks a Record passes before it is staged, and each Dataset's numbering of its committed Records (ADRs 0082, 0087 and 0103)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
+
+[dependencies]
+# The Arrow IPC and Parquet Exports (ADR 0026).
+arrow-array.workspace = true
+arrow-ipc.workspace = true
+arrow-schema.workspace = true
+data-encoding.workspace = true
+# The gzip form of an Export (ADR 0103), on the workspace's Rust backend.
+flate2.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+# A feed's dates: RFC 3339 read, RFC 2822 written for RSS.
+jiff.workspace = true
+# Each Dataset's Records are checked against its JSON Schema (ADR 0082); no
+# remote or file reference is resolved.
+jsonschema.workspace = true
+parquet.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+# The XLSX Export, a ZIP of SpreadsheetML written as a stream (ADR 0026).
+zip = { workspace = true, features = ["deflate-flate2"] }
+sha2.workspace = true
+tracing.workspace = true
+# The zstd form of an Export (ADR 0103).
+zstd.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+rstest.workspace = true
+gungraun.workspace = true
+# The records' tests commit between a reader's statements (trace_v2).
+rusqlite = { workspace = true, features = ["trace"] }
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
+
+[lints]
+workspace = true

@@ -39,6 +39,9 @@ The suites are the Quick, Pre-merge and Release suites, each containing the one 
   - *New* means its ID is absent from the base commit's test listing. *Changed* means its file changed in the pull request (Vitest `--changed` and Playwright `--only-changed` also take tests whose imports changed).
   - nextest `--stress-count`, Vitest `--repeats`, Playwright `--repeat-each`, pytest-repeat `--count`.
   - The run is sharded to fit the Pre-merge budget; the count is never lowered, and no label or footer skips it.
+
+> Amended on 2026-10-28 (owner decision of 2026-10-28, adopting option 2 of the test-gate audit): a red stress run stops at the end of its first red iteration, the first run of every selected test in which one failed. One failure has already failed the pull request, and the 3 h 30 the iterations after it took on spec #577's red rounds decided nothing. A green run still runs every test its 20 or 200 times. nextest runs that run's iterations one a command, since its `--max-fail` ends a stress run in the middle of the iteration that reaches it; after a red iteration, no later iteration, runner or count runs. The cost: a second flaky test the later iterations would have caught shows on the next round, and a run that stopped before nextest's last iteration records red, in the gate (ADR 0135), every crate with a selected nextest test, since none of those ran its count.
+
 - **A pull request that takes a test off the quarantine list runs it 200 times.** Gruber et al. (2021) found that Python tests need about 170 runs on average for 95% confidence that a passing test is not flaky.
 - **Tests run in random order wherever the runner allows it**, with the seed printed:
   - pytest: pytest-randomly, on when installed;
@@ -109,8 +112,10 @@ This settles the map's fog "Where test results are kept over time and shown".
 | Cloud Run deploy | release candidate | nothing directly | ADR 0049 |
 | Live-model evaluations | decided by the AI testing ticket | decided by the AI testing ticket | [Testing AI features and agent skills](https://github.com/goodfetch/goodfetch/issues/281) |
 | OpenSSF Scorecard | nightly | nothing | ADR 0032 |
+| Live advisory audit (`just audit-live`: RustSec, npm and PyPI advisories, newest) | daily on `main`, from the server's cron while the hosted workflows are off | nothing directly | owner decision D6 of 2026-10-22, below |
 
   "Nothing directly" means only the `live-check` issue rules below apply. A channel moves without a commit, so each channel is a Live check. Each stable major of the last eight weeks and Extended Stable run pinned by version in the nightly matrix, so they are tests; the current stable major is among them, so the channel's Live check only shows when an update within the major breaks something.
+  > Amended on 2026-10-22 (owner decision D6, relayed by the orchestrator; agent decision on the details, accepted by the owner on 2026-10-22): the gate's `just audit` read live advisory data, so three advisories published on 10-19 and 10-20 failed `main`'s gate with no commit. It now checks every lockfile offline against a snapshot pinned in `ci/advisories.toml` (RustSec's commit for cargo-deny and cargo-audit; OSV's npm and PyPI databases, by SHA-256, for OSV-Scanner), and the newest data moves to the live advisory audit above, so a new advisory against `main` shows within a day. STYLE.md's "no open security advisory" is unchanged: the gate fails on any advisory in the pinned data.
 - **A Live check has three outcomes: pass, fail and inconclusive.** Inconclusive means the external side was unavailable (a vendor outage, an unreachable account, an exhausted quota). It is never counted as a pass.
 - **Its results go to the results store** under its own tier, `live`, and show in the same report.
   > Amended by [ADR 0067](0067-security-is-tested-per-trust-boundary-with-secret-canaries-and-private-fuzzing.md): fuzzing's results stay in its private repository, and a crash goes to a private advisory (an issue in that repository before publication) instead of a `live-check` issue, blocking the next minor until it is fixed or closed by triage.

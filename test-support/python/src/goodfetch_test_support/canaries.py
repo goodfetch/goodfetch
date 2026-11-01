@@ -34,9 +34,13 @@ Encoding = Literal["raw", "json_escaped", "url_encoded", "base64", "hex"]
 Placement = Literal["planted", "leaked"]
 """Whether a hit is where the canary was planted, or a leak."""
 
-_UNRESERVED = frozenset(
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-)
+_ALPHANUMERIC = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+_UNRESERVED = frozenset(_ALPHANUMERIC + b"-._~")
+"""The letters, digits and marks RFC 3986 leaves unreserved."""
+_FORM_KEPT = frozenset(_ALPHANUMERIC + b"*-._")
+"""What a browser keeps as it encodes a form, which writes a space `+`."""
+_URI_COMPONENT_KEPT = frozenset(_ALPHANUMERIC + b"-_.!~*'()")
+"""What JavaScript's `encodeURIComponent` keeps."""
 
 
 class CanaryOutputUnreadable(Exception):
@@ -85,10 +89,9 @@ class CanaryHit:
     """Whether the output is where the canary was planted."""
 
 
-def _url_encoded(value: bytes) -> str:
-    return "".join(
-        chr(byte) if byte in _UNRESERVED else f"%{byte:02X}" for byte in value
-    )
+def _url_encoded(value: bytes, kept: frozenset[int]) -> str:
+    """`value` percent-encoded, every byte but those in `kept`."""
+    return "".join(chr(byte) if byte in kept else f"%{byte:02X}" for byte in value)
 
 
 def _base64_at(value: bytes, alignment: int, *, url_safe: bool) -> bytes:
@@ -112,7 +115,9 @@ def _forms(canary: Canary) -> list[tuple[Encoding, bytes]]:
 
     add("raw", value)
     add("json_escaped", json.dumps(canary.value, ensure_ascii=False)[1:-1].encode())
-    add("url_encoded", _url_encoded(value).encode())
+    add("url_encoded", _url_encoded(value, _UNRESERVED).encode())
+    add("url_encoded", _url_encoded(value, _FORM_KEPT).replace("%20", "+").encode())
+    add("url_encoded", _url_encoded(value, _URI_COMPONENT_KEPT).encode())
     for url_safe in (False, True):
         for alignment in range(3):
             add("base64", _base64_at(value, alignment, url_safe=url_safe))

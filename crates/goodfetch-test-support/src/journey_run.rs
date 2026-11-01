@@ -22,8 +22,12 @@
 //! - at `finish`, each step never called is recorded, after those called, as
 //!   `not_reached` (`manual` for a manual one), so a run that skips a step
 //!   writes a document every reader refuses;
+//! - a check the file scopes to other variants' surfaces is not the
+//!   variant's: it is neither run nor written;
 //! - checks and tasks are written in the file's order, a check never called
-//!   `not_reached` and a task never judged with no answer.
+//!   `not_reached` and a task never judged with no answer;
+//! - each check naming a task is judged on its own submission, so a task two
+//!   checks name is written once per check, with that check's answer.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the Journey file, runs the executable and writes the document outside any async worker (ADR 0062)"
@@ -42,7 +46,7 @@ use serde_json::{Map, Value, json};
 
 use crate::env::{TestEnv, command};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
-use crate::variables::{RESULT_DOCUMENTS_VARIABLE, Variables};
+use crate::variables::{ENGINE_VARIABLE, RESULT_DOCUMENTS_VARIABLE, Variables};
 
 /// The runtime a Rust variant records.
 const RUNTIME: &str = "rust";
@@ -50,6 +54,18 @@ const RUNTIME: &str = "rust";
 /// The surface of a Collie Journey's `cli` variant run on Foxhound's
 /// executable (ADR 0094).
 const FOXHOUND_CLI: &str = "foxhound-cli";
+
+/// The executable a Journey variant drives: the one `GOODFETCH_TEST_ENGINE`
+/// names when it is set, for a skew run of `just journeys --engine <path>`
+/// (ADR 0066), else `built`, the commit's own: `CARGO_BIN_EXE_goodfetch-collie`
+/// or `-foxhound` in a Product's executable crate, or the test tool
+/// manifest's entry. Every `cli` variant takes its executable through it,
+/// and [`JourneyRun`] passes the executable it is given through it.
+pub fn journey_engine(built: impl AsRef<Path>) -> PathBuf {
+    Variables::from_process()
+        .get(ENGINE_VARIABLE)
+        .map_or_else(|| built.as_ref().to_owned(), PathBuf::from)
+}
 
 /// The catalog's folder, `journeys/` at the repository's root.
 fn catalog() -> PathBuf {
@@ -94,6 +110,22 @@ struct CheckEntry {
     text: String,
     #[serde(default)]
     task: Option<String>,
+    /// The surfaces of the variants the check belongs to; every variant's
+    /// when empty.
+    #[serde(default)]
+    surfaces: Vec<String>,
+}
+
+impl CheckEntry {
+    /// Whether the check belongs to the variant on `surface`, a
+    /// `foxhound-cli` variant taking the `cli` variant's checks.
+    fn belongs_to(&self, surface: &str) -> bool {
+        self.surfaces.is_empty()
+            || self
+                .surfaces
+                .iter()
+                .any(|listed| listed == surface || (surface == FOXHOUND_CLI && listed == "cli"))
+    }
 }
 
 impl JourneyFile {
@@ -141,10 +173,9 @@ pub struct JourneyRun<C> {
     checks: Vec<Option<Recorded>>,
     /// Checks recorded that the file does not hold.
     extra_checks: Vec<Recorded>,
-    /// The oracle's answer for each named task judged.
-    answers: BTreeMap<String, Value>,
-    /// Tasks judged that the file does not name.
-    extra_tasks: Vec<String>,
+    /// The oracle's answer to each check judged, by the check's place in
+    /// the file.
+    answers: BTreeMap<usize, Value>,
     failures: Vec<String>,
     construct: C,
     agent: ureq::Agent,
@@ -214,17 +245,21 @@ impl<C> JourneyRun<C> {
             path: file.to_owned(),
             source,
         })?;
-        let journey: JourneyFile =
+        let mut journey: JourneyFile =
             toml::from_str(&text).map_err(|source| JourneyRunError::Invalid {
                 path: file.to_owned(),
                 source: Box::new(source),
             })?;
+        // The variant's own checks: those scoped to other variants' surfaces
+        // are not run, and not recorded.
+        journey.expect.retain(|check| check.belongs_to(surface));
         if !journey.lists(surface) {
             return Err(JourneyRunError::UnlistedSurface {
                 journey: journey.id,
                 surface: surface.to_owned(),
             });
         }
+        let engine = &journey_engine(engine);
         let env = TestEnv::new();
         let (product, version) = reported_version(&env, engine)?;
         // The Journey's own seed, never the test's (ADR 0063).
@@ -253,7 +288,6 @@ impl<C> JourneyRun<C> {
             steps: Vec::new(),
             extra_checks: Vec::new(),
             answers: BTreeMap::new(),
-            extra_tasks: Vec::new(),
             failures: Vec::new(),
             construct,
             agent,
@@ -378,32 +412,45 @@ impl<C> JourneyRun<C> {
         });
     }
 
-    /// Submits the tool's result for a task the Journey names to its
-    /// Proving ground's oracle, when nothing failed before, and records the
-    /// answer as the task's, and each check naming the task as `passed` when
-    /// the answer is `verified` and `failed` otherwise. `submission` is the
-    /// oracle's submission without its `task`: the tool's `status`, its
-    /// `records` and any `files`. Returns the answer.
-    pub fn expect_task(&mut self, task: &str, submission: &Value) -> Option<&Value> {
-        if !self.journey.tasks().any(|named| named == task) {
-            self.fail(format!(
-                "task `{task}` is not one {} names",
-                self.journey.id
-            ));
-            self.extra_tasks.push(task.to_owned());
+    /// Submits the tool's result for the check the file words `check`, one
+    /// that names a task, to its Proving ground's oracle for that task, when
+    /// nothing failed before, and records the check as `passed` when the
+    /// answer is `verified` and `failed` otherwise. Each check naming a task
+    /// is judged on its own submission, so two checks naming one task (two
+    /// Crawls of one site) take two answers. `submission` is the oracle's
+    /// submission without its `task`: the tool's `status`, its `records`
+    /// and any `files`. Returns the answer.
+    pub fn expect_task(&mut self, check: &str, submission: &Value) -> Option<&Value> {
+        let index = self
+            .journey
+            .expect
+            .iter()
+            .position(|entry| entry.text == check && entry.task.is_some());
+        let Some(index) = index.filter(|index| self.checks[*index].is_none()) else {
+            let misuse = if index.is_some() {
+                "is judged a second time".to_owned()
+            } else {
+                format!("is not a check of {} that names a task", self.journey.id)
+            };
+            self.fail(format!("check `{check}` {misuse}"));
+            self.extra_checks.push(Recorded {
+                text: check.to_owned(),
+                task: None,
+                outcome: "failed",
+            });
             return None;
-        }
-        if self.answers.contains_key(task) {
-            self.fail(format!("task `{task}` is judged a second time"));
-            return None;
-        }
+        };
         if self.failed() {
             return None;
         }
-        let answer = match self.judge(task, submission) {
+        let task = self.journey.expect[index]
+            .task
+            .clone()
+            .expect("invariant: the check found names a task");
+        let answer = match self.judge(&task, submission) {
             Ok(answer) => answer,
             Err(failure) => {
-                self.fail(format!("task `{task}`: {failure}"));
+                self.fail(format!("check `{check}`, task `{task}`: {failure}"));
                 return None;
             }
         };
@@ -414,19 +461,17 @@ impl<C> JourneyRun<C> {
             .to_owned();
         let verified = outcome == "verified";
         if !verified {
-            self.fail(format!("the oracle answers `{outcome}` for task `{task}`"));
+            self.fail(format!(
+                "the oracle answers `{outcome}` for task `{task}` of check `{check}`"
+            ));
         }
-        for (index, check) in self.journey.expect.iter().enumerate() {
-            if check.task.as_deref() == Some(task) {
-                self.checks[index] = Some(Recorded {
-                    text: check.text.clone(),
-                    task: Some(task.to_owned()),
-                    outcome: if verified { "passed" } else { "failed" },
-                });
-            }
-        }
-        self.answers.insert(task.to_owned(), answer);
-        self.answers.get(task)
+        self.checks[index] = Some(Recorded {
+            text: check.to_owned(),
+            task: Some(task),
+            outcome: if verified { "passed" } else { "failed" },
+        });
+        self.answers.insert(index, answer);
+        self.answers.get(&index)
     }
 
     /// Hands what the run recorded to the constructor and writes the
@@ -603,14 +648,29 @@ impl<C> JourneyRun<C> {
             })
             .chain(self.extra_checks.iter().map(recorded))
             .collect();
+        // Each named task, once per check naming it with that check's
+        // answer in the checks' order, or once when no check names it.
         let tasks: Vec<Value> = self
             .journey
             .tasks()
-            .map(|task| match self.answers.get(task) {
-                Some(answer) => json!({ "id": task, "answer": answer }),
-                None => json!({ "id": task }),
+            .flat_map(|task| {
+                let judged: Vec<Value> = self
+                    .journey
+                    .expect
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, check)| check.task.as_deref() == Some(task))
+                    .map(|(index, _)| match self.answers.get(&index) {
+                        Some(answer) => json!({ "id": task, "answer": answer }),
+                        None => json!({ "id": task }),
+                    })
+                    .collect();
+                if judged.is_empty() {
+                    vec![json!({ "id": task })]
+                } else {
+                    judged
+                }
             })
-            .chain(self.extra_tasks.iter().map(|task| json!({ "id": task })))
             .collect();
         let mut facts = json!({
             "journey_id": self.journey.id,

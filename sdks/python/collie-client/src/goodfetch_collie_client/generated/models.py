@@ -19,6 +19,42 @@ class CollieTypes(BaseModel):
     )
 
 
+class AbortReason(StrEnum):
+    """
+    The network error an aborted request reports to its page, under
+    Playwright's names.
+    """
+
+    aborted = "aborted"
+    """`aborted`."""
+    accessdenied = "accessdenied"
+    """`accessdenied`."""
+    addressunreachable = "addressunreachable"
+    """`addressunreachable`."""
+    blockedbyclient = "blockedbyclient"
+    """`blockedbyclient`."""
+    blockedbyresponse = "blockedbyresponse"
+    """`blockedbyresponse`."""
+    connectionaborted = "connectionaborted"
+    """`connectionaborted`."""
+    connectionclosed = "connectionclosed"
+    """`connectionclosed`."""
+    connectionfailed = "connectionfailed"
+    """`connectionfailed`."""
+    connectionrefused = "connectionrefused"
+    """`connectionrefused`."""
+    connectionreset = "connectionreset"
+    """`connectionreset`."""
+    internetdisconnected = "internetdisconnected"
+    """`internetdisconnected`."""
+    namenotresolved = "namenotresolved"
+    """`namenotresolved`."""
+    timedout = "timedout"
+    """`timedout`."""
+    failed = "failed"
+    """`failed`."""
+
+
 class Acted(BaseModel):
     """
     What a locator action answers once its input landed on its target:
@@ -28,6 +64,50 @@ class Acted(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class Actor1(BaseModel):
+    """A person, by the name their account or OS user goes by."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["person"]
+    name: str
+    """Their name."""
+
+
+class Actor2(BaseModel):
+    """A named token (area 12), by its name."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["named_token"]
+    name: str
+    """Its name."""
+
+
+class Actor4(BaseModel):
+    """The engine itself."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["engine"]
+
+
+class AllowanceSource(StrEnum):
+    """What set the Memory allowance: the tightest of them (ADR 0040)."""
+
+    cgroup = "cgroup"
+    """The process's own cgroup's memory limit, v1 or v2."""
+    job_object = "job_object"
+    """The Windows Job object the process runs in."""
+    setting = "setting"
+    """`governor.memory_allowance`."""
+    physical = "physical"
+    """Half of physical memory, when nothing tighter applies."""
 
 
 class ArtifactKind(StrEnum):
@@ -56,6 +136,14 @@ class Asked(RootModel[Literal[True]]):
     """The format, with its default options."""
 
 
+class AuditExportParams(BaseModel):
+    """What `audit.export` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class AuditVerified(BaseModel):
     """What `audit.verify` answers."""
 
@@ -79,6 +167,120 @@ class AuditVerified(BaseModel):
 
 class AuditVerifyParams(BaseModel):
     """What `audit.verify` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class AxisReason(BaseModel):
+    """One reason a Run is not `verified` or not `complete` (ADR 0029)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call_id: str | None = None
+    """
+    The AI task it is about, by its `callId`, when it is about one (ADR
+    0100).
+    """
+    code: str
+    """
+    What it is, such as `stopped` or `failed`; a reason this reader does
+    not know is kept as it is.
+    """
+    count: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many it counts, when it counts some: the URLs a bound refused,
+    the pages left at a Block cause, or the requests a stop left.
+    """
+    message: str
+    """What it says, for people."""
+
+
+class BrowserName(StrEnum):
+    """A browser family, as ADR 0056 names them."""
+
+    chrome = "chrome"
+    """Google Chrome."""
+    edge = "edge"
+    """Microsoft Edge."""
+    brave = "brave"
+    """Brave."""
+    chromium = "chromium"
+    """Chromium."""
+    firefox = "firefox"
+    """Firefox."""
+    safari = "safari"
+    """Safari."""
+
+
+class CertificateExceptionKind(StrEnum):
+    """The kind of an invalid-certificate exception (ADR 0042)."""
+
+    trust_on_first_use = "trust_on_first_use"
+    """Its domain was listed without a pin: the key pinned on first use."""
+    any = "any"
+    """Its domain was listed with `any`, and the host has no pin."""
+
+
+class CertificateExceptionMark(BaseModel):
+    """
+    The invalid-certificate exception a Record's document was fetched
+    under (ADR 0042, pitfall H03).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: CertificateExceptionKind
+    """The kind of exception."""
+    spki_sha256: str
+    """
+    The SHA-256 of the public key of the certificate it accepted, as
+    `sha256/<base64>`, the known-certificates store's spelling.
+    """
+
+
+class CertsAcceptParams(BaseModel):
+    """
+    What `certs.accept` takes: the host, and the changed key the person
+    accepts, as `certs.list` shows it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+    spki_sha256: str
+    """The SHA-256 of the changed key, as `sha256/` and its standard base64."""
+
+
+class CertsForgetParams(BaseModel):
+    """What `certs.forget` takes: the host."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    host: str
+    """The pinned host, as the URL parser leaves it."""
+
+
+class CertsForgotten(BaseModel):
+    """What `certs.forget` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    forgotten: bool
+    """Whether the caller had a pin for it, now removed."""
+    host: str
+    """The host."""
+
+
+class CertsListParams(BaseModel):
+    """What `certs.list` takes: nothing."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -116,6 +318,41 @@ class ConsoleFailure(BaseModel):
     """What happened."""
 
 
+class ConsoleKeyRotated(BaseModel):
+    """What `console.rotate_key` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    signed_out: Annotated[int, Field(ge=0)]
+    """How many sign-ins it ended: every one."""
+
+
+class ConsoleLocation(BaseModel):
+    """
+    Where a console message was written: its script's URL and position, as
+    the browser counts them from 0.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    column_number: Annotated[int, Field(ge=0)]
+    """The column, from 0."""
+    line_number: Annotated[int, Field(ge=0)]
+    """The line, from 0."""
+    url: str
+    """The script's URL; empty for a script the page evaluated."""
+
+
+class ConsoleRotateKeyParams(BaseModel):
+    """What `console.rotate_key` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class ConsoleState1(BaseModel):
     """The Console is served at this URL, such as `http://127.0.0.1:7801/`."""
 
@@ -140,6 +377,51 @@ class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]])
     Where a Daemon's Console is, as its runtime file and `daemon status`
     report it.
     """
+
+
+class Count(BaseModel):
+    """
+    A count of matches, bounded on either side or both: an exact count is
+    both bounds.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max: Annotated[int | None, Field(ge=0)] = None
+    """The most; no bound when absent."""
+    min: Annotated[int | None, Field(ge=0)] = None
+    """The fewest; no bound when absent."""
+
+
+class Counted(BaseModel):
+    """What `locator.wait_for_count` answers: how many elements matched."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """The number of matches."""
+
+
+class CpuReading(BaseModel):
+    """The engine's CPU and Tokio workers, as the governor read them."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    busy: Annotated[int, Field(ge=0)]
+    """
+    The engine's CPU time since the last sample, in percent of its
+    allowance.
+    """
+    parallelism: Annotated[int, Field(ge=0)]
+    """
+    How many threads the engine may run at once, its CPU allowance
+    (`available_parallelism`, which honours a cgroup's quota).
+    """
+    tokio_busy: Annotated[int, Field(ge=0)]
+    """The Tokio workers' busy time since the last sample, in percent."""
 
 
 class DaemonEndpoint1(BaseModel):
@@ -187,6 +469,161 @@ class DaemonStopping(BaseModel):
     """How many live Runs it stops, each resumable from its own state."""
 
 
+class DialogAnswered(BaseModel):
+    """What an answer to a dialog answers once the page closed the dialog."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DialogHandled(BaseModel):
+    """
+    What the handler replies to `dialog.handle` once it ended; a failure
+    reply says it failed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DialogId(RootModel[str]):
+    root: str
+    """One dialog a handler answers, which `dialog.*` names."""
+
+
+class DialogType(StrEnum):
+    """A dialog's kind, as Playwright's `dialog.type()` names it."""
+
+    alert = "alert"
+    """`alert()`."""
+    confirm = "confirm"
+    """`confirm()`."""
+    prompt = "prompt"
+    """`prompt()`."""
+    beforeunload = "beforeunload"
+    """
+    A `beforeunload` handler that asks to stay: raised by a navigation,
+    or by `page.close` with `run_before_unload`.
+    """
+
+
+class DialogsEnded(BaseModel):
+    """What `page.on_dialog` answers when its page closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DownloadId(RootModel[str]):
+    root: str
+    """
+    A Download of a Run, named by the engine when it keeps its file:
+    `<run_id>.download-<position>`.
+    """
+
+
+class DownloadSaveAsParams(BaseModel):
+    """What `download.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    download_id: DownloadId
+    """The Download."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+
+
+class DownloadSaved(BaseModel):
+    """What `download.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class ElementState(StrEnum):
+    """A state of the element a locator matches (Playwright's `waitFor`)."""
+
+    attached = "attached"
+    """One element matches."""
+    detached = "detached"
+    """No element matches."""
+    visible = "visible"
+    """
+    One element matches, with a box of its own and `visibility:
+    visible`.
+    """
+    hidden = "hidden"
+    """No element matches, or the one that does is not visible."""
+
+
+class Email(BaseModel):
+    """An e-mail address the page shows."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: str
+    """
+    The text it was read from: its `mailto:` link's text, else the
+    address as the text writes it.
+    """
+    value: str
+    """The address."""
+
+
+class EncodingSource(StrEnum):
+    """
+    Where a document's encoding came from, in the order the tiers look
+    (ADR 0119).
+    """
+
+    bom = "bom"
+    """Its byte order mark."""
+    setting = "setting"
+    """`fetch.encoding`."""
+    header = "header"
+    """The `Content-Type` charset."""
+    meta = "meta"
+    """A declaration in its own bytes: a `<meta>` or an XML declaration."""
+    utf8 = "utf8"
+    """Nothing declared, and the body is valid UTF-8."""
+    detected = "detected"
+    """The browser's guess, after the request escalated to it."""
+
+
+class EndingError(BaseModel):
+    """An Error code a Run's ending raises, with its message and details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code."""
+    details: dict[str, Any] | None = None
+    """The code's own details."""
+    message: str
+    """What it says, for people."""
+
+
 class EngineInfoParams(BaseModel):
     """What `engine.info` takes: nothing."""
 
@@ -198,6 +635,206 @@ class EngineInfoParams(BaseModel):
 class EngineInstance(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
+
+
+class EngineStep(StrEnum):
+    """The engine's step that raised a Human pause."""
+
+    login_recovery = "login_recovery"
+    """A login recovery (ADR 0006)."""
+    challenge_ladder = "challenge_ladder"
+    """The Challenge ladder (ADR 0035)."""
+
+
+class Enqueued1(BaseModel):
+    """The Frontier admitted it as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """
+    Its URL as the WHATWG URL Standard parsed it, resolved against
+    its base: the URL its handler receives.
+    """
+
+
+class ErrorData(BaseModel):
+    """
+    What a failure's `data` holds: its Error code, whether the same call may
+    succeed when made again, and the code's own details.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The Error code, or the name of the protocol failure."""
+    retryable: bool
+    """Whether the same call may succeed when made again."""
+
+
+class Evaluated(BaseModel):
+    """
+    What `page.evaluate` answers: the function's result, awaited when it is
+    a promise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: Any | None = None
+    """The result as JSON; absent when it was `undefined`."""
+
+
+class FetchTier(StrEnum):
+    """
+    A tier that fetches a crawl request's document (ADR 0020), from the
+    cheapest up.
+    """
+
+    http = "http"
+    """
+    An HTTP request, over reqwest in `standard` and `identified`
+    Sessions.
+    """
+    discovered_api = "discovered_api"
+    """The site's own API, found from its pages."""
+    browser_fetch = "browser_fetch"
+    """A request sent from a browser page's context."""
+    light_browser = "light_browser"
+    """A browser that runs scripts without layout."""
+    browser = "browser"
+    """Collie's browser page."""
+
+
+class ForcedBy(StrEnum):
+    """Which scope's `fetch.tier` forced a tier."""
+
+    run = "run"
+    """The Run's setting."""
+    label = "label"
+    """The setting of the request's Label."""
+
+
+class Form(StrEnum):
+    """
+    The form a Client's user writes names in (ADR 0099), which the engine
+    renders the names and targets of its messages in.
+    """
+
+    typescript = "typescript"
+    """The TypeScript SDK, and Code mode."""
+    python = "python"
+    """The Python SDK."""
+    rust = "rust"
+    """A Rust program."""
+    cli = "cli"
+    """The CLI."""
+    tool = "tool"
+    """The MCP server and the Framework adapters."""
+    catalog = "catalog"
+    """
+    The catalog's own names: the Console, Integrations and the HTTP
+    listener.
+    """
+
+
+class GovernorLevel(StrEnum):
+    """How loaded the engine is, as its governor judges it."""
+
+    normal = "normal"
+    """Every reading has headroom: concurrency may rise."""
+    pressure = "pressure"
+    """A reading passed `governor.pressure`: concurrency drops."""
+    critical = "critical"
+    """Memory passed `governor.critical`, or the host's is critical."""
+
+
+class HtmlKind(StrEnum):
+    """Which of the page's HTML an `html` format holds."""
+
+    raw = "raw"
+    """
+    The document as served, or as the DOM stands on a browser tier,
+    before the Clean-up rules: what `content()` returns there.
+    """
+    cleaned = "cleaned"
+    """The document after the Clean-up rules' cosmetic rules."""
+    main = "main"
+    """The main content the extractor finds, the default."""
+
+
+class HtmlOptions(BaseModel):
+    """The options of the `html` format."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: HtmlKind
+    """Which of the page's HTML it holds."""
+
+
+class HttpBody(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
+
+
+class HttpMethod(RootModel[str]):
+    root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
+    """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class Image(BaseModel):
+    """An image of the page: an `<img src>`, in document order."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    alt: str | None = None
+    """
+    Its `alt`: empty for an image marked decorative, `null` when it has
+    none.
+    """
+    src: str
+    """Its `src` as the document writes it."""
+    url: str | None = None
+    """
+    Its `src` resolved against the document's base URL; `null` when it
+    does not parse.
+    """
+
+
+class InitScriptEnded(BaseModel):
+    """What an init script's subscription answers when its page closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class KeyValueStoreAttempt(BaseModel):
+    """
+    The crawl attempt a Key-value store call is made through: a handler's
+    `ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run
+    has attempts.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt makes the call."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+
+
+class KeyValueStoreContent(RootModel[str]):
+    root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
+    """Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding)."""
 
 
 class KeyValueStoreDeleted(BaseModel):
@@ -239,6 +876,36 @@ class KeyValueStoreValue(BaseModel):
     )
     value: Any
     """The value, or null for an absent key."""
+
+
+class KindConcurrency(BaseModel):
+    """One kind's concurrency."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ceiling: Annotated[int, Field(ge=0)]
+    """Its ceiling."""
+    floor: Annotated[int, Field(ge=0)]
+    """Its floor."""
+    in_use: Annotated[int, Field(ge=0)]
+    """How many are admitted now."""
+    target: Annotated[int, Field(ge=0)]
+    """How many the governor admits at once now."""
+
+
+class KindUsage(BaseModel):
+    """What a Run used of one Usage kind."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """A count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency, an ISO 4217 code; none for a count."""
+    usage_kind: str
+    """The Usage kind, a value of a type both Products share."""
 
 
 class Lifecycle(StrEnum):
@@ -303,6 +970,43 @@ class LimitStanding(StrEnum):
     """It cannot evaluate it: a newer engine wrote it."""
 
 
+class Link(BaseModel):
+    """A link of the page: an `<a href>` or `<area href>`, in document order."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    href: str
+    """
+    Its `href` as the document writes it, its character references
+    decoded.
+    """
+    rel: list[str]
+    """The tokens of its `rel`, as written; empty when it has none."""
+    text: str
+    """Its text, white space collapsed."""
+    url: str | None = None
+    """
+    Its `href` resolved against the document's base URL by the WHATWG
+    URL Standard; `null` when it does not parse.
+    """
+
+
+class LoadState(StrEnum):
+    """A state the page's document reaches (Playwright's `LoadState`)."""
+
+    domcontentloaded = "domcontentloaded"
+    """The document fired `DOMContentLoaded`."""
+    load = "load"
+    """The document fired `load`."""
+    networkidle = "networkidle"
+    """
+    The document fired `load`, and no request of the page was in flight
+    for 500 ms since, WebSocket and server-sent-event connections left
+    out.
+    """
+
+
 class LogLevel(StrEnum):
     """
     The level of the engine's log events a Connection receives: those at
@@ -348,6 +1052,14 @@ class MarkdownContent(StrEnum):
 
     main = "main"
     """The main content the extractor finds, the default."""
+    full = "full"
+    """The whole body, after the Clean-up rules."""
+    fit = "fit"
+    """
+    The main content without its link-dense blocks (more than half
+    their text in links), its image-only blocks and the navigation
+    lists the document repeats: the "fit" of `Crawl4AI`.
+    """
 
 
 class MarkdownOptions(BaseModel):
@@ -360,6 +1072,227 @@ class MarkdownOptions(BaseModel):
     """How much of the page it holds."""
 
 
+class MediaKind(StrEnum):
+    """Whether a media source plays video or audio."""
+
+    video = "video"
+    """A `<video>`'s, its own `src` or one of its `<source>`s."""
+    audio = "audio"
+    """An `<audio>`'s, its own `src` or one of its `<source>`s."""
+
+
+class MemoryReading(BaseModel):
+    """The engine's memory, as the governor read it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allowance: Annotated[int, Field(ge=0)]
+    """The Memory allowance, in bytes."""
+    allowance_source: AllowanceSource
+    """What set it."""
+    browsers: Annotated[int, Field(ge=0)]
+    """
+    What the browsers it counts use, in bytes, each process with its
+    descendants (PSS on Linux), summed; part of `used`, 0 with none.
+    """
+    host: GovernorLevel
+    """
+    The host's own memory pressure: PSI and `MemAvailable` on Linux,
+    the memory-pressure level on macOS, the low-memory notification on
+    Windows.
+    """
+    used: Annotated[int, Field(ge=0)]
+    """
+    What the engine and its children use, in bytes: PSS on Linux, so
+    pages its browsers share count once.
+    """
+
+
+class MetaTag(BaseModel):
+    """
+    One `<meta>` tag of a vocabulary, Open Graph's or Twitter's, in
+    document order: a property a page writes more than once, such as
+    `og:image`, is listed once per tag.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    """Its `content`."""
+    property: str
+    """Its `property`, else its `name`, as written, such as `og:title`."""
+
+
+class ModelUsage(BaseModel):
+    """A Run's model calls (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    tokens: Annotated[int, Field(ge=0)]
+    """The tokens, input and output."""
+
+
+class NeedsYouAllowConsentDomainParams(BaseModel):
+    """What `needs_you.allow_consent_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """
+    The registrable domain whose consent walls the next runs accept, as
+    a `consent_wall` item names it, or `*` for every domain.
+    """
+
+
+class NeedsYouDenyWallDomainParams(BaseModel):
+    """What `needs_you.deny_wall_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain to deny."""
+    reason: str
+    """Why, such as the site's objection; required."""
+
+
+class NeedsYouDismissParams(BaseModel):
+    """What `needs_you.dismiss` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    item: str
+    """The item's ID."""
+
+
+class NeedsYouDismissed(BaseModel):
+    """What `needs_you.dismiss` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dismissed: bool
+    """
+    Whether it hid the item: false when the list no longer holds it, or
+    its source does not let a person dismiss it.
+    """
+
+
+class NeedsYouListParams(BaseModel):
+    """What `needs_you.list` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = None
+    """The `next` of the page read before: the list goes on after it."""
+    kinds: list[str] | None = None
+    """Only the items of these kinds; every kind when absent."""
+
+
+class NeedsYouRemoval(StrEnum):
+    """Why an item left the list."""
+
+    resolved = "resolved"
+    """
+    What waited is resolved: by a person, here or elsewhere, or by its
+    Run.
+    """
+    dismissed = "dismissed"
+    """A person dismissed it."""
+
+
+class NeedsYouRemoveRefetchDomainParams(BaseModel):
+    """What `needs_you.remove_refetch_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain, as a `wall_refetch_stopped` item names it."""
+    instead_of_star: list[str] | None = None
+    """
+    When only `*` covers the domain in its layer, the registrable
+    domains that replace `*` there, the domain itself not among them.
+    """
+
+
+class NotAddedReason(StrEnum):
+    """Why the Frontier did not add a request (ADRs 0093 and 0120)."""
+
+    duplicate = "duplicate"
+    """
+    The Frontier already admitted a request of the same identity: its
+    method, its URL's key and its body's hash, or its declared `key`.
+    """
+    out_of_scope = "out_of_scope"
+    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    domain_policy = "domain_policy"
+    """The Run's domain policy refuses its host."""
+    max_depth = "max_depth"
+    """It is deeper than `crawl.max_depth`."""
+    max_requests = "max_requests"
+    """The crawl already admitted `crawl.max_requests` requests."""
+    unsupported_scheme = "unsupported_scheme"
+    """
+    Its URL's scheme is one the crawl cannot fetch: only `http` and
+    `https` are.
+    """
+    invalid_url = "invalid_url"
+    """
+    The WHATWG URL Standard's parser refuses its URL, or it is relative
+    where nothing gives it a base, as a seed is.
+    """
+    max_url_length = "max_url_length"
+    """Its URL is longer than `crawl.max_url_length`."""
+    max_path_segments = "max_path_segments"
+    """Its URL's path has more segments than `crawl.max_path_segments`."""
+    max_segment_repeats = "max_segment_repeats"
+    """
+    A segment of its URL's path repeats more than
+    `crawl.max_segment_repeats`.
+    """
+    path_budget = "path_budget"
+    """
+    The first entry of `crawl.path_budgets` whose pattern its URL's path
+    and query match already counted that entry's `max_requests`.
+    """
+    trap_path = "trap_path"
+    """
+    Its URL's path falls under a trap the Frontier learned and closed
+    (ADR 0005): a path pattern whose pages brought no new page and no
+    URL outside it, which leaves a finished Run `unverified`.
+    """
+    no_rule = "no_rule"
+    """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
+    trap_link = "trap_link"
+    """
+    On the browser tier, its link is one a person cannot see, a
+    `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    """
+    link_limit = "link_limit"
+    """
+    The `enqueueLinks` call that matched it already added its `limit`
+    links (ADR 0093).
+    """
+
+
+class NothingDone3(BaseModel):
+    """A resume or a retry found nothing left."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["nothing_pending"]
+
+
 class PageBodyRead(BaseModel):
     """What `page.body` answers once it sent the last chunk."""
 
@@ -370,32 +1303,82 @@ class PageBodyRead(BaseModel):
     """The body's size in bytes."""
 
 
-class PageFormats(BaseModel):
-    """
-    What `page.formats` answers: the formats the request asked for, and
-    none it did not, with the document's URL, its base URL and whether it
-    has main content. Text is as the document holds it, never repaired.
-    """
+class PageClosed(BaseModel):
+    """What `page.close` answers."""
 
     model_config = ConfigDict(
         extra="allow",
     )
-    base_url: str
+
+
+class PageEventName(StrEnum):
     """
-    The URL its relative URLs resolve against: its first `<base href>`,
-    else its URL.
+    A page's event a program listens to, by its words (ADR 0099): each
+    SDK joins them as Playwright spells the event, such as `pageerror`.
     """
-    main_content: MainContent
-    """Whether it has main content."""
-    markdown: str | None = None
-    """Its content as Markdown, when the request asked for it."""
-    url: str
-    """The document's URL, after redirects."""
+
+    console = "console"
+    """`page.console`."""
+    page_error = "page_error"
+    """`page.page_error`."""
+    request = "request"
+    """`page.request`."""
+    request_finished = "request_finished"
+    """`page.request_finished`."""
+    request_failed = "request_failed"
+    """`page.request_failed`."""
+    response = "response"
+    """`page.response`."""
+    web_socket = "web_socket"
+    """`page.web_socket`, with each socket's `web_socket.*` events."""
+    load = "load"
+    """`page.load`."""
+    dom_content_loaded = "dom_content_loaded"
+    """`page.dom_content_loaded`."""
+    crash = "crash"
+    """`page.crash`."""
+    close = "close"
+    """`page.close`."""
+    popup = "popup"
+    """`page.popup`."""
 
 
 class PageId(RootModel[str]):
     root: str
     """A page of a Run, named by the engine when it opens it."""
+
+
+class PageOnDialogParams(BaseModel):
+    """
+    What `page.on_dialog` takes: the page whose dialogs its handler
+    answers.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+
+
+class PageOnEnded(BaseModel):
+    """What `page.on` answers when its page goes, closed or with its Run."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class PageOnParams(BaseModel):
+    """What `page.on` takes: the page and the event listened to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: PageEventName
+    """The event."""
+    page_id: PageId
+    """The page."""
 
 
 class PageParams(BaseModel):
@@ -406,6 +1389,36 @@ class PageParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+
+
+class PageRequestParams(BaseModel):
+    """
+    What `page.request` takes: the page whose Session sends the request, and
+    the request.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    headers: dict[str, Any] | None = None
+    """
+    Headers set over those the browser sends, each name matched without
+    regard to case.
+    """
+    max_redirects: Annotated[int | None, Field(ge=0)] = None
+    """
+    How many redirects it follows, from 0, which answers the 3xx itself,
+    to 19, the default; past its count it raises `too_many_redirects`,
+    and a count above 19 is refused with `setting_invalid`.
+    """
+    method: str | None = None
+    """Its method; `GET` when absent."""
+    page_id: PageId
+    """The page."""
+    post_data: str | None = None
+    """Its body, in Base64."""
+    url: str
+    """The URL."""
 
 
 class PageResponse(BaseModel):
@@ -421,14 +1434,85 @@ class PageResponse(BaseModel):
     0119); none for another response, and for a navigation that answered
     at `commit`, before its document was decoded.
     """
+    from_service_worker: bool
+    """
+    Whether a site's service worker supplied it, from its own cache or
+    through its own fetch (ADR 0121).
+    """
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
+    request_id: str
+    """
+    The engine's ID for its request's hop, which `response.body` takes:
+    its request's `request_id`.
+    """
     status: Annotated[int, Field(ge=0, le=65535)]
     """Its HTTP status."""
     status_text: str
     """Its status text."""
     url: str
     """Its final URL."""
+
+
+class PageWebSocket(BaseModel):
+    """
+    What `page.web_socket` reports: a WebSocket the page opened, whose
+    frames and close follow as `web_socket.*` events.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    url: str
+    """Its URL."""
+    web_socket_id: str
+    """The browser's ID for the socket, which its events name."""
+
+
+class PauseOrigin1(BaseModel):
+    """The program, with `page.pause()`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["program"]
+
+
+class PauseOrigin2(BaseModel):
+    """The engine, at a step of its own."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["engine"]
+    step: EngineStep
+    """The step."""
+
+
+class PauseOrigin(RootModel[PauseOrigin1 | PauseOrigin2]):
+    root: PauseOrigin1 | PauseOrigin2
+    """Who raised a Human pause."""
+
+
+class PaymentMark(BaseModel):
+    """
+    The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+    0045).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: str
+    """The amount charged, an exact decimal."""
+    currency: str
+    """Its currency, an ISO 4217 code."""
+    payee_domain: str
+    """The domain paid."""
+    scheme: str
+    """The payment scheme the site asked through."""
 
 
 class PeriodLength(StrEnum):
@@ -442,14 +1526,118 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class Phone(BaseModel):
+    """A telephone number the page shows."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    e164: str | None = None
+    """
+    The number in E.164, such as `+33123456789`, when it carries its
+    country code or the document's language tag carries a region, and
+    it is a valid number there; `null` otherwise, as no country is
+    guessed.
+    """
+    text: str
+    """
+    The text it was read from: its `tel:` link's text, else the number
+    as the text writes it.
+    """
+    value: str
+    """The number as written: its `tel:` link's number, else the text's."""
+
+
+class PlanStatus(StrEnum):
+    """What became of a Run's new Plan versions (ADR 0091)."""
+
+    unchanged = "unchanged"
+    """Nothing changed."""
+    promoted = "promoted"
+    """They were written to the Plan file."""
+    pending_review = "pending_review"
+    """They wait for a person."""
+    frozen = "frozen"
+    """The Plan file is frozen."""
+
+
+class PluginRun(BaseModel):
+    """A Plugin that ran in a Run (ADRs 0016 and 0033)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    confinement_missing: list[str] | None = None
+    """
+    The parts of its confinement the host could not give, under a
+    reduced confinement the Operator policy allowed.
+    """
+    name: str
+    """Its name."""
+    network_level: str
+    """The network level it ran at."""
+
+
 class PointInTime(RootModel[AwareDatetime]):
     root: AwareDatetime
     """A point in time in UTC, as RFC 3339."""
 
 
+class PolicyReadParams(BaseModel):
+    """What `config.policy_read` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class PolicyTable(StrEnum):
+    """
+    A table of the Operator policy: what it sets, what it sets and locks, and
+    its caps.
+    """
+
+    settings = "settings"
+    """`[settings]`: values it sets, which a higher layer may change."""
+    lock = "lock"
+    """`[lock]`: values it sets and locks."""
+    cap = "cap"
+    """`[cap]`: the most a count or a duration may be."""
+
+
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
-    """An event's position among every event of one engine, which only goes up."""
+    """An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1."""
+
+
+class Presence(StrEnum):
+    """
+    Whether the state a Run index row points at is there (ADRs 0031 and
+    0036).
+    """
+
+    present = "present"
+    """Its state is at its location."""
+    missing = "missing"
+    """`runs reindex` found no state at its location; the row is kept."""
+    erased = "erased"
+    """
+    The Run was discarded on purpose; `runs reindex` keeps its row
+    erased.
+    """
+
+
+class PressureSource(StrEnum):
+    """The reading that holds the engine above `normal`."""
+
+    memory = "memory"
+    """The engine and its children's memory, against the Memory allowance."""
+    host_memory = "host_memory"
+    """The host's own memory pressure, which counts as the engine's."""
+    cpu = "cpu"
+    """The engine's CPU time, against its CPU allowance."""
+    tokio = "tokio"
+    """The Tokio workers' busy time."""
 
 
 class PrivateEndpoint(BaseModel):
@@ -516,14 +1704,314 @@ class ProtocolVersion(RootModel[str]):
     """A version `major.minor` (ADR 0030)."""
 
 
+class ProxyKindBytes(BaseModel):
+    """The bytes a Run sent and received through proxies of one proxy kind."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: Annotated[int, Field(ge=0)]
+    """The bytes."""
+    kind: str
+    """The proxy kind, such as `residential`."""
+
+
+class Reached(BaseModel):
+    """
+    What `page.wait_for_url`, `page.wait_for_load_state` and
+    `locator.wait_for` answer once the state they waited for came.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RecordingReport(BaseModel):
+    """What a Run did with the Response recording its start named (ADR 0105)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    file: str
+    """Its file."""
+    misses: list[str] | None = None
+    """Each request the recording missed."""
+    mode: str
+    """Its mode, such as `record` or `replay`."""
+    recorded_from: PointInTime | None = None
+    """When the oldest of them was fetched."""
+    recorded_to: PointInTime | None = None
+    """When the newest of them was fetched."""
+    responses_used: Annotated[int, Field(ge=0)]
+    """How many recorded responses it used."""
+    written_by: str | None = None
+    """The engine that wrote them."""
+
+
+class RequestFailure(BaseModel):
+    """Why a request failed, as Playwright's `request.failure()` gives it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    error: ErrorData | None = None
+    """
+    The Error code the engine failed it with, with its details, when the
+    engine did, such as `egress_refused`.
+    """
+    error_text: str
+    """
+    The browser's network error, such as `net::ERR_FAILED` for a request
+    a route aborted or `net::ERR_BLOCKED_BY_CLIENT` for one the engine
+    blocked.
+    """
+
+
 class RequestId(RootModel[int | str]):
     root: int | str
     """A request's id, which its reply carries back."""
 
 
+class RequestSeed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
+
+
+class Resource(StrEnum):
+    """A resource the governor can run out of (ADR 0122)."""
+
+    memory = "memory"
+    """The machine's or the container's memory."""
+    storage = "storage"
+    """A filesystem the Run writes to."""
+
+
+class ResponseBodyParams(BaseModel):
+    """
+    What `response.body` takes: the page, the request whose response's
+    body it reads, and how long it waits for that request to end.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    request_id: str
+    """The request's hop, by the engine's ID for it."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the read may wait for its request to end and its body to
+    be read, in milliseconds, at least 1: absent for `timeout.wait`,
+    `null` for none, though an enclosing timeout still applies (ADR
+    0080).
+    """
+
+
+class ResponseOrigin1(BaseModel):
+    """The Response cache (ADR 0046)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    fetched_at: PointInTime
+    """When the cached response was fetched."""
+    kind: Literal["response_cache"]
+
+
+class ResponseOrigin2(BaseModel):
+    """A Response recording (ADR 0105)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["response_recording"]
+    recorded_at: PointInTime
+    """When the recorded response was received."""
+
+
+class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
+    root: ResponseOrigin1 | ResponseOrigin2
+    """What answered a Record's request in place of the network."""
+
+
+class RobotsTxtMark(StrEnum):
+    """
+    What a Record's Provenance says of the robots.txt of its page's origin
+    (ADR 0086).
+    """
+
+    ignored = "ignored"
+    """
+    It disallowed the page's URL, and the fetch ignored it, since
+    `site_preferences.respect_robots_txt` was off.
+    """
+
+
+class RouteAnswered(BaseModel):
+    """What an answer to a route answers once the engine acted on it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteEnded(BaseModel):
+    """What a route's subscription answers when its page or Session closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteFetched(BaseModel):
+    """
+    What `route.fetch` answers: the response the request got, its body
+    kept, for the handler to pass to `route.fulfill`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: str
+    """Its body, in Base64."""
+    headers: dict[str, str]
+    """Its headers, their names lower-cased."""
+    status: Annotated[int, Field(ge=0, le=65535)]
+    """Its HTTP status."""
+    status_text: str
+    """Its status text."""
+
+
+class RouteHandled(BaseModel):
+    """
+    What the handler replies to `route.handle` once it ended; a failure
+    reply says it failed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class RouteId(RootModel[str]):
+    root: str
+    """
+    One intercepted request a route's handler answers, which `route.*`
+    names.
+    """
+
+
+class RouteOverridesParams(BaseModel):
+    """
+    What `route.continue`, `route.fallback` and `route.fetch` take: the
+    request, and what to send instead of what it carries. Each override
+    replaces its part whole; a header value may hold a Secret placeholder
+    (ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    headers: dict[str, Any] | None = None
+    """Other headers, in place of every header the request carries."""
+    method: str | None = None
+    """Another method."""
+    post_data: str | None = None
+    """Another body, in Base64."""
+    route_id: RouteId
+    """The request."""
+    url: str | None = None
+    """Another URL, judged again by the domain policy."""
+
+
+class RouteRequest(BaseModel):
+    """
+    A request as a route sees it: as the page sent it, with the overrides of
+    the routes that fell back before. The engine's own additions, such as
+    the Session's cookies, come after every route, so none is here.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    headers: dict[str, str]
+    """
+    Its headers, as the page sent them, their names in lowercase, as
+    Playwright gives them; as a route before replaced them.
+    """
+    is_navigation_request: bool
+    """
+    Whether it loads the document of one of the page's frames, its main
+    frame's or an iframe's, as Playwright's `isNavigationRequest()`.
+    """
+    method: str
+    """Its method, such as `GET`."""
+    post_data: str | None = None
+    """
+    Its body, in Base64 (RFC 4648, with padding), when it has one: as
+    the page sent it, or as a route before replaced it.
+    """
+    resource_type: str
+    """
+    What the page loads with it, as Playwright's `resourceType()` names
+    it: the browser's name in lowercase, such as `document`, `script`
+    or `xhr`.
+    """
+    url: str
+    """Its URL."""
+
+
 class RunId(RootModel[str]):
     root: Annotated[str, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")]
     """A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device."""
+
+
+class RunKind(StrEnum):
+    """
+    What kind of Run it is: a Collie Run its program drives, or a crawl
+    (ADR 0102), which its start's inputs name.
+    """
+
+    collie = "collie"
+    """A Run its program drives page by page."""
+    crawl = "crawl"
+    """A crawl, whose work items the engine leases to its handlers."""
 
 
 class RunMigrating(BaseModel):
@@ -549,8 +2037,34 @@ class RunOrigin(StrEnum):
     """An Integration's form."""
 
 
+class RunOwner1(BaseModel):
+    """
+    A Daemon, at the endpoint of its runtime file, which also holds its
+    token.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    daemon: DaemonEndpoint
+
+
+class RunOwner2(BaseModel):
+    """An Attached engine, at its private endpoint."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attached: PrivateEndpoint
+
+
+class RunOwner(RootModel[RunOwner1 | RunOwner2]):
+    root: RunOwner1 | RunOwner2
+    """Where the engine that owns a live Run is reached (ADR 0031)."""
+
+
 class RunParams(BaseModel):
-    """What `run.finish` and `run.abort` take: the Run."""
+    """What `run.usage`, `run.pause` and `run.migrate` take: the Run."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -559,16 +2073,18 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
-class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+class RunProgressParams(BaseModel):
+    """What `run.progress` takes."""
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="forbid",
     )
-    lifecycle: Lifecycle
-    """Where it is."""
-    message: ProgressMessage | None = None
-    """The program's own status line, once it set one."""
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The position of the value the reader last read: the answer is the
+    latest value after it, once one comes. Absent, the Run's progress
+    at once.
+    """
     run_id: RunId
     """The Run's ID."""
 
@@ -606,6 +2122,103 @@ class RunSetProgressMessageParams(BaseModel):
     """The program's status line, which replaces the one before."""
     run_id: RunId
     """The Run's ID."""
+
+
+class RunSortKey(StrEnum):
+    """What `run.list` sorts its rows by."""
+
+    started_at = "started_at"
+    """When the Run started."""
+    ended_at = "ended_at"
+    """
+    When it ended; a Run that has not ended comes after every one that
+    did, in ascending order.
+    """
+    run_id = "run_id"
+    """Its Run ID."""
+    recipe = "recipe"
+    """Its Recipe's name."""
+    schedule = "schedule"
+    """The Schedule that started it."""
+    occurrence = "occurrence"
+    """The occurrence that started it."""
+    trigger = "trigger"
+    """What fired that occurrence."""
+    product = "product"
+    """The Product it needs."""
+    lifecycle = "lifecycle"
+    """Its Lifecycle."""
+    verdict = "verdict"
+    """Its Verdict."""
+    completeness = "completeness"
+    """Its Completeness."""
+
+
+class RunTrigger(StrEnum):
+    """
+    What fired a Schedule's occurrence (ADR 0036), as its run's reserved
+    `goodfetch.trigger` tag names it.
+    """
+
+    time = "time"
+    """A time trigger: cron or an interval."""
+    watch = "watch"
+    """A Watch that found a change."""
+    after_run = "after_run"
+    """The end of another run."""
+    run_now = "run_now"
+    """A person's or a program's "run now"."""
+
+
+class RunWaitParams(BaseModel):
+    """
+    What `run.finish` and `run.stop` take: the Run, and how long the call
+    waits for its end.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's end, in milliseconds; past it,
+    it fails with `deadline_exceeded` and only the wait ends. None by
+    default for `run.finish`, which the Run's own `timeout.run` bounds;
+    `timeout.close` by default for `run.stop`.
+    """
+
+
+class RunWarning(BaseModel):
+    """
+    What a Run warns of (ADR 0102): a code of the warning table, or of a
+    newer engine's, kept as it is, with its message and what it concerns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """Its code."""
+    folder: str | None = None
+    """The folder it concerns."""
+    message: str
+    """What it says, for people."""
+    sessions: list[str] | None = None
+    """The Sessions it concerns."""
+
+
+class RunWriter(StrEnum):
+    """Whether an engine works a Run (ADR 0102)."""
+
+    live = "live"
+    """An engine holds its writer lock."""
+    none = "none"
+    """
+    Nothing works it, as after a crash, until a start with its Run ID
+    resumes it.
+    """
 
 
 class SampleEchoParams(BaseModel):
@@ -660,9 +2273,181 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
+class SeedsKept(BaseModel):
+    """How many seeds one reason kept from a handler."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many seeds it kept."""
+    reason: str
+    """
+    The reason: an enqueue's not-added reason, a skip reason, an Error
+    code or a Block cause.
+    """
+
+
+class SessionClosed(BaseModel):
+    """What `session.close` answers once the Session is closed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class SessionEventName(StrEnum):
+    """A Session's event a program listens to."""
+
+    page = "page"
+    """`session.page`."""
+
+
 class SessionId(RootModel[str]):
     root: str
     """A Session of a Run, named by the engine when it opens it."""
+
+
+class SessionOnEnded(BaseModel):
+    """
+    What `session.on` answers when its Session goes, closed or with its
+    Run.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class SessionOnParams(BaseModel):
+    """What `session.on` takes: the Session and the event listened to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: SessionEventName
+    """The event."""
+    session_id: SessionId
+    """The Session."""
+
+
+class SessionOpened(BaseModel):
+    """What `run.new_session` answers: the Session it opened."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    session_id: SessionId
+    """The Session."""
+
+
+class SessionPages(BaseModel):
+    """
+    What `session.pages` answers: the Session's open pages, in the order
+    they opened.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pages: list[PageId]
+    """The pages."""
+
+
+class SessionParams(BaseModel):
+    """What `session.close` takes: the Session."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+
+
+class SessionSource1(BaseModel):
+    """A Saved identity, by its name."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["saved_identity"]
+    name: str
+    """Its name."""
+
+
+class SessionSource3(BaseModel):
+    """A `Cookie` header's cookies, for one domain."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """Its domain."""
+    header: str
+    """The header's value."""
+    kind: Literal["cookie_header"]
+
+
+class SessionSource4(BaseModel):
+    """A Profile directory, used in place."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    chromium_profile: str | None = None
+    """A Chromium-family profile within it."""
+    domains: list[str]
+    """The registrable domains its navigation is bound to."""
+    kind: Literal["profile_directory"]
+    path: str
+    """The directory."""
+
+
+class SessionSource5(BaseModel):
+    """The data of a browser the person installed, read once."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    chromium_profile: str | None = None
+    """A Chromium-family profile of it."""
+    domains: list[str]
+    """The registrable domains its data is read for."""
+    kind: Literal["installed_browser"]
+
+
+class SessionSource6(BaseModel):
+    """A browser the person runs, reached through its consented connection."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browser: BrowserName
+    """Its browser family."""
+    domains: list[str]
+    """The registrable domains its navigation is bound to."""
+    kind: Literal["running_browser"]
+
+
+class SessionSource7(BaseModel):
+    """A browser at a CDP address (ADR 0115)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domains: list[str] | None = None
+    """The registrable domains its navigation is bound to."""
+    exclusive: bool | None = None
+    """Whether nothing else drives the browser (ADR 0114)."""
+    headers: dict[str, Any] | None = None
+    """Headers its connection sends, each value a Secret reference."""
+    kind: Literal["cdp_url"]
+    url: str
+    """The address."""
 
 
 class SetLogLevelParams(BaseModel):
@@ -673,6 +2458,25 @@ class SetLogLevelParams(BaseModel):
     )
     log_level: LogLevel
     """The Connection's new level."""
+
+
+class SettingDiff(BaseModel):
+    """One key's values before and after a write."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    after: Any
+    """Its value after; `null` when the write removed it."""
+    before: Any
+    """Its value before; `null` when the file did not hold it."""
+    key: str
+    """The key."""
+    table: PolicyTable | None = None
+    """
+    The Operator policy's table, for a change to it; none for user
+    configuration.
+    """
 
 
 class SettingsLayer(StrEnum):
@@ -695,6 +2499,143 @@ class SettingsLayer(StrEnum):
     """
 
 
+class SignInListParams(BaseModel):
+    """What `sign_in.list` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class SignInRevokeParams(BaseModel):
+    """What `sign_in.revoke` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    """The sign-in's identifier, as `sign_in.list` gives it."""
+
+
+class SignInRevoked(BaseModel):
+    """What `sign_in.revoke` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    revoked: bool
+    """
+    Whether a sign-in ended: `false` when none had that identifier, or
+    it had already ended.
+    """
+
+
+class SignInSummary(BaseModel):
+    """One sign-in, as `sign_in.list` shows it: never its cookie."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created: PointInTime
+    """When it was created."""
+    id: str
+    """Its identifier, which `sign_in.revoke` takes."""
+    last_used: PointInTime
+    """When it was last used, from which its idle expiry counts."""
+    person: str
+    """
+    The person it signs in, by the name their account or OS user goes
+    by.
+    """
+
+
+class SitemapRule(BaseModel):
+    """
+    One rule of a sitemap seed: a URL pattern, a glob as
+    `crawl.scope.include` takes them, matched in the engine, and the Label
+    it gives the entries it matches, which take no Payload.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    """The Label of the entries it matches."""
+    pattern: str
+    """The URL pattern."""
+
+
+class SitemapSeed(BaseModel):
+    """
+    A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+    or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+    are read. The engine reads it, and every sitemap index it nests, once
+    the Run is running, through the domain policy, Politeness and robots.txt,
+    running no handler; each entry is checked as an enqueue is, at depth 0,
+    with the Label of the first rule whose pattern matches its URL and no
+    Payload, and one no rule matches is not added, with `no_rule`. The seed
+    widens the crawl's scope by the host of the URL it names, and an entry
+    outside the scope is not added, with `out_of_scope`, so a robots.txt
+    seed admits its own host's entries from a sitemap on another host it
+    names, and no other host's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    sitemap: str
+    """The URL of the sitemap, or of the site's robots.txt."""
+
+
+class SocialNetwork(StrEnum):
+    """A social network whose profiles the page links to."""
+
+    x = "x"
+    """X, formerly Twitter."""
+    linkedin = "linkedin"
+    """`LinkedIn`."""
+    facebook = "facebook"
+    """Facebook."""
+    instagram = "instagram"
+    """Instagram."""
+    youtube = "youtube"
+    """`YouTube`."""
+    tiktok = "tiktok"
+    """`TikTok`."""
+    github = "github"
+    """`GitHub`."""
+    mastodon = "mastodon"
+    """A Mastodon instance's profile, linked with `rel="me"`."""
+
+
+class SocialProfile(BaseModel):
+    """A social profile the page links to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    network: SocialNetwork
+    """Its network."""
+    text: str
+    """Its link's text, white space collapsed."""
+    value: str
+    """The profile's URL, resolved against the document's base URL."""
+
+
+class SortOrder(StrEnum):
+    """Which way `run.list` sorts."""
+
+    ascending = "ascending"
+    """Smallest first."""
+    descending = "descending"
+    """Largest first: the newest first, when sorting by time."""
+
+
 class StartedAs(StrEnum):
     """Whether a start began its Run or found it."""
 
@@ -711,6 +2652,19 @@ class StartedAs(StrEnum):
     file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
     0102).
     """
+
+
+class StateFileFormat(StrEnum):
+    """The format of a `state_file`, detected when left out."""
+
+    storage_state = "storage_state"
+    """Playwright's `storageState`."""
+    cookies_txt = "cookies_txt"
+    """A Netscape `cookies.txt`."""
+    cdp_cookies = "cdp_cookies"
+    """A CDP `Network.Cookie` array."""
+    session_export = "session_export"
+    """A session export bundle, opened with `key` (ADR 0015)."""
 
 
 class StopReason2(BaseModel):
@@ -762,11 +2716,61 @@ class StopReason5(BaseModel):
     kind: Literal["drain"]
 
 
+class StopReason8(BaseModel):
+    """Its engine was lost while it ran, and another engine stopped it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["engine_lost"]
+
+
+class StopReason9(BaseModel):
+    """
+    The resource governor ran out of a resource for it, and it stopped
+    at its next safe point, resumable (ADRs 0040 and 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str | None = None
+    """For storage, the folder whose filesystem filled."""
+    kind: Literal["resources"]
+    resource: Resource
+    """The resource that ran out."""
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
     client = "client"
     """A Client, such as through `$/cancel`."""
+    program = "program"
+    """The program, such as through `run.stop` (ADR 0102)."""
+    browser = "browser"
+    """
+    The browser, outside every Client: a page's window closed there, or
+    the browser quit (ADR 0113).
+    """
+
+
+class StorageLevel(StrEnum):
+    """A filesystem's storage level (ADR 0122), from the best to the worst."""
+
+    normal = "normal"
+    """It has room: nothing is shed."""
+    low = "low"
+    """
+    Its free space or inodes fell below `storage.low_free`: the Runs
+    writing to it shed what they can do without and carry
+    `storage_low`.
+    """
+    critical = "critical"
+    """
+    Its free space or inodes fell below `storage.critical_free`: every
+    Run with an essential write there stops resumably.
+    """
 
 
 class SubscriptionEnded(BaseModel):
@@ -799,6 +2803,8 @@ class Surface(StrEnum):
     """
     Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
     takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
+    Its `hello` names in `client_surface` the surface of the Client it
+    relays, which every other rule of the Connection follows.
     """
     browser_host = "browser_host"
     """
@@ -807,6 +2813,27 @@ class Surface(StrEnum):
     """
     worker = "worker"
     """A Script sandbox worker."""
+
+
+class Table(BaseModel):
+    """
+    A table of the page, in document order, a table inside another listed
+    on its own: each row its cells' text, white space collapsed, a row's
+    header kept as its first cell.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body_rows: list[list[str]]
+    """Its other rows, its `<tfoot>`'s last."""
+    caption: str | None = None
+    """Its `<caption>`'s text; `null` when it has none."""
+    header_rows: list[list[str]]
+    """
+    Its header rows: its `<thead>`'s, else the rows it begins with whose
+    cells are all `<th>`.
+    """
 
 
 class Tag(RootModel[str]):
@@ -821,12 +2848,243 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class TierChosen(StrEnum):
+    """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
+
+    forced = "forced"
+    """`fetch.tier` forced it."""
+    compared = "compared"
+    """Under `auto`, the crawl's sample comparison chose it."""
+    sample = "sample"
+    """It was the browser run of a sample of that comparison."""
+    escalation = "escalation"
+    """A cheaper tier could not serve a call, and the request moved here."""
+    race = "race"
+    """It won a race of tiers (`fetch.tier_race`, ADR 0040)."""
+
+
+class TierProvenance(BaseModel):
+    """The tier that fetched a Record's document and how it was chosen."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call: str | None = None
+    """
+    The call a cheaper tier could not serve, which moved the request
+    here, for an escalation or a sample's browser run.
+    """
+    chosen: TierChosen
+    """How it was chosen."""
+    forced_by: ForcedBy | None = None
+    """What forced it, when `chosen` is `forced`."""
+    tier: FetchTier
+    """The tier."""
+
+
+class TimeRange(BaseModel):
+    """
+    A span of time: from its first point, included, until its last,
+    excluded; an end left out leaves that side open.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    from_: Annotated[PointInTime | None, Field(alias="from")] = None
+    """Its first point, included."""
+    until: PointInTime | None = None
+    """The point it ends before, excluded."""
+
+
+class TraceContext(BaseModel):
+    """
+    A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
+    and `tracestate`, which its runtime writes and never a program, with no
+    Baggage. The schema checks only that each is a string: a receiver drops
+    a value it cannot use, and never fails the call for it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    traceparent: str | None = None
+    """
+    The caller's span, as W3C Trace Context's `traceparent` header
+    holds it.
+    """
+    tracestate: str | None = None
+    """
+    Its vendors' values, as W3C Trace Context's `tracestate` header
+    holds them.
+    """
+
+
+class UncertainEffect(BaseModel):
+    """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    crawl_request: str | None = None
+    """The crawl request it ran for, in a crawl."""
+    entry: str
+    """Its Effect journal entry."""
+    first_command: str | None = None
+    """The first command sent for it."""
+    instruction: str | None = None
+    """Its instruction, for an AI action."""
+    key: str | None = None
+    """Its key, for a declared Effect."""
+    reason: str
+    """Why it is uncertain."""
+    since: PointInTime
+    """Since when it is uncertain."""
+
+
+class UnreadReason(StrEnum):
+    """Why a field of a code-free crawl's Record is null."""
+
+    no_element = "no_element"
+    """Its locator found no element."""
+    no_attribute = "no_attribute"
+    """Its element has no such attribute."""
+    no_match = "no_match"
+    """Its `match` did not match the text, or its group took no part."""
+    not_parsed = "not_parsed"
+    """Its transform does not read the text as a value."""
+    no_time_zone = "no_time_zone"
+    """A `date_time` whose text states no offset, with no `time_zone`."""
+
+
+class Unready(StrEnum):
+    """
+    Why a Daemon cannot take a new Run now, as its ops listener's
+    `/readyz` and `daemon health` check it (ADR 0050).
+    """
+
+    draining = "draining"
+    """It drains, taking no Run (ADR 0049)."""
+    run_state_not_writable = "run_state_not_writable"
+    """Its run state cannot be written."""
+    browsers_missing = "browsers_missing"
+    """A browser its configuration uses is not installed."""
+    governor_last_resort = "governor_last_resort"
+    """
+    Its Resource governor is at its last resort: memory stayed critical
+    at the floor past `governor.last_resort_after` (ADR 0040).
+    """
+    storage_critical = "storage_critical"
+    """
+    The filesystem holding its run state, or the Goodfetch home's, is
+    at the `critical` storage level, where a new Run's start is refused
+    (ADR 0122).
+    """
+
+
+class UrlMatcher1(BaseModel):
+    """A glob, such as `**/*.png`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["glob"]
+    pattern: str
+    """The glob."""
+
+
+class UrlMatcher2(BaseModel):
+    """A regular expression, matched anywhere in the URL."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["regex"]
+    pattern: str
+    """The expression's source."""
+
+
+class UrlMatcher(RootModel[UrlMatcher1 | UrlMatcher2]):
+    root: UrlMatcher1 | UrlMatcher2
+    """
+    A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+    one, or a regular expression in the `regex` crate's syntax. A predicate
+    runs in the program, which routes every URL and falls back for the
+    requests it does not match.
+    """
+
+
+class UsageAmount(BaseModel):
+    """An amount of a Usage kind counted in a currency, or as a count."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """A count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency, an ISO 4217 code; none for a count."""
+
+
 class UsageListParams(BaseModel):
     """What `usage.list` takes."""
 
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class UserChange(BaseModel):
+    """One user-level value `config.user_write` writes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    value: Any
+    """Its new value; `null` removes it from user configuration."""
+
+
+class UserConfigurationWritten(BaseModel):
+    """What `config.user_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """Each key the write changed, with its values before and after."""
+
+
+class UserWriteParams(BaseModel):
+    """What `config.user_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[UserChange]
+    """The changes, made in order, in one write."""
+
+
+class ValueTransform(StrEnum):
+    """One of the engine's closed list of Value transforms (ADR 0123)."""
+
+    text = "text"
+    """The element's text, or one attribute."""
+    match = "match"
+    """A capture group of a regular expression over that text."""
+    number = "number"
+    """A number or an amount under its locale."""
+    currency = "currency"
+    """A currency symbol or code under its locale."""
+    date = "date"
+    """A date under its locale or a stated pattern."""
+    date_time = "date_time"
+    """A date and time with its time zone."""
+    relative_time = "relative_time"
+    """A relative time under its locale, anchored at the fetch time."""
+    map = "map"
+    """An exact text looked up in the transform's table."""
 
 
 class Verdict(StrEnum):
@@ -841,6 +3099,93 @@ class Verdict(StrEnum):
     """A declared Success check failed."""
     needs_review = "needs_review"
     """Everything else: a person reviews it."""
+
+
+class WaitForExchangeParams(BaseModel):
+    """
+    What `page.wait_for_request` and `page.wait_for_response` take: the
+    page, and the URLs of the requests they wait for; any request when none
+    is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    url: UrlMatcher | None = None
+    """The URLs it waits for."""
+
+
+class WaitForLoadStateParams(BaseModel):
+    """What `page.wait_for_load_state` takes: the page and the state."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    state: LoadState | None = None
+    """The state; `load` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+
+
+class WaitForRequestFinishedParams(BaseModel):
+    """
+    What `page.wait_for_request_finished` takes: the page, and the URLs of
+    the requests it waits for; any request when none is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    url: UrlMatcher | None = None
+    """The URLs it waits for."""
+
+
+class WaitForUrlParams(BaseModel):
+    """
+    What `page.wait_for_url` takes: the page, the URL it waits for, and the
+    state a new document must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    url: UrlMatcher
+    """The URL it waits for."""
+    wait_until: LoadState | None = None
+    """
+    The state a new document at that URL must reach; `load` when
+    absent. A change within the document waits for none.
+    """
 
 
 class WaitUntil(StrEnum):
@@ -860,6 +3205,173 @@ class WaitUntil(StrEnum):
     """Once the document fired `load`."""
 
 
+class WallDomainDenied(BaseModel):
+    """What `needs_you.deny_wall_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: bool
+    """
+    Whether it was added: false when the Operator policy denied it
+    already, which then changed nothing and recorded nothing.
+    """
+    domain: str
+    """The domain, as `wall.denied_domains` now lists it."""
+    reason: str
+    """The reason, as the Audit log records it."""
+
+
+class WallKind(StrEnum):
+    """A Wall's kind (ADR 0052)."""
+
+    paywall = "paywall"
+    """A paywall."""
+    consent_wall = "consent_wall"
+    """A consent wall."""
+    ad_blocker_wall = "ad_blocker_wall"
+    """An ad-blocker wall."""
+
+
+class WallMarker(BaseModel):
+    """
+    The `wall` marker of a Record whose page was read past a Wall (ADR
+    0052), which Dataset queries and every Export format filter on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: WallKind
+    """The Wall's kind."""
+    vendor: str | None = None
+    """The vendor detected, when one was."""
+
+
+class WeakenedSetting(BaseModel):
+    """
+    A setting that weakened a safeguard for a Run (ADR 0028): its key, its
+    value, the layer that set it and, for the run layer, where the value came
+    from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The setting's key."""
+    layer: SettingsLayer
+    """The layer that set it."""
+    origin: RunOrigin | None = None
+    """For the run layer, where the value came from."""
+    value: Any
+    """Its value."""
+
+
+class WebError(BaseModel):
+    """
+    What `page.page_error` reports, `WebError`: an exception the page did
+    not catch (ADR 0085), never a `PageError`, ADR 0079's group.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    message: str
+    """Its message."""
+    name: str
+    """
+    Its name, such as `TypeError`; `Error` for a thrown value that is no
+    error.
+    """
+    page_id: PageId
+    """The page."""
+    stack: str | None = None
+    """Its stack as the browser renders it, when it has one."""
+
+
+class WebSocketClosed(BaseModel):
+    """What `web_socket.close` reports: a page's WebSocket closed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+    web_socket_id: str
+    """The socket."""
+
+
+class WebSocketFrame(BaseModel):
+    """
+    What `web_socket.frame_sent` and `web_socket.frame_received` report: one
+    message frame of a page's WebSocket.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    binary: bool
+    """Whether it is a binary frame."""
+    page_id: PageId
+    """The page."""
+    payload: str
+    """Its payload: its text, or for a binary frame its bytes in Base64."""
+    web_socket_id: str
+    """The socket."""
+
+
+class World(StrEnum):
+    """Where a page function runs (ADR 0085)."""
+
+    main = "main"
+    """
+    The page's own world, where its globals are, as Playwright's and
+    Puppeteer's default: the Session's Provenance marks the call.
+    """
+    isolated = "isolated"
+    """
+    A world of the engine's own in the page's document, which shares
+    its DOM but neither sees nor is seen by the page's scripts.
+    """
+
+
+class Actor3(BaseModel):
+    """A Client, by the surface its `hello` named."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["client_surface"]
+    surface: Surface
+    """Its surface."""
+
+
+class Actor(RootModel[Actor1 | Actor2 | Actor3 | Actor4]):
+    root: Actor1 | Actor2 | Actor3 | Actor4
+    """Who an entry's event was done by."""
+
+
+class AddInitScriptParams(BaseModel):
+    """
+    What `page.add_init_script` takes: the page, and the script's source and
+    argument.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """The function's one argument, JSON; absent for none."""
+    function: str
+    """
+    The script's JavaScript source: a function, called with `arg`, or a
+    script run as it is, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+
+
 class ArtifactId(BaseModel):
     """Which Pinned artifact: its kind, its name and its build."""
 
@@ -874,6 +3386,22 @@ class ArtifactId(BaseModel):
     """Its name, such as `chrome-for-testing`."""
 
 
+class BodyHandle(BaseModel):
+    """A page body as a handle: its ID, the file that holds it and its size."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """Its ID, the lowercase hex SHA-256 of its bytes."""
+    path: str
+    """The file that holds it, which a Client on the same machine reads."""
+    run_id: RunId
+    """The Run whose folder holds it."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
+
+
 class CancelParams(BaseModel):
     """What `$/cancel` names: the call to stop."""
 
@@ -882,6 +3410,49 @@ class CancelParams(BaseModel):
     )
     id: RequestId
     """The call's id."""
+
+
+class CertificatePin(BaseModel):
+    """
+    One pin of the known-certificates store, as `certs.list` answers it and
+    as the store's rows hold it: a host whose certificate was accepted on
+    first use, and the key it must keep presenting.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    changed_spki_sha256: str | None = None
+    """
+    The SHA-256 of the key the host presented instead, which stopped it
+    with `certificate_changed`, as `sha256/` and its standard base64: the
+    key `certs.accept` pins in its place. None while no change waits.
+    """
+    host: str
+    """The host, as the URL parser leaves it."""
+    pinned_at: PointInTime | None = None
+    """When it was pinned; none when the row cannot be read."""
+    run_id: RunId | None = None
+    """
+    The Run whose connection pinned it; none outside a Run or when the
+    row cannot be read.
+    """
+    spki_sha256: str | None = None
+    """
+    The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as
+    `sha256/` and its standard base64; none when the row cannot be read,
+    which stops the host as a changed key.
+    """
+
+
+class CertsListed(BaseModel):
+    """What `certs.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    pins: list[CertificatePin]
+    """The caller's pins, by host."""
 
 
 class Checkpoint(BaseModel):
@@ -931,6 +3502,20 @@ class Chunk(BaseModel):
     """Where its bytes start in the body."""
 
 
+class Concurrency(BaseModel):
+    """Every kind's concurrency."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_page: KindConcurrency
+    """Open browser pages."""
+    http: KindConcurrency
+    """HTTP and discovered-API fetches."""
+    model_call: KindConcurrency
+    """Model calls."""
+
+
 class ConfigExplainParams(BaseModel):
     """What `config.explain` takes."""
 
@@ -956,20 +3541,108 @@ class ConfigExplainParams(BaseModel):
     """
 
 
+class ConsentDomainAllowed(BaseModel):
+    """What `needs_you.allow_consent_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: bool
+    """
+    Whether it was added: false when user configuration listed it
+    already, which then changed nothing and recorded nothing.
+    """
+    domain: str
+    """The domain, as `consent.domains` now lists it."""
+    layer: SettingsLayer
+    """The layer written: user configuration."""
+    warning: str
+    """
+    What the person takes on, in plain words, as the Console showed it
+    beside the answer and the Audit log records it.
+    """
+
+
+class ConsoleMessage(BaseModel):
+    """What `page.console` reports: a message the page wrote to its console."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    location: ConsoleLocation
+    """Where it was written."""
+    page_id: PageId
+    """The page."""
+    text: str
+    """
+    Its text: each argument, a primitive as its value and any other as
+    the browser describes it, joined by spaces.
+    """
+    type: str
+    """
+    Its type as Playwright names it, such as `log`, `warning` or
+    `error`.
+    """
+
+
+class Contacts(BaseModel):
+    """The contacts the page shows, each value once, where it first appears."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    emails: list[Email]
+    """
+    Its e-mail addresses, from `mailto:` links and from text matching
+    the HTML Standard's valid e-mail address syntax.
+    """
+    phones: list[Phone]
+    """Its telephone numbers, from `tel:` links and from text."""
+    social: list[SocialProfile]
+    """Its social profiles, from links to the extractor's list of networks."""
+
+
 class CreditParams(BaseModel):
-    """What `$/credit` grants: more events, or chunks, for a streaming call."""
+    """
+    What `$/credit` grants: more events, or chunks, for a streaming call;
+    sent by the engine, more seeds a `run.add_seeds` call takes.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     credits: Annotated[int, Field(ge=1)]
-    """How many more events, or chunks, the Client takes."""
+    """
+    How many more events, or chunks, the Client takes; sent by the
+    engine, how many more seeds the call takes.
+    """
     id: RequestId
     """The streaming call's id."""
 
 
-class DaemonStatus(BaseModel):
-    """What `daemon.status` answers."""
+class DaemonHealth(BaseModel):
+    """
+    What `daemon.health` answers: what the ops listener's `/livez` and
+    `/readyz` check (ADR 0050). In a Daemon group, readiness ignores the
+    Lead Daemon's reachability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    live: bool
+    """
+    Whether it is live: its runtime and its Runs' registry, which writes
+    their run state, respond.
+    """
+    ready: bool
+    """Whether it is ready: live, and able to take a new Run."""
+    unready: list[Unready]
+    """Why it is not ready, when it is not; empty when it is."""
+
+
+class DaemonState(BaseModel):
+    """What `daemon.status` answers: the running Daemon's state."""
 
     model_config = ConfigDict(
         extra="allow",
@@ -980,6 +3653,13 @@ class DaemonStatus(BaseModel):
     """Where its Console is served, or why it is not."""
     endpoint: DaemonEndpoint
     """Where it listens."""
+    heap: Annotated[int | None, Field(ge=0)] = None
+    """
+    Its live heap: the bytes its own allocations hold now, as its
+    executable's allocator counts them, without the pages that
+    allocator keeps once they are freed; none where nothing counts
+    them.
+    """
     idle_timeout: Annotated[int, Field(ge=0)]
     """Its `daemon.idle_timeout`, in milliseconds."""
     kept_alive: bool
@@ -995,6 +3675,61 @@ class DaemonStatus(BaseModel):
     """The Product the Daemon runs as."""
     product_version: ProductVersion
     """Its Product version."""
+
+
+class Dialog(BaseModel):
+    """A dialog as its handler sees it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    default_value: str
+    """A prompt's default value; empty for any other kind."""
+    message: str
+    """Its message."""
+    type: DialogType
+    """Its kind."""
+
+
+class DialogAcceptParams(BaseModel):
+    """What `dialog.accept` takes: the dialog, and a prompt's text."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dialog_id: DialogId
+    """The dialog."""
+    prompt_text: str | None = None
+    """The text a prompt returns; its default value when absent."""
+
+
+class DialogDismissParams(BaseModel):
+    """What `dialog.dismiss` takes: the dialog."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dialog_id: DialogId
+    """The dialog."""
+
+
+class DialogHandleParams(BaseModel):
+    """
+    What `dialog.handle` gives the handler: the dialog, named by the ID its
+    answer passes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dialog: Dialog
+    """The dialog."""
+    dialog_id: DialogId
+    """The dialog, which an answer names."""
+    id: RequestId
+    """The id of the `page.on_dialog` call whose handler is asked."""
+    page_id: PageId
+    """The page that opened it."""
 
 
 class DownloadProgress(BaseModel):
@@ -1013,6 +3748,24 @@ class DownloadProgress(BaseModel):
     """The bytes the answer announced, when it did."""
 
 
+class EncodingProvenance(BaseModel):
+    """
+    The encoding a Record's document was read in, and where it came from
+    (ADR 0119).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    encoding: str
+    """Its WHATWG name, such as `Shift_JIS`."""
+    source: EncodingSource | None = None
+    """
+    Where it came from; none where the browser read the document by a
+    rule the engine did not see.
+    """
+
+
 class EngineInfo(BaseModel):
     """What `engine.info` answers."""
 
@@ -1027,6 +3780,64 @@ class EngineInfo(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class Enqueued2(BaseModel):
+    """The Frontier did not admit it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its URL as it was given."""
+
+
+class Enqueued(RootModel[Enqueued1 | Enqueued2]):
+    root: Enqueued1 | Enqueued2
+    """
+    The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
+    value, never an error, since a request is one among many.
+    """
+
+
+class EnqueuedBatch(BaseModel):
+    """
+    What `$/enqueued` carries: the answer of each seed of one `$/seeds`
+    batch, in the batch's order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answers: list[Enqueued]
+    """Each seed's answer."""
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
+
+
+class EvaluateParams(BaseModel):
+    """
+    What `page.evaluate` takes: the page, the function's source, its
+    argument and its world.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    world: World | None = None
+    """Where it runs; the main world when absent."""
 
 
 class EventEnvelope(BaseModel):
@@ -1061,6 +3872,12 @@ class ExplainedSetting(BaseModel):
     """
     cap: Any | None = None
     """An Operator policy's cap on it, if any."""
+    fixed_for_run: bool | None = None
+    """
+    Whether it is fixed for a Run's life: a resume that changes it is
+    refused with `setting_not_applicable`, and only a new Run takes
+    another value (ADRs 0102 and 0120).
+    """
     key: str
     """Its key."""
     layer: SettingsLayer
@@ -1075,6 +3892,12 @@ class ExplainedSetting(BaseModel):
     """For the run layer, where the value came from."""
     products: list[Product]
     """The Products that honour it, from its Product mark (ADR 0095)."""
+    user_settable: bool | None = None
+    """
+    Whether user configuration may set it: its authority lets user
+    configuration hold it and no lower layer locked it, so the Console
+    offers its user-level value for editing (ADR 0031).
+    """
     value: Any
     """
     The effective value, or for a key this engine does not apply, the
@@ -1085,6 +3908,55 @@ class ExplainedSetting(BaseModel):
     Whether its value weakens a guarantee class or switches off a costly
     control, which the results it touches are marked with (ADR 0028).
     """
+
+
+class ExportedAuditEntry(BaseModel):
+    """
+    One entry of an exported Audit log, one line of its JSONL: the entry
+    and the hash that chains it to the line before it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actor: Actor
+    """Who did what it records."""
+    chained: bool | None = None
+    """
+    Whether its hash chains it to the entry before it: `false` for an
+    entry of a Run whose `security.audit_chain` was off, whose hash is
+    `SHA-256` of 32 zero bytes and its own canonical JSON alone, and
+    which `audit verify` steps over while it verifies the chain around
+    it; left out when chained.
+    """
+    details: Any
+    """
+    What its kind records, such as a Secret reference and the domain it
+    was sent to, never a secret's value.
+    """
+    hash: str
+    """
+    `SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in
+    lowercase hex; an anchor's is the last pruned entry's.
+    """
+    kind: str
+    """Its kind, a value of the shared type `audit_kind`."""
+    layer: SettingsLayer | None = None
+    """
+    The settings layer its event came from, such as an Operator policy
+    that switched a control off; none where no layer applies.
+    """
+    run_id: RunId | None = None
+    """The Run it happened in; none outside a Run."""
+    sequence: Annotated[int, Field(ge=0)]
+    """Its place in the chain, from 1."""
+    surface: Surface | None = None
+    """
+    The surface the actor acted through, such as `console` for a person
+    in the Console; none for the engine's own events.
+    """
+    time: PointInTime
+    """When it was recorded."""
 
 
 class GotoParams(BaseModel):
@@ -1098,6 +3970,13 @@ class GotoParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the navigation may take, in milliseconds, at least 1:
+    absent for `timeout.navigation`, `null` for none, though an
+    enclosing timeout still applies (ADR 0080). Its waits for permits
+    count against it no more than against the setting.
+    """
     url: str
     """The URL."""
     wait_until: WaitUntil | None = None
@@ -1110,6 +3989,20 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    client_surface: Surface | None = None
+    """
+    On a gateway's `hello` (surface `cloud`), the surface of the Client
+    whose Connection it relays, such as `mcp` for a model's: the engine
+    holds the Connection to that surface's rules, a model's settings
+    included (ADR 0092), and the gateway's mark only words
+    `not_in_product` (ADR 0095). None on the gateway's own Connection;
+    any other surface names none.
+    """
+    form: Form | None = None
+    """
+    The form its user writes names in (ADR 0099); none until each
+    surface names its own.
+    """
     log_level: LogLevel | None = None
     """
     The level of the engine's log events the Client receives as `$/log`
@@ -1137,6 +4030,13 @@ class HelloResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    console_link: str | None = None
+    """
+    The sign-in link of the Console an Attached engine serves for its
+    script, which asked for one with a Console address, reported to the
+    Client of its stdio alone: `<url>#token=<token>`, whose fragment the
+    page swaps once for its cookie (ADRs 0024 and 0031).
+    """
     engine_instance: EngineInstance
     """
     The engine process, new each time an engine starts: the positions
@@ -1155,6 +4055,62 @@ class HelloResult(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class HtmlFormat(RootModel[Asked | HtmlOptions]):
+    root: Asked | HtmlOptions
+    """The `html` format of a request: `true`, or its options."""
+
+
+class HumanPause(BaseModel):
+    """A Human pause waiting for a person (ADR 0092)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deadline: PointInTime | None = None
+    """
+    When it ends unanswered: the first of `timeout.human_pause` and, in
+    a scheduled run, its pause timeout; none when it waits without
+    limit.
+    """
+    page: str
+    """The page that waits."""
+    raised_by: PauseOrigin
+    """Whether the program or the engine raised it."""
+    reason: str | None = None
+    """Why, as the program or the engine said it."""
+    session: str
+    """The Session whose page waits."""
+    since: PointInTime
+    """Since when it waits."""
+    until: str | None = None
+    """The condition that ends it by itself, as text."""
+
+
+class KeyValueStoreBytes(BaseModel):
+    """Bytes the store holds for a key, with their content type."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, as `set_bytes` gave it."""
+
+
+class KeyValueStoreBytesValue(BaseModel):
+    """
+    What `key_value_store.get_bytes` answers: the key's committed bytes, or
+    null when the key is absent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bytes: KeyValueStoreBytes | None = None
+    """The bytes and their content type, or null for an absent key."""
 
 
 class KeyValueStoreKey(BaseModel):
@@ -1178,6 +4134,13 @@ class KeyValueStoreKeyParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` reads or deletes the
+    key: a read sees what the attempt staged, and a delete is staged
+    with the attempt (ADR 0093). Absent, the call reads or commits at
+    once.
+    """
     key: str
     """The key."""
     run_id: RunId
@@ -1199,12 +4162,44 @@ class KeyValueStoreKeysParams(BaseModel):
     """The Run whose store it is."""
 
 
+class KeyValueStoreSetBytesParams(BaseModel):
+    """
+    What `key_value_store.set_bytes` takes: the Run, the key, and the bytes
+    with their content type.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` sets the bytes: the
+    write is staged with the attempt and commits with it, a kept file
+    written only then, or is discarded with it (ADR 0093). Absent, the
+    bytes are committed at once.
+    """
+    content: KeyValueStoreContent
+    """The bytes, in Base64."""
+    content_type: str
+    """Their content type, such as `image/png`."""
+    key: str
+    """The key."""
+    run_id: RunId
+    """The Run whose store it is."""
+
+
 class KeyValueStoreSetParams(BaseModel):
     """What `key_value_store.set` takes: the Run, the key and its value."""
 
     model_config = ConfigDict(
         extra="forbid",
     )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` sets the key: the write
+    is staged with the attempt and commits with it, or is discarded
+    with it (ADR 0093). Absent, the value is committed at once.
+    """
     key: str
     """The key."""
     run_id: RunId
@@ -1247,6 +4242,82 @@ class Locator(BaseModel):
     """A CSS selector, which also matches inside open shadow roots."""
 
 
+class LocatorEvaluateAllParams(BaseModel):
+    """
+    What `locator.evaluate_all` takes: the locator, the function's source,
+    its argument and its world.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with the
+    array of matches and `arg`, or an expression, which takes neither.
+    """
+    locator: Locator
+    """The locator, whose every match the function takes first."""
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
+class LocatorWaitForFunctionParams(BaseModel):
+    """
+    What `locator.wait_for_function` takes: the locator, the function's
+    source, its argument, its world, and how often it is checked.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with the
+    element and `arg`, or an expression, which takes neither.
+    """
+    locator: Locator
+    """
+    The locator, whose one match the function takes first, resolved
+    again at each check.
+    """
+    polling_interval: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between two checks, at least 1; absent, about one
+    frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
+class LocatorWaitForParams(BaseModel):
+    """What `locator.wait_for` takes: the locator and the state of its element."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    state: ElementState | None = None
+    """The state; `visible` when absent."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+
+
 class LogEvent(BaseModel):
     """What `$/log` carries: one log event of the engine."""
 
@@ -1276,6 +4347,31 @@ class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
     """The `markdown` format of a request: `true`, or its options."""
 
 
+class Media(BaseModel):
+    """
+    A media source of the page: a `<video src>`, an `<audio src>` or a
+    `<source src>` of either, in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: MediaKind
+    """Whether it plays video or audio."""
+    src: str
+    """Its `src` as the document writes it."""
+    type: str | None = None
+    """
+    Its `type`, the MIME type a `<source>` declares; `null` when it has
+    none.
+    """
+    url: str | None = None
+    """
+    Its `src` resolved against the document's base URL; `null` when it
+    does not parse.
+    """
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -1292,14 +4388,158 @@ class Navigated(BaseModel):
     """The document's response."""
 
 
+class NeedsYouChange2(BaseModel):
+    """An item left the list."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    change: Literal["removed"]
+    id: str
+    """The item's ID."""
+    reason: NeedsYouRemoval
+    """Why."""
+
+
+class NeedsYouItem(BaseModel):
+    """One thing waiting for a person."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    actions: list[str]
+    """
+    The catalog operations a person may answer it with, such as
+    `needs_you.dismiss`; empty when only something outside the engine,
+    such as freeing space, resolves it.
+    """
+    details: dict[str, Any] | None = None
+    """
+    Its kind's own fields, which the kind's value in the catalog names:
+    for `storage_level`, `level` and `folder`; for
+    `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
+    `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+    `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+    `cause`, the `layer` and `file` that list it and `only_star`; for
+    `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+    `presented_spki_sha256`.
+    """
+    id: str
+    """
+    Its ID, which names this one occurrence for good: a Run stopped
+    again by storage after a resume is another item.
+    """
+    kind: str
+    """
+    What it is, a value of a type both Products share, such as
+    `storage_level`; a Client shows a kind it does not know by its
+    summary.
+    """
+    run: RunId | None = None
+    """The Run it is about, if any."""
+    schedule: str | None = None
+    """The Schedule it is about, if any."""
+    since: PointInTime
+    """Since when it waits."""
+    summary: str
+    """
+    What waits, in the engine's English, which a Client shows for a kind
+    it has no words of its own for.
+    """
+
+
+class NeedsYouList(BaseModel):
+    """
+    What `needs_you.list` answers: one page of the items, the longest
+    waiting first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    items: list[NeedsYouItem]
+    """The items, by `since`, then by ID."""
+    next: str | None = None
+    """
+    Where the next page starts, as the next call's `after`; absent on
+    the last page.
+    """
+
+
 class NewPageParams(BaseModel):
-    """What `run.new_page` takes: the Run whose default Session opens the page."""
+    """
+    What `run.new_page` takes: the Run whose default Session opens the page,
+    and the page's own settings.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     run_id: RunId
     """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
+
+
+class NewSessionPageParams(BaseModel):
+    """
+    What `session.new_page` takes: the Session, and the page's own
+    settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
+
+
+class NothingDone1(BaseModel):
+    """The start found the Run ended."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended_at: PointInTime
+    """When it ended."""
+    reason: Literal["already_ended"]
+
+
+class NothingDone2(BaseModel):
+    """
+    No seed reached a handler: each was refused when added or ended
+    before its handler ran, counted by why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: Literal["no_seed_handled"]
+    seeds: list[SeedsKept] | None = None
+    """
+    How many seeds each reason kept from a handler: the reason an
+    enqueue answered, or how the request ended, by its skip reason,
+    Error code or Block cause, in the order of the reasons.
+    """
+
+
+class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
+    root: NothingDone1 | NothingDone2 | NothingDone3
+    """Why a call that ends a Run did nothing (ADR 0102's G1)."""
 
 
 class PageBodyParams(BaseModel):
@@ -1312,6 +4552,24 @@ class PageBodyParams(BaseModel):
     """Its ID."""
     run_id: RunId
     """The Run whose folder holds it."""
+
+
+class PageCloseParams(BaseModel):
+    """
+    What `page.close` takes: the page, and whether its `beforeunload`
+    handlers run.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    run_before_unload: bool | None = None
+    """
+    Runs the page's `beforeunload` handlers first, whose dialog goes to
+    the page's dialog handlers; false when absent.
+    """
 
 
 class PageDownload(BaseModel):
@@ -1331,10 +4589,24 @@ class PageDownload(BaseModel):
     """The file's URL."""
 
 
+class PageFired(BaseModel):
+    """
+    What `page.load`, `page.dom_content_loaded`, `page.crash` and
+    `page.close` report: the page whose main frame's document fired the
+    event, or that crashed or closed.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The page."""
+
+
 class PageOpened(BaseModel):
     """
-    What `run.new_page` answers: the page, and the Session it belongs to,
-    which `page.session()` returns.
+    What `run.new_page` and `session.new_page` answer: the page, and the
+    Session it belongs to, which `page.session()` returns.
     """
 
     model_config = ConfigDict(
@@ -1343,7 +4615,90 @@ class PageOpened(BaseModel):
     page_id: PageId
     """The page."""
     session_id: SessionId
-    """Its Session: the Run's default Session."""
+    """Its Session: the Run's default Session for `run.new_page`."""
+
+
+class PagePopup(BaseModel):
+    """
+    What `page.popup` reports: the page that opened a popup, and the
+    popup, a page of the same Session.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    page_id: PageId
+    """The opener."""
+    popup: PageOpened
+    """The popup."""
+
+
+class PageRequest(BaseModel):
+    """
+    A request of a page, ADR 0085's `Request`: one per hop of a redirect
+    chain, each hop under its own `request_id`, as Playwright's
+    `redirectedFrom()` and `redirectedTo()` tell them apart.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    failure: RequestFailure | None = None
+    """Why it failed, for `page.request_failed`; none otherwise."""
+    headers: dict[str, str]
+    """
+    Its headers as the browser sent them, their names in lowercase, as
+    Playwright gives them.
+    """
+    is_navigation_request: bool
+    """
+    Whether it loads the document of one of the page's frames, its main
+    frame's or an iframe's, as Playwright's `isNavigationRequest()`.
+    """
+    method: str
+    """Its method, such as `GET`."""
+    page_id: PageId
+    """The page that sent it."""
+    post_data: str | None = None
+    """Its body, in Base64 (RFC 4648, with padding), when it has one."""
+    redirect_chain: list[str]
+    """
+    The URLs of the hops a redirect led from before it, the first first;
+    empty when no redirect led to it.
+    """
+    redirected_from: str | None = None
+    """
+    The `request_id` of the hop whose redirect led to it, Playwright's
+    `redirectedFrom()`; none at a request's first hop.
+    """
+    request_id: str
+    """
+    The engine's ID for this hop, which `response.body` takes: the
+    browser's ID for the request at its first hop, and that ID with
+    `#` and the hop's number after each redirect.
+    """
+    resource_type: str
+    """
+    What it loads, as Playwright's `resourceType()` names it: the
+    browser's name in lowercase, such as `document`, `fetch` or `xhr`.
+    """
+    url: str
+    """Its URL."""
+
+
+class PageRouteParams(BaseModel):
+    """
+    What `page.route` takes: the page, and the URLs whose requests its
+    handler answers.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher
+    """The URLs it answers."""
 
 
 class Period(BaseModel):
@@ -1359,6 +4714,83 @@ class Period(BaseModel):
     """How long it counts."""
     time_zone: str
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
+
+
+class PlanReport(BaseModel):
+    """What a Run did with its Plan file (ADR 0091)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    file: str | None = None
+    """The Plan file's path, or none."""
+    status: PlanStatus
+    """What became of its new versions."""
+    steps_changed: list[str] | None = None
+    """The steps that changed, each Agent task one entry (ADR 0100)."""
+    version: Annotated[int | None, Field(ge=0)] = None
+    """The version it used."""
+
+
+class PolicyChange(BaseModel):
+    """One change `config.policy_write` makes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key it changes."""
+    table: PolicyTable
+    """The table it changes."""
+    value: Any
+    """The key's new value; `null` removes it from the table."""
+
+
+class PolicyEntry(BaseModel):
+    """
+    One entry of the Operator policy: a key of one of its tables, and its
+    value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """Its key."""
+    table: PolicyTable
+    """Its table."""
+    value: Any
+    """Its value."""
+
+
+class PolicyWriteParams(BaseModel):
+    """What `config.policy_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[PolicyChange]
+    """The changes, made in order, in one write."""
+    digest: str
+    """
+    The digest `config.policy_read` answered: the write is made only if
+    the file still has it.
+    """
+
+
+class PolicyWritten(BaseModel):
+    """What `config.policy_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """
+    Each key the write changed, with its values before and after, as the
+    Audit log records them.
+    """
+    digest: str
+    """The file's digest after the write, the version new Runs name."""
 
 
 class PressParams(BaseModel):
@@ -1398,6 +4830,88 @@ class ReachedLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class RefetchDomainRemoved(BaseModel):
+    """What `needs_you.remove_refetch_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str
+    """The domain."""
+    domains: list[str]
+    """That layer's `wall.refetch_domains` now."""
+    layer: SettingsLayer | None = None
+    """
+    The layer that listed it, and now does not; none when no layer was
+    changed.
+    """
+    removed: bool
+    """
+    Whether its layer changed: false when neither user configuration
+    nor the Operator policy lists it, which then changed nothing and
+    recorded nothing.
+    """
+
+
+class RouteAbortParams(BaseModel):
+    """What `route.abort` takes: the request, and the error its page sees."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error_code: AbortReason | None = None
+    """The network error; `failed` when absent."""
+    route_id: RouteId
+    """The request."""
+
+
+class RouteFulfillParams(BaseModel):
+    """
+    What `route.fulfill` takes: the request, and the response the program
+    answers it with; nothing reaches the network.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: str | None = None
+    """Its body, in Base64; empty when absent."""
+    content_type: str | None = None
+    """Its `Content-Type`, set over `headers`' own."""
+    headers: dict[str, Any] | None = None
+    """Its headers."""
+    route_id: RouteId
+    """The request."""
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """Its status; 200 when absent."""
+
+
+class RouteHandleParams(BaseModel):
+    """
+    What `route.handle` gives the handler: the request, named by the ID its
+    answer passes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: RequestId
+    """
+    The id of the `page.route` or `session.route` call whose handler is
+    asked.
+    """
+    page_id: PageId | None = None
+    """
+    The page that sent the request; none for a request a site's service
+    worker sent itself, which belongs to no page and reaches only
+    Session routes (ADR 0121).
+    """
+    request: RouteRequest
+    """The request."""
+    route_id: RouteId
+    """The intercepted request, which an answer names."""
 
 
 class RunAbortParams(BaseModel):
@@ -1474,6 +4988,69 @@ class RunCheckpointing(BaseModel):
     """The Run's ID."""
 
 
+class RunDiscarded(BaseModel):
+    """What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    run_id: RunId
+    """The Run's ID."""
+
+
+class RunListParams(BaseModel):
+    """
+    What `run.list` takes: which rows of the Run index it answers, each
+    field given narrowing them, and in which order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completeness: Completeness | None = None
+    """Their Completeness: only Runs that ended have one."""
+    ended: TimeRange | None = None
+    """When they ended: only Runs that ended match."""
+    lifecycle: Lifecycle | None = None
+    """Their Lifecycle."""
+    occurrence: str | None = None
+    """The occurrence that started the Runs, by its ID."""
+    order: SortOrder | None = None
+    """Which way, descending by default."""
+    product: Product | None = None
+    """The Product the Runs need (ADR 0098)."""
+    recipe: str | None = None
+    """
+    The Recipe the Runs ran, by its name, as their reserved
+    `goodfetch.recipe` tag names it.
+    """
+    schedule: str | None = None
+    """The Schedule that started the Runs, by its ID."""
+    sort: RunSortKey | None = None
+    """
+    What the rows are sorted by, when they started by default; rows
+    that compare equal follow in Run ID order.
+    """
+    started: TimeRange | None = None
+    """When they started."""
+    tags: list[Tag] | None = None
+    """Tags each row carries, every one of them."""
+    text: str | None = None
+    """
+    Text found, ignoring case, in their Run ID or one of their tags,
+    their Recipe's among them.
+    """
+    trigger: RunTrigger | None = None
+    """What fired the occurrence that started the Runs."""
+    verdict: Verdict | None = None
+    """Their Verdict: only Runs that ended have one."""
+    watch_runs: bool | None = None
+    """
+    Whether Watch runs are listed too; they are left out by default
+    (ADR 0036).
+    """
+
+
 class RunStartParams(BaseModel):
     """What `run.start` takes."""
 
@@ -1515,6 +5092,109 @@ class RunStarted(BaseModel):
     """Whether the start began it."""
 
 
+class RunStorage(BaseModel):
+    """
+    The worst storage level among the filesystems a Run writes to, with
+    that filesystem's folder and free space (ADR 0122).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    folder: str
+    """A folder the Run writes to on that filesystem."""
+    free_bytes: Annotated[int, Field(ge=0)]
+    """The space left on it to the engine's user, in bytes."""
+    level: StorageLevel
+    """The level."""
+
+
+class Seed(RootModel[RequestSeed | SitemapSeed]):
+    root: RequestSeed | SitemapSeed
+    """
+    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+    seeds the entries of a site's sitemaps.
+    """
+
+
+class SeedBatch(BaseModel):
+    """
+    What `$/seeds` carries: the next seeds a Client streams to a
+    `run.add_seeds` call, never more than the credits the call granted.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: bool | None = None
+    """
+    Whether they are the stream's last: the call answers once it
+    answered them.
+    """
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
+    seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
+    """The seeds, in order."""
+
+
+class SessionRouteParams(BaseModel):
+    """
+    What `session.route` takes: the Session, and the URLs whose requests its
+    handler answers, on every page of the Session.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    url: UrlMatcher
+    """The URLs it answers."""
+
+
+class SessionSource2(BaseModel):
+    """
+    A file of cookies and storage, read on the program's machine and
+    sent over the connection.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domains: list[str] | None = None
+    """The registrable domains its navigation is bound to."""
+    format: StateFileFormat | None = None
+    """Its format, detected when left out."""
+    key: str | None = None
+    """The Secret reference that opens a session export bundle."""
+    kind: Literal["state_file"]
+    path: str
+    """The file."""
+
+
+class SessionSource(
+    RootModel[
+        SessionSource1
+        | SessionSource2
+        | SessionSource3
+        | SessionSource4
+        | SessionSource5
+        | SessionSource6
+        | SessionSource7
+    ]
+):
+    root: (
+        SessionSource1
+        | SessionSource2
+        | SessionSource3
+        | SessionSource4
+        | SessionSource5
+        | SessionSource6
+        | SessionSource7
+    )
+    """Where a Session's login comes from (ADR 0056): exactly one kind."""
+
+
 class SettingLimit(BaseModel):
     """
     A setting that decided an outcome: its key, its value and the layer that
@@ -1544,6 +5224,16 @@ class SettingsFile(BaseModel):
     """Its layer."""
     path: str
     """Its path."""
+
+
+class SignInList(BaseModel):
+    """What `sign_in.list` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sign_ins: list[SignInSummary]
+    """Every sign-in that has not ended, oldest first."""
 
 
 class StopReason1(BaseModel):
@@ -1614,6 +5304,8 @@ class StopReason(
         | StopReason5
         | StopReason6
         | StopReason7
+        | StopReason8
+        | StopReason9
     ]
 ):
     root: (
@@ -1624,10 +5316,80 @@ class StopReason(
         | StopReason5
         | StopReason6
         | StopReason7
+        | StopReason8
+        | StopReason9
     )
+    """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
+
+
+class SystemInfo(BaseModel):
     """
-    Why a Run stopped (ADR 0102); the other causes join with the tickets that
-    stop Runs for them.
+    What the governor read and decided at one sample: the payload of
+    `engine.system_info`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    concurrency: Concurrency
+    """Each kind's concurrency."""
+    cpu: CpuReading
+    """Its CPU and Tokio workers."""
+    last_resort: bool
+    """
+    Whether memory stayed critical at the floor past
+    `governor.last_resort_after`.
+    """
+    level: GovernorLevel
+    """How loaded the engine is."""
+    memory: MemoryReading
+    """Its memory."""
+    pressure_source: PressureSource | None = None
+    """The reading that holds it above `normal`; none at `normal`."""
+
+
+class TransformProvenance(BaseModel):
+    """How a Value transform gave one field of a Record (ADR 0123)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    anchor: PointInTime | None = None
+    """A relative time's anchor: the fetch time of the page's document."""
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    locale: str | None = None
+    """Its resolved locale, a BCP 47 tag, for a locale-dependent one."""
+    pattern: str | None = None
+    """The stated CLDR pattern, such as `dd/MM/yyyy`, when one was."""
+    text: str
+    """The page text exactly as read."""
+    time_zone: str | None = None
+    """
+    Its resolved time zone, an IANA name, for a date-time or a
+    relative time.
+    """
+    transform: ValueTransform
+    """The transform."""
+
+
+class UnreadField(BaseModel):
+    """
+    A field of a code-free crawl's Record that its page did not give, so
+    the Record holds null (ADR 0123).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    reason: UnreadReason
+    """Why."""
+    text: str | None = None
+    """
+    The text read, where one was: the text its `match` did not match, or
+    that its transform does not read as a value.
     """
 
 
@@ -1690,6 +5452,101 @@ class UsageSetParams(BaseModel):
     """The Usage kind it caps."""
 
 
+class WaitForCountParams(BaseModel):
+    """
+    What `locator.wait_for_count` takes: the locator and the count its
+    matches must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: Count
+    """The count."""
+    locator: Locator
+    """The locator."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+
+
+class WaitForFunctionParams(BaseModel):
+    """
+    What `page.wait_for_function` takes: the page, the function's source,
+    its argument, its world, and how often it is checked.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    polling_interval: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between two checks, at least 1; absent, about one
+    frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
+class AppliedLimit(BaseModel):
+    """
+    A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
+    ID, what it caps, its period, what it allows, what is left of it and who
+    set it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: Annotated[int, Field(ge=0)]
+    """What it allows per period: a count, or millionths of the currency."""
+    currency: str | None = None
+    """The currency it caps a price in, for a price Limit."""
+    left: Annotated[int, Field(ge=0)]
+    """What is left of it in the current period."""
+    period: Period | None = None
+    """Its period; none for a Limit that never starts again."""
+    resets_at: PointInTime | None = None
+    """When its period starts again; none for a Limit without one."""
+    scope: LimitScope
+    """What it is on; a scope kind this reader does not know is kept."""
+    set_by: LimitSetter
+    """Who set it."""
+    usage_kind: str
+    """The Usage kind it caps."""
+
+
+class AuditExported(BaseModel):
+    """What `audit.export` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    entries: list[ExportedAuditEntry]
+    """
+    Every entry the log holds, in sequence, each with its hash: the
+    anchor first when the log was pruned.
+    """
+
+
 class ClickParams(BaseModel):
     """What `locator.click` takes: the locator whose element it clicks."""
 
@@ -1712,7 +5569,11 @@ class EventBatch(BaseModel):
     events: list[EventEnvelope]
     """Its events."""
     id: RequestId
-    """The id of the subscription's `events.subscribe` call."""
+    """
+    The id of the streaming call whose events it carries: a
+    subscription's `events.subscribe` call, or a `page.on` call, whose
+    page's events go only to it.
+    """
 
 
 class EventsSubscribeParams(BaseModel):
@@ -1727,6 +5588,12 @@ class EventsSubscribeParams(BaseModel):
     subscription resumes after it, or starts with `events.resync` when
     the engine no longer holds it or another engine instance gave it, as
     after a Daemon restart. Absent, it starts with the next event.
+    """
+    system_info: bool | None = None
+    """
+    Whether it also takes `engine.system_info`, the Resource governor's
+    periodic readings; false by default, so a subscription that reads
+    only what changes sees no periodic event.
     """
 
 
@@ -1755,8 +5622,31 @@ class FormatsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    contacts: Asked | None = None
+    """
+    The e-mail addresses, telephone numbers and social profiles the
+    page shows.
+    """
+    html: HtmlFormat | None = None
+    """The page's HTML: its main content by default."""
+    images: Asked | None = None
+    """The page's images, each with its URL resolved and its `alt`."""
+    links: Asked | None = None
+    """The page's links, each with its URL resolved."""
     markdown: MarkdownFormat | None = None
     """The page's content as Markdown, with GFM's tables."""
+    media: Asked | None = None
+    """The page's video and audio sources, each with its URL resolved."""
+    metadata: Asked | None = None
+    """
+    The page's metadata: its title, description, canonical URL,
+    language, Open Graph and Twitter tags, JSON-LD blocks and microdata
+    items.
+    """
+    tables: Asked | None = None
+    """The page's tables, as rows of cells."""
+    text: Asked | None = None
+    """The text of the page's main content, a paragraph per block."""
 
 
 class Limit(BaseModel):
@@ -1827,6 +5717,81 @@ class LimitUsage(BaseModel):
     """What the engine that read it makes of it."""
 
 
+class ModelAllowance(BaseModel):
+    """
+    One kind of a Run's Model allowance (ADR 0107): the most model Usage
+    of that kind the Run may spend, past which its model calls are refused
+    while it goes on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency of a `price` allowance, an ISO 4217 code."""
+    kind: str
+    """
+    Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+    know is kept as it is.
+    """
+    reached_at: PointInTime | None = None
+    """When a model call was first refused under it; none until then."""
+    remains: Annotated[int, Field(ge=0)]
+    """What remains of it, spent and reserved taken off."""
+    source: SettingLimit
+    """The setting that set it, its value and its layer."""
+    value: Annotated[int, Field(ge=0)]
+    """What it allows: a count, or millionths of the currency."""
+
+
+class NeedsYouChange1(BaseModel):
+    """An item appeared, or changed: it as it is now."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    change: Literal["listed"]
+    item: NeedsYouItem
+    """The item."""
+
+
+class NeedsYouChange(RootModel[NeedsYouChange1 | NeedsYouChange2]):
+    root: NeedsYouChange1 | NeedsYouChange2
+    """What `needs_you.changed` carries: one change of the list."""
+
+
+class NewSessionParams(BaseModel):
+    """
+    What `run.new_session` takes: the Run whose Session it opens, the
+    Session's own source and its own settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Session's own settings, nested by key: `filter_lists.ads`,
+    `.trackers`, `.annoyances`, `.first_party_scripts`,
+    `browser.block_resources` and `live_view.hiding` choose its pages'
+    Clean-up rules over the Run's, and `browser.service_workers` whether
+    a site's service workers run in them, and `session.page_check` the
+    Page check its pages are judged against, and `content.extractor`
+    the main-content step their formats read with. `session.source` is
+    refused here with `setting_not_applicable`,
+    as the call's own `source` sets it, and so is any other key, which
+    only the Run sets.
+    """
+    source: SessionSource | None = None
+    """
+    `session.source` for this Session alone: left out, the Run's or the
+    connection's applies; `null`, the Session opens fresh (ADRs 0083
+    and 0092).
+    """
+
+
 class NotUnderstoodLimit(BaseModel):
     """
     A Limit flagged *must understand* that a Run's engine cannot evaluate,
@@ -1847,6 +5812,105 @@ class NotUnderstoodLimit(BaseModel):
     """The Usage kind it caps."""
 
 
+class OperatorPolicyRead(BaseModel):
+    """The Operator policy as `config.policy_read` reads it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """
+    The digest of the file as read, which `config.policy_write` takes
+    back. It is the policy version a Run report names, `sha256:` and 16
+    hex digits, of the file's text, or of no text when there is none.
+    """
+    entries: list[PolicyEntry]
+    """
+    Every entry of its three tables, by table, then key, the other
+    Product's keys included.
+    """
+    found: bool
+    """Whether the file exists; a policy that does not sets nothing."""
+    path: str
+    """Its file's path."""
+
+
+class PageExchange(BaseModel):
+    """
+    What `page.response` reports, and `page.wait_for_request_finished`
+    answers: a request and the response it got.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    request: PageRequest
+    """The request."""
+    response: PageResponse
+    """Its response, whose body `response.body` reads."""
+
+
+class RecordProvenance(BaseModel):
+    """How one committed Record was obtained."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    certificate_exception: CertificateExceptionMark | None = None
+    """
+    The exception of `tls.accept_invalid_certs` its document's host was
+    reached through; none where its certificate verified.
+    """
+    clean_up_rules: str | None = None
+    """
+    The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+    whose Run trace names their date and the release that applied them.
+    """
+    encoding: EncodingProvenance | None = None
+    """
+    The encoding the document was read in, and where it came from;
+    none for a request with no document.
+    """
+    origin: ResponseOrigin | None = None
+    """
+    The Response cache or Response recording that answered in place of
+    the network; none when the network did.
+    """
+    payment: PaymentMark | None = None
+    """
+    The payment of a Paid fetch of its page; none where nothing was
+    paid.
+    """
+    request_id: str
+    """The ID of the crawl request whose attempt produced it."""
+    robots_txt: RobotsTxtMark | None = None
+    """
+    `ignored` when its page was fetched while
+    `site_preferences.respect_robots_txt` was off, from a URL its
+    origin's robots.txt disallows, so a result taken against a site's
+    stated preferences can be found and removed; none otherwise.
+    """
+    tier: TierProvenance | None = None
+    """
+    The tier that fetched that request's document, and how it was
+    chosen; none where the handler was given its request alone.
+    """
+    unread_fields: list[UnreadField] | None = None
+    """
+    Each field of a code-free crawl the page did not give, null in the
+    Record, with why; absent where every field was read.
+    """
+    value_transforms: Annotated[
+        list[TransformProvenance] | None, Field(validate_default=True)
+    ] = []
+    """
+    Each field whose value an engine Value transform gave, in the
+    order read; empty where the program parsed its own values.
+    """
+    wall: WallMarker | None = None
+    """The Wall its page was read past; none where no Wall was met."""
+
+
 class Resync(BaseModel):
     """
     What `events.resync` gives: the current state, from which the stream
@@ -1856,53 +5920,126 @@ class Resync(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    needs_you: list[NeedsYouItem]
+    """Every item of "Needs you", by `since`, then by ID."""
     runs: list[RunAxes]
-    """The axes of each Run the engine knows, live or ended."""
-
-
-class RunReport(BaseModel):
     """
-    What a Run states about itself when it ends (ADR 0102): its three axes
-    (ADR 0029) and when it ran.
+    The axes of each live Run the engine knows. A Run it leaves out
+    ended, and `run.list` gives its axes.
+    """
+
+
+class RunIndexRow(BaseModel):
+    """
+    One row of the Run index (ADR 0031): a Run, where its state is, its three
+    axes and, while it is live, the engine that owns it.
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
-    checkpoint: Checkpoint | None = None
-    """
-    The last Checkpoint written of it in this engine, when one was (ADR
-    0102).
-    """
-    completeness: Completeness
-    """Whether its results cover its scope."""
-    ended_at: PointInTime
+    completeness: Completeness | None = None
+    """Its Completeness, once it ended."""
+    ended_at: PointInTime | None = None
     """When it ended."""
+    kind: RunKind
+    """What kind of Run it is."""
     lifecycle: Lifecycle
-    """Where it ended."""
-    policy_version: str | None = None
+    """Where it is."""
+    location: str
     """
-    The version of the Operator policy it ran under, when one applied
-    (ADR 0028).
+    Its folder: relative to the per-major data folder when it is inside,
+    absolute otherwise.
+    """
+    needs: Product
+    """The Product it needs (ADR 0098)."""
+    owner: RunOwner | None = None
+    """
+    While it is live, where the engine that owns it is reached: a
+    Daemon's endpoint, or an Attached engine's private endpoint. An
+    engine that cannot take the Run's writer lock forwards live actions
+    there.
+    """
+    presence: Presence
+    """Whether its state is at its location."""
+    progress_message: str | None = None
+    """The program's own status line, once it set one (RT-15)."""
+    replayed: bool
+    """
+    Whether it replayed a Response recording (ADR 0105), which marks
+    its row so that no one reads it as a live run.
     """
     run_id: RunId
     """The Run's ID."""
     started_at: PointInTime
     """When it started."""
     stop_reason: StopReason | None = None
-    """Why it stopped, when it did."""
-    uncapped: bool | None = None
     """
-    Whether it spent, or reserved, money in a currency no Limit holding
-    it caps (ADR 0041): *uncapped*.
+    Why it stopped, once it stopped: "Needs you" lists a Run stopped by
+    storage from it (ADR 0122).
     """
-    verdict: Verdict
-    """Whether its own checks prove what it committed."""
-    weakened_by: list[SettingLimit] | None = None
+    tags: Tags
+    """Its tags (ADR 0036)."""
+    verdict: Verdict | None = None
+    """Its Verdict, once it ended."""
+
+
+class RunList(BaseModel):
+    """What `run.list` answers: the rows of its filter, in its order."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    runs: list[RunIndexRow]
     """
-    Every setting it ran with that weakens a guarantee class or switches
-    off a costly control, with its value and layer (ADR 0028).
+    The rows, every presence kept: a Run whose state is gone is listed
+    `missing`, one discarded on purpose `erased` (ADR 0031).
     """
+
+
+class RunProgress(BaseModel):
+    """
+    A Run's progress as it is now (ADR 0102): what `run.progress` answers
+    and the `run.progress` event carries.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    at: PointInTime
+    """When the engine read it."""
+    checkpoint_at: PointInTime | None = None
+    """When its last Checkpoint was written, once one was."""
+    epoch: Annotated[int, Field(ge=0)]
+    """Its run epoch (ADR 0003), which a resume or a migration advances."""
+    last: bool
+    """
+    Whether it is the sequence's last value: the Run ended, or no
+    engine this one reaches works it, so nothing more comes until a
+    start with its Run ID resumes it.
+    """
+    lifecycle: Lifecycle
+    """Where the Run is."""
+    message: ProgressMessage | None = None
+    """The program's own status line, once it set one."""
+    pauses: list[HumanPause]
+    """Each Human pause waiting (ADR 0092)."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place among the Run's progress values, which only goes up:
+    `run.progress`'s `after` takes it.
+    """
+    run_id: RunId
+    """The Run's ID."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, once it did."""
+    storage: RunStorage | None = None
+    """
+    The worst storage level among the filesystems the Run writes to,
+    once one is above `normal` (ADR 0122).
+    """
+    writer: RunWriter
+    """Whether an engine works it."""
 
 
 class RunStopping(BaseModel):
@@ -1915,6 +6052,57 @@ class RunStopping(BaseModel):
     """Why it stops."""
     run_id: RunId
     """The Run's ID."""
+
+
+class RunUsage(BaseModel):
+    """
+    What a Run used, as the Usage ledger charged it, and the Limits that
+    apply to it (ADRs 0041 and 0101): what `run.usage` answers and the
+    report carries.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    browser_time: Annotated[int, Field(ge=0)]
+    """How long it held a browser, in milliseconds."""
+    limits: list[AppliedLimit] | None = None
+    """Each Limit that applies to it, with what is left of it."""
+    model: ModelUsage
+    """Its model calls."""
+    model_allowance: list[ModelAllowance] | None = None
+    """
+    Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+    so apart from `limits`; empty when none is set.
+    """
+    other: list[KindUsage] | None = None
+    """
+    What it used of a Usage kind this engine does not name, kept as the
+    ledger holds it.
+    """
+    paid_fetches: list[UsageAmount] | None = None
+    """Its Paid fetches, by currency (ADR 0045)."""
+    paid_solves: list[UsageAmount] | None = None
+    """Its paid solves, by currency (ADR 0035)."""
+    proxy_bytes: Annotated[int, Field(ge=0)]
+    """The bytes it sent and received through a proxy."""
+    proxy_bytes_by_kind: list[ProxyKindBytes] | None = None
+    """
+    The bytes it sent and received through a Proxy provider's proxies,
+    by proxy kind (ADR 0021), cheapest kind first.
+    """
+    proxy_price: list[UsageAmount] | None = None
+    """
+    The price of those bytes, by currency, at each provider's configured
+    price (ADR 0101).
+    """
+    requests: Annotated[int, Field(ge=0)]
+    """The requests it sent."""
+    uncapped: bool | None = None
+    """
+    Whether it spent, or reserved, money in a currency no Limit holding
+    it caps (ADR 0041): *uncapped*.
+    """
 
 
 class SettingsExplanation(BaseModel):
@@ -1949,6 +6137,26 @@ class UsageListResult(BaseModel):
     """Every Limit of the Usage ledger, by scope, with its Usage."""
 
 
+class DatasetRecord(BaseModel):
+    """One committed Record of a Dataset, as a reader reads it (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    committed_at: PointInTime
+    """When it was committed."""
+    number: Annotated[int, Field(ge=0)]
+    """Its number in its Dataset, from 1, in commit order, with no gaps."""
+    provenance: RecordProvenance
+    """How it was obtained (ADR 0123's Provenance of a Record)."""
+    request_id: str
+    """The ID of the crawl request whose attempt committed it."""
+    url: str
+    """That crawl request's URL."""
+    value: Any
+    """The Record, as JSON; the program's schema parses it."""
+
+
 class FormatsParams(BaseModel):
     """What `page.formats` takes: the page, and the formats it asks for."""
 
@@ -1959,3 +6167,202 @@ class FormatsParams(BaseModel):
     """The formats."""
     page_id: PageId
     """The page."""
+
+
+class RecordRead(BaseModel):
+    """What `$/record` carries: the next Record a `run.records` call reads."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The id of the `run.records` call."""
+    record: DatasetRecord
+    """The Record."""
+
+
+class RunReport(BaseModel):
+    """
+    What a Run states about itself when it ends (ADR 0102). A part no area
+    supplied is absent, never zero.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    checkpoint: Checkpoint | None = None
+    """The last Checkpoint written of it in this engine, when one was."""
+    completeness: Completeness
+    """Whether its results cover its scope."""
+    completeness_reasons: list[AxisReason] | None = None
+    """Why it is not `complete`, when it is not."""
+    console_url: str | None = None
+    """
+    Its page in the Console, where its Run trace replays, when the
+    engine knows a Console address (ADR 0031).
+    """
+    ended_at: PointInTime
+    """When it ended."""
+    error: EndingError | None = None
+    """
+    The error the call that ends it raises: the one that failed a
+    `failed` Run, or a write at its end that failed, such as its Plan
+    file's (ADR 0116).
+    """
+    lifecycle: Lifecycle
+    """Where it ended."""
+    nothing_done: NothingDone | None = None
+    """Why the call that answered it did nothing, when it did nothing."""
+    plan: PlanReport | None = None
+    """What it did with its Plan file (ADR 0091)."""
+    plugins: list[PluginRun] | None = None
+    """Each Plugin that ran (ADRs 0016 and 0033)."""
+    policy_version: str | None = None
+    """
+    The version of the Operator policy it ran under, when one applied
+    (ADR 0031).
+    """
+    recording: RecordingReport | None = None
+    """What it did with the Response recording its start named (ADR 0105)."""
+    run_id: RunId
+    """The Run's ID."""
+    settings: list[ExplainedSetting] | None = None
+    """
+    Each effective value it ran with, the layer that set it and the one
+    that locked it, as `config.explain` gives them (ADR 0028).
+    """
+    started_at: PointInTime
+    """When it started."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, when it did."""
+    uncertain_effects: list[UncertainEffect] | None = None
+    """
+    Each Effect it left uncertain, until a person reconciles it (ADR
+    0106).
+    """
+    usage: RunUsage
+    """
+    What it used, as the Usage ledger charged it, with the Limits that
+    apply to it (ADR 0101).
+    """
+    verdict: Verdict
+    """Whether its own checks prove what it committed."""
+    verdict_reasons: list[AxisReason] | None = None
+    """Why it is not `verified`, when it is not."""
+    warnings: list[RunWarning] | None = None
+    """What the areas warn of, each with a code and a message."""
+    weakened: list[WeakenedSetting] | None = None
+    """Every setting that weakened a safeguard for it (ADR 0028)."""
+
+
+class Metadata(BaseModel):
+    """The page's metadata, each value as the document writes it."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    canonical: str | None = None
+    """
+    Its `<link rel="canonical">`'s `href` resolved against the base URL;
+    `null` when it has none or it does not parse.
+    """
+    description: str | None = None
+    """Its `<meta name="description">`'s content; `null` when it has none."""
+    json_ld: list[Any]
+    """
+    Each `<script type="application/ld+json">` block that parses, as
+    JSON, in document order.
+    """
+    lang: str | None = None
+    """Its root element's `lang`; `null` when it has none."""
+    meta: dict[str, str]
+    """
+    Its `<meta name>` tags other than Open Graph's and Twitter's, by name
+    in lower case, the first of a name kept.
+    """
+    microdata: list[MicrodataItem]
+    """Its top-level microdata items, in tree order."""
+    open_graph: list[MetaTag]
+    """
+    Its Open Graph tags: every `<meta property>` not named `twitter:`,
+    and every `<meta name>` named `og:`.
+    """
+    title: str | None = None
+    """
+    Its first `<title>`'s text, white space collapsed; `null` when it
+    has none.
+    """
+    twitter: list[MetaTag]
+    """Its Twitter tags, those named `twitter:`."""
+
+
+class MicrodataItem(BaseModel):
+    """
+    A microdata item (the HTML Standard's microdata), as its JSON
+    conversion writes it, with every field given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str | None = None
+    """
+    Its `itemid`, resolved against the document's base URL; `null` when
+    it has none or it does not parse.
+    """
+    properties: dict[str, list[MicrodataValue]]
+    """Its properties, by name, each name's values in tree order."""
+    type: list[str]
+    """Its `itemtype` tokens; empty when it has none."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and, when a
+    format it asked for is read from the main content, whether the document
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    contacts: Contacts | None = None
+    """Its contacts, when the request asked for them."""
+    html: str | None = None
+    """Its HTML of the kind the request named, when it asked for it."""
+    images: list[Image] | None = None
+    """Its images, when the request asked for them."""
+    links: list[Link] | None = None
+    """Its links, when the request asked for them."""
+    main_content: MainContent | None = None
+    """
+    Whether it has main content, when the request asked for a format
+    read from it ([`FormatsRequest::reads_main_content`]).
+    """
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    media: list[Media] | None = None
+    """Its media sources, when the request asked for them."""
+    metadata: Metadata | None = None
+    """Its metadata, when the request asked for it."""
+    tables: list[Table] | None = None
+    """Its tables, when the request asked for them."""
+    text: str | None = None
+    """Its main content's text, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
+
+
+class MicrodataValue(RootModel[str | MicrodataItem]):
+    root: str | MicrodataItem
+    """The value of a microdata property: text, or an item of its own."""
+
+
+Metadata.model_rebuild()
+MicrodataItem.model_rebuild()

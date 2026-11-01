@@ -1,0 +1,10 @@
+{
+  "Cloudflare": {
+    "cats": [31],
+    "website": "https://www.cloudflare.com"
+  },
+  "Cloudflare Bot Management": {
+    "cats": [16],
+    "website": "https://www.cloudflare.com/application-services/products/bot-management/"
+  }
+}

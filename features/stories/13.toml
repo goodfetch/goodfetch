@@ -1,0 +1,40 @@
+# Area 13's user stories (spec #583, Self-hosted deployment and operations,
+# Collie), the declared `story:13-<id>` Features of ADR 0072. Each story's
+# milestone is that of the ticket that finishes it; a story without a Journey
+# carries ADR 0075's reason (`actor`, `part` or `reach`). The spec's issue
+# keeps the full text; this copy is the one the Feature check reads. It
+# holds the stories a test declares so far; the others join with the tickets
+# that declare them. Never renumber or reuse an ID: a removed story stays
+# with `status = "retired"` and a `reason`.
+
+[[story]]
+id = 44
+title = "As an operator, I want `/livez` and `/readyz` on the ops listener without a token and `/metrics` behind a scoped read-only token, wired into every Supported target's health checks, so that platforms probe the Daemon with no secret in the pod spec (ADR 0050; pain 19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 45
+title = "As an operator, I want `/readyz` to fail while the filesystem holding run state is at the `critical` storage level and succeed once space returns, so that traffic goes only to a Daemon that can take a run (ADRs 0050, 0122; pitfall O03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 46
+title = "As an operator, I want the ops listener's metrics to give each sampled filesystem's free space, free inodes and storage level, labelled by what it holds, so that I alert before Runs stop (ADR 0122)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 47
+title = "As an operator, I want the operations guide to name the Daemon's log folder for each OS, how each target rotates `daemon run`'s stdout, and the daily age notice and its setting, so that I find and bound the logs (ADRs 0030, 0122; pitfall O10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"

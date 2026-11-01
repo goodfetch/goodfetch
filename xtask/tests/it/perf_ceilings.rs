@@ -1,9 +1,10 @@
 //! The absolute ceilings of the Performance budget (ADR 0134): `xtask perf
 //! compare` holds each ceiling's figure of the head, read from gungraun's and
 //! size-limit's reports, to the ceiling, beside the comparison with the base.
-//! No "Performance change" section passes a figure over its ceiling, and a
-//! ceiling whose benchmark the base or the head measured fails when the head
-//! has no figure for it.
+//! No "Performance change" section passes a figure over its ceiling; until
+//! M1's optimization pass a figure over its ceiling is a note that fails
+//! nothing (ADR 0134, as amended on 2026-10-22). A ceiling whose benchmark
+//! the base or the head measured fails when the head has no figure for it.
 //! Covers: story:1-108
 
 use rstest::rstest;
@@ -77,20 +78,21 @@ fn crawl_at_or_under_twice_its_body_bytes_passes(#[case] total_bytes: u64) {
 }
 
 #[test]
-fn crawl_over_twice_its_body_bytes_fails() {
+fn crawl_over_twice_its_body_bytes_is_noted() {
     let workspace = Workspace::from_fixture("empty");
     write_crawl(&workspace, 2_000_001, 1_000_000);
 
     let outcome = compare(&workspace, &[]);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "over-ceiling",
             &format!("{CRAWL} bytes-per-body-byte")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]
@@ -133,7 +135,9 @@ fn summary_lists_each_ceiling_with_its_derived_head_figure() {
     | Benchmark or entry | Figure | Head | Ceiling | Verdict |
     |---|---|---:|---:|---|
     | size-limit/collie-console | brotli | — | ≤ 1000.00 kB | not run yet |
+    | size-limit/collie-console-initial-route | brotli | — | ≤ 139.78 kB | not run yet |
     | size-limit/foxhound-console | brotli | — | ≤ 1000.00 kB | not run yet |
+    | size-limit/foxhound-console-initial-route | brotli | — | ≤ 161.18 kB | not run yet |
     | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | 7.43 bytes | ≤ 8 bytes | within |
     | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | 1.24× | ≤ 2× | within |
 
@@ -156,20 +160,21 @@ fn frontier_at_or_under_8_bytes_per_url_passes(#[case] hundred_thousand_urls: u6
 }
 
 #[test]
-fn frontier_over_8_bytes_per_url_fails() {
+fn frontier_over_8_bytes_per_url_is_noted() {
     let workspace = Workspace::from_fixture("empty");
     write_frontier(&workspace, 1_800_001, 1_000_000);
 
     let outcome = compare(&workspace, &[]);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "over-ceiling",
             &format!("{HUNDRED_THOUSAND_URLS} heap-bytes-per-url")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[rstest]
@@ -251,7 +256,7 @@ fn console_entry_the_base_had_and_the_head_lacks_fails() {
      - goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls global-maximum-bytes: +5.89%, the URL index\n\
      - goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls heap-bytes-per-url: +8.01 bytes, the URL index\n"
 )]
-fn frontier_over_8_bytes_per_url_fails_whatever_the_pull_request_says(#[case] body: &str) {
+fn frontier_over_8_bytes_per_url_is_noted_whatever_the_pull_request_says(#[case] body: &str) {
     let workspace = Workspace::from_fixture("empty");
     let full = enqueue("hundred_thousand_urls", Some(1_700_000), 1_800_100);
     let empty = enqueue("no_urls", Some(1_000_000), 1_000_000);
@@ -263,12 +268,13 @@ fn frontier_over_8_bytes_per_url_fails_whatever_the_pull_request_says(#[case] bo
 
     let outcome = compare_for_pull_request(&workspace, &github, &[]);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "over-ceiling",
             &format!("{HUNDRED_THOUSAND_URLS} heap-bytes-per-url")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }

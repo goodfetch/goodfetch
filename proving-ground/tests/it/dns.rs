@@ -150,16 +150,27 @@ fn a_negative_answer_carries_the_declared_ttl_in_its_soa(
 }
 
 #[test]
-fn an_alternating_name_answers_a_server_failure_and_a_name_error_in_their_turn() {
+fn an_alternating_name_answers_a_server_failure_a_name_error_and_its_address_in_their_turn() {
     let proving_ground = ProvingGround::start(SEED);
     let dns = proving_ground.dns();
     let name = "servfail.nx.127-0-0-1.alternating.dns.test";
 
-    let rcodes: Vec<_> = (0..4)
-        .map(|_| clients::dns_query(&dns, name, RecordType::A).rcode)
+    let answers: Vec<_> = (0..4)
+        .map(|_| {
+            let answer = clients::dns_query(&dns, name, RecordType::A);
+            (answer.rcode, answer.answers)
+        })
         .collect();
 
-    assert_eq!(rcodes, [2, 3, 0, 2]);
+    assert_eq!(
+        answers,
+        [
+            (2, Vec::new()),
+            (3, Vec::new()),
+            (0, vec![(0, address("127.0.0.1"))]),
+            (2, Vec::new()),
+        ]
+    );
 }
 
 #[test]
@@ -189,5 +200,33 @@ fn a_proxy_resolves_an_alternating_name_anew_for_each_relay() {
             json!([format!("93.184.215.14:{port}"), "destination_prohibited"]),
             json!([target, "relayed"]),
         ]
+    );
+}
+
+/// The connection record lists each query with the address it came from,
+/// so a test sees which local address a resolver asked from (ADR 0044).
+#[test]
+fn each_query_is_recorded_with_the_address_it_came_from() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    clients::dns_query(&proving_ground.dns(), "1.catalog.test", RecordType::Aaaa);
+    let observations = proving_ground.observations();
+    let queries: Vec<_> = observations["dns_queries"]
+        .as_array()
+        .expect("the record lists the DNS queries")
+        .iter()
+        .map(|query| {
+            let source: std::net::SocketAddr = query["source"].as_str().unwrap().parse().unwrap();
+            (
+                query["name"].clone(),
+                query["record_type"].clone(),
+                source.ip(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        queries,
+        [(json!("1.catalog.test"), json!("AAAA"), address("127.0.0.1"))]
     );
 }

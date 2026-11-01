@@ -4,7 +4,7 @@
 //! cannot write, are never touched. Runs on the tasks module's blocking
 //! policy.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -32,7 +32,7 @@ impl MaxUnusedAge {
         self.0
     }
 
-    /// The age `browsers clean` and the count of installed executables use:
+    /// The age `browser clean` and the count of installed executables use:
     /// the setting's, or the default when it is `null`.
     pub fn counting(self) -> Duration {
         self.0.unwrap_or(Self::DEFAULT)
@@ -101,8 +101,18 @@ pub struct CleanUp {
 pub struct CleanUpReport {
     /// What it deleted, or would delete under a dry run, in order.
     pub deleted: Vec<ArtifactId>,
+    /// The bytes each entry of `deleted` took on disk.
+    pub bytes: BTreeMap<ArtifactId, u64>,
     /// Why it touched nothing, when it did not run.
     pub not_cleaned: Option<NotCleaned>,
+}
+
+impl CleanUpReport {
+    /// The bytes the deleted entry `id` took, or `None` when it deleted no
+    /// such entry.
+    pub fn bytes_of(&self, id: &ArtifactId) -> Option<u64> {
+        self.bytes.get(id).copied()
+    }
 }
 
 /// Runs `request` over the cache at `root`.
@@ -110,6 +120,7 @@ pub(super) fn run(root: &Path, request: &CleanUp) -> io::Result<CleanUpReport> {
     if !store::writable(root) {
         return Ok(CleanUpReport {
             deleted: Vec::new(),
+            bytes: BTreeMap::new(),
             not_cleaned: Some(NotCleaned::CacheNotWritable),
         });
     }
@@ -117,6 +128,7 @@ pub(super) fn run(root: &Path, request: &CleanUp) -> io::Result<CleanUpReport> {
         store::finish_deletions(root)?;
     }
     let mut deleted = Vec::new();
+    let mut bytes = BTreeMap::new();
     for (id, folder) in store::entry_folders(root)? {
         if request.kept.contains(&id) {
             continue;
@@ -130,14 +142,17 @@ pub(super) fn run(root: &Path, request: &CleanUp) -> io::Result<CleanUpReport> {
         let Locking::Taken(lock) = store::lock_exclusive(&folder)? else {
             continue;
         };
+        let size = store::bytes(&folder)?;
         if !request.dry_run {
             store::delete(root, &folder)?;
         }
         drop(lock);
+        bytes.insert(id.clone(), size);
         deleted.push(id);
     }
     Ok(CleanUpReport {
         deleted,
+        bytes,
         not_cleaned: None,
     })
 }

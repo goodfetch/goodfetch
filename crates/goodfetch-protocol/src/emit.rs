@@ -25,7 +25,9 @@
 //! lists who opens a protocol with `hello`. The bundle's `connection` holds the
 //! types of `hello` and `$/cancel`, which open and govern every Connection
 //! outside the catalog, and those of the streaming calls' notifications,
-//! the Client's `$/credit` and the engine's `$/events` and `$/chunk`; each Error code's entry carries its row of the
+//! the Client's `$/credit` and the engine's `$/events` and `$/chunk`, and
+//! `meta`, the Trace context that every request's params type holds as
+//! `_meta`, which emitting adds to each of them (ADR 0132); each Error code's entry carries its row of the
 //! exit-code table, `exit_code`. A new catalog section
 //! needs no change in `xtask`: each Product's projection, the names only
 //! Foxhound carries and the containment check read every section.
@@ -35,7 +37,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::block::BlockCause;
-use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
+use crate::browser_cache::{BrowserCleaned, BrowserInstalled};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
@@ -43,14 +45,17 @@ use crate::catalog::{
 };
 use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
+use crate::console::ConsoleOpened;
 use crate::daemon::{
-    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput, DaemonStatusOutput,
-    DaemonStopOutput, DaemonUninstallOutput,
+    DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
+use crate::foxhound::dataset::RecordRead;
+use crate::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use crate::journey::{Journey, JourneyCatalog};
+use crate::jsonrpc::{META, TraceContext};
 use crate::key_value_store::KeyValueStoreKey;
 use crate::log::LogEvent;
 use crate::page::Chunk;
@@ -58,7 +63,7 @@ use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
 use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
-use crate::versions::UpgradeFilesOutput;
+use crate::versions::FilesUpgraded;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -105,26 +110,40 @@ pub fn emit() -> Emitted {
         "chunk": { "params": generator.subschema_for::<Chunk>() },
         "log": { "params": generator.subschema_for::<LogEvent>() },
         "key": { "params": generator.subschema_for::<KeyValueStoreKey>() },
+        "seeds": { "params": generator.subschema_for::<SeedBatch>() },
+        "enqueued": { "params": generator.subschema_for::<EnqueuedBatch>() },
+        "record": { "params": generator.subschema_for::<RecordRead>() },
+        "meta": generator.subschema_for::<TraceContext>(),
     });
     let outputs = json!({
-        "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
-        "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
+        "browser.clean": generator.subschema_for::<BrowserCleaned>(),
+        "browser.install": generator.subschema_for::<BrowserInstalled>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
-        "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
-        "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
-        "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
-        "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
-        "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
-        "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "console": generator.subschema_for::<ConsoleOpened>(),
+        "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
+        "daemon.http-listener-token": generator.subschema_for::<HttpListenerToken>(),
+        "daemon.install": generator.subschema_for::<DaemonStatus>(),
+        "daemon.restart": generator.subschema_for::<DaemonStatus>(),
+        "daemon.rotate-token": generator.subschema_for::<TokenRotated>(),
+        "daemon.run": generator.subschema_for::<DaemonStatus>(),
+        "daemon.start": generator.subschema_for::<DaemonStatus>(),
+        "daemon.status": generator.subschema_for::<DaemonStatus>(),
+        "daemon.stop": generator.subschema_for::<DaemonStatus>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
-        "upgrade-files": generator.subschema_for::<UpgradeFilesOutput>(),
+        "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
     });
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
     let result_document = generator.subschema_for::<ResultDocument>();
     let case_log_entry = generator.subschema_for::<CaseLogEntry>();
-    let definitions = generator.take_definitions(true);
+    let mut definitions = generator.take_definitions(true);
+    for params in sections
+        .request_params()
+        .chain([&connection["hello"]["params"]])
+    {
+        add_meta(&mut definitions, params);
+    }
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -222,6 +241,20 @@ impl Sections {
         );
     }
 
+    /// The params schema of every request the catalog holds: each
+    /// operation's, handler request's and Plugin method's.
+    fn request_params(&self) -> impl Iterator<Item = &Value> {
+        let methods = self
+            .plugin_kinds
+            .iter()
+            .flat_map(|kind| kind["methods"].as_array().into_iter().flatten());
+        self.operations
+            .iter()
+            .chain(&self.handler_requests)
+            .chain(methods)
+            .map(|entry| &entry["params"])
+    }
+
     fn into_catalog(self) -> Value {
         json!({
             "protocol_version": PROTOCOL_VERSION.to_string(),
@@ -238,6 +271,29 @@ impl Sections {
             "shared_type_values": sorted(self.shared_type_values),
         })
     }
+}
+
+/// Adds `_meta`, the request's Trace context, to the params type `params`
+/// refers to (ADR 0132): an envelope field each runtime fills in, which no
+/// Rust type of the params declares.
+fn add_meta(definitions: &mut serde_json::Map<String, Value>, params: &Value) {
+    let name = params["$ref"]
+        .as_str()
+        .and_then(|reference| reference.strip_prefix("#/$defs/"))
+        .expect("invariant: a request's params refer to a type of the bundle");
+    let properties = definitions
+        .get_mut(name)
+        .and_then(Value::as_object_mut)
+        .expect("invariant: a request's params type is in the bundle")
+        .entry("properties")
+        .or_insert_with(|| json!({}));
+    properties
+        .as_object_mut()
+        .expect("invariant: a request's params type is an object")
+        .insert(
+            META.to_owned(),
+            json!({ "$ref": "#/$defs/TraceContext", "arrived_in": "0.1" }),
+        );
 }
 
 /// Entries sorted by name, so the files never change with declaration order.
@@ -372,6 +428,11 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
         "description": metric.description,
         "instrument": metric.instrument.as_str(),
         "unit": metric.unit,
+        "labels": metric
+            .labels
+            .iter()
+            .map(|label| json!({ "name": label.name, "values": label.values }))
+            .collect::<Vec<_>>(),
         "stability": metric.stability.as_str(),
         "arrived_in": metric.arrived_in.to_string(),
     })

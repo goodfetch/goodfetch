@@ -17,9 +17,11 @@ use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_protocol::foxhound::crawl::{PushedRecord, Seed};
+use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
+use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -298,14 +300,17 @@ impl StateMachineTest for Subject {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let path = env.folder().join("run.sqlite");
         let seeds: Vec<Seed> = (1..=model.items.len())
-            .map(|page| Seed {
-                url: format!("https://shop.test/{page}"),
-                label: "page".to_owned(),
-                payload: None,
-                priority: 0,
-                method: HttpMethod::get(),
-                body: None,
-                key: None,
+            .map(|page| {
+                Seed::Request(RequestSeed {
+                    url: format!("https://shop.test/{page}"),
+                    label: "page".to_owned(),
+                    payload: None,
+                    priority: 0,
+                    forefront: false,
+                    method: HttpMethod::get(),
+                    body: None,
+                    key: None,
+                })
             })
             .collect();
         let (state, leases) = runtime.block_on(async {
@@ -317,8 +322,15 @@ impl StateMachineTest for Subject {
                 },
                 vec![
                     work_items::TABLES,
+                    crate::labels::TABLES,
+                    goodfetch_dataset::TABLES,
                     goodfetch_frontier::VISITED_TABLES,
                     goodfetch_frontier::SCOPE_TABLES,
+                    goodfetch_frontier::BOUNDS_TABLES,
+                    goodfetch_frontier::RULES_TABLES,
+                    goodfetch_frontier::payload::TABLES,
+                    goodfetch_frontier::sitemap::TABLES,
+                    goodfetch_frontier::trap_links::TABLES,
                 ],
                 1,
                 &owner,
@@ -327,9 +339,18 @@ impl StateMachineTest for Subject {
             .unwrap();
             state
                 .write(move |connection| {
+                    goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
+                        name: "pages".to_owned(),
+                        schema: None,
+                        key: Vec::new(),
+                    }])
+                    .unwrap()
+                    .record(connection)?;
                     work_items::admit_seeds(
                         connection,
+                        &mut work_items::Positions::of(connection)?,
                         &goodfetch_frontier::Scope::default(),
+                        &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
                         &seeds,
                     )
                     .map(drop)
@@ -409,10 +430,7 @@ impl StateMachineTest for Subject {
                                 connection,
                                 &id,
                                 epoch,
-                                Unsuccessful::Retried(Failure {
-                                    code: "handler_lost".to_owned(),
-                                    message: "no answer".to_owned(),
-                                }),
+                                Unsuccessful::Retried(Failure::new("handler_lost", "no answer")),
                                 &ended_at(),
                             )
                         }))
@@ -428,15 +446,18 @@ impl StateMachineTest for Subject {
                             data: record(attempt, number),
                         })
                         .collect();
-                    let state = subject.state().clone();
+                    let (state, masks) = (subject.state().clone(), Masks::new());
                     let committed =
                         subject
                             .runtime
-                            .block_on(lease.commit(&state, records, ended_at()));
+                            .block_on(lease.commit(&state, &masks, records, ended_at()));
                     let counted = match committed {
-                        Ok(()) => true,
+                        Ok(_) => true,
                         Err(CommitError::LeaseLost) => false,
                         Err(CommitError::RunState(error)) => panic!("the run file failed: {error}"),
+                        Err(CommitError::Refused(error)) => {
+                            panic!("a Record was refused: {error:?}")
+                        }
                     };
                     assert_eq!(
                         Some(counted),

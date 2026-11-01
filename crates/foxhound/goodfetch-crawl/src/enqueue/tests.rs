@@ -2,7 +2,10 @@
 //! process on a run file in memory (spec #581: pure rules and run state in
 //! process).
 
-use goodfetch_frontier::{Patterns, SCOPE_TABLES, Scope, ScopeStrategy, VISITED_TABLES};
+use goodfetch_engine::egress::Policy;
+use goodfetch_frontier::{
+    BOUNDS_TABLES, Patterns, SCOPE_TABLES, Scope, ScopeStrategy, VISITED_TABLES,
+};
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{CrawlRequestEnqueueParams, Enqueued, NotAddedReason};
 use rusqlite::Connection;
@@ -23,8 +26,15 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
     for statement in work_items::TABLES
         .statements
         .iter()
+        .chain(crate::labels::TABLES.statements)
+        .chain(goodfetch_dataset::TABLES.statements)
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
+        .chain(BOUNDS_TABLES.statements)
+        .chain(goodfetch_frontier::RULES_TABLES.statements)
+        .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(goodfetch_frontier::sitemap::TABLES.statements)
+        .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }
@@ -36,7 +46,15 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
     scope.record(&connection).unwrap();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "http://shop.test/", "label": "page" })).unwrap();
-    work_items::admit_seeds(&connection, &scope, &[seed]).unwrap();
+    let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+    work_items::admit_seeds(
+        &connection,
+        &mut work_items::Positions::of(&connection).unwrap(),
+        &scope,
+        &every_host,
+        &[seed],
+    )
+    .unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
     let enqueue = |url: &str| {
         let params: CrawlRequestEnqueueParams = serde_json::from_value(json!({
@@ -47,7 +65,17 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
             "label": "page",
         }))
         .unwrap();
-        add(&connection, &params, None).unwrap().unwrap()
+        add(
+            &connection,
+            &mut work_items::Positions::of(&connection).unwrap(),
+            &every_host,
+            &params,
+            None,
+        )
+        .unwrap()
+        .unwrap()
+        .map_err(|error| error.code())
+        .unwrap()
     };
 
     let answers = [

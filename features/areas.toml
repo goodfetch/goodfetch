@@ -56,6 +56,13 @@ number = 3
 kind = "error"
 prefix = "deadline_exceeded"
 
+# A transition a lifecycle table refuses that only a bug causes (ADR 0128),
+# which area 5's Session and page tables raise first (#731).
+[[area]]
+number = 3
+kind = "error"
+prefix = "internal"
+
 # The engine's own DNS resolver and Smart App Control's refusal (#260).
 [[area]]
 number = 3
@@ -103,7 +110,17 @@ prefix = "run.finish"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.stop"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "run.abort"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.usage"
 
 [[area]]
 number = 3
@@ -143,6 +160,26 @@ prefix = "run.set_progress_message"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.discard"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.progress"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.report"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.list"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -169,6 +206,13 @@ prefix = "lease_lost"
 number = 3
 kind = "error"
 prefix = "client_gone"
+
+# A site failing for now, or holding a crawl request unsent past the bound
+# on its `Retry-After` (#1541, ADR 0118).
+[[area]]
+number = 3
+kind = "error"
+prefix = "response_unavailable"
 
 [[area]]
 number = 3
@@ -254,10 +298,35 @@ number = 3
 kind = "setting"
 prefix = "log."
 
+# The OTLP exports of the spans (#257) and of the metrics (#230).
 [[area]]
 number = 3
 kind = "setting"
 prefix = "otlp."
+
+# Area 3's ops listener (#230): its address.
+[[area]]
+number = 3
+kind = "setting"
+prefix = "ops."
+
+# Area 3's Resource governor (#234): its settings, every key under
+# `governor.`, and `engine.system_info`.
+[[area]]
+number = 3
+kind = "setting"
+prefix = "governor."
+
+[[area]]
+number = 3
+kind = "event"
+prefix = "engine."
+
+# Area 3's storage levels (#1566, ADR 0122): every key under `storage.`.
+[[area]]
+number = 3
+kind = "setting"
+prefix = "storage."
 
 # Area 3's foreground Daemon (#228): its drain's Error code.
 [[area]]
@@ -350,6 +419,12 @@ number = 3
 kind = "error"
 prefix = "setting_"
 
+# ADR 0083's refusal of a capability the engine cannot provide (#697).
+[[area]]
+number = 3
+kind = "error"
+prefix = "capability_unavailable"
+
 [[area]]
 number = 3
 kind = "format"
@@ -363,7 +438,7 @@ prefix = "user-configuration"
 [[area]]
 number = 3
 kind = "setting"
-prefix = "network."
+prefix = "network.resolve"
 
 [[area]]
 number = 3
@@ -418,12 +493,69 @@ number = 4
 kind = "setting"
 prefix = "secrets."
 
+# Area 4's limits on what the engine reads (#644, SC-05): its three keys
+# and the Error code past them.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "network.max_"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "response_limit_exceeded"
+
+# Area 4's hostile input (#644, ADR 0067): a header value or a path the
+# engine refuses.
+[[area]]
+number = 4
+kind = "error"
+prefix = "header_value_invalid"
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "path_unsafe"
+
+# Area 4's egress policy (#620): the Error code a refused request fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "egress_"
+
+# Area 4's `cdp_url` address rule (#633); the other `cdp_url_` codes, the
+# probe's, are area 5's (ADR 0115).
+[[area]]
+number = 4
+kind = "error"
+prefix = "cdp_url_not_allowed"
+
+# Area 4's local addresses (#637, ADR 0044): a value that yields no address.
+[[area]]
+number = 4
+kind = "error"
+prefix = "local_address_unavailable"
+
+# Area 4's certificate verification (#625): the Error codes a certificate
+# fails with.
+[[area]]
+number = 4
+kind = "error"
+prefix = "certificate_"
+
 # Area 4's Secret references (#615): the Error codes a resolution fails
 # with.
 [[area]]
 number = 4
 kind = "error"
 prefix = "secret_"
+
+# Area 4's external Secret providers (#645): each provider's
+# `secret_providers.<scheme>.*` settings.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "secret_providers."
 
 # Area 4's Audit log (#612): `audit.verify`, Collie's `audit verify` and the
 # log's format.
@@ -442,6 +574,40 @@ number = 4
 kind = "format"
 prefix = "audit-log"
 
+# Area 4's Audit log settings (#613): `audit.retention` and `audit.otlp`.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "audit."
+
+# Area 4's switchable security controls (#614): the `security.*` settings.
+[[area]]
+number = 4
+kind = "setting"
+prefix = "security."
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "browser_sandbox_unavailable"
+
+# Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
+# list` and the store's format.
+[[area]]
+number = 4
+kind = "operation"
+prefix = "certs."
+
+[[area]]
+number = 4
+kind = "command"
+prefix = "certs."
+
+[[area]]
+number = 4
+kind = "format"
+prefix = "known-certificates"
+
 [[area]]
 number = 5
 kind = "setting"
@@ -457,6 +623,18 @@ number = 5
 kind = "setting"
 prefix = "filter_lists."
 
+# The version of the Clean-up rules a Run holds to (#714, ADR 0047): its
+# settings and its manifest's format.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "clean_up."
+
+[[area]]
+number = 5
+kind = "format"
+prefix = "clean-up-rules"
+
 [[area]]
 number = 5
 kind = "setting"
@@ -468,6 +646,124 @@ number = 6
 kind = "setting"
 prefix = "session.pool."
 
+# The tier that fetches a crawl request's document (spec #579, #759).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.tier"
+
+# Whether a crawl may use the light-browser tier (spec #579, #771).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.light_browser"
+
+# How the tier choice samples a Label on a domain (spec #579's
+# `comparison`, #768).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.sample."
+
+# The encoding forced on a crawl request's document, in spec #582's
+# settings table (#926 declares it; `fetch.tier_race` falls under area 5's
+# `fetch.tier`).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "fetch.encoding"
+
+# The responses a Label keeps for its handler (ADR 0110): area 5 keeps them
+# at interception, area 11 reads them; #939 declares the key and area 6's
+# refusal at the Run's start.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "fetch.kept_responses."
+
+# The media types a Label's handler takes (ADR 0119, #950).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.content_types"
+
+# The main-content step `page.formats` reads with (ADR 0007, #788).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "content."
+
+# Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
+# (ADR 0120, #939).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.keep_url_fragment"
+
+# The redirects and refresh stubs a crawl request's fetch follows (spec
+# #579, #762, ADR 0118).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.redirect."
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.refresh."
+
+# The statuses a handler is handed, and the responses it is not (ADRs 0093
+# and 0118; #762).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.handle_statuses"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "response_not_ok"
+
+# The operator's robots.txt product token, which the navigation gate's
+# group selection merges with Foxhound's (spec #579's `robots_token`, #760).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "site_preferences.robots_txt_user_agent"
+
+# A crawl's robots.txt switch and Crawl-delay bound, and every run's
+# Purpose and AI-use signal switch (spec #581, #883; ADR 0086).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.respect_robots_txt"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.max_crawl_delay"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.respect_use_signals"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.purpose"
+
+# The HTTP tier's hedged requests and coalescing (RT-20, #238).
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.hedge."
+
+[[area]]
+number = 3
+kind = "setting"
+prefix = "fetch.coalesce"
+
 [[area]]
 number = 5
 kind = "setting"
@@ -477,6 +773,13 @@ prefix = "paid_fetch."
 number = 5
 kind = "setting"
 prefix = "browser."
+
+# Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
+# `live_view.hiding`.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "live_view.hiding"
 
 # Area 5, Site access (specs #576 to #579): a Run's pages, their navigations
 # and the Error codes of their browsers (#695, #698).
@@ -489,6 +792,34 @@ prefix = "run.new_page"
 number = 5
 kind = "operation"
 prefix = "page.goto"
+
+# A Session's proxy (#708): `proxy.*` and its two Error codes.
+[[area]]
+number = 5
+kind = "setting"
+prefix = "proxy."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "proxy_"
+
+# A Run's own Sessions (#697): `run.new_session`, `session.new_page` and
+# `session.close`.
+[[area]]
+number = 5
+kind = "operation"
+prefix = "run.new_session"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.new_page"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.close"
 
 # The other navigations (#698): `page.reload`, `page.go_back`, `page.go_forward`.
 [[area]]
@@ -507,6 +838,26 @@ number = 6
 kind = "operation"
 prefix = "page.formats"
 
+# A call a forced fetch tier cannot serve exactly (ADR 0093): area 6's
+# served-call table (#931) raises it; #767 declares it first.
+[[area]]
+number = 6
+kind = "error"
+prefix = "browser_required"
+
+# A call on the document of a page with no document (ADR 0119; #931).
+[[area]]
+number = 6
+kind = "error"
+prefix = "response_not_document"
+
+# The refusal the page's navigation gate raises, which area 6 declares
+# (spec #578; #720 builds the gate).
+[[area]]
+number = 6
+kind = "error"
+prefix = "site_preferences_refused"
+
 [[area]]
 number = 5
 kind = "error"
@@ -516,6 +867,12 @@ prefix = "navigation_"
 number = 5
 kind = "error"
 prefix = "page_crashed"
+
+# A page's events the engine fell behind (#703).
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_events_lost"
 
 [[area]]
 number = 5
@@ -537,6 +894,138 @@ prefix = "target_not_unique"
 number = 5
 kind = "error"
 prefix = "pattern_unsupported"
+
+# The Page check and its verdicts (#710, ADRs 0006 and 0092).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.page_check"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_check_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "logged_out"
+
+# A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
+# and 0092).
+[[area]]
+number = 5
+kind = "error"
+prefix = "blocked"
+
+# The page's and the Session's routes, their answers and their Error codes
+# (#702).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.route"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.route"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "route."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_handler_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "route_already_handled"
+
+# Page functions and init scripts, and their Error codes (#704).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.evaluate"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.add_init_script"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_function_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_value_invalid"
+
+# A page's events, its listener and its responses' bodies (#703).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.on"
+
+# The page's app-state waits, `page.wait_for_request_finished` among them
+# (#703, #705); the locator waits fall under `locator.`.
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.wait_for_"
+
+# Dialogs, popups and the page's close (#719).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "dialog."
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "dialog_already_handled"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.close"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.on"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "session.pages"
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "session.page"
+
+# The request API on a page's Session, through the browser-fetch tier
+# (#706).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.request"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "response."
+
+[[area]]
+number = 5
+kind = "event"
+prefix = "web_socket."
 
 # A navigation's redirect loops, cut documents and downloads (#699).
 [[area]]
@@ -563,11 +1052,11 @@ prefix = "delivery."
 number = 6
 kind = "setting"
 prefix = "webhook."
-# The Browser cache's commands (#259): `browsers install` and `browsers clean`.
+# The Browser cache's commands (#259, #1203): `browser install` and `browser clean`.
 [[area]]
 number = 3
 kind = "command"
-prefix = "browsers."
+prefix = "browser."
 
 # The hidden Attached-engine entry of both executables, which an SDK starts
 # (spec #213).
@@ -642,6 +1131,13 @@ number = 3
 kind = "error"
 prefix = "resources_exhausted"
 
+# Area 3's shedding ladder (#236, ADR 0040): a page the Resource governor
+# ends past its memory cap.
+[[area]]
+number = 3
+kind = "error"
+prefix = "page_memory_exceeded"
+
 [[area]]
 number = 5
 kind = "error"
@@ -658,6 +1154,77 @@ prefix = "console_"
 number = 12
 kind = "setting"
 prefix = "console."
+
+# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
+# and the accounts store that keeps them.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "sign_in."
+
+# Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
+# `dataset.page`, which the Records grid reads.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "dataset."
+
+# Its Operator policy editor (#874): the Error code of a stale digest.
+[[area]]
+number = 12
+kind = "error"
+prefix = "policy_conflict"
+
+# Area 12's "Needs you" (#852): its operations, its event and its commands.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "event"
+prefix = "needs_you."
+
+[[area]]
+number = 12
+kind = "command"
+prefix = "needs-you"
+
+[[area]]
+number = 12
+kind = "operation"
+prefix = "console."
+
+[[area]]
+number = 12
+kind = "format"
+prefix = "accounts-store"
+
+# Every screen of the Console, whose routes its packages commit (#868).
+[[area]]
+number = 12
+kind = "screen"
+prefix = "/"
+
+# The `console` command that opens it signed in, and the Error code its
+# Client raises when its Connection drops (#817).
+[[area]]
+number = 12
+kind = "command"
+prefix = "console"
+
+[[area]]
+number = 12
+kind = "error"
+prefix = "connection_lost"
+
+# Area 11, the Client surfaces (spec #608): the Error code a CLI command
+# fails with when no Daemon answers it (G14).
+[[area]]
+number = 11
+kind = "error"
+prefix = "daemon_unreachable"
 
 # Area 11, the Client surfaces (spec #608): the commands generated from the
 # catalog (#1174).
@@ -690,12 +1257,33 @@ prefix = "page."
 [[area]]
 number = 11
 kind = "command"
+prefix = "response."
+
+[[area]]
+number = 11
+kind = "command"
 prefix = "locator."
 
 [[area]]
 number = 11
 kind = "command"
+prefix = "session."
+
+[[area]]
+number = 11
+kind = "command"
 prefix = "key-value-store."
+
+# Foxhound's crawl commands beside Collie's (#1512).
+[[area]]
+number = 11
+kind = "command"
+prefix = "crawl."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "dataset."
 
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).
@@ -718,16 +1306,105 @@ number = 6
 kind = "operation"
 prefix = "run.seeds"
 
+# A Dataset's cursor, `run.records` (#961, ADR 0103).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.records"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.add_seed"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.retry_failed"
+
 [[area]]
 number = 6
 kind = "error"
 prefix = "attempt_ended"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "effect_staging_refused"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "staging_full"
+
+# Area 6, Collection, Foxhound: Datasets and their Records (#956).
+[[area]]
+number = 6
+kind = "error"
+prefix = "dataset_"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "record_invalid"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.rejected_records"
+
+# A Dataset's Export and the engine side of an `Export` (#980, ADR 0103).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.export"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "export."
+
+[[area]]
+number = 6
+kind = "format"
+prefix = "export"
+
+# The `export.*` settings that shape an Export's format (#984, ADR 0119).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "export."
 
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6
 kind = "setting"
 prefix = "crawl.scope."
+
+# Area 6, Collection, Foxhound: the crawl's bounds and the caps on a URL's
+# shape (#843).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.max_"
+
+# Area 6, Collection, Foxhound: per-path budgets (#847).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.path_budgets"
+
+# Area 6, Collection, Foxhound: a Payload's cap, its check at enqueue and
+# the schema check a resume runs (#860).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.payload."
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "payload_"
 
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).
@@ -736,7 +1413,26 @@ number = 6
 kind = "operation"
 prefix = "key_value_store."
 
+# A Download's file the engine keeps with its Run, saved under ADR 0116's
+# rule (#790).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "download."
+
 [[area]]
 number = 6
 kind = "error"
 prefix = "value_invalid"
+
+# The SQL tab (spec #593): `dataset.query`'s limits and its Error codes;
+# the operation is under `dataset.` above.
+[[area]]
+number = 12
+kind = "setting"
+prefix = "dataset.query."
+
+[[area]]
+number = 12
+kind = "error"
+prefix = "query_"

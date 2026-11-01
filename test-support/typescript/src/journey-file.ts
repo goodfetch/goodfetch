@@ -27,6 +27,19 @@ export interface JourneyCheck {
   readonly text: string;
   /** The Proving ground task the oracle must answer `verified` for. */
   readonly task?: string | null | undefined;
+  /** The surfaces of the variants the check belongs to; every variant's when absent or empty. */
+  readonly surfaces?: readonly string[] | undefined;
+}
+
+/** Whether `check` belongs to the variant on `surface`, a `foxhound-cli` variant taking the `cli` variant's checks. */
+export function belongsTo(check: JourneyCheck, surface: string): boolean {
+  const surfaces = check.surfaces ?? [];
+  return (
+    surfaces.length === 0 ||
+    surfaces.some(
+      (listed) => listed === surface || (surface === "foxhound-cli" && listed === "cli"),
+    )
+  );
 }
 
 /** What a Journey helper reads of a Journey file. */

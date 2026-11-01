@@ -5,17 +5,11 @@ use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
 use goodfetch_test_support::{
-    CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, Tool, command, tools,
+    CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, Tool, command, schemas, tools,
 };
 use serde_json::Value;
 
-use crate::{TEST_ENV, manifest};
-
-/// The committed schema of the description, which `xtask codegen` writes.
-const SCHEMA: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../test-support/fixtures/schemas/test-env-description.schema.json"
-);
+use crate::{TEST_ENV, get, manifest, manifest_with, schema_errors};
 
 /// Starts `goodfetch-test-env` with these arguments.
 fn start(env: &TestEnv, arguments: &[&str]) -> Process {
@@ -41,26 +35,18 @@ fn description_is_one_json_line_that_validates_against_the_committed_schema() {
 
     process.close_stdin_and_wait().unwrap();
     let description: Value = serde_json::from_str(line.trim_end_matches('\n')).unwrap();
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
-    let errors: Vec<String> = jsonschema::validator_for(&schema)
-        .unwrap()
-        .iter_errors(&description)
-        .map(|error| error.to_string())
-        .collect();
+    let errors = schema_errors(&description);
     assert_eq!(errors, Vec::<String>::new(), "{line}");
     assert!(line.ends_with('\n') && !line.trim_end().contains('\n'));
 }
 
 #[test]
 fn a_description_the_schema_refuses_fails_validation() {
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
     let description = serde_json::json!({ "folder": "/tmp/x", "seed": -1 });
 
-    let valid = jsonschema::validator_for(&schema)
-        .unwrap()
-        .is_valid(&description);
+    let errors = schema_errors(&description);
 
-    assert!(!valid);
+    assert_ne!(errors, Vec::<String>::new());
 }
 
 #[test]
@@ -75,6 +61,28 @@ fn closing_stdin_removes_the_folder_and_leaves_no_process() {
 
     assert!(status.success());
     assert!(!Path::new(&folder).exists(), "{folder}");
+}
+
+/// A package whose test failed writes `failed` before it closes stdin: the
+/// folder is kept for the failure's evidence, as a Rust test's is, and its
+/// path is printed.
+#[test]
+fn a_failed_tests_folder_is_kept() {
+    let env = TestEnv::new();
+    let process = start(&env, &[]);
+    let description: Value = serde_json::from_str(&first_line(&process)).unwrap();
+    let folder = description["folder"].as_str().unwrap().to_owned();
+
+    {
+        use std::io::Write as _;
+        let mut stdin = process.child().stdin.take().unwrap();
+        stdin.write_all(b"failed\n").unwrap();
+    }
+    let status = process.close_stdin_and_wait().unwrap();
+
+    assert!(status.success());
+    assert!(Path::new(&folder).is_dir(), "{folder}");
+    std::fs::remove_dir_all(&folder).unwrap();
 }
 
 #[test]
@@ -150,69 +158,28 @@ fn print_schemas_starts_nothing() {
         .unwrap();
 
     assert!(output.status.success());
-    let schemas: serde_json::Map<String, Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        schemas.keys().collect::<Vec<_>>(),
-        [
-            "engine-scripts/script.schema.json",
-            "schemas/endpoint-table.schema.json",
-            "schemas/hostile-header-values.schema.json",
-            "schemas/hostile-limits.schema.json",
-            "schemas/hostile-paths.schema.json",
-            "schemas/hostile-schema-refs.schema.json",
-            "schemas/hostile-secret-redirects.schema.json",
-            "schemas/locales.schema.json",
-            "schemas/snapshot-filters.schema.json",
-            "schemas/ssrf-cases.schema.json",
-            "schemas/test-env-description.schema.json",
-            "schemas/test-tool-manifest.schema.json",
-            "schemas/unicode-record.schema.json"
-        ]
-    );
+    // Every schema the crate defines, by its path: `xtask codegen` commits
+    // exactly what it prints, and its check names a schema left uncommitted.
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed, serde_json::to_value(schemas()).unwrap());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(!stderr.contains("goodfetch-test-seed="), "{stderr}");
-}
-
-/// Writes a test tool manifest listing `goodfetch-test-env` and the commit's
-/// Proving ground, from the manifest `just test` writes, into the test's
-/// folder, and returns its path.
-fn manifest_with_proving_ground(env: &TestEnv) -> std::path::PathBuf {
-    let proving_ground = tools()
-        .unwrap()
-        .path(Tool::ProvingGround)
-        .unwrap()
-        .to_owned();
-    let path = env.folder().join("tools.json");
-    let manifest = serde_json::json!({ "test_env": TEST_ENV, "proving_ground": proving_ground });
-    std::fs::write(&path, manifest.to_string()).unwrap();
-    path
 }
 
 /// Starts `goodfetch-test-env --proving-ground <seed>` with that manifest.
 fn start_with_proving_ground(env: &TestEnv, seed: &str) -> Process {
     let mut command = env.process_command(TEST_ENV);
-    command
-        .args(["--proving-ground", seed])
-        .env(TOOLS_VARIABLE, manifest_with_proving_ground(env));
+    command.args(["--proving-ground", seed]).env(
+        TOOLS_VARIABLE,
+        manifest_with(
+            env,
+            &[(
+                "proving_ground",
+                tools().unwrap().path(Tool::ProvingGround).unwrap(),
+            )],
+        ),
+    );
     env.spawn(&mut command).unwrap()
-}
-
-/// Reads a JSON answer to `GET <path>` on `address`.
-#[expect(
-    clippy::disallowed_types,
-    reason = "the test reaches the described Proving ground over a plain socket"
-)]
-fn get_json(address: &str, path: &str) -> Value {
-    use std::io::{Read as _, Write as _};
-    let mut stream = std::net::TcpStream::connect(address).unwrap();
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
-    )
-    .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
 }
 
 #[test]
@@ -223,15 +190,10 @@ fn proving_ground_adds_a_started_proving_ground_that_validates_against_the_commi
     let line = first_line(&process);
 
     let description: Value = serde_json::from_str(line.trim_end_matches('\n')).unwrap();
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
-    let errors: Vec<String> = jsonschema::validator_for(&schema)
-        .unwrap()
-        .iter_errors(&description)
-        .map(|error| error.to_string())
-        .collect();
+    let errors = schema_errors(&description);
     let tasks = description["proving_ground"]["address"]
         .as_str()
-        .map(|address| get_json(address, "/tasks"));
+        .map(|address| get(address, address, "/tasks").json());
     process.close_stdin_and_wait().unwrap();
     assert_eq!(errors, Vec::<String>::new(), "{line}");
     assert_eq!(description["proving_ground"]["seed"], 7, "{line}");
@@ -273,7 +235,6 @@ fn a_description_without_proving_ground_has_no_such_field() {
 
 #[test]
 fn a_proving_ground_without_its_resolve_mapping_fails_validation() {
-    let schema: Value = serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap();
     let description = serde_json::json!({
         "folder": "/tmp/x é 1", "home": "/tmp/x é 1/home", "env": {}, "seed": 1,
         "start_time": "2026-01-05T09:00:00Z", "tools": {},
@@ -281,18 +242,16 @@ fn a_proving_ground_without_its_resolve_mapping_fails_validation() {
             "address": "127.0.0.1:4000", "version": "0.0.0+0", "seed": 7, "ca": "/tmp/ca.pem",
             "fixtures": {
                 "proxies": {}, "proxy_credentials": { "username": "u", "password": "p" },
-                "dns": "127.0.0.1:4001", "target": "127.0.0.1:4002",
+                "dns": "127.0.0.1:4001", "target": "127.0.0.1:4002", "udp": "127.0.0.1:4003",
                 "connections": "http://127.0.0.1:4000/observations"
             }
         }
     });
     let mut complete = description.clone();
     complete["proving_ground"]["resolve"] = serde_json::json!({ "catalog.test": "127.0.0.1" });
-    let validator = jsonschema::validator_for(&schema).unwrap();
-
     let valid = (
-        validator.is_valid(&description),
-        validator.is_valid(&complete),
+        schema_errors(&description).is_empty(),
+        schema_errors(&complete).is_empty(),
     );
 
     assert_eq!(valid, (false, true));

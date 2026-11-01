@@ -2,16 +2,29 @@
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
-//! items, `frontier` what its Frontier answers each seed and enqueue, and
-//! `outcomes` the reads of how its requests ended, and `session_pool` the
-//! Session of its Session pool that serves each attempt.
+//! items, `dataset` its Datasets and the Records pushed into them, `export` a
+//! Dataset's Export, `frontier` what its Frontier answers each seed and enqueue, and
+//! `outcomes` the reads of how its requests ended, `provenance` how each
+//! Record was obtained, `report` what a crawl's
+//! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
+//! serves each attempt, and `fetch` the tier that fetches a crawl
+//! request's document, and `sql_tab` the SQL tab's `dataset.query`.
 
 pub mod block;
 pub mod crawl;
+pub mod dataset;
+pub mod dataset_view;
+pub mod export;
+pub mod fetch;
 pub mod frontier;
 pub mod outcomes;
+pub mod progress;
+pub mod provenance;
+pub mod rejections;
+pub mod report;
 pub mod session_pool;
 pub mod settings;
+pub mod sql_tab;
 pub mod usage;
 
 use schemars::JsonSchema;
@@ -22,7 +35,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
     Setting, SharedType, SharedTypeValue, Stability, schema_of,
 };
-use crate::sample::SampleEchoParams;
+use crate::sample::SampleEchoed;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -30,8 +43,10 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SampleCrawlParams {
-    /// The text each page repeats, a type Collie's catalog defines.
-    pub echo: SampleEchoParams,
+    /// The text each page repeats, a type Collie's catalog defines. No
+    /// request's params type, which holds `_meta` (ADR 0132), is another
+    /// type's member.
+    pub echo: SampleEchoed,
     /// How many pages to visit.
     pub pages: u32,
 }
@@ -124,6 +139,7 @@ pub const ENTRIES: Entries = Entries {
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",
+        labels: &[],
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],

@@ -9,18 +9,27 @@
 //! the connection record before the connection it opens is accepted.
 //!
 //! An authenticated proxy takes Basic credentials (`407` without them); one
-//! may refuse every tunnel (`403`). A proxy's own refusal names its cause in
-//! `Proxy-Status` (RFC 9209).
+//! may refuse every tunnel (`403`), and one relays one request at a time,
+//! answering any other `429` as a vendor's plan does: it counts a request
+//! until it read the site's whole answer, before relaying it, and counts
+//! none for a site's robots.txt or icon. It holds each request it counts
+//! [`LIMITED_HOLD`] before relaying it, or, while a harness turned its hold
+//! on (`PUT /limited-proxy-hold`), until the harness turns it off. A proxy's own refusal names its cause in
+//! `Proxy-Status` (RFC 9209). The SOCKS5 proxy ([`socks5`]) takes the same
+//! credentials by RFC 1929 and relays one `CONNECT` per connection.
 #![expect(
     clippy::disallowed_types,
     reason = "the forward proxies open their own sockets, outside the engine's transport (ADR 0060)"
 )]
 
+mod socks5;
 mod username;
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use serde::Serialize;
@@ -47,6 +56,18 @@ const HEADER_LIMIT: usize = 128;
 const SESSION_LIMIT: usize = 100_000;
 /// The generator place of the proxies' credentials.
 const CREDENTIALS_PLACE: u64 = 0x7072_6f78;
+/// How long the `limited` proxy holds each request before it relays it, so
+/// two sent at once are in flight together.
+const LIMITED_HOLD: Duration = Duration::from_millis(300);
+/// The most of a site's answer the `limited` proxy reads before it relays
+/// any of it (STYLE.md: every buffer is bounded); past it, the rest is
+/// relayed as it comes.
+const ANSWER_LIMIT: u64 = 1024 * 1024;
+/// The paths the `limited` proxy counts no request for: a site's
+/// robots.txt, which an engine reads of its own beside a page, and its
+/// icon, which a browser asks for of its own once a page loaded (ADRs 0086
+/// and 0088). It counts the pages a client loads.
+const UNCOUNTED: [&str; 2] = ["/robots.txt", "/favicon.ico"];
 
 /// Who a proxy relays for.
 #[derive(Clone, Copy)]
@@ -55,8 +76,13 @@ pub(crate) enum Access {
     Open,
     /// Anyone, without credentials, but never a tunnel.
     RefusingTunnels,
+    /// Anyone, without credentials, one request at a time: any other
+    /// arriving meanwhile is answered `429`.
+    Limited,
     /// Only a client with the reported credentials.
     Authenticated,
+    /// Only a SOCKS5 client with the reported credentials (RFC 1929).
+    Socks5,
 }
 
 /// The username and password the authenticated proxies take, derived from
@@ -84,6 +110,8 @@ pub(crate) struct Proxy {
     pub(crate) kind: Option<&'static str>,
     pub(crate) access: Access,
     exits: Mutex<Exits>,
+    /// How many requests it relays now.
+    in_flight: AtomicUsize,
 }
 
 /// A proxy's pool of exits and the one each sticky session has.
@@ -138,6 +166,7 @@ impl Proxy {
                 sessions: BTreeMap::new(),
                 next: 0,
             }),
+            in_flight: AtomicUsize::new(0),
         }
     }
 }
@@ -203,8 +232,19 @@ impl ForwardProxy {
             let context = Arc::clone(&context);
             let stop = stop.clone();
             tracker.spawn(async move {
+                let relayed = async {
+                    match proxy.access {
+                        Access::Socks5 => socks5::relay(stream, source, &proxy, &context).await,
+                        Access::Open
+                        | Access::RefusingTunnels
+                        | Access::Limited
+                        | Access::Authenticated => {
+                            relay(stream, source, &proxy, &context).await;
+                        }
+                    }
+                };
                 tokio::select! {
-                    () = relay(stream, source, &proxy, &context) => {}
+                    () = relayed => {}
                     () = stop.cancelled() => {}
                 }
             });
@@ -354,9 +394,28 @@ async fn relay(mut client: TcpStream, source: SocketAddr, proxy: &Proxy, context
         sticky: None,
         exit: None,
     };
-    match admit(proxy, context, &head, credentials.as_ref(), &mut request) {
-        Ok((address, destination)) => {
-            carry(client, context, &head, request, address, &destination).await;
+    let admitted =
+        admit(proxy, context, &head, credentials.as_ref(), &mut request).and_then(|admitted| {
+            let in_flight = InFlight::take(proxy, &admitted.1)?;
+            Ok((admitted, in_flight))
+        });
+    match admitted {
+        Ok(((address, destination), in_flight)) => {
+            if in_flight.is_some() {
+                if context.observations.limited_held() {
+                    context.observations.limited_released().await;
+                } else {
+                    tokio::time::sleep(LIMITED_HOLD).await;
+                }
+            }
+            carry(
+                client,
+                context,
+                &head,
+                (request, address, &destination),
+                in_flight,
+            )
+            .await;
         }
         Err(refused) => {
             let record = observations.connection_record();
@@ -393,6 +452,39 @@ impl Refused {
     }
 }
 
+/// A request the `limited` proxy relays, counted until dropped: once the
+/// proxy read the site's whole answer, before its client receives any of
+/// it, so a client that loaded the answer never finds the proxy still
+/// counting it, whenever it closes its connection.
+struct InFlight<'proxy>(&'proxy Proxy);
+
+impl<'proxy> InFlight<'proxy> {
+    /// Counts one more request of `proxy` to `destination` in flight; for
+    /// the `limited` proxy, a refusal when another is already, and nothing
+    /// to count for any other proxy, nor for an [`UNCOUNTED`] path.
+    fn take(proxy: &'proxy Proxy, destination: &Destination) -> Result<Option<Self>, Refused> {
+        let uncounted = destination.path.as_deref().is_some_and(|path| {
+            let path = path.split_once('?').map_or(path, |(path, _)| path);
+            UNCOUNTED.contains(&path)
+        });
+        if !matches!(proxy.access, Access::Limited) || uncounted {
+            return Ok(None);
+        }
+        if proxy.in_flight.fetch_add(1, Ordering::SeqCst) > 0 {
+            proxy.in_flight.fetch_sub(1, Ordering::SeqCst);
+            let answer = failure("429 Too Many Requests", "http_request_denied");
+            return Err(Refused::new(Outcome::TooManyRequests, answer));
+        }
+        Ok(Some(Self(proxy)))
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Decides whether the proxy relays the request, filling in what the relay
 /// records: its task, sticky session and exit. A relay it carries out goes
 /// to the address returned.
@@ -422,7 +514,7 @@ fn admit(
             let answer = failure("403 Forbidden", "http_request_denied");
             return Err(Refused::new(Outcome::TunnelRefused, answer));
         }
-        Access::Open | Access::RefusingTunnels => None,
+        Access::Open | Access::RefusingTunnels | Access::Limited | Access::Socks5 => None,
     };
     let Some(destination) = destination(&head.method, &head.target) else {
         let answer = failure("400 Bad Request", "http_request_error");
@@ -448,14 +540,15 @@ fn admit(
 }
 
 /// Connects to `address` for the client and relays between them until
-/// either closes.
+/// either closes. A plain request `in_flight` counts reads the site's
+/// answer first, up to [`ANSWER_LIMIT`], and stops counting before it
+/// relays it.
 async fn carry(
     mut client: TcpStream,
     context: &Context,
     head: &Head,
-    request: RelayRequest,
-    address: SocketAddr,
-    destination: &Destination,
+    (request, address, destination): (RelayRequest, SocketAddr, &Destination),
+    in_flight: Option<InFlight<'_>>,
 ) {
     let Ok((socket, side)) = bound_socket(address.ip()) else {
         let answer = failure("502 Bad Gateway", "proxy_internal_error");
@@ -491,6 +584,9 @@ async fn carry(
     };
     let copied = match opened {
         Ok(()) => match upstream.write_all(&head.rest).await {
+            Ok(()) if !tunnel && in_flight.is_some() => {
+                answered_first(&mut client, &mut upstream, in_flight).await
+            }
             Ok(()) => tokio::io::copy_bidirectional(&mut client, &mut upstream)
                 .await
                 .unwrap_or_default(),
@@ -500,6 +596,39 @@ async fn carry(
     };
     let bytes = carried(head.read, established.len(), copied);
     record.ended(relay, Outcome::Relayed, bytes);
+}
+
+/// Reads the site's answer on `upstream`, up to [`ANSWER_LIMIT`], ends
+/// `in_flight`, then relays the answer to `client`, and anything past the
+/// limit either way: the bytes copied each way, as
+/// `copy_bidirectional` counts them.
+async fn answered_first(
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+    in_flight: Option<InFlight<'_>>,
+) -> (u64, u64) {
+    let mut answer = Vec::new();
+    let whole = match (&mut *upstream)
+        .take(ANSWER_LIMIT)
+        .read_to_end(&mut answer)
+        .await
+    {
+        Ok(read) => u64::try_from(read).unwrap_or(u64::MAX) < ANSWER_LIMIT,
+        Err(_) => true,
+    };
+    drop(in_flight);
+    let sent = u64::try_from(answer.len()).unwrap_or(u64::MAX);
+    if client.write_all(&answer).await.is_err() {
+        return (0, 0);
+    }
+    if whole {
+        let _ = client.shutdown().await;
+        return (0, sent);
+    }
+    let (out, back) = tokio::io::copy_bidirectional(client, upstream)
+        .await
+        .unwrap_or_default();
+    (out, sent.saturating_add(back))
 }
 
 /// The bytes of a relay: the head received and the answer sent, then what

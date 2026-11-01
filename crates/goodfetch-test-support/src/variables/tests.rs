@@ -69,5 +69,10 @@ fn an_unknown_suite_is_refused() {
 
     let suite = variables.suite();
 
-    assert_eq!(suite, Err(SuiteError("nightly".to_owned())));
+    assert_eq!(
+        suite,
+        Err(SuiteError {
+            value: "nightly".to_owned()
+        })
+    );
 }

@@ -3,16 +3,25 @@
 //! `clear_cache` after a kill drops what never reached the disk, as a power
 //! cut would. The executable is the pinned build `xtask lazyfs build` makes,
 //! named by `GOODFETCH_LAZYFS`. A mount that cannot be made is an error, which
-//! fails the test; it is never a skip (ADR 0067's rule, applied here).
+//! fails the test; it is never a skip (ADR 0067's rule, applied here). The
+//! operating system lets a user mount only in some folders, so a LazyFS
+//! test's setup is `TestEnv::for_lazyfs`, whose folder is in one of them, and
+//! a mount refused there is [`LazyFsError::MountRefused`], which names them.
 //!
 //! The folder keeps its path: its files move to a backing folder beside it,
 //! `<name>.lazyfs/backing`, which LazyFS mounts back at the folder's path, and
 //! return when the mount ends. Ending the mount (`unmount`, or dropping the
 //! value) first syncs every file, as a clean shutdown would, so only
 //! `clear_cache` loses data. A remount is a second `mount` of the same folder.
+//!
+//! The kernel refuses an unmount while anything holds the mount: a process
+//! using the folder, which fails the end, or a lookup that only passes
+//! through it, as `lsof` and `df` make when they stat every mount point on
+//! the machine. When no process uses the folder, the end detaches the mount
+//! and waits for LazyFS to exit, which it does once such a lookup is done.
 #![expect(
     clippy::disallowed_methods,
-    reason = "test support mounts, polls and reads files outside any async worker (ADR 0062)"
+    reason = "test support mounts, polls and reads files, reads LazyFS's answers on a thread of its own and times its deadlines on the real clock, outside any async worker and any simulated clock (ADR 0062)"
 )]
 
 use std::ffi::OsString;
@@ -20,11 +29,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use crate::variables::{LAZYFS_VARIABLE, Variables};
+use crate::env::TestEnv;
+use crate::process::Process;
+use crate::variables::{LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, Variables};
 
 /// How long a mount, an unmount or a command may take.
 pub const LAZYFS_DEADLINE: Duration = Duration::from_secs(10);
@@ -36,16 +47,20 @@ const POLL: Duration = Duration::from_millis(10);
 /// cache without eviction refuses writes.
 const CACHE_SIZE: &str = "512mb";
 
+/// What `fusermount3` prints, through LazyFS, when the kernel denies it the
+/// mount (`EACCES`), as an AppArmor profile does outside its folders.
+const MOUNT_DENIED: &str = "fusermount3: mount failed: Permission denied";
+
 /// The command that drops every unsynced write, and LazyFS's answer to it.
 const CLEAR_CACHE: &[u8] = b"lazyfs::clear-cache\n";
 const CACHE_CLEARED: &str = "finished::clear-cache";
 
 /// A folder mounted through LazyFS until the value drops.
-#[derive(Debug)]
 pub struct LazyFs {
     folder: PathBuf,
     state: PathBuf,
-    child: Option<Child>,
+    /// LazyFS's process, which the test's process record holds too.
+    child: Option<Process>,
     /// LazyFS's answers FIFO, opened for reading and writing before LazyFS
     /// starts, so that LazyFS's own open of it never waits, and so that a
     /// line written here at the end wakes the reader thread.
@@ -54,19 +69,34 @@ pub struct LazyFs {
     answers: Option<Receiver<io::Result<String>>>,
 }
 
+impl std::fmt::Debug for LazyFs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LazyFs")
+            .field("folder", &self.folder)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
 impl LazyFs {
     /// Mounts `folder` through the LazyFS that `GOODFETCH_LAZYFS` names,
-    /// creating the folder if its parent exists.
-    pub fn mount(folder: impl AsRef<Path>) -> Result<Self, LazyFsError> {
+    /// creating the folder if its parent exists. LazyFS runs in the test's
+    /// cleared environment, and its process joins the test's record.
+    pub fn mount(env: &TestEnv, folder: impl AsRef<Path>) -> Result<Self, LazyFsError> {
         let program = Variables::from_process()
             .get(LAZYFS_VARIABLE)
             .map(PathBuf::from)
             .ok_or(LazyFsError::Unset)?;
-        Self::mount_program(&program, folder)
+        Self::mount_program(env, &program, folder)
     }
 
     /// Mounts `folder` through the LazyFS executable at `program`.
-    pub fn mount_program(program: &Path, folder: impl AsRef<Path>) -> Result<Self, LazyFsError> {
+    pub fn mount_program(
+        env: &TestEnv,
+        program: &Path,
+        folder: impl AsRef<Path>,
+    ) -> Result<Self, LazyFsError> {
         let folder = folder.as_ref().to_owned();
         let in_folder = |source| LazyFsError::Folder {
             path: folder.clone(),
@@ -118,7 +148,8 @@ impl LazyFs {
                 return Err(in_folder(source));
             }
         };
-        let (sender, receiver) = mpsc::channel();
+        // Bounded (STYLE.md): the reader waits while no answer is taken.
+        let (sender, receiver) = mpsc::sync_channel(16);
         std::thread::spawn(move || {
             for line in BufReader::new(reader).lines() {
                 if sender.send(line).is_err() {
@@ -135,17 +166,18 @@ impl LazyFs {
         };
         let started = File::create(&output).and_then(|out| {
             let err = out.try_clone()?;
-            Command::new(program)
-                .arg(&mounted.folder)
-                .arg("--config-path")
-                .arg(&config)
-                .args(["-o", "modules=subdir", "-o"])
-                .arg(subdir_option(&backing))
-                .arg("-f")
-                .stdin(Stdio::null())
-                .stdout(out)
-                .stderr(err)
-                .spawn()
+            env.spawn_with_streams(
+                env.process_command(program)
+                    .arg(&mounted.folder)
+                    .arg("--config-path")
+                    .arg(&config)
+                    .args(["-o", "modules=subdir", "-o"])
+                    .arg(subdir_option(&backing))
+                    .arg("-f")
+                    .stdin(Stdio::null())
+                    .stdout(out)
+                    .stderr(err),
+            )
         });
         match started {
             Ok(child) => mounted.child = Some(child),
@@ -198,25 +230,45 @@ impl LazyFs {
         if self.child.is_none() {
             return Ok(());
         }
+        let ended = self.end_mounted();
+        if ended.is_err() {
+            // Whatever failed, LazyFS stops and the mount goes, so the test's
+            // folder is never left mounted.
+            let _ = fusermount(&["-uz"], &self.folder);
+        }
+        self.end_unmounted();
+        ended
+    }
+
+    /// Syncs every file, unmounts and waits for LazyFS to exit. A refused
+    /// unmount with no process using the folder was held by a passing
+    /// lookup: the mount is detached instead, and LazyFS exits once the
+    /// lookup is done.
+    fn end_mounted(&mut self) -> Result<(), LazyFsError> {
         sync_tree(&self.folder).map_err(LazyFsError::Sync)?;
-        let unmounted = Command::new("fusermount3")
-            .arg("-u")
-            .arg(&self.folder)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(LazyFsError::Unmount)?;
+        let unmounted = fusermount(&["-u"], &self.folder)?;
         if !unmounted.status.success() {
-            return Err(LazyFsError::NotUnmounted {
-                status: unmounted.status,
-                stderr: String::from_utf8_lossy(&unmounted.stderr).into_owned(),
-            });
+            let users = users_of(&self.folder);
+            let refused = |output: std::process::Output| LazyFsError::NotUnmounted {
+                status: output.status,
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                users: users.clone(),
+            };
+            if !users.is_empty() {
+                return Err(refused(unmounted));
+            }
+            let detached = fusermount(&["-uz"], &self.folder)?;
+            if !detached.status.success() {
+                return Err(refused(detached));
+            }
         }
         let deadline = Instant::now() + LAZYFS_DEADLINE;
         loop {
             let exited = self
                 .child
-                .as_mut()
+                .as_ref()
                 .expect("invariant: a mounted LazyFS has its process")
+                .child()
                 .try_wait()
                 .map_err(LazyFsError::Unmount)?;
             if exited.is_some() {
@@ -230,16 +282,16 @@ impl LazyFs {
             }
             std::thread::sleep(POLL);
         }
-        self.child = None;
-        self.end_unmounted();
         Ok(())
     }
 
     /// Stops the reader thread, moves the files back into the folder and
     /// removes the state folder, once nothing is mounted.
     fn end_unmounted(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            // Best effort: a LazyFS that never mounted is stopped either way.
+        if let Some(process) = self.child.take() {
+            // Best effort: a LazyFS that never mounted, or failed its end, is
+            // stopped either way; one that exited is reaped.
+            let mut child = process.child();
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -260,14 +312,25 @@ impl LazyFs {
             if is_mount_point(&self.folder) {
                 return Ok(());
             }
-            let child = self
+            let exited = self
                 .child
-                .as_mut()
-                .expect("invariant: a starting LazyFS has its process");
-            if let Some(status) = child.try_wait().map_err(LazyFsError::Command)? {
-                return Err(LazyFsError::NotMounted {
-                    status: Some(status),
-                    output: self.output(),
+                .as_ref()
+                .expect("invariant: a starting LazyFS has its process")
+                .child()
+                .try_wait()
+                .map_err(LazyFsError::Command)?;
+            if let Some(status) = exited {
+                let output = self.output();
+                return Err(if output.contains(MOUNT_DENIED) {
+                    LazyFsError::MountRefused {
+                        folder: self.folder.clone(),
+                        output,
+                    }
+                } else {
+                    LazyFsError::NotMounted {
+                        status: Some(status),
+                        output,
+                    }
                 });
             }
             if Instant::now() >= deadline {
@@ -382,23 +445,107 @@ fn restore(folder: &Path, backing: &Path) {
     }
 }
 
+/// Runs `fusermount3` with `options` on `folder`.
+fn fusermount(options: &[&str], folder: &Path) -> Result<std::process::Output, LazyFsError> {
+    Command::new("fusermount3")
+        .args(options)
+        .arg(folder)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(LazyFsError::Unmount)
+}
+
+/// The processes using `folder`, as `<pid> <name>: <what>`: a working or
+/// root folder, an open file or a mapping in it. Read from `/proc` without
+/// looking into the folder, and only for the processes this user may
+/// inspect, which every process a test starts is.
+fn users_of(folder: &Path) -> Vec<String> {
+    let Ok(processes) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let inside = |target: &Path| target.starts_with(folder);
+    let mut users = Vec::new();
+    for process in processes.flatten() {
+        let proc = process.path();
+        if !process
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+        {
+            continue;
+        }
+        let mut found = Vec::new();
+        for link in ["cwd", "root"] {
+            if std::fs::read_link(proc.join(link)).is_ok_and(|target| inside(&target)) {
+                found.push(link.to_owned());
+            }
+        }
+        if let Ok(files) = std::fs::read_dir(proc.join("fd")) {
+            found.extend(files.flatten().filter_map(|file| {
+                std::fs::read_link(file.path())
+                    .ok()
+                    .filter(|target| inside(target))
+                    .map(|target| format!("open {}", target.display()))
+            }));
+        }
+        if let Ok(maps) = std::fs::read_to_string(proc.join("maps")) {
+            found.extend(
+                maps.lines()
+                    .filter_map(|line| line.find('/').and_then(|start| line.get(start..)))
+                    .filter(|target| inside(Path::new(target)))
+                    .map(|target| format!("mapped {target}")),
+            );
+        }
+        if !found.is_empty() {
+            let name = std::fs::read_to_string(proc.join("comm")).unwrap_or_default();
+            users.push(format!(
+                "{} {}: {}",
+                process.file_name().to_string_lossy(),
+                name.trim_end(),
+                found.join(", ")
+            ));
+        }
+    }
+    users
+}
+
 /// Syncs every regular file under `folder`, as a clean shutdown would.
 fn sync_tree(folder: &Path) -> io::Result<()> {
     for entry in std::fs::read_dir(folder)? {
         let entry = entry?;
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            sync_tree(&entry.path())?;
-        } else if kind.is_file() {
-            File::open(entry.path())?.sync_all()?;
+        let synced = entry.file_type().and_then(|kind| {
+            if kind.is_dir() {
+                sync_tree(&entry.path())
+            } else if kind.is_file() {
+                File::open(entry.path())?.sync_all()
+            } else {
+                Ok(())
+            }
+        });
+        match synced {
+            // Gone since the listing, it needs no sync: FUSE keeps a file
+            // unlinked while open, as SQLite's WAL is at its last close, as
+            // `.fuse_hidden…` until the kernel sends its release, after the
+            // close and so possibly during this walk.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            synced => synced?,
         }
     }
     Ok(())
 }
 
+/// Its message, which holds every field: a test's `unwrap()` then panics
+/// with the cause in words and LazyFS's output on its own lines.
+impl std::fmt::Debug for LazyFsError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, formatter)
+    }
+}
+
 /// Why a folder cannot be mounted through LazyFS, or its mount used or
 /// ended. Each fails the test.
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum LazyFsError {
     /// `GOODFETCH_LAZYFS` is not set.
@@ -436,6 +583,19 @@ pub enum LazyFsError {
         /// What it printed.
         output: String,
     },
+    /// The operating system refused the mount: `fusermount3` was denied it,
+    /// as Ubuntu's AppArmor profile of `fusermount3` denies a mount outside
+    /// the folders it allows.
+    #[error(
+        "the operating system refused LazyFS's mount of {}: fusermount3 was denied it, as Ubuntu's AppArmor profile of fusermount3 (/etc/apparmor.d/fusermount3) denies a FUSE mount outside $HOME, /mnt, /run/user/<uid>, /media and /tmp. Make the test's setup with `TestEnv::for_lazyfs()`, whose folder is in /tmp, or in the folder {LAZYFS_FOLDER_VARIABLE} names, which must be one of those; LazyFS printed:\n{output}",
+        folder.display()
+    )]
+    MountRefused {
+        /// The folder.
+        folder: PathBuf,
+        /// What it printed.
+        output: String,
+    },
     /// A command could not be sent to LazyFS, or its answer read.
     #[error("a command to LazyFS failed: {0}")]
     Command(io::Error),
@@ -461,13 +621,17 @@ pub enum LazyFsError {
     /// `fusermount3 -u` cannot run, or LazyFS's exit cannot be awaited.
     #[error("the unmount cannot run: {0}")]
     Unmount(io::Error),
-    /// `fusermount3 -u` refused, such as while a process still uses the
-    /// folder.
-    #[error("fusermount3 -u refused ({status}): {stderr}")]
+    /// `fusermount3` refused the unmount while a process still uses the
+    /// folder, or refused to detach it.
+    #[error(
+        "fusermount3 refused the unmount ({status}): {stderr}; processes using the folder: {users:?}"
+    )]
     NotUnmounted {
         /// Its exit status.
         status: ExitStatus,
         /// What it printed.
         stderr: String,
+        /// The processes using the folder, as `<pid> <name>: <what>`.
+        users: Vec<String>,
     },
 }

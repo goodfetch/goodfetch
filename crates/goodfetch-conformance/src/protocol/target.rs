@@ -7,6 +7,13 @@
 //! gives, at most [`START_DEADLINE`], so a target that stays silent fails
 //! its case instead of holding the harness.
 //!
+//! A gateway (ADR 0096) is reached by address instead: its `http` or `https`
+//! origin, whose WebSocket at `/protocol` (`ws` or `wss`, TLS checked
+//! against Mozilla's roots and any certificate the target trusts) carries
+//! one JSON-RPC message a frame, the gateway's token presented in `hello`
+//! (spec #586's duty 8). Its connect, TLS and WebSocket handshakes each wait
+//! at most [`START_DEADLINE`].
+//!
 //! The harness is a Client of the target and runs outside any engine, so the
 //! Simulation never runs this module: it opens the Daemon's socket itself and
 //! reads each stream on a thread of its own, which ends when the stream does
@@ -22,15 +29,24 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead as _, BufReader, Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs as _};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
 
+use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use secrecy::ExposeSecret as _;
+use tungstenite::client::IntoClientRequest as _;
+use tungstenite::{Message, WebSocket};
+
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+
+use super::gateway::GatewayTarget;
 
 /// How long the harness waits for each line the target writes, for the
 /// Daemon to be ready and for the target to exit once the suite ends.
@@ -98,6 +114,14 @@ pub enum StartError {
         /// What it did instead.
         reason: String,
     },
+    /// The gateway refused the sign-in or the WebSocket.
+    #[error("the gateway at {address} took no Connection: {reason}")]
+    Gateway {
+        /// Its address.
+        address: String,
+        /// Why.
+        reason: String,
+    },
     /// The Daemon's endpoint took no connection.
     #[error("the Daemon at {endpoint} took no connection: {source}")]
     Connect {
@@ -134,6 +158,8 @@ enum Link {
     Tcp(TcpStream),
     #[cfg(unix)]
     Unix(UnixStream),
+    /// A gateway's WebSocket, written by the thread that holds it.
+    WebSocket(Option<Sender<String>>),
 }
 
 /// What waiting for a line gave.
@@ -225,9 +251,58 @@ impl Started {
         let (link, reader) = connect(&runtime.endpoint)?;
         started.link = link;
         started.lines = read_lines(reader);
-        started.token = Some(runtime.token);
+        started.token = Some(runtime.token.expose().to_owned());
         started.endpoint = Some(runtime.endpoint);
         Ok(started)
+    }
+
+    /// Opens a Connection to the gateway `target`, before any `hello`, which
+    /// presents the target's token.
+    pub(crate) fn gateway(target: &GatewayTarget) -> Result<Self, StartError> {
+        Self::gateway_within(target, START_DEADLINE)
+    }
+
+    /// [`Started::gateway`], each handshake waiting at most `deadline`.
+    fn gateway_within(target: &GatewayTarget, deadline: Duration) -> Result<Self, StartError> {
+        let address = &target.address;
+        let refused = |reason: String| StartError::Gateway {
+            address: address.to_string(),
+            reason,
+        };
+        let stream = connect_within(&address.host(), address.port(), deadline)
+            .map_err(|error| refused(error.to_string()))?;
+        // The handshakes that follow wait at most the deadline too.
+        for set in [TcpStream::set_read_timeout, TcpStream::set_write_timeout] {
+            set(&stream, Some(deadline)).map_err(|error| refused(error.to_string()))?;
+        }
+        let stream = if address.is_tls() {
+            GatewayStream::Tls(Box::new(
+                tls(stream, &address.host(), &target.trusted_certificates).map_err(refused)?,
+            ))
+        } else {
+            GatewayStream::Plain(stream)
+        };
+        let request = address
+            .websocket()
+            .as_str()
+            .into_client_request()
+            .map_err(|error| refused(error.to_string()))?;
+        let (socket, _) =
+            tungstenite::client(request, stream).map_err(|error| refused(error.to_string()))?;
+        socket
+            .get_ref()
+            .tcp()
+            .set_read_timeout(Some(POLL))
+            .map_err(|error| refused(error.to_string()))?;
+        let (outgoing, sending) = mpsc::channel();
+        Ok(Self {
+            child: None,
+            link: Link::WebSocket(Some(outgoing)),
+            lines: relay_socket(socket, sending),
+            exited: None,
+            token: Some(target.token.expose_secret().to_owned()),
+            endpoint: None,
+        })
     }
 
     /// Opens a further Connection to the same target, before any `hello`:
@@ -262,6 +337,10 @@ impl Started {
             Link::Tcp(stream) => write(stream),
             #[cfg(unix)]
             Link::Unix(stream) => write(stream),
+            Link::WebSocket(Some(socket)) => socket
+                .send(String::from_utf8_lossy(line).into_owned())
+                .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe)),
+            Link::WebSocket(None) => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
         }
     }
 
@@ -305,6 +384,7 @@ impl Started {
             Link::Tcp(stream) => drop(stream.shutdown(Shutdown::Both)),
             #[cfg(unix)]
             Link::Unix(stream) => drop(stream.shutdown(Shutdown::Both)),
+            Link::WebSocket(socket) => drop(socket.take()),
         }
     }
 }
@@ -345,6 +425,144 @@ fn connect(endpoint: &DaemonEndpoint) -> Result<(Link, Box<dyn Read + Send>), St
     }
 }
 
+/// How long the thread that holds a gateway's WebSocket waits for a frame
+/// before it sends what the harness wrote meanwhile.
+const POLL: Duration = Duration::from_millis(20);
+
+/// A TCP connection to `host`'s first address that takes one within
+/// `deadline`.
+fn connect_within(host: &str, port: u16, deadline: Duration) -> io::Result<TcpStream> {
+    let mut failed = None;
+    for address in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&address, deadline) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => failed = Some(error),
+        }
+    }
+    Err(failed.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("`{host}` names no address"),
+        )
+    }))
+}
+
+/// `stream` under TLS to `host`, whose certificate Mozilla's roots or one
+/// of `trusted` (DER) signs.
+fn tls(
+    stream: TcpStream,
+    host: &str,
+    trusted: &[Vec<u8>],
+) -> Result<StreamOwned<ClientConnection, TcpStream>, String> {
+    let mut roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    for certificate in trusted {
+        roots
+            .add(CertificateDer::from(certificate.clone()))
+            .map_err(|error| format!("a trusted certificate is unusable: {error}"))?;
+    }
+    let config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|error| error.to_string())?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+    let name = ServerName::try_from(host.to_owned()).map_err(|error| error.to_string())?;
+    let connection =
+        ClientConnection::new(Arc::new(config), name).map_err(|error| error.to_string())?;
+    Ok(StreamOwned::new(connection, stream))
+}
+
+/// A gateway's connection: plain, or under TLS.
+enum GatewayStream {
+    Plain(TcpStream),
+    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+}
+
+impl GatewayStream {
+    /// The TCP connection under it.
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Self::Plain(stream) => stream,
+            Self::Tls(stream) => &stream.sock,
+        }
+    }
+}
+
+impl Read for GatewayStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.read(buffer),
+            Self::Tls(stream) => stream.read(buffer),
+        }
+    }
+}
+
+impl Write for GatewayStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.write(buffer),
+            Self::Tls(stream) => stream.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(stream) => stream.flush(),
+            Self::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+/// Starts the thread that holds a gateway's WebSocket: it sends each message
+/// `sending` gives and hands on each text frame it reads as a line, until
+/// either side ends.
+fn relay_socket(mut socket: WebSocket<GatewayStream>, sending: Receiver<String>) -> Receiver<Line> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            match sending.try_recv() {
+                Ok(text) => {
+                    if let Err(error) = socket.send(Message::text(text)) {
+                        let _ = sender.send(Err(io::Error::other(error.to_string())));
+                        return;
+                    }
+                    continue;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    let _ = socket.close(None);
+                    let _ = socket.flush();
+                    return;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    if sender.send(Ok(text.to_string())).is_err() {
+                        return;
+                    }
+                }
+                Ok(Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+                    return;
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(io::Error::other(error.to_string())));
+                    return;
+                }
+            }
+        }
+    });
+    receiver
+}
+
 /// Starts the thread that reads `stream` a line at a time, until it ends
 /// or fails.
 fn read_lines(stream: impl Read + Send + 'static) -> Receiver<Line> {
@@ -365,4 +583,39 @@ fn read_lines(stream: impl Read + Send + 'static) -> Receiver<Line> {
         }
     });
     receiver
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use rstest::rstest;
+    use secrecy::SecretString;
+
+    use super::Started;
+    use crate::protocol::gateway::{GatewayAddress, GatewayTarget};
+
+    /// A gateway that takes the TCP connection and never answers its
+    /// handshake, which the kernel's backlog accepts without the listener's
+    /// `accept`.
+    #[rstest]
+    #[case::its_websocket_handshake("http")]
+    #[case::its_tls_handshake("https")]
+    fn a_gateway_that_never_answers_its_handshake_fails_the_opener_at_its_deadline(
+        #[case] scheme: &str,
+    ) {
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let target = GatewayTarget {
+            name: "silent".to_owned(),
+            address: GatewayAddress::parse(&format!("{scheme}://127.0.0.1:{port}")).unwrap(),
+            token: SecretString::from("a-token"),
+            trusted_certificates: Vec::new(),
+        };
+
+        let opened = Started::gateway_within(&target, Duration::from_millis(200));
+
+        assert!(opened.is_err());
+    }
 }

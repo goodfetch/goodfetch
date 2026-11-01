@@ -113,11 +113,22 @@ fn doc(
     text
 }
 
-/// The layer's exports: each type it defines, never the generator's root,
-/// which holds no value, and every other module whole.
+/// Which package holds each main type (ADR 0117), which every entry file a
+/// package exports opens with: the layer's `index.ts` is one, its package's
+/// `./generated`.
+const PACKAGE_MAP: &str = "\
+// Where the main types live (ADR 0117): `@goodfetch/collie` holds `Collie`;
+// the Collie client package, `@goodfetch/collie-client`, holds `Run`, and
+// will hold `Page`, `Session` and `Locator`; `@goodfetch/foxhound` holds
+// `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
+";
+
+/// The layer's exports, after the map of where the main types live: each
+/// type it defines, never the generator's root, which holds no value, and
+/// every other module whole.
 fn index(layer: &Layer) -> String {
     let types: Vec<&str> = layer.definitions.keys().map(String::as_str).collect();
-    let mut text = format!("{HEADER}\n");
+    let mut text = format!("{HEADER}\n{PACKAGE_MAP}\n");
     if !types.is_empty() {
         let _ = writeln!(
             text,
@@ -405,6 +416,7 @@ fn errors(layer: &Layer) -> String {
                 let _ = writeln!(text, "  {}: {},", group.name, group_class(&group.name));
             }
             text.push_str("};\n");
+            text.push_str(&exit_codes(layer));
         }
         Product::Foxhound => {
             let imported: BTreeSet<String> = layer
@@ -444,6 +456,37 @@ fn errors(layer: &Layer) -> String {
     );
     for (code, class) in registry {
         let _ = writeln!(text, "  {code}: {class},");
+    }
+    text.push_str("};\n");
+    text
+}
+
+/// ADR 0069's exit codes of a failed command, which the `goodfetch-collie`
+/// bin exits with when it cannot run the executable: each group's row, and
+/// each Error code's own row, which wins. Nothing when the projection lists
+/// no exit-code table (the codegen fixture's).
+fn exit_codes(layer: &Layer) -> String {
+    let groups: Option<Vec<(&str, u8)>> = layer
+        .error_groups
+        .iter()
+        .map(|group| group.exit_code.map(|code| (group.name.as_str(), code)))
+        .collect();
+    let Some(groups) = groups else {
+        return String::new();
+    };
+    let mut text = String::from(
+        "\n/** The CLI's exit code of a failure with each group's Error codes, unless the code has a row of its own (ADR 0069). */\nexport const errorGroupExitCodes: Readonly<Record<ErrorGroup, number>> = {\n",
+    );
+    for (group, code) in groups {
+        let _ = writeln!(text, "  {group}: {code},");
+    }
+    text.push_str(
+        "};\n\n/** The Error codes with an exit code of their own, which wins over their group's (ADR 0069). */\nexport const errorCodeExitCodes: Readonly<Record<string, number>> = {\n",
+    );
+    for code in &layer.error_codes {
+        if let Some(exit) = code.exit_code {
+            let _ = writeln!(text, "  {}: {exit},", code.name);
+        }
     }
     text.push_str("};\n");
     text

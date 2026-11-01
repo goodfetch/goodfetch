@@ -6,7 +6,7 @@
 //! refused (ADR 0096). A refusal by Product or version is kept apart, so a
 //! Daemon can mark the one it hands over on (ADR 0098).
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::{
     HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails, PROTOCOL_VERSION_UNSUPPORTED,
@@ -23,6 +23,9 @@ use crate::product::{Identity, Requested};
 pub(crate) struct Accepted {
     /// The reply.
     pub(crate) result: HelloResult,
+    /// The surface whose rules the Connection follows: the `hello`'s own,
+    /// or for a gateway's the Client's it relays (`client_surface`).
+    pub(crate) surface: Surface,
     /// Whether it came from Goodfetch Cloud's gateway, which words
     /// `not_in_product` on the Connection (ADR 0096).
     pub(crate) behind_gateway: bool,
@@ -33,7 +36,7 @@ pub(crate) enum Refused {
     /// Its params were not a Client's `hello`.
     Invalid(CallError),
     /// The Client needs a Product this engine's does not contain.
-    NotInProduct(String, NotInProductDetails),
+    NotInProduct(String, Box<NotInProductDetails>),
     /// The Client speaks a protocol version this engine does not accept.
     Version(String, ProtocolVersionUnsupportedDetails),
 }
@@ -68,6 +71,26 @@ pub(crate) fn answer(
     hello: &HelloParams,
 ) -> Result<Accepted, Refused> {
     let behind_gateway = hello.surface == Surface::Cloud;
+    let surface = match (hello.surface, hello.client_surface) {
+        (surface, None) => surface,
+        (Surface::Cloud, Some(client))
+            if !matches!(client, Surface::Cloud | Surface::BrowserHost) =>
+        {
+            client
+        }
+        (Surface::Cloud, Some(_)) => {
+            return Err(Refused::Invalid(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "a gateway's `client_surface` names the surface of a Client it relays, never `cloud` or `browser_host`",
+            )));
+        }
+        (_, Some(_)) => {
+            return Err(Refused::Invalid(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "only a gateway's `hello` (surface `cloud`) names `client_surface`",
+            )));
+        }
+    };
     if hello.surface != Surface::BrowserHost {
         let Some(needs) = hello.needs else {
             return Err(Refused::Invalid(CallError::protocol(
@@ -78,10 +101,38 @@ pub(crate) fn answer(
         if !identity.product.contains(needs) {
             let (message, details) =
                 identity.not_in_product(Requested::Hello, needs, behind_gateway);
-            return Err(Refused::NotInProduct(message, details));
+            return Err(Refused::NotInProduct(message, Box::new(details)));
         }
     }
     let client = hello.protocol_version;
+    if let Some((message, details)) = version_refusal(client, hello.surface == Surface::BrowserHost)
+    {
+        return Err(Refused::Version(message, details));
+    }
+    Ok(Accepted {
+        result: HelloResult {
+            protocol_version: PROTOCOL_VERSION.min(client),
+            product: identity.product,
+            product_version: identity.product_version.clone(),
+            engine_instance: instance.clone(),
+            private_endpoint: None,
+            console_link: None,
+        },
+        surface,
+        behind_gateway,
+    })
+}
+
+/// The message and details of `protocol_version_unsupported` for a `hello`
+/// that speaks protocol `client`, from a Browser host when `browser_host`;
+/// `None` when the engine's protocol accepts it: ADR 0030's default rule for
+/// a Client, the lower minor of one major for a Browser host (ADR 0096).
+/// Goodfetch Cloud's gateway applies the same rule to its Clients
+/// (ADR 0066).
+pub fn version_refusal(
+    client: ProtocolVersion,
+    browser_host: bool,
+) -> Option<(String, ProtocolVersionUnsupportedDetails)> {
     // During `0.y` previews each `0.y` minor counts as a major (ADR 0030),
     // so a preview engine accepts its own version alone.
     let preview = PROTOCOL_VERSION.major == 0;
@@ -90,7 +141,7 @@ pub(crate) fn answer(
     } else {
         format!("{}.x", PROTOCOL_VERSION.major)
     };
-    let (rule, sender, accepts, matching) = if hello.surface == Surface::BrowserHost {
+    let (rule, sender, accepts, matching) = if browser_host {
         (
             Rule::LowerMinor,
             "Browser host",
@@ -114,18 +165,7 @@ pub(crate) fn answer(
         )
     };
     let fix = match rule.compatibility(PROTOCOL_VERSION, client) {
-        Compatibility::Compatible => {
-            return Ok(Accepted {
-                result: HelloResult {
-                    protocol_version: PROTOCOL_VERSION.min(client),
-                    product: identity.product,
-                    product_version: identity.product_version.clone(),
-                    engine_instance: instance.clone(),
-                    private_endpoint: None,
-                },
-                behind_gateway,
-            });
-        }
+        Compatibility::Compatible => return None,
         Compatibility::NewerMinor | Compatibility::NewerMajor => format!(
             "Upgrade the engine to a version that speaks protocol {client}, or use a {sender} {matching}."
         ),
@@ -133,7 +173,7 @@ pub(crate) fn answer(
             format!("Upgrade the {sender} to one that speaks protocol {line}.")
         }
     };
-    Err(Refused::Version(
+    Some((
         format!(
             "This {sender} speaks protocol {client}, and this engine speaks {PROTOCOL_VERSION}: it accepts {accepts}."
         ),

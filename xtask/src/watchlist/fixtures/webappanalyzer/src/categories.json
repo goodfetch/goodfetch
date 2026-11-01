@@ -1,0 +1,17 @@
+{
+  "16": {
+    "groups": [11],
+    "name": "Security",
+    "priority": 9
+  },
+  "31": {
+    "groups": [7],
+    "name": "CDN",
+    "priority": 9
+  },
+  "59": {
+    "groups": [9],
+    "name": "JavaScript libraries",
+    "priority": 9
+  }
+}

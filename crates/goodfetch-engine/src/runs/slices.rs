@@ -22,6 +22,7 @@ use super::writer::{Writer, test_writer};
 use super::{CALLER, ConnectionId};
 use crate::clock::Clock;
 use crate::home::Home;
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceId, SliceSizing};
 use crate::tasks::TaskOwner;
 
@@ -35,6 +36,9 @@ pub(crate) struct Limits {
     pub(crate) owner: Arc<TaskOwner>,
     /// The user's Usage ledger.
     pub(crate) ledger: Ledger,
+    /// The user's known-certificates store, of the Usage ledger's family,
+    /// beside it (ADR 0042).
+    pub(crate) known_certificates: KnownCertificates,
     /// The engine's clock, whose wall time places each charge in its period.
     pub(crate) clock: Clock,
     /// The engine's Product.

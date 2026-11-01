@@ -7,25 +7,414 @@
 //! check holds nothing in memory (STYLE.md); a redirect that reaches an
 //! identity admitted for another request ends that request `skipped` with
 //! `duplicate`, and a redirect's final URL joins the set under its key.
+//! Beside its own identity, a request has a learned one, its URL's key
+//! without the parameters the learned rules found to have no effect on its
+//! host; a request whose learned identity meets a visited one's is a
+//! `duplicate` the rules merged.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use data_encoding::HEXLOWER;
+use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
+use crate::rules;
 use crate::scope::{Narrowing, Scope};
+use crate::staged::Staged;
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
-/// crawl request it was admitted for, or that reached it by a redirect.
+/// crawl request it was admitted for, or that reached it by a redirect;
+/// and, beside it, each identity a visited one has once the parameters
+/// learned to have no effect are taken from its URL, with the rule that
+/// took the last one away and the crawl request.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-frontier-visited",
-    statements: &["CREATE TABLE IF NOT EXISTS visited (
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS visited (
             identity TEXT NOT NULL PRIMARY KEY,
             crawl_request TEXT NOT NULL
-        ) STRICT, WITHOUT ROWID"],
+        ) STRICT, WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS learned_identities (
+            identity TEXT NOT NULL PRIMARY KEY,
+            rule INTEGER NOT NULL,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID",
+    ],
 };
+
+/// A request's identities: the one its fixed rules make, and the one it
+/// has once the parameters learned to have no effect on its host are taken
+/// from its URL, with the rules that took them, when any did.
+#[derive(Clone, Debug)]
+pub(crate) struct Identities {
+    plain: String,
+    learned: Option<(String, Vec<i64>)>,
+}
+
+/// Whether the Frontier saw a request's identities before.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Seen {
+    /// Never.
+    New,
+    /// Its own identity, for the crawl request named.
+    Visited(String),
+    /// Its identity under learned rules, for the crawl request named: the
+    /// rules merged it.
+    Merged {
+        /// The rules that merged it.
+        rules: Vec<i64>,
+        /// The crawl request it merged into.
+        crawl_request: String,
+    },
+}
+
+/// A URL's key, made once for everything that reads it: as text, the
+/// identity's part, and as a URL, which the learned rules read.
+#[derive(Clone, Debug)]
+pub(crate) struct Key {
+    text: String,
+    url: Url,
+}
+
+impl Key {
+    /// The key of `url`, as parsed, its fragment kept when
+    /// `keeps_fragment` is on.
+    pub(crate) fn of(url: &Url, keeps_fragment: bool) -> Self {
+        let text = key_text(url, keeps_fragment);
+        let url = Url::parse(&text).expect("invariant: a URL's key is a URL");
+        Self { text, url }
+    }
+
+    /// The key, as a URL.
+    pub(crate) fn url(&self) -> &Url {
+        &self.url
+    }
+}
+
+/// The identities of a request whose URL's key is `key`, declared so: a
+/// declared key has no learned one, since a program's own canonicalization
+/// always wins.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn identities(
+    connection: &Connection,
+    key: &Key,
+    declared: Declared<'_>,
+) -> rusqlite::Result<Identities> {
+    let plain = identity_of_key(&key.text, declared);
+    if declared.key.is_some() {
+        return Ok(Identities {
+            plain,
+            learned: None,
+        });
+    }
+    let (stripped, rules) = rules::without_learned(connection, &key.url)?;
+    let learned = (!rules.is_empty()).then(|| (identity(&stripped, declared), rules));
+    Ok(Identities { plain, learned })
+}
+
+impl Identities {
+    /// The identity its fixed rules make.
+    pub(crate) fn plain(&self) -> &str {
+        &self.plain
+    }
+
+    /// Its learned identity, with the rule that took the last parameter
+    /// away, when the learned rules changed it.
+    pub(crate) fn learned(&self) -> Option<(&str, i64)> {
+        self.learned
+            .as_ref()
+            .and_then(|(learned, rules)| Some((learned.as_str(), *rules.last()?)))
+    }
+}
+
+/// Whether the visited set holds `identities`, or `staged`, what an
+/// attempt's earlier staged admissions visited, does: its own identity, or
+/// its learned one as visited or as a visited one's learned identity.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn seen(
+    connection: &Connection,
+    identities: &Identities,
+    staged: Option<&Staged>,
+) -> rusqlite::Result<Seen> {
+    let visitor = |identity: &str| -> rusqlite::Result<Option<String>> {
+        Ok(visitor(connection, identity)?.or_else(|| {
+            staged
+                .and_then(|staged| staged.visitor(identity))
+                .map(str::to_owned)
+        }))
+    };
+    if let Some(visitor) = visitor(&identities.plain)? {
+        return Ok(Seen::Visited(visitor));
+    }
+    let (probe, rules) = match &identities.learned {
+        Some((learned, rules)) => {
+            if let Some(visitor) = visitor(learned)? {
+                return Ok(Seen::Merged {
+                    rules: rules.clone(),
+                    crawl_request: visitor,
+                });
+            }
+            (learned.as_str(), Some(rules))
+        }
+        None => (identities.plain.as_str(), None),
+    };
+    let learned = match connection
+        .prepare_cached("SELECT rule, crawl_request FROM learned_identities WHERE identity = ?1")?
+        .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
+        .optional()?
+    {
+        Some(learned) => Some(learned),
+        None => staged
+            .and_then(|staged| staged.learned(probe))
+            .map(|(rule, crawl_request)| (rule, crawl_request.to_owned())),
+    };
+    Ok(match learned {
+        Some((rule, crawl_request)) => {
+            // The rules on either side merged it: its own, and the one
+            // that gave the visited request its learned identity.
+            let mut rules = rules.cloned().unwrap_or_default();
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+            Seen::Merged {
+                rules,
+                crawl_request,
+            }
+        }
+        None => Seen::New,
+    })
+}
+
+/// Adds `identities` to the visited set for `crawl_request`.
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub(crate) fn visit_all(
+    connection: &Connection,
+    identities: &Identities,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    visit(connection, &identities.plain, crawl_request)?;
+    if let Some((learned, rules)) = &identities.learned {
+        learn_identity(connection, learned, rules[rules.len() - 1], crawl_request)?;
+    }
+    Ok(())
+}
+
+fn learn_identity(
+    connection: &Connection,
+    identity: &str,
+    rule: i64,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO learned_identities (identity, rule, crawl_request) VALUES (?1, ?2, ?3)
+             ON CONFLICT (identity) DO NOTHING",
+        )?
+        .execute((identity, rule, crawl_request))?;
+    Ok(())
+}
+
+/// Gives each visited identity of `merging`'s hosts that its rule changes
+/// its learned identity, so a URL that differs from it only by what the
+/// learned rules merge is a `duplicate` from then on, whichever of the two
+/// was admitted; answers each set of crawl requests the rule just showed to
+/// be one page, the requests admitted before it was learned among them.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub(crate) fn merge_learned(
+    connection: &Connection,
+    merging: &rules::Merging,
+) -> rusqlite::Result<Vec<BTreeSet<String>>> {
+    let mut pages: BTreeMap<String, (BTreeSet<String>, bool)> = BTreeMap::new();
+    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
+        let changed = rules.contains(&merging.rule);
+        if changed {
+            learn_identity(connection, &learned, merging.rule, &crawl_request)?;
+        }
+        let page = pages.entry(learned).or_default();
+        page.0.insert(crawl_request);
+        page.1 |= changed;
+    }
+    let mut groups = Vec::new();
+    for (learned, (mut requests, changed)) in pages {
+        if !changed {
+            continue;
+        }
+        requests.extend(visitor(connection, &learned)?);
+        if requests.len() > 1 {
+            groups.push(requests);
+        }
+    }
+    Ok(groups)
+}
+
+/// Gives every visited identity of `merging`'s hosts its learned identity
+/// again under the rules that still hold, once `merging`'s rule stopped,
+/// so nothing it merged merges a URL from then on.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub(crate) fn unmerge(connection: &Connection, merging: &rules::Merging) -> rusqlite::Result<()> {
+    for (low, high) in host_ranges(connection, Keyed::Learned, &merging.hosts)? {
+        connection
+            .prepare_cached(
+                "DELETE FROM learned_identities WHERE identity >= ?1 AND identity < ?2",
+            )?
+            .execute((low, high))?;
+    }
+    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
+        if let Some(rule) = rules.last() {
+            learn_identity(connection, &learned, *rule, &crawl_request)?;
+        }
+    }
+    Ok(())
+}
+
+/// A table of identities, read by ranges of its key.
+#[derive(Clone, Copy, Debug)]
+enum Keyed {
+    Visited,
+    Learned,
+}
+
+impl Keyed {
+    /// The first identity the table holds from `?1` on.
+    fn first_from(self) -> &'static str {
+        match self {
+            Self::Visited => {
+                "SELECT identity FROM visited WHERE identity >= ?1 ORDER BY identity LIMIT 1"
+            }
+            Self::Learned => {
+                "SELECT identity FROM learned_identities WHERE identity >= ?1 ORDER BY identity LIMIT 1"
+            }
+        }
+    }
+}
+
+/// The ranges of `table`'s key that hold the identities of the URLs on
+/// `hosts`, each from its first identity to past its last: for each method
+/// the table holds, each scheme a crawl fetches and each host, the URLs
+/// with no port and those with one. The methods are found by stepping
+/// from one to the next along the key, one lookup each, so no read goes
+/// past the rows of the hosts; an identity a program declared, `key:…`,
+/// names no URL.
+fn host_ranges(
+    connection: &Connection,
+    table: Keyed,
+    hosts: &[String],
+) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut methods = Vec::new();
+    let mut from = String::new();
+    while let Some(identity) = connection
+        .prepare_cached(table.first_from())?
+        .query_row([&from], |row| row.get::<_, String>(0))
+        .optional()?
+    {
+        from = if identity.starts_with(DECLARED) {
+            // Past every declared key: `;` follows `:`.
+            "key;".to_owned()
+        } else if let Some((method, _)) = identity.split_once(' ') {
+            // Past every identity of `method`: `!` follows the space.
+            let next = format!("{method}!");
+            methods.push(method.to_owned());
+            next
+        } else {
+            format!("{identity}\u{1}")
+        };
+    }
+    let mut ranges = Vec::new();
+    for method in &methods {
+        for scheme in crate::url::FETCHED {
+            for host in hosts {
+                let prefix = format!("{method} {scheme}://{host}");
+                // `0` follows `/`, and `;` follows `:`.
+                ranges.push((format!("{prefix}/"), format!("{prefix}0")));
+                ranges.push((format!("{prefix}:"), format!("{prefix};")));
+            }
+        }
+    }
+    Ok(ranges)
+}
+
+/// How a declared key's identity begins.
+const DECLARED: &str = "key:";
+
+/// Each visited identity whose URL is on one of `hosts`, under the learned
+/// rules that hold, read once per host for the call: its identity under
+/// them, the rules that changed it and its crawl request.
+fn visited_on(
+    connection: &Connection,
+    hosts: &[String],
+) -> rusqlite::Result<Vec<(String, Vec<i64>, String)>> {
+    let mut holding = rules::Holding::of(connection);
+    let mut found = Vec::new();
+    for (low, high) in host_ranges(connection, Keyed::Visited, hosts)? {
+        let mut statement = connection.prepare_cached(
+            "SELECT identity, crawl_request FROM visited WHERE identity >= ?1 AND identity < ?2",
+        )?;
+        let candidates = statement
+            .query_map((low, high), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (visited, crawl_request) in candidates {
+            let Some((method, rest)) = visited.split_once(' ') else {
+                continue;
+            };
+            let (key, hash) = rest
+                .split_once(' ')
+                .map_or((rest, None), |(key, hash)| (key, Some(hash)));
+            let Ok(url) = Url::parse(key) else {
+                continue;
+            };
+            let (merged, rules) = holding.without_learned(&url)?;
+            if rules.is_empty() {
+                continue;
+            }
+            let mut learned = format!("{method} {}", url_key(&merged));
+            if let Some(hash) = hash {
+                learned.push(' ');
+                learned.push_str(hash);
+            }
+            found.push((learned, rules, crawl_request));
+        }
+    }
+    Ok(found)
+}
+
+/// `url`'s key, as a URL, without its fragment.
+pub(crate) fn keyed(url: &Url) -> Url {
+    Key::of(url, false).url
+}
+
+/// `url`'s key as [`url_key`] makes it, followed by its fragment when
+/// `keeps_fragment` is on and it has one (ADR 0120): a Label keeping
+/// fragments makes one request per fragment.
+fn key_text(url: &Url, keeps_fragment: bool) -> String {
+    let mut key = url_key(url);
+    if keeps_fragment && let Some(fragment) = url.fragment() {
+        key.push('#');
+        key.push_str(fragment);
+    }
+    key
+}
 
 /// How a crawl request is sent beside its URL, and the key a program may
 /// declare in place of its identity.
@@ -38,6 +427,9 @@ pub struct Declared<'a> {
     /// The identity the program declared, if any, which replaces its
     /// method, its URL's key and its body's hash.
     pub key: Option<&'a str>,
+    /// Whether its URL's key keeps the fragment, as its Label's
+    /// `crawl.keep_url_fragment` says (ADR 0120).
+    pub keeps_fragment: bool,
 }
 
 /// Where a redirect hop leads a crawl request.
@@ -51,6 +443,9 @@ pub enum Hop {
     /// Its key was admitted for another request: the request ends
     /// `skipped` with `duplicate`, and its handler does not run.
     Duplicate,
+    /// Its host is one the Run's domain policy refuses: the request ends
+    /// `skipped` with `domain_policy`, and its handler does not run.
+    DomainPolicy,
 }
 
 /// The identity of a request to `url` declared so: the declared key, kept
@@ -59,10 +454,16 @@ pub enum Hop {
 /// SHA-256 in hexadecimal, separated by spaces, which neither a method nor
 /// a serialized URL holds.
 pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
-    if let Some(key) = declared.key {
-        return format!("key:{key}");
+    identity_of_key(&key_text(url, declared.keeps_fragment), declared)
+}
+
+/// The identity of a request whose URL's key is `key`, declared so, as
+/// [`identity`] makes it.
+fn identity_of_key(key: &str, declared: Declared<'_>) -> String {
+    if let Some(declared_key) = declared.key {
+        return format!("{DECLARED}{declared_key}");
     }
-    let mut identity = format!("{} {}", declared.method, url_key(url));
+    let mut identity = format!("{} {key}", declared.method);
     if let Some(body) = declared.body.filter(|body| !body.is_empty()) {
         identity.push(' ');
         identity.push_str(&HEXLOWER.encode(&Sha256::digest(body)));
@@ -74,11 +475,8 @@ pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
 /// redirect; `None` while the visited set lacks it.
 pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Result<Option<String>> {
     connection
-        .query_row(
-            "SELECT crawl_request FROM visited WHERE identity = ?1",
-            [identity],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT crawl_request FROM visited WHERE identity = ?1")?
+        .query_row([identity], |row| row.get(0))
         .optional()
 }
 
@@ -89,19 +487,22 @@ pub(crate) fn visit(
     identity: &str,
     crawl_request: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO visited (identity, crawl_request) VALUES (?1, ?2)
-         ON CONFLICT (identity) DO NOTHING",
-        (identity, crawl_request),
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO visited (identity, crawl_request) VALUES (?1, ?2)
+             ON CONFLICT (identity) DO NOTHING",
+        )?
+        .execute((identity, crawl_request))?;
     Ok(())
 }
 
 /// Where a redirect hop of the crawl request `crawl_request` to `url`,
-/// sent with `method` and `body`, leads it within `scope` (ADRs 0093 and
-/// 0120): `OutOfScope` when it leaves the scope, `Duplicate` when that
-/// identity was admitted for another request, else `Follow`, a hop back to
-/// the request's own identity included.
+/// sent with `method` and `body`, leads it within `scope` and under the
+/// Run's domain policy `policy` (ADRs 0093, 0118 and 0120), judged in that
+/// order: `OutOfScope` when it leaves the scope, `DomainPolicy` when the
+/// policy refuses its host, `Duplicate` when that identity was admitted for
+/// another request, else `Follow`, a hop back to the request's own
+/// identity included.
 ///
 /// # Errors
 ///
@@ -109,31 +510,71 @@ pub(crate) fn visit(
 pub fn redirect_hop(
     connection: &Connection,
     scope: &Scope,
+    policy: &Policy,
     crawl_request: &str,
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
-    if !scope.admits(connection, url, Narrowing::none())? {
-        return Ok(Hop::OutOfScope);
+    match rewrite(connection, scope, policy, url)? {
+        Some(SkipReason::OutOfScope) => return Ok(Hop::OutOfScope),
+        Some(_) => return Ok(Hop::DomainPolicy),
+        None => {}
     }
-    let hop = identity(
-        url,
+    let hop = identities(
+        connection,
+        &Key::of(url, false),
         Declared {
             method,
             body,
             key: None,
+            keeps_fragment: false,
         },
-    );
-    Ok(match visitor(connection, &hop)? {
-        Some(visitor) if visitor != crawl_request => Hop::Duplicate,
+    )?;
+    Ok(match seen(connection, &hop, None)? {
+        Seen::Visited(visitor)
+        | Seen::Merged {
+            crawl_request: visitor,
+            ..
+        } if visitor != crawl_request => Hop::Duplicate,
         _ => Hop::Follow,
     })
 }
 
+/// Why a crawl request sent on to `url`, by a Hook's rewrite or a redirect
+/// hop, ends `skipped`, judged as an enqueue is (ADRs 0093, 0104 and 0120):
+/// `out_of_scope` when it leaves `scope`, else `domain_policy` when the
+/// Run's domain policy `policy` refuses its host, each read as the WHATWG
+/// parser leaves it; `None` when it goes on.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn rewrite(
+    connection: &Connection,
+    scope: &Scope,
+    policy: &Policy,
+    url: &Url,
+) -> rusqlite::Result<Option<SkipReason>> {
+    if !scope.admits(connection, url, Narrowing::none())? {
+        return Ok(Some(SkipReason::OutOfScope));
+    }
+    let request = Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    Ok(matches!(judge(&request, policy), Judgment::Refused(_)).then_some(SkipReason::DomainPolicy))
+}
+
 /// Records the final URL `url` a redirect led the crawl request
 /// `crawl_request` to, sent with `method` and `body`, under its key as
-/// visited, so a later enqueue of it is a `duplicate` (ADR 0120).
+/// visited, so a later enqueue of it is a `duplicate` (ADR 0120), and
+/// answers whether the request goes on: `Duplicate` when another request
+/// was admitted for, or reached, that key meanwhile, between the hop's
+/// check ([`redirect_hop`]) and its document's arrival, which leaves the
+/// key that request's, else `Follow`. The check and the record are one
+/// write, so of two chains reaching one key at once, only the first
+/// records it (ADR 0120's #832 note).
 ///
 /// # Errors
 ///
@@ -144,16 +585,28 @@ pub fn redirect_reached(
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
-) -> rusqlite::Result<()> {
-    let reached = identity(
-        url,
+) -> rusqlite::Result<Hop> {
+    let reached = identities(
+        connection,
+        &Key::of(url, false),
         Declared {
             method,
             body,
             key: None,
+            keeps_fragment: false,
         },
-    );
-    visit(connection, &reached, crawl_request)
+    )?;
+    if let Seen::Visited(visitor)
+    | Seen::Merged {
+        crawl_request: visitor,
+        ..
+    } = seen(connection, &reached, None)?
+        && visitor != crawl_request
+    {
+        return Ok(Hop::Duplicate);
+    }
+    visit_all(connection, &reached, crawl_request)?;
+    Ok(Hop::Follow)
 }
 
 /// The query parameters a key drops by name: `Crawl4AI`'s click IDs.

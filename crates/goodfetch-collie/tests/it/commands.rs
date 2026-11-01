@@ -1,16 +1,18 @@
-//! The commands generated from the catalog, through Collie's executable on
-//! the Attached engine it runs in its own process (ADRs 0024, 0069 and
-//! 0099): `<namespace> <member>`, a value's ID first and `--<parameter>`
-//! flags; an opener prints the new value's ID, a round trip its result;
-//! `--json` leaves one JSON value on stdout, the result or `{ "error": … }`;
-//! warnings and failures go to stderr; a failure exits with its group's
-//! row. One snapshot per command holds its exit code, stdout and stderr.
+//! The commands generated from the catalog, through Collie's executable
+//! (ADRs 0024, 0069 and 0099): `<namespace> <member>`, a value's ID first
+//! and `--<parameter>` flags; an opener prints the new value's ID, a round
+//! trip its result; `--json` leaves one JSON value on stdout, the result or
+//! `{ "error": … }`; warnings and failures go to stderr; a failure exits
+//! with its group's row. Each command runs in an rstest case per mode, on
+//! an Attached engine in the executable's own process and as a Client of
+//! the Daemon, and both cases share one snapshot of its exit code, stdout
+//! and stderr (ADR 0069).
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use goodfetch_test_support::{
-    SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
+    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
 use rstest::rstest;
 use serde_json::json;
@@ -18,14 +20,31 @@ use sha2::{Digest as _, Sha256};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// Starts the Run `run_id` with `run start`, on an Attached engine that
-/// stops it as the command ends.
+/// Starts the Run `run_id` with `run start --attached`, on an Attached
+/// engine that stops it as the command ends.
 pub(crate) fn start(env: &TestEnv, run_id: &str) {
     let output = cli(env, COLLIE)
         .args(["run", "start", "--run-id", run_id])
+        .mode(Mode::Attached)
         .run()
         .unwrap();
     assert_eq!(output.exit, Some(0), "{output}");
+}
+
+/// `output` without the engine's dispatch records, which an Attached
+/// engine writes on the command's stderr and a Daemon in its own log, so
+/// that both modes share one snapshot of what the command itself prints.
+fn printed(mut output: CliOutput) -> CliOutput {
+    output.stderr = output
+        .stderr
+        .lines()
+        .filter(|line| !line.contains("goodfetch::rpc::dispatch"))
+        .fold(String::new(), |mut kept, line| {
+            kept.push_str(line);
+            kept.push('\n');
+            kept
+        });
+    output
 }
 
 /// The folder of the Run `run_id` that `run start` made in the test's
@@ -64,17 +83,23 @@ pub(crate) fn store_body(env: &TestEnv, run_id: &str, bytes: &[u8]) -> String {
 }
 
 /// Covers: story:11-197, command:engine.info
-#[test]
-fn engine_info_prints_the_engines_product_and_versions_one_field_per_line() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn engine_info_prints_the_engines_product_and_versions_one_field_per_line(#[case] mode: Mode) {
     let env = TestEnv::new();
 
-    let output = cli(&env, COLLIE).args(["engine", "info"]).run().unwrap();
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info"])
+        .mode(mode)
+        .run()
+        .unwrap();
 
     snapshot_settings(
         &SnapshotValues::of(&env).with_executable(env!("CARGO_PKG_VERSION"), "no-commit"),
     )
     .bind(|| {
-        assert_cli_snapshot!(output, @r#"
+        assert_cli_snapshot!(printed(output), @r"
         exit: 0
         ----- stdout -----
         product: collie
@@ -82,19 +107,20 @@ fn engine_info_prints_the_engines_product_and_versions_one_field_per_line() {
         product_version: [PRODUCT_VERSION]
         protocol_version: 0.1
         ----- stderr -----
-        [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-        [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="engine.info"
-        "#);
+        ");
     });
 }
 
 /// Covers: story:11-204, command:engine.info
-#[test]
-fn engine_info_json_prints_the_engine_info_and_nothing_else() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn engine_info_json_prints_the_engine_info_and_nothing_else(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
         .args(["engine", "info", "--json"])
+        .mode(mode)
         .json("EngineInfo")
         .unwrap();
 
@@ -103,36 +129,40 @@ fn engine_info_json_prints_the_engine_info_and_nothing_else() {
 }
 
 /// Covers: story:11-197, command:run.start
-#[test]
-fn run_start_prints_the_new_runs_id() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_start_prints_the_new_runs_id(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let output = cli(&env, COLLIE)
         .args(["run", "start", "--run-id", "first"])
+        .mode(mode)
         .run()
         .unwrap();
 
-    assert_cli_snapshot!(output, @r#"
+    assert_cli_snapshot!(printed(output), @r"
     exit: 0
     ----- stdout -----
     first
     ----- stderr -----
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="run.start"
-    "#);
+    ");
 }
 
 /// Covers: story:11-204, command:run.start
-#[test]
-fn run_start_json_prints_the_run_started() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_start_json_prints_the_run_started(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
         .args(["run", "start", "--run-id", "first", "--json"])
+        .mode(mode)
         .json("RunStarted")
         .unwrap();
 
-    assert_cli_snapshot!(checked.output, @r#"
+    assert_cli_snapshot!(printed(checked.output), @r#"
     exit: 0
     ----- stdout -----
     {
@@ -142,27 +172,34 @@ fn run_start_json_prints_the_run_started() {
       "started_as": "new"
     }
     ----- stderr -----
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="run.start"
     "#);
 }
 
 /// Covers: story:11-197, story:11-204, command:run.finish
-#[test]
-fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "finish", "first", "--json"])
+        .mode(mode)
         .json("RunReport")
         .unwrap();
 
-    assert_cli_snapshot!(checked.output, @r#"
+    assert_cli_snapshot!(printed(checked.output), @r#"
     exit: 20
     ----- stdout -----
     {
       "completeness": "incomplete",
+      "completeness_reasons": [
+        {
+          "code": "stopped",
+          "message": "It stopped early: aborted by its Client."
+        }
+      ],
       "ended_at": "[INSTANT]",
       "lifecycle": "stopped",
       "run_id": "first",
@@ -171,48 +208,61 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped() {
         "by": "client",
         "kind": "abort"
       },
+      "usage": {
+        "browser_time": 0,
+        "model": {
+          "calls": 0,
+          "tokens": 0
+        },
+        "proxy_bytes": 0,
+        "requests": 0
+      },
       "verdict": "verified"
     }
     ----- stderr -----
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="run.finish"
     "#);
 }
 
 /// Covers: command:run.abort
-#[test]
-fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let output = cli(&env, COLLIE)
         .args(["run", "abort", "first"])
+        .mode(mode)
         .run()
         .unwrap();
 
-    assert_cli_snapshot!(output, @r#"
+    assert_cli_snapshot!(printed(output), @r#"
     exit: 20
     ----- stdout -----
     completeness: incomplete
+    completeness_reasons: [{"code":"stopped","message":"It stopped early: aborted by its Client."}]
     ended_at: [INSTANT]
     lifecycle: stopped
     run_id: first
     started_at: [INSTANT]
     stop_reason: {"by":"client","kind":"abort"}
+    usage: {"browser_time":0,"model":{"calls":0,"tokens":0},"proxy_bytes":0,"requests":0}
     verdict: verified
     ----- stderr -----
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="run.abort"
     "#);
 }
 
 /// Covers: story:11-204, command:run.finish
-#[test]
-fn a_failed_call_under_json_prints_the_error_with_its_code_group_and_operation() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn a_failed_call_under_json_prints_the_error_with_its_code_group_and_operation(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
         .args(["run", "finish", "missing", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -230,26 +280,37 @@ fn a_failed_call_under_json_prints_the_error_with_its_code_group_and_operation()
             &json!("run.finish")
         )
     );
-    assert_cli_snapshot!(checked.output);
+    assert_cli_snapshot!(
+        "a_failed_call_under_json_prints_the_error_with_its_code_group_and_operation",
+        printed(checked.output)
+    );
 }
 
 /// Covers: command:run.finish
-#[test]
-fn a_failed_call_prints_its_message_code_and_retryability_on_stderr() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn a_failed_call_prints_its_message_code_and_retryability_on_stderr(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let output = cli(&env, COLLIE)
         .args(["run", "finish", "missing"])
+        .mode(mode)
         .run()
         .unwrap();
 
     assert_eq!((output.exit, output.stdout.as_str()), (Some(3), ""));
-    assert_cli_snapshot!(output);
+    assert_cli_snapshot!(
+        "a_failed_call_prints_its_message_code_and_retryability_on_stderr",
+        printed(output)
+    );
 }
 
 /// Covers: story:11-198, command:page.body
-#[test]
-fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
     let body = store_body(&env, "first", b"hello");
@@ -258,27 +319,179 @@ fn page_body_follow_prints_each_chunk_on_one_line_as_it_arrives() {
         .args([
             "page", "body", "--run-id", "first", "--body", &body, "--follow",
         ])
+        .mode(mode)
         .run()
         .unwrap();
 
-    assert_cli_snapshot!(output, @r#"
+    assert_cli_snapshot!(printed(output), @r"
     exit: 0
     ----- stdout -----
     data=aGVsbG8= offset=0
     ----- stderr -----
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="page.body"
-    "#);
+    ");
+}
+
+/// Covers: command:run.usage
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_usage_answers_what_the_run_used(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "usage", "first", "--json"])
+        .mode(mode)
+        .json("RunUsage")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]),
+        (
+            Some(0),
+            &json!({
+                "browser_time": 0,
+                "model": { "calls": 0, "tokens": 0 },
+                "proxy_bytes": 0,
+                "requests": 0
+            })
+        ),
+        "{}",
+        checked.output
+    );
+}
+
+/// `run start` stops its Run when its engine exits with its Connection:
+/// no engine works it, and its progress is the last value, which says how
+/// it ended.
+///
+/// Covers: story:3-161, command:run.progress
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_progress_answers_the_last_progress_of_a_run_that_ended(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "progress", "first", "--json"])
+        .mode(mode)
+        .json("RunProgress")
+        .unwrap();
+
+    let progress = &checked.documents[0];
+    assert_eq!(
+        (
+            checked.output.exit,
+            [
+                &progress["writer"],
+                &progress["lifecycle"],
+                &progress["stop_reason"],
+                &progress["last"]
+            ]
+        ),
+        (
+            Some(0),
+            [
+                &json!("none"),
+                &json!("stopped"),
+                &json!({ "kind": "abort", "by": "client" }),
+                &json!(true)
+            ]
+        ),
+        "{}",
+        checked.output
+    );
+}
+
+/// Covers: story:3-165, command:run.report
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_report_answers_the_report_of_a_run_that_ended_at_once(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args(["run", "report", "first", "--json"])
+        .mode(mode)
+        .json("RunReport")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]["lifecycle"]),
+        (Some(20), &json!("stopped")),
+        "{}",
+        checked.output
+    );
+}
+
+/// `run list` answers the Run index's rows its flags name, in their
+/// order, from the engine's own filter.
+///
+/// Covers: story:12-12, command:run.list
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_list_answers_the_rows_its_filter_names_in_its_order(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+    start(&env, "second");
+
+    let all = cli(&env, COLLIE)
+        .args([
+            "run",
+            "list",
+            "--sort",
+            "run_id",
+            "--order",
+            "ascending",
+            "--json",
+        ])
+        .mode(mode)
+        .json("RunList")
+        .unwrap();
+    let matched = cli(&env, COLLIE)
+        .args(["run", "list", "--text", "SEC", "--json"])
+        .mode(mode)
+        .json("RunList")
+        .unwrap();
+
+    let ids = |runs: &serde_json::Value| -> Vec<String> {
+        runs["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|run| run["run_id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        (
+            all.output.exit,
+            ids(&all.documents[0]),
+            ids(&matched.documents[0])
+        ),
+        (
+            Some(0),
+            vec!["first".to_owned(), "second".to_owned()],
+            vec!["second".to_owned()]
+        ),
+        "{}",
+        all.output
+    );
 }
 
 /// Covers: command:run.checkpoint
-#[test]
-fn run_checkpoint_writes_the_runs_checkpoint_and_answers_where() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_checkpoint_writes_the_runs_checkpoint_and_answers_where(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "checkpoint", "first", "--json"])
+        .mode(mode)
         .json("Checkpoint")
         .unwrap();
 
@@ -306,12 +519,18 @@ fn run_checkpoint_writes_the_runs_checkpoint_and_answers_where() {
 #[case::pause("pause")]
 /// Covers: command:run.migrate
 #[case::migrate("migrate")]
-fn a_command_that_ends_a_run_answers_an_ended_runs_report_as_it_is(#[case] command: &str) {
+/// Covers: command:run.stop
+#[case::stop("stop")]
+fn a_command_that_ends_a_run_answers_an_ended_runs_report_as_it_is(
+    #[case] command: &str,
+    #[values(Mode::Attached, Mode::Daemon)] mode: Mode,
+) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let checked = cli(&env, COLLIE)
         .args(["run", command, "first", "--json"])
+        .mode(mode)
         .json("RunReport")
         .unwrap();
 
@@ -335,8 +554,10 @@ fn a_command_that_ends_a_run_answers_an_ended_runs_report_as_it_is(#[case] comma
 /// answers null.
 ///
 /// Covers: command:key-value-store.get
-#[test]
-fn key_value_store_get_answers_null_for_a_key_never_set() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn key_value_store_get_answers_null_for_a_key_never_set(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
@@ -350,6 +571,7 @@ fn key_value_store_get_answers_null_for_a_key_never_set() {
             "progress",
             "--json",
         ])
+        .mode(mode)
         .json("KeyValueStoreValue")
         .unwrap();
 
@@ -361,11 +583,46 @@ fn key_value_store_get_answers_null_for_a_key_never_set() {
     );
 }
 
+/// Bytes read from the store of a Run no engine holds: a key never set
+/// answers null.
+///
+/// Covers: command:key-value-store.get-bytes
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn key_value_store_get_bytes_answers_null_for_a_key_never_set(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    start(&env, "first");
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "key-value-store",
+            "get-bytes",
+            "--run-id",
+            "first",
+            "--key",
+            "logo",
+            "--json",
+        ])
+        .mode(mode)
+        .json("KeyValueStoreBytesValue")
+        .unwrap();
+
+    assert_eq!(
+        (checked.output.exit, &checked.documents[0]),
+        (Some(0), &json!({ "bytes": null })),
+        "{}",
+        checked.output
+    );
+}
+
 /// A store nothing was written to sends no key.
 ///
 /// Covers: command:key-value-store.keys
-#[test]
-fn key_value_store_keys_sends_none_from_a_store_never_written() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn key_value_store_keys_sends_none_from_a_store_never_written(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
@@ -378,6 +635,7 @@ fn key_value_store_keys_sends_none_from_a_store_never_written() {
             "--follow",
             "--json",
         ])
+        .mode(mode)
         .run()
         .unwrap();
 
@@ -395,9 +653,15 @@ fn key_value_store_keys_sends_none_from_a_store_never_written() {
 #[case::set(&["set", "--value", "1"], "key_value_store.set")]
 /// Covers: command:key-value-store.delete
 #[case::delete(&["delete"], "key_value_store.delete")]
+/// Covers: command:key-value-store.set-bytes
+#[case::set_bytes(
+    &["set-bytes", "--content", "aGk=", "--content-type", "text/plain"],
+    "key_value_store.set_bytes"
+)]
 fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
     #[case] command: &[&str],
     #[case] operation: &str,
+    #[values(Mode::Attached, Mode::Daemon)] mode: Mode,
 ) {
     let env = TestEnv::new();
     start(&env, "first");
@@ -406,6 +670,7 @@ fn a_key_value_store_write_to_a_run_no_engine_holds_fails_with_run_not_found(
         .args(["key-value-store"])
         .args(command)
         .args(["--run-id", "first", "--key", "progress", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 

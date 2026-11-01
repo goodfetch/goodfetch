@@ -12,7 +12,13 @@
 //! events and chunks as the credits the Client grants with `$/credit` allow.
 //! Each Connection receives the engine's log events as `$/log` at the level
 //! its `hello` names, which `connection.set_log_level` changes.
+//! Dispatch takes each request's Trace context out of its params' `_meta`,
+//! refusing one with another key with `invalid_params`, and runs its
+//! handler in the request's `SERVER` span, which it alone opens; a handler
+//! request the engine sends has its `CLIENT` span, whose Trace context its
+//! `_meta` carries ([`crate::trace`], ADR 0132).
 
+pub mod event_stream;
 pub mod framing;
 
 mod connection;
@@ -20,10 +26,12 @@ mod handshake;
 mod stream;
 mod websocket;
 
+pub use self::stream::send_events;
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, Notification, RequestId, Response, Version,
+    ErrorResponse, META, Notification, ProtocolFailure, RequestId, Response, TraceContext, Version,
 };
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
 use serde_json::Value;
@@ -31,9 +39,13 @@ use serde_json::Value;
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
-pub use connection::REFUSAL_TARGET;
-pub(crate) use connection::{Access, Dispatch, serve};
+pub use connection::CONSOLE_LISTENER;
+pub(crate) use connection::{
+    Access, ConsoleConnection, ConsoleSide, Dispatch, serve, serve_console,
+};
+pub use handshake::version_refusal;
 pub use websocket::Authorities;
+pub(crate) use websocket::{ConsoleSocket, Refusal};
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.
@@ -79,12 +91,18 @@ fn record_event(event: &str) {
 
 /// The line of the notification `method` with `params`.
 pub(crate) fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
+    notification_value_line(
+        method,
+        serde_json::to_value(params).expect("invariant: a notification's params encode"),
+    )
+}
+
+/// The line of the notification `method` with `params`, already a value.
+pub(crate) fn notification_value_line(method: &str, params: Value) -> Vec<u8> {
     line(&Notification {
         jsonrpc: Version,
         method: method.to_owned(),
-        params: Some(
-            serde_json::to_value(params).expect("invariant: a notification's params encode"),
-        ),
+        params: Some(params),
     })
 }
 
@@ -110,19 +128,10 @@ fn success_line(id: RequestId, result: Value) -> Vec<u8> {
 
 /// The line of a failure, the one conversion of an error for the wire.
 fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
-    let (code, retryable, details) = error.wire_parts();
     line(&ErrorResponse {
         jsonrpc: Version,
         id,
-        error: ErrorObject {
-            code,
-            message: error.message().to_owned(),
-            data: ErrorData {
-                code: error.code().to_owned(),
-                retryable,
-                details,
-            },
-        },
+        error: error.to_error_object(),
     })
 }
 
@@ -131,4 +140,36 @@ fn line(message: &impl serde::Serialize) -> Vec<u8> {
         serde_json::to_vec(message).expect("invariant: a message of JSON values always encodes");
     line.push(b'\n');
     line
+}
+
+/// Takes the Trace context out of a request's `params`, which then go to
+/// its handler without it: none when they hold no `_meta`, and
+/// `invalid_params` when their `_meta` holds a key other than
+/// `traceparent` and `tracestate` or a value that is no string (ADRs 0077
+/// and 0132).
+fn trace_context(
+    params: Option<Value>,
+) -> Result<(Option<Value>, Option<TraceContext>), CallError> {
+    let mut members = match params {
+        Some(Value::Object(members)) => members,
+        params => return Ok((params, None)),
+    };
+    let Some(meta) = members.remove(META) else {
+        return Ok((Some(Value::Object(members)), None));
+    };
+    let refused = |error: String| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "`{META}` is an object of `traceparent` and `tracestate`, each a string: {error}"
+            ),
+        )
+    };
+    // serde would read a struct from an array too, which the schema refuses.
+    if !meta.is_object() {
+        return Err(refused("it is no object".to_owned()));
+    }
+    let meta =
+        serde_json::from_value::<TraceContext>(meta).map_err(|error| refused(error.to_string()))?;
+    Ok((Some(Value::Object(members)), Some(meta)))
 }

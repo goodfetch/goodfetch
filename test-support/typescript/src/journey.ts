@@ -32,7 +32,12 @@ import type { OracleAnswer } from "./generated/result-document.ts";
 import { journeyDocument } from "./journey-document.ts";
 import { JOURNEY_CATALOG, readJourneyFile, type JourneyFile } from "./journey-file.ts";
 import { JourneyRun, type JourneyBody, type TaskSubmission } from "./journey-run.ts";
-import { test as served, type ServedDaemon, type SignIn } from "./playwright.ts";
+import {
+  test as served,
+  type PageErrorWatch,
+  type ServedDaemon,
+  type SignIn,
+} from "./playwright.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
 import { JOURNEY_FACTS } from "./result-document-reporter.ts";
@@ -45,9 +50,9 @@ export interface JourneyContext {
   readonly step: (wording: string, body: JourneyBody) => Promise<void>;
   /** Runs the check the Journey words `wording`, one that names no task, and records its outcome. */
   readonly check: (wording: string, body: JourneyBody) => Promise<void>;
-  /** Submits the tool's result for a task the Journey names to the oracle, and records its answer and the checks naming it. */
+  /** Submits the tool's result for the check the Journey words `wording`, one that names a task, to the oracle, and records that check from its answer. */
   readonly expectTask: (
-    task: string,
+    wording: string,
     submission: TaskSubmission,
   ) => Promise<OracleAnswer | undefined>;
   /** Runs the variant's executable with `args`, in its home and cleared environment, as a step pinned `on = "cli"` does. */
@@ -59,6 +64,8 @@ export interface JourneyContext {
   readonly page: Page;
   readonly context: BrowserContext;
   readonly signIn: SignIn;
+  /** What the variant's pages did wrong, for a step that expects a refusal, such as a page reconnecting to a stopped Daemon. */
+  readonly failOnErrors: PageErrorWatch;
 }
 
 /** How a variant runs, beyond its Journey and surface. */
@@ -67,6 +74,8 @@ export interface JourneyOptions {
   readonly file?: string | undefined;
   /** The executable the variant runs, in place of the test tool manifest's of the Journey's Product, for a skew run. */
   readonly engine?: string | undefined;
+  /** Whether its Console keeps one port across its Daemon's restarts, as the `namedConsolePort` fixture option says. */
+  readonly namedConsolePort?: boolean | undefined;
 }
 
 /** The variant a test runs: its Journey and surface. */
@@ -141,25 +150,28 @@ export function journey(
     variantTest.use({
       journeyVariant: { journey: read, surface },
       product: read.product,
-      // The Journey's own seed, never the test's (ADR 0063).
-      provingGroundSeed: read.proving_ground?.seed ?? undefined,
+      // The Journey's own seed, never the test's (ADR 0063); `null`, not
+      // `undefined`, for none, which would take the project's seed.
+      provingGroundSeed: read.proving_ground?.seed ?? null,
       ...(options.engine === undefined ? {} : { engine: options.engine }),
+      ...(options.namedConsolePort === true ? { namedConsolePort: true } : {}),
     });
     variantTest(
       read.title,
       { tag: [`@${id}`, `@${surface}`], annotation: { type: "journey", description: variant } },
-      async ({ variantRun, daemon, page, context, signIn }) => {
+      async ({ variantRun, daemon, page, context, signIn, failOnErrors }) => {
         const { run, cli } = variantRun;
         await body({
           step: (wording, stepBody) => run.step(wording, () => served.step(wording, stepBody)),
           check: (wording, checkBody) => run.check(wording, () => served.step(wording, checkBody)),
-          expectTask: (task, submission) => run.expectTask(task, submission),
+          expectTask: (wording, submission) => run.expectTask(wording, submission),
           cli,
           daemon,
           provingGround: daemon.provingGround,
           page,
           context,
           signIn,
+          failOnErrors,
         });
         const facts = run.facts();
         const outcome = journeyDocument(facts).outcome;

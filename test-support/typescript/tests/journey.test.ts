@@ -11,11 +11,10 @@
 // case's own, which `goodfetch-conformance read --journey` loads as every
 // reader does: through `goodfetch-protocol`'s reader, then compared with
 // its Journey.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, onTestFinished } from "vitest";
+import { describe, expect } from "vitest";
 import {
   test,
   toolPath,
@@ -23,9 +22,8 @@ import {
   type ProcessRecord,
   type TestEnvDescription,
 } from "@goodfetch/test-support";
+import { runRepositoryPlaywright } from "./repository-playwright.ts";
 
-const ROOT = join(import.meta.dirname, "..", "..", "..");
-const CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
 const JOURNEYS = join(import.meta.dirname, "fixtures", "journeys");
 
 /** An `import` of a module of this package, by its absolute URL. */
@@ -76,7 +74,7 @@ function j962(price?: string): string {
   await check("The Console names the Daemon's Product", () =>
     expect(page.getByRole("heading", { level: 1 })).toHaveText("Foxhound's Daemon"),
   );
-  await expectTask("catalog/2", {
+  await expectTask("The oracle verifies the product's Record", {
     status: "success",
     records: [${price === undefined ? "record" : `{ ...record, price: ${JSON.stringify(price)} }`}],
   });`;
@@ -94,41 +92,37 @@ interface Ran {
   readonly refusal: string;
 }
 
-/** Runs `spec` under the repository's configuration and reads the document of `journey`'s `console` variant. */
+/**
+ * A configuration that is the repository's with every project setting
+ * `provingGroundSeed: 7`, as a Console conformance project does.
+ */
+const SEEDED_CONFIG = `import config from "./playwright.config.ts";
+
+export default {
+  ...config,
+  projects: (config.projects ?? []).map((project) => ({
+    ...project,
+    use: { ...project.use, provingGroundSeed: 7 },
+  })),
+};
+`;
+
+/** Runs `spec` under the repository's configuration, or `config`'s text built on it, and reads the document of `journey`'s `console` variant. */
 async function run(
   processes: ProcessRecord,
   testEnv: TestEnvDescription,
   journey: string,
   specText: string,
   env: Readonly<Record<string, string>> = {},
+  config?: string,
 ): Promise<Ran> {
-  // Inside the repository, so the copied configuration finds `@playwright/test`.
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const project = mkdtempSync(join(ROOT, "target", "journey-test-"));
-  onTestFinished(() => rmSync(project, { recursive: true, force: true }));
-  copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
-  mkdirSync(join(project, "features"));
-  copyFileSync(
-    join(ROOT, "features", "inventory.json"),
-    join(project, "features", "inventory.json"),
-  );
-  writeFileSync(join(project, "journey.spec.ts"), specText);
-  const documents = join(project, "result-documents");
-  const playwrightEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    GOODFETCH_TEST_SUITE: "pre-merge",
-    GOODFETCH_TEST_RESULT_DOCUMENTS: documents,
-    ...env,
-  };
-  delete playwrightEnv["PLAYWRIGHT_JUNIT_OUTPUT_FILE"];
-  const playwright = processes.spawn(
-    process.execPath,
-    [CLI, "test", "--config", "playwright.config.ts", "--workers", "1"],
-    { env: playwrightEnv, cwd: project },
-  );
-  playwright.child.stdout.resume();
-  playwright.child.stderr.resume();
-  const { code } = await playwright.exit;
+  const { documents, code } = await runRepositoryPlaywright(processes, {
+    folder: "journey-test",
+    spec: { name: "journey.spec.ts", text: specText },
+    env,
+    ...(config === undefined ? {} : { config }),
+    workers: 1,
+  });
   const file = join(documents, `${journey}@console.json`);
   const reader = processes.spawn(
     toolPath(testEnv.tools, "conformance"),
@@ -166,6 +160,27 @@ describe("a console variant", () => {
     expect(ran.code).toBe(1);
   });
 
+  test("whose page logs a console error after every step and check passed is failed", async ({
+    processes,
+    testEnv,
+  }) => {
+    const ran = await run(
+      processes,
+      testEnv,
+      "J-961",
+      spec(
+        "J-961",
+        `${j961()}
+  await page.evaluate(() => console.error("an error once the checks passed"));`,
+      ),
+    );
+
+    expect(ran.code).toBe(1);
+    expect(ran.document.outcome).toBe("failed");
+    expect(ran.document.test_errors).toEqual([expect.stringContaining("page_errors")]);
+    expect(ran.read).toBe(0);
+  });
+
   test("whose task the oracle answers false_success is failed", async ({ processes, testEnv }) => {
     const ran = await run(processes, testEnv, "J-962", spec("J-962", j962("0.01")));
 
@@ -199,6 +214,27 @@ describe("a console variant", () => {
         `${j961()}
   expect(daemon.provingGround).toBeUndefined();`,
       ),
+    );
+
+    expect(ran.document.proving_ground).toBeUndefined();
+    expect(ran.code).toBe(0);
+  });
+
+  test("of a Journey with no Proving ground table starts none where the project sets a seed", async ({
+    processes,
+    testEnv,
+  }) => {
+    const ran = await run(
+      processes,
+      testEnv,
+      "J-961",
+      spec(
+        "J-961",
+        `${j961()}
+  expect(daemon.provingGround).toBeUndefined();`,
+      ),
+      {},
+      SEEDED_CONFIG,
     );
 
     expect(ran.document.proving_ground).toBeUndefined();

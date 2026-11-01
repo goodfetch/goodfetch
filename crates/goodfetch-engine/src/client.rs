@@ -7,16 +7,20 @@
 //! `$/cancel` and may still read the answer that comes (ADR 0093). A
 //! Connection's end fails every request still waiting with
 //! [`ClientRequestError::Gone`], which a run tells apart from a failed
-//! handler.
+//! handler. Each request is sent in a `CLIENT` span of its own, a child of
+//! the sender's span, whose Trace context its params' `_meta` carries while
+//! the engine exports its spans (ADR 0132).
 
 use std::marker::PhantomData;
 
 use goodfetch_protocol::catalog::HandlerRequest;
-use goodfetch_protocol::jsonrpc::{ErrorObject, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorObject, META, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::trace;
 
 /// How many handler requests wait for the Connection's writer before their
 /// senders wait.
@@ -78,6 +82,9 @@ pub struct Sent<R> {
     /// Where its reply comes, until it is read.
     replied: Option<oneshot::Receiver<Result<Value, ErrorObject>>>,
     requests: mpsc::Sender<Outgoing>,
+    /// Its `CLIENT` span, which ends once its answer is read or it is
+    /// dropped (ADR 0132).
+    span: tracing::Span,
     answer: PhantomData<fn() -> R>,
 }
 
@@ -105,8 +112,15 @@ impl Client {
         request: &'static HandlerRequest,
         params: &impl Serialize,
     ) -> Result<Sent<R>, ClientRequestError> {
-        let params = serde_json::to_value(params)
+        let span = trace::client_span(request.name);
+        let mut params = serde_json::to_value(params)
             .expect("invariant: a handler request's params encode as JSON");
+        if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
+            members.insert(
+                META.to_owned(),
+                serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
+            );
+        }
         let (sent, assigned) = oneshot::channel();
         let (reply, replied) = oneshot::channel();
         self.requests
@@ -119,10 +133,12 @@ impl Client {
             .await
             .map_err(|_| ClientRequestError::Gone)?;
         let id = assigned.await.map_err(|_| ClientRequestError::Gone)?;
+        trace::record_id(&span, &id);
         Ok(Sent {
             id,
             replied: Some(replied),
             requests: self.requests.clone(),
+            span,
             answer: PhantomData,
         })
     }
@@ -145,7 +161,13 @@ impl<R: DeserializeOwned> Sent<R> {
         let replied = self.replied.as_mut().ok_or(ClientRequestError::Gone)?;
         let answer = replied.await;
         self.replied = None;
-        match answer.map_err(|_| ClientRequestError::Gone)? {
+        let answer = answer.map_err(|_| ClientRequestError::Gone)?;
+        if let Err(error) = &answer {
+            trace::record_failure(&self.span, &error.data.code, error.code);
+        }
+        // The span ends with the answer.
+        self.span = tracing::Span::none();
+        match answer {
             Ok(result) => serde_json::from_value(result)
                 .map_err(|error| ClientRequestError::Malformed(error.to_string())),
             Err(error) => Err(ClientRequestError::Failed {

@@ -16,7 +16,7 @@ export interface CliOutput {
 /** Runs the Daemon's executable with `args` in the test's home and cleared environment. */
 export async function daemonCommand(
   processes: ProcessRecord,
-  daemon: ServedDaemon,
+  daemon: Pick<ServedDaemon, "executable" | "env">,
   args: readonly string[],
 ): Promise<CliOutput> {
   const started = processes.spawn(daemon.executable, args, { env: daemon.env });

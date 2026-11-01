@@ -41,7 +41,7 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     navigation/1 navigation/2 navigation/3 navigation/4 navigation/5 navigation/6 navigation/7 \
     agent/1 agent/2 agent/3 agent/4 agent/5 agent/6 agent/7 agent/8 agent/9 \
     replay/1 replay/2 \
-    extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 extraction/7 \
+    extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 extraction/7 extraction/8 extraction/9 extraction/10 \
     encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3 \
     adversarial/1 adversarial/2 adversarial/3 adversarial/4 protection/1 protection/2 \
     access/1 access/2 access/3 access/4 access/5 \
@@ -54,7 +54,9 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     access-policy/6 access-policy/7 access-policy/8 access-policy/9 \
     identity/1 identity/2 \
     content-coding/1 content-coding/2 content-coding/3 content-coding/4 content-coding/5 \
-    content-coding/6 content-coding/7 \
+    content-coding/6 content-coding/7 content-coding/8 content-coding/9 \
+    content-coding/10 content-coding/11 \
+    body-limits/1 body-limits/2 body-limits/3 body-limits/4 body-limits/5 body-limits/6 \
     redirects/1 redirects/2 redirects/3 redirects/4 redirects/5 redirects/6 redirects/7 \
     redirects/8 redirects/9 redirects/10 redirects/11 redirects/12 redirects/13 redirects/14 \
     redirects/15 redirects/16 redirects/17 redirects/18 redirects/19 \
@@ -63,6 +65,7 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     downloads/1 downloads/2 downloads/3 downloads/4 downloads/5 downloads/6 downloads/7 \
     downloads/8 downloads/9 downloads/10 downloads/11 downloads/12 downloads/13 downloads/14 \
     downloads/15 downloads/16 downloads/17 downloads/18 \
+    bombs/1 bombs/2 bombs/3 bombs/4 bombs/5 bombs/6 \
     canaries/1 canaries/2 canaries/3 canaries/4";
 
 /// Each task's kind, in the same order.
@@ -74,7 +77,7 @@ const KINDS: &str = "crawl extract submit \
     act act act act act act download \
     submit extract extract extract extract extract extract extract extract \
     extract extract \
-    crawl extract crawl crawl extract crawl crawl \
+    crawl extract crawl crawl extract crawl crawl crawl crawl crawl \
     crawl crawl crawl extract crawl extract extract \
     extract submit extract extract crawl extract \
     extract extract extract extract crawl \
@@ -84,12 +87,14 @@ const KINDS: &str = "crawl extract submit \
     crawl crawl crawl crawl crawl crawl \
     crawl crawl crawl crawl crawl crawl crawl crawl crawl \
     crawl crawl \
-    extract extract extract extract extract extract extract \
+    extract extract extract extract extract extract extract extract extract extract extract \
+    extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract \
     download download download download download download download download download download \
     download download download download download download download download \
+    extract extract extract extract extract extract \
     crawl crawl crawl crawl";
 
 #[test]

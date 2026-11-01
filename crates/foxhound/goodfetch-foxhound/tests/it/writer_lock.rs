@@ -29,10 +29,13 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use crate::governor::in_flight_whatever_the_machine;
+
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// How many work items the crawl has, each one `crawl_request.handle`
-/// request the engine sends at once, the handler never answering.
+/// request the engine sends at once, the handler never answering: the
+/// home's governor keeps this many in flight whatever the machine.
 const WORK_ITEMS: u32 = 5;
 
 fn hello() -> Value {
@@ -46,8 +49,9 @@ fn hello() -> Value {
 /// test support asks and on stderr: piped when `read`, as `StrictStdout`
 /// wants, and otherwise nowhere, since nothing reads it before the kill.
 fn engine(env: &TestEnv, read: bool) -> Process {
+    env.log_level("trace");
     let mut command = env.process_command(FOXHOUND);
-    command.arg("attached-engine").env("GOODFETCH_LOG", "trace");
+    command.arg("attached-engine");
     if read {
         command.stderr(Stdio::piped());
     } else {
@@ -133,6 +137,7 @@ fn a_readers_test_racing_a_takeover_of_a_killed_engines_crawl_never_fails_the_wr
     #[case] seed: Option<u64>,
 ) {
     let env = TestEnv::new();
+    env.user_configuration(&in_flight_whatever_the_machine(WORK_ITEMS));
     let moment = Moment::drawn(
         seed.unwrap_or(env.seed()),
         &["crawl_request.handle"],

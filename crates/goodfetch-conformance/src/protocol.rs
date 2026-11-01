@@ -12,10 +12,14 @@
 //! messages it exchanged become a case log entry, and the writer turns the
 //! log into the result document: a case after the target closed the
 //! Connection is not reached, which leaves its capability `unproved`.
+//!
+//! The Cloud-readiness suite's gateway target kind (`gateway`) reaches a
+//! gateway by address over the same Connections.
 
 mod cases;
 mod connection;
 mod fabricated;
+mod gateway;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
@@ -31,6 +35,10 @@ use serde_json::{Value, json};
 use self::cases::{Case, Checks, Site};
 use self::connection::{Connection, Gone};
 pub use self::fabricated::{FabricatedHelloError, FabricatedHelloOutcome, send_fabricated_hello};
+pub use self::gateway::{
+    GatewayAddress, GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget,
+    run_gateway_suite,
+};
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability};
 use crate::host::{RUNTIME, platform};
@@ -47,6 +55,12 @@ const PAGE_CASES: &str = include_str!("../../../conformance/page/cases.toml");
 
 /// The delivery suite's case list, embedded the same way.
 const DELIVERY_CASES: &str = include_str!("../../../conformance/delivery/cases.toml");
+
+/// The fetch suite's case list, embedded the same way.
+const FETCH_CASES: &str = include_str!("../../../conformance/fetch/cases.toml");
+
+/// The reset gate's case list, embedded the same way.
+const RESET_CASES: &str = include_str!("../../../conformance/reset/cases.toml");
 
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
@@ -81,6 +95,18 @@ impl ProtocolSuite {
     /// leases, on Foxhound's executable.
     pub fn delivery() -> Self {
         Self::read(DELIVERY_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/fetch/cases.toml`: the tier that fetches a crawl
+    /// request's document, on Foxhound's executable.
+    pub fn fetch() -> Self {
+        Self::read(FETCH_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/reset/cases.toml`: ADR 0001's reset gate, a discarded
+    /// Run leaving none of its state or secrets behind.
+    pub fn reset() -> Self {
+        Self::read(RESET_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.
@@ -119,6 +145,43 @@ impl ProtocolSuite {
     pub fn case_list(&self) -> &CaseList {
         &self.cases
     }
+
+    /// The suite narrowed to the capabilities `names` names, each with all
+    /// its cases, in the suite's own order: a part of a long suite that a
+    /// test runs, and times out, on its own. Its document lists those
+    /// capabilities alone, under the suite's name and version, so each case
+    /// keeps its key in the Feature report.
+    ///
+    /// # Errors
+    ///
+    /// When a name is no capability the suite declares.
+    pub fn with_capabilities(&self, names: &[&str]) -> Result<Self, SuiteError> {
+        if let Some(unknown) = names.iter().find(|name| {
+            !self
+                .cases
+                .capabilities
+                .iter()
+                .any(|capability| capability.name == **name)
+        }) {
+            return Err(SuiteError::UnknownCapability {
+                suite: self.cases.suite.name.clone(),
+                capability: (*unknown).to_owned(),
+            });
+        }
+        Ok(Self {
+            product: self.product,
+            cases: CaseList {
+                suite: self.cases.suite.clone(),
+                capabilities: self
+                    .cases
+                    .capabilities
+                    .iter()
+                    .filter(|capability| names.contains(&capability.name.as_str()))
+                    .cloned()
+                    .collect(),
+            },
+        })
+    }
 }
 
 /// Why a protocol suite's case list was refused.
@@ -133,6 +196,14 @@ pub enum SuiteError {
     UnknownCase {
         /// Its ID.
         case: String,
+    },
+    /// A suite was narrowed to a capability it does not declare.
+    #[error("the suite `{suite}` declares no capability `{capability}`")]
+    UnknownCapability {
+        /// The suite's name.
+        suite: String,
+        /// The name it does not declare.
+        capability: String,
     },
 }
 
@@ -181,8 +252,16 @@ pub enum ProtocolSuiteError {
     Write(#[from] WriteError),
 }
 
+/// The variable of the target's environment that holds the password of the
+/// Proving ground's proxies, when it serves them: the harness sets it, so a
+/// case's Session names it through the `env:` Secret provider. It is no
+/// `GOODFETCH_` variable, a name the engine refuses unless it deploys it.
+pub const PROXY_PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
+
 /// Runs `suite` against `target` and the running `proving_ground`, and
-/// returns its result document.
+/// returns its result document. The target starts with
+/// [`PROXY_PASSWORD_VARIABLE`] added to its environment when the Proving
+/// ground's proxies take credentials.
 ///
 /// # Errors
 ///
@@ -196,6 +275,17 @@ pub fn run_protocol_suite(
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
     let reached = Site::of(&task_list, proving_ground);
+    // The harness gives the target the password of the Proving ground's
+    // proxies, which a case's Session reads through the `env:` Secret
+    // provider, as a program's own environment would hold it.
+    let mut given = target.clone();
+    if let Some(credentials) = reached.proxy_credentials() {
+        given.environment.insert(
+            PROXY_PASSWORD_VARIABLE.to_owned(),
+            credentials.password.clone(),
+        );
+    }
+    let target = &given;
     let mut connection = Connection::new(target::Started::start(target)?);
     let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,
@@ -281,20 +371,34 @@ fn stop(connection: &mut Connection, mode: EngineMode) {
 /// Opens the Connection with `hello`, announcing `product`, and checks that
 /// the engine runs as that Product.
 fn hello(connection: &mut Connection, product: Product) -> Result<HelloResult, ProtocolSuiteError> {
+    hello_as(connection, product, Surface::Rust)
+}
+
+/// Opens the Connection with `hello`, announcing `product` from a Client of
+/// `surface`, such as an Agent's through the MCP server, and checks that
+/// the engine runs as that Product.
+pub(crate) fn hello_as(
+    connection: &mut Connection,
+    product: Product,
+    surface: Surface,
+) -> Result<HelloResult, ProtocolSuiteError> {
     let params = HelloParams {
         protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Rust,
+        surface,
+        form: None,
         token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .expect("invariant: the workspace's version is a Product version"),
         log_level: None,
+        client_surface: None,
     };
     let params = serde_json::to_value(params).expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| ProtocolSuiteError::HelloUnanswered {
         reason: why.to_string(),
     };
     let id = connection.request(HELLO, &params).map_err(unanswered)?;
+    connection.set_for_model(surface.acts_for_model());
     let answer = connection.first_answer(id).map_err(unanswered)?.message;
     if let Some(error) = answer.get("error") {
         return Err(ProtocolSuiteError::HelloRefused {

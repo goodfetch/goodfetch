@@ -8,8 +8,9 @@
 //! change, a "Needs you" item) is never dropped without notice: each
 //! subscription takes them in the order they were published, and one whose
 //! queue is full falls behind instead, its queued lossless events dropped,
-//! and next takes `events.resync`, the axes of every Run the stream has
-//! reported, then the stream (ADRs 0024 and 0031). A telemetry event
+//! and next takes `events.resync`, the axes of every live Run the stream
+//! has reported and every item of "Needs you" it lists, then the stream
+//! (ADRs 0024 and 0031). A telemetry event
 //! (progress, logs) replaces the unsent one of the same kind and scope in
 //! each queue, which the one sent counts as `dropped`. A subscription that
 //! names the position its Client last read resumes after it from the kept
@@ -25,7 +26,9 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::{Event, EventClass};
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
-use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
+use goodfetch_protocol::governor::SYSTEM_INFO;
+use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouItem};
+use goodfetch_protocol::run::{Lifecycle, RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{Semaphore, mpsc, oneshot};
@@ -84,6 +87,7 @@ enum Command {
     Publish(Publish),
     Subscribe {
         after: Option<LastRead>,
+        system_info: bool,
         alive: oneshot::Receiver<()>,
         answer: oneshot::Sender<u64>,
     },
@@ -99,8 +103,56 @@ struct Publish {
     event: &'static Event,
     scope: Option<String>,
     data: Value,
-    axes: Option<RunAxes>,
+    fold: Option<Fold>,
     accepted: oneshot::Sender<()>,
+}
+
+/// What a lossless event changes of the state a resync gives.
+enum Fold {
+    Axes(RunAxes),
+    NeedsYou(Box<NeedsYouChange>),
+}
+
+/// The state a resync gives: the axes of every live Run the stream has
+/// reported, and every item of "Needs you" it lists. A Run leaves it as it
+/// ends, its axes in the Run index, so an engine that runs Run after Run
+/// keeps none of theirs for its life (#1768).
+#[derive(Default)]
+struct Snapshot {
+    runs: BTreeMap<RunId, RunAxes>,
+    needs_you: BTreeMap<String, NeedsYouItem>,
+}
+
+impl Snapshot {
+    fn fold(&mut self, fold: Fold) {
+        match fold {
+            Fold::Axes(axes) if axes.lifecycle == Lifecycle::Running => {
+                self.runs.insert(axes.run_id.clone(), axes);
+            }
+            Fold::Axes(axes) => {
+                self.runs.remove(&axes.run_id);
+            }
+            Fold::NeedsYou(change) => match *change {
+                NeedsYouChange::Listed { item } => {
+                    self.needs_you.insert(item.id.clone(), item);
+                }
+                NeedsYouChange::Removed { id, .. } => {
+                    self.needs_you.remove(&id);
+                }
+            },
+        }
+    }
+
+    fn resync(&self) -> Resync {
+        let mut needs_you: Vec<NeedsYouItem> = self.needs_you.values().cloned().collect();
+        needs_you.sort_by(|left, right| {
+            (left.since.as_str(), &left.id).cmp(&(right.since.as_str(), &right.id))
+        });
+        Resync {
+            runs: self.runs.values().cloned().collect(),
+            needs_you,
+        }
+    }
 }
 
 impl Events {
@@ -118,7 +170,7 @@ impl Events {
             last: 0,
             floor: 0,
             retained: VecDeque::new(),
-            runs: BTreeMap::new(),
+            snapshot: Snapshot::default(),
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
         };
@@ -162,7 +214,25 @@ impl Events {
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
         let data = serde_json::to_value(&axes).expect("invariant: a Run's axes encode as JSON");
         let scope = Some(axes.run_id.as_str().to_owned());
-        self.send(&RUN_AXES_CHANGED, scope, data, Some(axes)).await;
+        self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
+            .await;
+    }
+
+    /// Publishes a change of "Needs you" as `needs_you.changed`, which a
+    /// resync then reports.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Events::publish`]'s.
+    pub(crate) async fn publish_needs_you(&self, change: NeedsYouChange) {
+        let data = serde_json::to_value(&change).expect("invariant: a change of Needs you encodes");
+        self.send(
+            &NEEDS_YOU_CHANGED,
+            None,
+            data,
+            Some(Fold::NeedsYou(Box::new(change))),
+        )
+        .await;
     }
 
     async fn send(
@@ -170,40 +240,64 @@ impl Events {
         event: &'static Event,
         scope: Option<String>,
         data: Value,
-        axes: Option<RunAxes>,
+        fold: Option<Fold>,
     ) {
         let (accepted, acceptance) = oneshot::channel();
         let publish = Publish {
             event,
             scope,
             data,
-            axes,
+            fold,
             accepted,
         };
         if self.commands.send(Command::Publish(publish)).await.is_ok() {
-            let _ = acceptance.await;
+            let _ = self.answered(acceptance).await;
+        }
+    }
+
+    /// The stream's answer to a command sent to it, `None` once the stream
+    /// has stopped. Its end, not only the answer, ends the wait: a command
+    /// sent under a permit taken just before the stream stopped lands after
+    /// its mailbox was emptied, where the stream never reads it and the
+    /// channel keeps it, its answer's sender with it, while any handle
+    /// lives, such as the waiting caller's own.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses the answer.
+    async fn answered<T>(&self, answer: oneshot::Receiver<T>) -> Option<T> {
+        tokio::select! {
+            biased;
+            answered = answer => answered.ok(),
+            () = self.commands.closed() => None,
         }
     }
 
     /// Opens a subscription that resumes after `after`, or starts with the
-    /// next event; `None` once the stream has stopped.
+    /// next event, taking `engine.system_info` too when `system_info`;
+    /// `None` once the stream has stopped.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent opens a subscription the
     /// stream ends at its next event.
-    pub(crate) async fn subscribe(&self, after: Option<LastRead>) -> Option<Subscription> {
+    pub(crate) async fn subscribe(
+        &self,
+        after: Option<LastRead>,
+        system_info: bool,
+    ) -> Option<Subscription> {
         let (alive, watched) = oneshot::channel();
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Subscribe {
                 after,
+                system_info,
                 alive: watched,
                 answer,
             })
             .await
             .ok()?;
-        let id = answered.await.ok()?;
+        let id = self.answered(answered).await?;
         Some(Subscription {
             id,
             events: self.clone(),
@@ -231,7 +325,7 @@ impl Subscription {
             })
             .await
             .ok()?;
-        answered.await.ok()
+        self.events.answered(answered).await
     }
 }
 
@@ -292,6 +386,8 @@ struct Queue {
     telemetry: BTreeMap<(&'static str, Option<String>), EventEnvelope>,
     waiting: Option<(usize, oneshot::Sender<Vec<EventEnvelope>>)>,
     alive: oneshot::Receiver<()>,
+    /// Whether it takes `engine.system_info`.
+    system_info: bool,
 }
 
 impl Queue {
@@ -350,7 +446,7 @@ struct Stream {
     /// any position from it to `last`.
     floor: u64,
     retained: VecDeque<Arc<EventEnvelope>>,
-    runs: BTreeMap<RunId, RunAxes>,
+    snapshot: Snapshot,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
 }
@@ -362,10 +458,11 @@ impl Stream {
                 Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
                     after,
+                    system_info,
                     alive,
                     answer,
                 } => {
-                    let id = self.subscribe(after, alive);
+                    let id = self.subscribe(after, system_info, alive);
                     if answer.send(id).is_err() {
                         self.subscriptions.remove(&id);
                     }
@@ -377,7 +474,7 @@ impl Stream {
                 } => {
                     if let Some(queue) = self.subscriptions.get_mut(&subscription) {
                         queue.waiting = Some((most, answer));
-                        serve(queue, &mut self.last, &self.runs);
+                        serve(queue, &mut self.last, &self.snapshot);
                     }
                 }
                 Command::Unsubscribe(subscription) => {
@@ -393,9 +490,15 @@ impl Stream {
             event,
             scope,
             data,
-            axes,
+            fold,
             accepted,
         } = publish;
+        let opted_in = event.name == SYSTEM_INFO.name;
+        if opted_in && !self.subscriptions.values().any(|queue| queue.system_info) {
+            // Nobody takes it: it gets no position.
+            let _ = accepted.send(());
+            return;
+        }
         let envelope = EventEnvelope {
             position: next_position(&mut self.last),
             event: event.name.to_owned(),
@@ -404,8 +507,8 @@ impl Stream {
         };
         match event.class {
             EventClass::Lossless => {
-                if let Some(axes) = axes {
-                    self.runs.insert(axes.run_id.clone(), axes);
+                if let Some(fold) = fold {
+                    self.snapshot.fold(fold);
                 }
                 let envelope = Arc::new(envelope);
                 self.retained.push_back(Arc::clone(&envelope));
@@ -428,11 +531,15 @@ impl Stream {
                         continue;
                     }
                     queue.lossless.push_back(Arc::clone(&envelope));
-                    serve(queue, &mut self.last, &self.runs);
+                    serve(queue, &mut self.last, &self.snapshot);
                 }
             }
             EventClass::Telemetry => {
-                for queue in self.subscriptions.values_mut() {
+                for queue in self
+                    .subscriptions
+                    .values_mut()
+                    .filter(|queue| !opted_in || queue.system_info)
+                {
                     let key = (event.name, scope.clone());
                     let dropped = queue
                         .telemetry
@@ -445,14 +552,19 @@ impl Stream {
                             ..envelope.clone()
                         },
                     );
-                    serve(queue, &mut self.last, &self.runs);
+                    serve(queue, &mut self.last, &self.snapshot);
                 }
             }
         }
         let _ = accepted.send(());
     }
 
-    fn subscribe(&mut self, after: Option<LastRead>, alive: oneshot::Receiver<()>) -> u64 {
+    fn subscribe(
+        &mut self,
+        after: Option<LastRead>,
+        system_info: bool,
+        alive: oneshot::Receiver<()>,
+    ) -> u64 {
         let id = self.next_subscription;
         self.next_subscription += 1;
         let mut queue = Queue {
@@ -461,6 +573,7 @@ impl Stream {
             telemetry: BTreeMap::new(),
             waiting: None,
             alive,
+            system_info,
         };
         match after {
             None => {}
@@ -490,16 +603,14 @@ fn next_position(last: &mut u64) -> Position {
 
 /// Answers the queue's waiting take, if any, once it has an event; a queue
 /// behind first takes `events.resync`, at the next position, with the axes
-/// of every Run in `runs`.
-fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
+/// of every live Run and every item of "Needs you" in `snapshot`.
+fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot) {
     if queue.is_empty() {
         return;
     }
     if let Some((most, answer)) = queue.waiting.take() {
         if queue.behind {
-            let resync = Resync {
-                runs: runs.values().cloned().collect(),
-            };
+            let resync = snapshot.resync();
             queue.lossless.push_back(Arc::new(EventEnvelope {
                 position: next_position(last),
                 event: RESYNC.name.to_owned(),
@@ -513,3 +624,6 @@ fn serve(queue: &mut Queue, last: &mut u64, runs: &BTreeMap<RunId, RunAxes>) {
         let _ = answer.send(taken);
     }
 }
+
+#[cfg(test)]
+mod tests;

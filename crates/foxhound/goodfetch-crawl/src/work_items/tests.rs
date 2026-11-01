@@ -17,10 +17,13 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::admission::{Ended, Gate as _};
+use goodfetch_engine::egress::Policy;
+use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_frontier::{
-    Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, VISITED_TABLES, admit,
+    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
+    VISITED_TABLES, admit,
 };
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
@@ -115,7 +118,17 @@ impl Subject {
                     vfs: Some(vfs.name().to_owned()),
                     ..RunStateOptions::default()
                 },
-                vec![TABLES, VISITED_TABLES, SCOPE_TABLES],
+                vec![
+                    TABLES,
+                    goodfetch_dataset::TABLES,
+                    VISITED_TABLES,
+                    SCOPE_TABLES,
+                    BOUNDS_TABLES,
+                    goodfetch_frontier::RULES_TABLES,
+                    goodfetch_frontier::payload::TABLES,
+                    goodfetch_frontier::sitemap::TABLES,
+                    goodfetch_frontier::trap_links::TABLES,
+                ],
                 1,
                 &owner,
             ))
@@ -151,10 +164,12 @@ impl Subject {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             };
             admit(
                 connection,
                 &Scope::default(),
+                &Policy::new(&["*"], &[] as &[&str]).unwrap(),
                 Candidate::Seed {
                     url: &url,
                     declared,
@@ -162,6 +177,7 @@ impl Subject {
                 |request| {
                     super::add(
                         connection,
+                        &mut super::Positions::of(connection)?,
                         request,
                         Adding {
                             method: &get,
@@ -175,7 +191,7 @@ impl Subject {
                     )
                 },
             )?;
-            let keys: Vec<(String, String)> = super::unkeyed(connection)?
+            let keys: Vec<(String, String)> = super::unkeyed(connection, usize::MAX)?
                 .into_iter()
                 .map(|(_, waiting)| (waiting.id, key.clone()))
                 .collect();
@@ -217,11 +233,24 @@ impl Subject {
                     Unsuccessful::Retried(Failure {
                         code: "response_unavailable".to_owned(),
                         message: "a 503".to_owned(),
+                        details: serde_json::Map::new(),
                     }),
                     &ended_at,
                 )
             } else {
-                super::commit(connection, &id, lease_epoch, &[], &ended_at)
+                super::commit(
+                    connection,
+                    &id,
+                    lease_epoch,
+                    super::Committed {
+                        records: &goodfetch_dataset::Checked::default(),
+                        fetched: &super::Fetched::default(),
+                        fields: &super::FieldsRead::default(),
+                        masks: &goodfetch_engine::mask::Masks::new(),
+                        ended_at: &ended_at,
+                        not_added: &[],
+                    },
+                )
             }
         });
     }
@@ -234,9 +263,11 @@ impl Subject {
         self.state = None;
         self.runtime.block_on(self.owner.wait());
         let connection = after_crash(&self.vfs, &self.path).unwrap();
-        super::recover_leases(&connection, "handler_lost", u32::MAX).unwrap();
+        let lost = Failure::new("handler_lost", "the handler was lost");
+        let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+        super::recover_leases(&connection, &lost, u32::MAX, &at).unwrap();
         let now = tokio::time::Instant::now();
-        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND);
+        let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {
             queues.enqueue(waiting);
         }

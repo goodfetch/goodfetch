@@ -1,0 +1,35 @@
+#:schema ./journey.schema.json
+id = "J-030"
+title = "Send a crawl's traffic from a chosen local address and see the site receive it from there"
+goal = """
+A person who holds several addresses on their machine chooses the local \
+addresses a Crawl sends from. Every request the Crawl sends over HTTP, \
+robots.txt's included, MUST reach the site from one of the chosen \
+addresses and none from another address of the machine, and the Crawl's \
+Sessions MUST spread over the chosen addresses, so that the person spreads \
+a crawl over their own addresses (ADR 0044, SA-25)."""
+area = 4
+product = "foxhound"
+status = "active"
+covers = ["story:4-44", "story:4-108", "row:SA-25"]
+
+[proving_ground]
+seed = 30
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Start Foxhound's executable as a program's engine"
+
+[[steps]]
+text = "Crawl three pages of a site over HTTP, choosing two of the machine's local addresses for the Crawl's traffic"
+
+[[steps]]
+text = "Let the Crawl finish and read its report"
+
+[[expect]]
+text = "The Crawl finished"
+
+[[expect]]
+text = "The site received every request of the Crawl, robots.txt's included, from one of the two chosen addresses, each address serving at least one, and none from another address"

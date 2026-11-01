@@ -1,0 +1,21 @@
+# Installed by ci/os-services.sh setup on a host whose AppArmor restricts
+# unprivileged user namespaces (Ubuntu 23.10 and later, its hosted runners
+# included): lets the pinned Chrome for Testing build, and its headless
+# shell, start Chromium's namespace sandbox, as Chromium's
+# docs/security/apparmor-userns-restrictions.md does for Chrome (ADR 0049).
+# The restriction stays on for every other program, and no sysctl changes.
+# The tests copy or hard-link the build into each test's own folder
+# (goodfetch-test-support's browser cache), so the profiles match the build's
+# file names in any folder.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile goodfetch-chrome-for-testing /**/chrome-linux64/chrome flags=(unconfined) {
+  userns,
+  include if exists <local/goodfetch-chrome-for-testing>
+}
+
+profile goodfetch-chrome-headless-shell /**/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+  include if exists <local/goodfetch-chrome-headless-shell>
+}

@@ -36,53 +36,13 @@ if ! git merge-base --is-ancestor "origin/$base" "$head"; then
   exit 1
 fi
 
-# One worktree for every gate, at a fixed path beside the other worktrees in
-# the main checkout, so Cargo's fingerprints, sccache's keys and the perf
-# container's build volume, all keyed by absolute paths, still hold at the
-# next gate. Locked, so a `git worktree prune` from another session cannot
-# drop it, and held by one gate at a time through a lock folder.
-root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
-worktree="$root/.claude/worktrees/merge-gate"
-lock="$worktree.lock"
-if ! mkdir "$lock" 2>/dev/null; then
-  holder=$(cat "$lock/pid" 2>/dev/null || true)
-  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
-    echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
-    exit 1
-  fi
-  # The gate that held it ended without releasing it.
-  rm -rf "$lock"
-  mkdir "$lock"
-fi
-echo "$$" >"$lock/pid"
+# One worktree for every gate, locked and held by one gate at a time, reset
+# to the exact head (ci/gate-worktree.sh).
+# shellcheck source=ci/gate-worktree.sh
+source "$(dirname "$0")/gate-worktree.sh"
+gate_worktree_lock
 trap 'rm -rf "$lock"' EXIT
-
-# The exact head and nothing else: tracked files as committed, every other
-# file removed but the build caches (`target/`, the Python environment and
-# the npm packages, which `just fetch` brings to the head's lockfiles), and
-# no step's output from an earlier gate in `target/`.
-if [[ -e "$worktree/.git" ]]; then
-  git -C "$worktree" checkout --quiet --force --detach "$head"
-  git -C "$worktree" clean -ffdxq -e /target/ -e /.venv/ -e node_modules/
-else
-  git worktree add --quiet --lock --detach "$worktree" "$head"
-fi
-shopt -s nullglob
-for entry in "$worktree"/target/*; do
-  case ${entry##*/} in
-    # Cargo's build folders (the profiles', the MSRV's and the stress run's
-    # base listing's), the tests' temporary folder with its fixture builds,
-    # the TLA+ tools, each checked against its pinned SHA-256 when used, and
-    # the listings saved for the base of the next gate (below).
-    CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings) ;;
-    *) rm -rf "$entry" ;;
-  esac
-done
-shopt -u nullglob
-if [[ -n "$(git -C "$worktree" status --porcelain)" || $(git -C "$worktree" rev-parse HEAD) != "$head" ]]; then
-  echo "error: the gate's worktree $worktree is not a clean checkout of $head" >&2
-  exit 1
-fi
+gate_worktree_checkout "$head"
 
 # The head's own `xtask affected` decides, so a head from before `gate=`
 # existed prints no such line and gets the full gate.
@@ -103,11 +63,21 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
   else
     # What the pull request's "Performance change" section and its owner's
     # acceptance comment accept, read at this head for `just perf` (ADR 0134).
+    # Until M1's optimization pass it only marks figures accepted in the
+    # table: no figure past its threshold fails (ADR 0134, as amended on
+    # 2026-10-22).
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
       perf pull-request --number "$number" --save target/perf-pull-request.json
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
 )
+# The incremental gate's verdict combines this run with the green results it
+# reused from earlier runs on ancestor heads (ADR 0135); the plan names the
+# nearest such run.
+reused=$(awk -F'\t' '$1 == "previous" { print $2 }' "$worktree/target/gate-runs/$head.plan" 2>/dev/null || true)
+if [[ -n "$reused" && "$reused" != none ]]; then
+  ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+fi
 
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \

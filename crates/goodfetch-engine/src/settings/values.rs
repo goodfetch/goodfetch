@@ -15,12 +15,22 @@ use serde_json::{Map, Value};
 use super::error::SettingsError;
 use super::keys::{self, Key};
 
+/// Who gave a value: where a run-layer value came from, and whether a
+/// Client acting for a model gave it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Given {
+    pub(crate) origin: Option<RunOrigin>,
+    pub(crate) for_model: bool,
+}
+
 /// What one layer sets.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Values {
     pub(crate) applied: BTreeMap<&'static str, Value>,
     pub(crate) others: BTreeMap<&'static str, Value>,
     pub(crate) origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave them (ADR 0092).
+    pub(crate) for_model: bool,
 }
 
 impl Values {
@@ -48,6 +58,22 @@ impl Values {
         self
     }
 
+    /// The same, given by a Client acting for a model, which sets no key a
+    /// model may not (ADR 0092).
+    #[must_use]
+    pub fn from_model(mut self) -> Self {
+        self.for_model = true;
+        self
+    }
+
+    /// Who gave its values.
+    pub(crate) fn given(&self) -> Given {
+        Given {
+            origin: self.origin,
+            for_model: self.for_model,
+        }
+    }
+
     /// Whether it sets nothing, applied or not.
     pub fn is_empty(&self) -> bool {
         self.applied.is_empty() && self.others.is_empty()
@@ -56,6 +82,11 @@ impl Values {
     /// The value it sets for `key`, if it applies it.
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.applied.get(key)
+    }
+
+    /// The keys it sets and applies, in order.
+    pub fn keys(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.applied.keys().copied()
     }
 }
 

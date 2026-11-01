@@ -20,6 +20,10 @@ use crate::catalog::{
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
+pub mod edit;
+pub mod page_check;
+pub mod session_source;
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The layers settings resolve through, lowest first (ADRs 0028 and 0083).
@@ -107,6 +111,26 @@ pub struct SettingLimit {
     pub layer: SettingsLayer,
 }
 
+/// A setting that weakened a safeguard for a Run (ADR 0028): its key, its
+/// value, the layer that set it and, for the run layer, where the value came
+/// from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WeakenedSetting {
+    /// The setting's key.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// Its value.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: Value,
+    /// The layer that set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// For the run layer, where the value came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
+}
+
 /// An unknown key, or an unknown `GOODFETCH_` variable (ADR 0083).
 pub const SETTING_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "setting_unknown",
@@ -169,6 +193,34 @@ pub const SETTING_NOT_APPLICABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A capability this engine cannot provide where it was asked for (ADR
+/// 0083).
+pub const CAPABILITY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "capability_unavailable",
+    description: "A capability this engine cannot provide where a setting asks for it, such as a Session opening from a Session source of a kind this engine does not read: the details name the setting, the layer that set it and what it asked for, and its fix names the value that does without it.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `capability_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CapabilityUnavailableDetails {
+    /// The setting that asks for it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// The layer that set it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: SettingsLayer,
+    /// What it asks for, such as a Session source's kind.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// The value that does without it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// What `setting_not_applicable` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SettingNotApplicableDetails {
@@ -228,6 +280,10 @@ pub struct SettingsFile {
 
 /// One setting as `config explain` shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent fact of the key on the wire, not a state of one machine"
+)]
 pub struct ExplainedSetting {
     /// Its key.
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -264,6 +320,18 @@ pub struct ExplainedSetting {
     /// control, which the results it touches are marked with (ADR 0028).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub weakens: bool,
+    /// Whether user configuration may set it: its authority lets user
+    /// configuration hold it and no lower layer locked it, so the Console
+    /// offers its user-level value for editing (ADR 0031).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub user_settable: bool,
+    /// Whether it is fixed for a Run's life: a resume that changes it is
+    /// refused with `setting_not_applicable`, and only a new Run takes
+    /// another value (ADRs 0102 and 0120).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fixed_for_run: bool,
 }
 
 /// What `config.explain` answers and `config explain --json` prints:
@@ -383,18 +451,21 @@ pub struct RecipeManifest {
 /// `GOODFETCH_` variables, each a value that differs by machine, read from
 /// the environment map and never a setting. Both engine-path variables are
 /// on it, so neither is unknown to either Product; each SDK and crate reads
-/// only its own Product's. `GOODFETCH_DAEMON_ADDRESS` and
-/// `GOODFETCH_DAEMON_DRAIN_GRACE` are the foreground Daemon's own process
-/// configuration (ADRs 0049 and 0083), which only `daemon run` reads.
+/// only its own Product's. `GOODFETCH_DAEMON_ADDRESS`,
+/// `GOODFETCH_DAEMON_DRAIN_GRACE` and `GOODFETCH_OPS_ADDRESS` are the
+/// foreground Daemon's own process configuration (ADRs 0049, 0050 and
+/// 0083), which only `daemon run` reads. `GOODFETCH_CHANNEL` is the channel
+/// an executable came from, which that channel's launcher or image sets
+/// (ADRs 0087 and 0090).
 pub const DEPLOYMENT_VARIABLES: &[&str] = &[
     "GOODFETCH_BROWSERS_PATH",
+    "GOODFETCH_CHANNEL",
     "GOODFETCH_COLLIE_ENGINE_PATH",
     "GOODFETCH_DAEMON_ADDRESS",
     "GOODFETCH_DAEMON_DRAIN_GRACE",
     "GOODFETCH_FOXHOUND_ENGINE_PATH",
     "GOODFETCH_HOME",
-    "GOODFETCH_LOG",
-    "GOODFETCH_LOG_OUTPUT",
+    "GOODFETCH_OPS_ADDRESS",
     "GOODFETCH_TEST_SEED",
     "GOODFETCH_TOKEN",
     "GOODFETCH_URL",
@@ -453,29 +524,17 @@ fn empty_table() -> Value {
     json!({})
 }
 
-fn yes() -> Value {
-    Value::Bool(true)
-}
-
 fn no() -> Value {
     Value::Bool(false)
+}
+
+fn yes() -> Value {
+    Value::Bool(true)
 }
 
 fn thirty_seconds() -> Value {
     json!(30_000)
 }
-
-/// `egress.offline` (ADR 0043's `offline`).
-pub const EGRESS_OFFLINE: Setting = Setting {
-    name: "egress.offline",
-    description: "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
-    kind: ValueKind::Boolean,
-    default: no,
-    clearable: false,
-    authority: Authority::Every,
-    weakens: None,
-    arrived_in: ARRIVED_IN,
-};
 
 /// `network.resolve` (ADR 0059).
 pub const NETWORK_RESOLVE: Setting = Setting {
@@ -489,44 +548,22 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `tls.trusted_cas` (ADR 0042).
-pub const TLS_TRUSTED_CAS: Setting = Setting {
-    name: "tls.trusted_cas",
-    description: "Extra certificate authorities by domain: certificate files or Secret references. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run.",
-    kind: ValueKind::Map(&ValueKind::List(&ValueKind::Text)),
-    default: empty_table,
+/// `consent.handling` (ADR 0048).
+pub const CONSENT_HANDLING: Setting = Setting {
+    name: "consent.handling",
+    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
+    kind: ValueKind::Boolean,
+    default: yes,
     clearable: false,
-    authority: Authority::Configuration,
+    authority: Authority::Every,
     weakens: None,
-    arrived_in: ARRIVED_IN,
-};
-
-fn trust_on_first_use_only(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|entries| entries.values().all(Value::is_null))
-}
-
-fn accepts_any_invalid_certificate(value: &Value) -> bool {
-    value.as_object().is_some_and(|entries| !entries.is_empty())
-}
-
-/// `tls.accept_invalid_certs` (ADR 0042).
-pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
-    name: "tls.accept_invalid_certs",
-    description: "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
-    kind: ValueKind::Map(&ValueKind::Optional(&ValueKind::Text)),
-    default: empty_table,
-    clearable: false,
-    authority: Authority::ConfigurationExcept(trust_on_first_use_only),
-    weakens: Some(accepts_any_invalid_certificate),
     arrived_in: ARRIVED_IN,
 };
 
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {
     name: "consent.domains",
-    description: "The domains whose consent prompts a run accepts instead of refusing. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+    description: "The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.",
     kind: ValueKind::List(&ValueKind::Text),
     default: empty_list,
     clearable: false,
@@ -534,6 +571,25 @@ pub const CONSENT_DOMAINS: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// The values `consent.on_wall` takes (ADR 0048).
+pub const CONSENT_ON_WALL_VALUES: &[&str] = &["report", "ask"];
+
+/// `consent.on_wall` (ADR 0048).
+pub const CONSENT_ON_WALL: Setting = Setting {
+    name: "consent.on_wall",
+    description: "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
+    kind: ValueKind::Choice(CONSENT_ON_WALL_VALUES),
+    default: report,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn report() -> Value {
+    Value::String("report".to_owned())
+}
 
 /// `wall.domains` (ADR 0052).
 pub const WALL_DOMAINS: Setting = Setting {
@@ -583,14 +639,184 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `session.source` (ADR 0056).
-pub const SESSION_SOURCE: Setting = Setting {
-    name: "session.source",
-    description: "Where a Session's login comes from. A Recipe never sets or locks it; it may only expose it to its users.",
+/// The values `clean_up.update` takes (ADR 0047).
+pub const CLEAN_UP_UPDATES: &[&str] = &["release", "daily", "upstream"];
+
+/// `clean_up.update` (ADR 0047).
+pub const CLEAN_UP_UPDATE: Setting = Setting {
+    name: "clean_up.update",
+    description: "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+    kind: ValueKind::Choice(CLEAN_UP_UPDATES),
+    default: release,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `clean_up.version` (ADR 0047).
+pub const CLEAN_UP_VERSION: Setting = Setting {
+    name: "clean_up.version",
+    description: "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
     kind: ValueKind::Text,
     default: null,
     clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn release() -> Value {
+    Value::String("release".to_owned())
+}
+
+/// `clean_up.channel` (ADR 0047).
+pub const CLEAN_UP_CHANNEL: Setting = Setting {
+    name: "clean_up.channel",
+    description: "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+    kind: ValueKind::Text,
+    default: daily_channel,
+    clearable: false,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The daily channel's OCI repository by default.
+pub const DAILY_CHANNEL: &str = "ghcr.io/goodfetch/clean-up-rules";
+
+fn daily_channel() -> Value {
+    Value::String(DAILY_CHANNEL.to_owned())
+}
+
+/// `clean_up.lists` (ADR 0047).
+pub const CLEAN_UP_LISTS: Setting = Setting {
+    name: "clean_up.lists",
+    description: "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+    kind: ValueKind::Map(&ValueKind::Text),
+    default: upstream_lists,
+    clearable: false,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `clean_up.fetch_timeout` (ADRs 0047 and 0080).
+pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
+    name: "clean_up.fetch_timeout",
+    description: "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Filter lists' authors' own URLs, by list, which `clean_up.lists`
+/// holds by default.
+pub const UPSTREAM_LISTS: [(&str, &str); 4] = [
+    ("ads", "https://easylist.to/easylist/easylist.txt"),
+    ("trackers", "https://easylist.to/easylist/easyprivacy.txt"),
+    (
+        "annoyances",
+        "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+    ),
+    (
+        "unbreak",
+        "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt",
+    ),
+];
+
+fn upstream_lists() -> Value {
+    Value::Object(
+        UPSTREAM_LISTS
+            .iter()
+            .map(|(list, url)| ((*list).to_owned(), Value::String((*url).to_owned())))
+            .collect(),
+    )
+}
+
+/// `filter_lists.ads` (ADR 0047).
+pub const FILTER_LISTS_ADS: Setting = Setting {
+    name: "filter_lists.ads",
+    description: "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.trackers` (ADR 0047).
+pub const FILTER_LISTS_TRACKERS: Setting = Setting {
+    name: "filter_lists.trackers",
+    description: "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.annoyances` (ADR 0047).
+pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
+    name: "filter_lists.annoyances",
+    description: "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.first_party_scripts` (ADR 0047).
+pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
+    name: "filter_lists.first_party_scripts",
+    description: "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `filter_lists.page_scriptlets` (ADR 0047).
+pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
+    name: "filter_lists.page_scriptlets",
+    description: "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `session.source` (ADR 0056).
+pub const SESSION_SOURCE: Setting = Setting {
+    name: "session.source",
+    description: "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.",
+    kind: ValueKind::Shape(&session_source::SESSION_SOURCE_SHAPE),
+    default: null,
+    clearable: true,
     authority: Authority::NotByRecipe,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `session.page_check` (ADRs 0006 and 0092).
+pub const SESSION_PAGE_CHECK: Setting = Setting {
+    name: "session.page_check",
+    description: "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.",
+    kind: ValueKind::Shape(&page_check::PAGE_CHECK_SHAPE),
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
@@ -631,6 +857,18 @@ pub const TIMEOUT_RUN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.close` (ADRs 0080 and 0083).
+pub const TIMEOUT_CLOSE: Setting = Setting {
+    name: "timeout.close",
+    description: "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.action` (ADRs 0019, 0080 and 0083), the guard's window.
 pub const TIMEOUT_ACTION: Setting = Setting {
     name: "timeout.action",
@@ -647,6 +885,18 @@ pub const TIMEOUT_ACTION: Setting = Setting {
 pub const TIMEOUT_NAVIGATION: Setting = Setting {
     name: "timeout.navigation",
     description: "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.wait` (ADRs 0080 and 0083), an app-state wait's.
+pub const TIMEOUT_WAIT: Setting = Setting {
+    name: "timeout.wait",
+    description: "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
     kind: ValueKind::Duration,
     default: thirty_seconds,
     clearable: false,
@@ -690,25 +940,38 @@ pub const ENTRIES: Entries = Entries {
         SETTING_INVALID,
         SETTING_NOT_APPLICABLE,
         SETTING_LOCKED,
+        CAPABILITY_UNAVAILABLE,
     ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
-        EGRESS_OFFLINE,
         NETWORK_RESOLVE,
-        TLS_TRUSTED_CAS,
-        TLS_ACCEPT_INVALID_CERTS,
+        CONSENT_HANDLING,
         CONSENT_DOMAINS,
+        CONSENT_ON_WALL,
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,
+        FILTER_LISTS_ADS,
+        FILTER_LISTS_TRACKERS,
+        FILTER_LISTS_ANNOYANCES,
+        FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+        FILTER_LISTS_PAGE_SCRIPTLETS,
         FILTER_LISTS_EXTRA,
+        CLEAN_UP_UPDATE,
+        CLEAN_UP_VERSION,
+        CLEAN_UP_CHANNEL,
+        CLEAN_UP_LISTS,
+        CLEAN_UP_FETCH_TIMEOUT,
         SESSION_SOURCE,
+        SESSION_PAGE_CHECK,
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
+        TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],

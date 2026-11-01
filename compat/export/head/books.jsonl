@@ -1,0 +1,3 @@
+{"in_stock":true,"price":12.5,"published":"2026-01-02T08:00:00Z","tags":["roman","poche"],"title":"Café","url":"https://shop.test/1"}
+{"astral":"𝄞","bidi":"שלום ‏world‎ مرحبا ⁧עברית⁩ end","bom":"﻿leads with a byte order mark","nfc":"café","nfd":"café","tab_and_newline":"one\ttwo\nthree","zero_width_joiner":"a‍b","zwj_emoji":"👩‍👩‍👧"}
+{"#wall":{"kind":"paywall"},"in_stock":false,"price":null,"tags":[],"title":"Ünïcode"}

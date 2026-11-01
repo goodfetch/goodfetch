@@ -4,6 +4,41 @@
 
 use super::figure::Figure;
 
+/// Whether the budget's findings fail a change: a figure past its threshold
+/// that the pull request does not accept, and a figure over its ceiling.
+/// A broken measurement (a benchmark that fails its admission, a ceiling
+/// whose figure the head lost) fails either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Gating {
+    /// Each is a note in the gate's log, and fails nothing.
+    Informational,
+    /// Each fails the change.
+    #[expect(
+        dead_code,
+        reason = "M1's optimization pass sets `GATING` to it (ADR 0134, as amended on 2026-10-22)"
+    )]
+    Enforced,
+}
+
+impl Gating {
+    /// What a finding of the budget says after its figure: `enforced`, the
+    /// remedy, while the budget gates.
+    pub(crate) fn remedy(self, enforced: &'static str) -> &'static str {
+        match self {
+            Self::Informational => {
+                "noted only: until M1's optimization pass, no figure past its threshold or over its ceiling fails a change (ADR 0134, as amended on 2026-10-22)"
+            }
+            Self::Enforced => enforced,
+        }
+    }
+}
+
+/// ADR 0134, as amended on 2026-10-22 (owner decision): informational until
+/// M1's optimization pass (#1577). The pull request of that pass, which sets
+/// the tuned ceilings, sets this to `Gating::Enforced`, and the per-change
+/// budget and the ceilings gate again.
+pub(crate) const GATING: Gating = Gating::Informational;
+
 /// ADR 0071: a benchmark's figure trips at +5% over the base's.
 pub(crate) const INCREASE_PERCENT: u64 = 5;
 
@@ -14,6 +49,19 @@ pub(crate) const BUNDLE_INCREASE_BYTES: u64 = 5_000;
 /// ADRs 0071 and 0087: each Product's whole embedded Console build stays
 /// under 1 MB brotli, whatever the pull request says.
 const CONSOLE_CEILING_BYTES: u64 = 1_000_000;
+
+/// ADR 0071: Collie's Console's initial route (what loads before the Runs
+/// screen's first render: the page, its entry script and its stylesheet)
+/// stays under 1.25 times the first build's 111,823 bytes brotli, rounded
+/// up, the ceiling the owner approved (#937).
+const COLLIE_INITIAL_ROUTE_CEILING_BYTES: u64 = 139_779;
+
+/// ADRs 0071 and 0087: Foxhound's Console's initial route (the page, its
+/// entry script, its stylesheet and Foxhound's English catalog, which the
+/// entry awaits before the first render) stays under 1.25 times the first
+/// build's 128,939 bytes brotli, rounded up, the ceiling the owner approved
+/// (#1235).
+const FOXHOUND_INITIAL_ROUTE_CEILING_BYTES: u64 = 161_174;
 
 /// ADR 0134: at most 8 heap bytes per URL in the Frontier.
 const FRONTIER_BYTES_PER_URL: u64 = 8;
@@ -63,18 +111,28 @@ impl Ceiling {
     }
 }
 
-/// The fixed ceilings of ADRs 0087 and 0134. Each starts when its benchmark
+/// The fixed ceilings of ADRs 0071, 0087 and 0134. Each starts when its benchmark
 /// or entry first runs.
-pub(crate) const FIXED_CEILINGS: [Ceiling; 4] = [
+pub(crate) const FIXED_CEILINGS: [Ceiling; 6] = [
     Ceiling::Figure {
         subject: "size-limit/collie-console",
         figure: Figure::Brotli,
         max: CONSOLE_CEILING_BYTES,
     },
     Ceiling::Figure {
+        subject: "size-limit/collie-console-initial-route",
+        figure: Figure::Brotli,
+        max: COLLIE_INITIAL_ROUTE_CEILING_BYTES,
+    },
+    Ceiling::Figure {
         subject: "size-limit/foxhound-console",
         figure: Figure::Brotli,
         max: CONSOLE_CEILING_BYTES,
+    },
+    Ceiling::Figure {
+        subject: "size-limit/foxhound-console-initial-route",
+        figure: Figure::Brotli,
+        max: FOXHOUND_INITIAL_ROUTE_CEILING_BYTES,
     },
     Ceiling::PerUrl {
         subject: "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls",

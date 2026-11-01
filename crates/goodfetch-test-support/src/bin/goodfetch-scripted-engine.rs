@@ -182,18 +182,24 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
             Ok(play(&script, stdin, stdout, record)?)
         }
         Mode::Tcp => {
-            let listener = Listener::Tcp(TcpListener::bind("127.0.0.1:0")?);
+            let listener = Listener::Tcp(
+                TcpListener::bind("127.0.0.1:0")
+                    .map_err(|error| format!("listen_failed: {error}"))?,
+            );
             announce(&json!({ "address": listener.endpoint()?.to_string() }))?;
             listener.play(&script, record)
         }
         Mode::Socket => {
-            let daemon = Daemon::publish(&home()?, arguments, ready)?;
+            let daemon = Daemon::publish(&home()?, arguments, ready)
+                .map_err(|error| format!("publish_failed: {error}"))?;
             let ending = daemon.listener.play(&script, record);
-            match ending {
-                Ok(Ending::Exit(_)) => daemon.abandon(),
-                _ => daemon.withdraw()?,
+            if let Ok(Ending::Exit(_)) = ending {
+                daemon.abandon();
+                return ending;
             }
-            ending
+            // The play's own failure comes first: a test matches on its code.
+            let withdrawn = daemon.withdraw();
+            ending.and_then(|ending| withdrawn.map(|()| ending))
         }
     }
 }
@@ -263,8 +269,9 @@ impl Daemon {
     }
 
     /// Leaves the runtime file and a socket in the home, as a crashed
-    /// Daemon does; only a socket folder outside the home goes, so nothing
-    /// outlives the test's own folder.
+    /// Daemon does; only a socket folder outside the home goes. A killed
+    /// engine runs no destructor, so its `TestEnv` removes that folder at
+    /// teardown.
     fn abandon(self) {
         drop(self.socket_folder);
     }
@@ -286,11 +293,14 @@ impl Listener {
     fn daemon(folder: &Path) -> Result<(Self, Option<tempfile::TempDir>), Failure> {
         use std::os::unix::fs::PermissionsExt as _;
         let socket = folder.join(goodfetch_test_support::DAEMON_SOCKET);
+        // The caller holds the serving lock, so a socket left here is a dead
+        // Daemon's: a starting Daemon replaces its files (ADR 0024).
+        remove(&socket)?;
         let (listener, path, own_folder) = match UnixListener::bind(&socket) {
             Ok(listener) => (listener, socket, None),
             Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
                 let own = tempfile::Builder::new()
-                    .prefix("goodfetch é ")
+                    .prefix(goodfetch_test_support::SOCKET_FOLDER_PREFIX)
                     .permissions(std::fs::Permissions::from_mode(0o700))
                     .tempdir_in("/tmp")?;
                 let path = own.path().join(goodfetch_test_support::DAEMON_SOCKET);

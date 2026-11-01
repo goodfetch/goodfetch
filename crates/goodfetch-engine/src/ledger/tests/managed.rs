@@ -5,7 +5,8 @@
 //! Covers: story:3-77
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::usage::{LimitSetter, LimitUsage, ManagedLimit};
+use goodfetch_protocol::run::LimitSetter;
+use goodfetch_protocol::usage::{LimitUsage, ManagedLimit};
 use goodfetch_test_support::TestEnv;
 
 use super::{charging, install, ledger, limit, now};

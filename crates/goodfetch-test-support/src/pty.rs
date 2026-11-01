@@ -17,10 +17,10 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use expectrl::session::OsSession;
-use expectrl::{Eof, Expect as _, Session};
+use expectrl::{Expect as _, Session};
 use regex::bytes::Regex;
 
-use crate::cli::{CliError, record_command};
+use crate::cli::{CliError, Invocation, record_command};
 use crate::env::TestEnv;
 
 /// How long [`PtyRun::expect`] and [`PtyRun::finish`] wait for the text or
@@ -45,20 +45,20 @@ static SGR: LazyLock<Regex> = LazyLock::new(|| {
 /// [`Pty::spawn`] starts.
 pub struct Pty<'env> {
     env: &'env TestEnv,
-    command: std::process::Command,
-    arguments: Vec<String>,
+    invocation: Invocation,
 }
 
 /// A run of `executable`, the path of the Product's executable the test
 /// gives, on a pseudo-terminal (`ConPTY` on Windows), in the test's folder
 /// with its cleared environment, `COLUMNS=100` and `TERM=xterm-256color`.
 pub fn pty(env: &TestEnv, executable: impl AsRef<OsStr>) -> Pty<'_> {
-    let mut command = env.process_command(executable);
-    command.env("COLUMNS", "100").env("TERM", "xterm-256color");
     Pty {
         env,
-        command,
-        arguments: Vec::new(),
+        invocation: Invocation::of(
+            env,
+            executable,
+            &[("COLUMNS", "100"), ("TERM", "xterm-256color")],
+        ),
     }
 }
 
@@ -66,9 +66,7 @@ impl<'env> Pty<'env> {
     /// Adds one argument.
     #[must_use]
     pub fn arg(mut self, argument: impl AsRef<str>) -> Self {
-        let argument = argument.as_ref();
-        self.command.arg(argument);
-        self.arguments.push(argument.to_owned());
+        self.invocation.arg(argument.as_ref());
         self
     }
 
@@ -85,18 +83,19 @@ impl<'env> Pty<'env> {
     /// Sets one more variable, over the test's map and the helper's own.
     #[must_use]
     pub fn env(mut self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
-        self.command.env(name, value);
+        self.invocation.env(name, value);
         self
     }
 
     /// Starts the executable on its terminal.
     pub fn spawn(self) -> Result<PtyRun<'env>, PtyError> {
-        let mut session = Session::spawn(self.command).map_err(PtyError::Start)?;
+        let (command, arguments) = self.invocation.into_parts();
+        let mut session = Session::spawn(command).map_err(PtyError::Start)?;
         session.set_expect_timeout(Some(DEADLINE));
         Ok(PtyRun {
             env: self.env,
             session,
-            arguments: self.arguments,
+            arguments,
             transcript: Vec::new(),
         })
     }
@@ -160,6 +159,7 @@ impl PtyRun<'_> {
 /// the exit code.
 #[cfg(unix)]
 fn end(mut session: OsSession) -> Result<(Vec<u8>, Option<i32>), PtyError> {
+    use expectrl::Eof;
     use expectrl::process::unix::WaitStatus;
 
     let rest = session

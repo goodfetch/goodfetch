@@ -1,5 +1,6 @@
-# Area 12's user stories (specs #591 and #592, Console, Collie), the
-# declared `story:12-<id>` Features of ADR 0072. Each story's milestone is
+# Area 12's user stories (specs #591 and #592, Console, Collie; spec #593,
+# Console, Foxhound, from 201), the declared `story:12-<id>` Features of
+# ADR 0072. Each story's milestone is
 # that of the ticket that finishes it; a story without a Journey carries ADR
 # 0075's reason (`actor`, `part` or `reach`). The spec's issue keeps the full
 # text; this copy is the one the Feature check reads. It holds the stories a
@@ -8,8 +9,336 @@
 # `status = "retired"` and a `reason`.
 
 [[story]]
+id = 1
+title = "As a user, I want `goodfetch-collie console` to start my major's Daemon if none runs, open my browser on the Console and sign me in once through a token passed in the URL fragment and swapped for an `HttpOnly` cookie, so that I see my runs with no sign-in step on my own machine (ADR 0024; ADR 0037 / CN-03; J-001)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 2
+title = "As a user with both Products, I want `goodfetch-collie console` and `goodfetch-foxhound console` to open the same Console on the same port, so that a bookmark and my sign-in survive a change of Product (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
 id = 3
 title = "As a user with two majors installed, I want each major's Console on its own port, so that a 1.x and a 2.x project never share or restart each other's Console (area 3 story 22)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 5
+title = "As a user, I want my Console sign-in to survive Daemon restarts and expire after 30 idle days, revocable, so that I am not asked to sign in at every restart (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 4
+title = "As a developer who wants no Daemon, I want my script's Attached engine to serve its own Console when the script asks for it, so that I can watch one script with nothing left running afterwards (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a user, I want a visible Console tab to keep the Daemon from stopping idle and a hidden one not to, so that the Daemon never stops while I look at it and never runs for a forgotten tab (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 7
+title = "As a user whose Daemon is installed with socket activation, I want the first visit to the Console to start the Daemon, so that a bookmark always works (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a user, I want the Console's first launch to offer a monthly Limit for the install, so that spending is capped from day one (ADR 0041)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a user, I want links in Notifications to point at the Console address I set and carry no credential, so that a forwarded message grants nothing (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a user, I want the Runs screen to list every run of my user and major from the Run index, whichever engine or Product ran it, so that one place shows all my work (ADRs 0031, 0098; ADR 0037 / CN-03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 11
+title = "As a user, I want each run's Lifecycle, Verdict and Completeness shown as three separate values, so that \"finished but needs review\" or \"verified but incomplete\" reads as it is (ADR 0029)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 12
+title = "As a user, I want to filter and sort runs by tags, Recipe, Schedule and occurrence, trigger, Product, each axis, start and end time, and a text match on Run ID, tags and Recipe, Watch runs hidden unless the filter asks for them, with the filter kept in the address, so that I find a run and share the view (ADRs 0036, 0117; ADR 0037 / CN-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a user, I want a row whose run file is gone shown as missing and a run discarded on purpose shown as erased, never dropped, so that the list never lies about what existed (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a user, I want a live run's row and page to update as its axes, progress and status message change, without reloading, so that I follow it as it runs (ADRs 0031, 0102; ADR 0037 / RT-15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 15
+title = "As a user, I want a run's page to show its Run report: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its row and page with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want the `consoleUrl` of a Run report to open that run's page, so that a CI log links straight to what happened (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a user, I want a run marked *uncapped* when it can spend money with nothing capping it, whether or not a Model allowance is set, so that unbounded spending is visible (ADRs 0041, 0107)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a user, I want a run's page to show its writer (live or none), its run epoch and last Checkpoint, each Human pause waiting, and the worst storage level among the filesystems it writes to, with that folder and its free space, so that a slow run explains itself (ADRs 0102, 0122)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a user, I want a live run's page to offer stop and checkpoint, and an interrupted run's page to show the resume command, so that I act on a run from where I see it (ADRs 0031, 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 23
+title = "As a user, I want one \"Needs you\" list across every run in the index and the stores beside it, counted in the side menu, so that nothing waiting for me is missed (ADR 0031; pain 18)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 25
+title = "As a user, I want \"Needs you\" to list a filesystem at the `low` or `critical` storage level with its folder, and each run stopped by storage, so that I free space and resume (ADR 0122; pitfall O03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 26
+title = "As a user, I want \"Needs you\" to list the domains that showed a consent wall or a Wall, offering to add them to `consent_domains` or `wall_domains` for the next run with a plain warning of what I take on, never offering a domain in `wall_denied_domains` for `wall_domains` and never offering `wall_refetch_domains`; and I want a consent-wall or Wall Human pause to offer \"for this run\" or \"always for this domain\", and both \"read past\" and \"accept\" when one pause covers both, on a Daemon with accounts only the operator role giving either answer and \"always\" asking for step-up, so that I decide knowingly (ADRs 0048, 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 27
+title = "As a person, I want a stop of the refetch without the site's stored data listed in \"Needs you\", to dismiss it, remove the domain from the layer of `wall_refetch_domains` that lists it (or, when only `*` covers it, replace `*` with a list), or add it to `wall_denied_domains` with a reason, removal and denial needing the operator role and denial step-up on a Daemon with accounts, and a domain listed in project configuration shown with its file rather than removed from the Console, so that a site's objection is handled where I see it (ADR 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 28
+title = "As a user, I want a certificate whose key changed listed in \"Needs you\" **(shape)**, answered as `cert accept` or `cert forget` by the person whose store holds the pin, so that only that person trusts a new key (ADR 0042)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 32
+title = "As a user, I want \"Needs you\" items to disappear as they are resolved, by me, by another person or by the run, so that the list is never stale (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 94
+title = "As a user, I want Engine & settings to show every effective value with its layer and lock, as `config explain` does, so that I see where each value comes from (ADR 0031; J-009; ADR 0037 / RT-22)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 95
+title = "As a user, I want to edit user-level values and a run's own values in the Console, never project configuration or Recipe manifests, a value fixed for a run's life shown read-only with its edit pointing to a new run, so that files under version control stay the truth (ADRs 0031, 0102, 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As an operator, I want to edit the Operator policy in the Console, written atomically and only if its digest has not changed since I read it, with a before-and-after diff in the Audit log, so that a hand edit is never lost (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a user, I want a tightened cap to reach running runs at their next admission point and other changes to apply to new runs, each run report naming its policy version, so that a change has a known reach (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 99
+title = "As a user, I want Usage against each Limit by scope (install, Daemon, person, named token, Client connection), each Limit showing who set it, and replayed responses counted apart from fetches, so that I see what is left (ADRs 0041, 0105)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 100
+title = "As a user, I want to raise a Limit only in the Console or an interactive CLI prompt, raising a run's Limit resuming a Recipe run in the Daemon or marking an SDK script's run as waiting for its script, with **Copy resume command**, so that an agent stopped by a cap cannot lift it (ADRs 0029, 0041, 0102)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 102
+title = "As a user, I want a setting only Foxhound honours listed as Foxhound's, never hidden, on a Collie engine, so that a shared configuration file reads honestly (ADR 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 109
+title = "As a user of a single-user local Daemon, I want my OS user to be the person, with no sign-in beyond the cookie, and the Audit log to record that user and the surface, so that one person's machine needs no account (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 110
+title = "As a person, I want sign-in rate-limited, cookies `SameSite=Strict` and the `POST` fallback carrying a CSRF token, so that the Console resists the usual web attacks (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 111
+title = "As an operator, I want rotating the Console key to sign everyone out, and each sign-in revocable, so that a lost laptop's sign-in ends (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a user, I want every run listed with the Product it needs, so that I know which engine can resume it (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a user on a Collie Daemon, I want a run that needs Foxhound to keep its common views and its live actions, and each of its Foxhound views to show `not_in_product` with the fix naming Foxhound, so that I learn what to install (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a user, I want my Console to reconnect by itself when the Daemon hands over to a newly installed Product, so that installing Foxhound never breaks the tab I have open (ADRs 0066, 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 123
+title = "As a user, I want the Console to resubscribe from its last position after a reconnect, and to get a fresh snapshot when the engine no longer holds it, never missing a Record, an axis change or a \"Needs you\" item, so that a dropped connection loses nothing (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 124
+title = "As a user behind a proxy that blocks WebSockets, I want the Console to fall back to Server-Sent Events plus `POST`, so that it works on any network (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 125
+title = "As a user, I want the tab read-only under a banner while disconnected, reconnecting by itself, so that I never act on a stale view (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 126
+title = "As a user, I want run summaries cached in my browser per major, and Records only when I keep a view offline, encrypted under a key that expires with my sign-in, secret fields never cached, the cache wiped at sign-out, and a setting that turns caching off, so that I can read offline without leaking data (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 127
+title = "As a user, I want scraped HTML, screenshots and DOM snapshots served from a separate origin in sandboxed frames with no cookies, so that a hostile page can never act as the Console (ADR 0031)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -22,3 +351,224 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 129
+title = "As a security reviewer, I want every Console route's headers checked in CI and the Proving ground's pages that try to escape the content origin run against it, so that the protections hold (ADRs 0031, 0067)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 130
+title = "As a person using a screen reader, a keyboard, zoom, high contrast or reduced motion, I want the Console, the Live view's own controls and the embedded component to meet WCAG 2.2 AA, so that I can operate everything (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 131
+title = "As a person, I want \"Needs you\", toasts, errors, run-state changes and Live view control changes announced, so that I hear what changes (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 132
+title = "As a person reading another language, I want dates, numbers, sizes, durations, lists and plurals formatted from my browser's locale and time zone, data marked so browser translation leaves it alone, and layouts that work right to left, so that the Console reads naturally (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a person, I want each Error code shown with a message from the Console's catalog rendered from the error's fields (operation, target, URL, observed, `limit` with its setting, value and layer, `fix`, call log), falling back to the engine's English message, and for `handler_failed`, `hook_failed`, `<kind>_handler_failed`, `agent_tool_failed`, `success_check_threw` and `schema_validator_failed` always naming the program's exception type and message, so that an error reads well, can be translated and loses nothing (ADRs 0073, 0079, 0080, 0100, 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 134
+title = "As a person, I want Enter during an IME composition never to submit a form or run a search, so that typing in my language is safe (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 135
+title = "As a user, I want the Console to load fast and stay under 1 MB brotli, its first screen within its own ceiling, so that it opens quickly on a slow link (ADRs 0057, 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 136
+title = "As a user, I want the Runs screen to stay smooth with 10,000 runs and a stream of events, without its memory growing, so that a busy Daemon stays usable (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 137
+title = "As Goodfetch Cloud, I want the Console to call only catalog operations and take its endpoint and authentication as configuration, so that the same build runs behind the Cloud gateway (ADR 0031; ADR 0037 / CL-06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 138
+title = "As a Client author, I want the Console's own use of the protocol to pass the same Client conformance cases as the TypeScript SDK, so that the Console never relies on behaviour no other Client gets (ADR 0068)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 201
+title = "As a user with Foxhound installed, I want my major's Foxhound Daemon to serve Foxhound's Console build on the Console's port, listing both Products' runs in one Runs screen and one \"Needs you\", so that installing Foxhound adds screens without moving anything (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 202
+title = "As a user, I want every screen of Collie's Console present and unchanged in Foxhound's, so that moving from Collie to Foxhound loses nothing (ADR 0094)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 203
+title = "As a user, I want Foxhound's screens shown for every run that needs Foxhound, and a Collie run to show only the views every run has, so that each run shows what it can hold (ADRs 0096, 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 204
+title = "As a user, I want a crawl run's page to list its Datasets with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a user, I want Records paged by key, with filtering (the `wall` marker included), sorting and column selection done in the engine, so that a Dataset of millions of Records opens at once (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a user reading text in any script, I want each cell isolated with `dir=\"auto\"` and data kept out of browser translation, so that mixed-direction values and names read correctly (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 210
+title = "As a developer, I want a read-only SQL tab over the runs I select, each run's tables registered as functions, so that I join and aggregate Records with SQL in place (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 211
+title = "As a user, I want the SQL tab to refuse any write, attach, install or outside read, with time and memory limits and secret columns hidden, so that a query reads only the runs I chose and can never leak (ADRs 0031, 0057)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 212
+title = "As an agent's user, I want the SQL tab and search across runs to be catalog reads every surface offers, so that an agent can answer questions about my data too (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 215
+title = "As a user, I want to keep a Dataset view offline, its Records cached encrypted under a key that expires with my sign-in, so that I can read it on a train and lose nothing to a stolen laptop (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 217
+title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 219
+title = "As a user, I want a live, filterable log of request outcomes, read from committed state without slowing the crawl, each with its `attempts` and the error of each failed attempt, a `handler_failed` or `hook_failed` showing my exception's type, message and stack (none from Rust, whose type reads `BoxError` or `panic`) and, for `hook_failed`, its stage, Hook, Label and wrapped code, so that I watch failures as they happen and fix my handler (ADRs 0079, 0102, 0104, 0109, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 231
+title = "As Goodfetch Cloud, I want Foxhound's Console build to show runs of both Products' engines, Foxhound's screens only for a run on Foxhound's engine, so that one build serves every tenant's runs (ADR 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 232
+title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a user, I want a Records grid of 10,000 rows to render only the rows on screen, so that large Datasets stay smooth (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 234
+title = "As a user, I want Foxhound's build to stay under 1 MB brotli with its own initial-route ceiling, so that adding Foxhound never slows the Console's first screen (ADRs 0071, 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

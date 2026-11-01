@@ -12,7 +12,7 @@
 
 use std::fs;
 
-use goodfetch_test_support::{TestEnv, command};
+use goodfetch_test_support::{TestEnv, command, journey_engine};
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -37,7 +37,7 @@ fn cli() {
     .unwrap();
 
     // Ask where each effective value comes from.
-    let output = command(&env, COLLIE)
+    let output = command(&env, journey_engine(COLLIE))
         .args(["config", "explain", "timeout", "--json"])
         .output()
         .unwrap();

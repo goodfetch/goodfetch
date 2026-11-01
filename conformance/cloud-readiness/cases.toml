@@ -1,0 +1,94 @@
+# The Cloud-readiness conformance suite's case list (spec #586, ADRs 0068
+# and 0096): the contracts Goodfetch Cloud relies on, each a case with the
+# messages it expects. Each capability names the kind of target its cases
+# run against (`target`): a `gateway`, reached by address, which is the
+# Stub gateway here and Goodfetch Cloud's gateway from its private
+# repository; the `engine` target, an engine driven as a gateway drives
+# one, joins with its cases. `goodfetch-conformance` runs each target
+# kind's capabilities (`GatewaySuite::embedded`) and writes one
+# `conformance` document per target. A gateway case opens its own
+# Connections as the Clients it names (a Collie or Foxhound Client, a
+# model's Client through the MCP server, the Console), each presenting the
+# gateway's token in its `hello`, and tells which engine a run landed on
+# from what that engine answers: `not_in_product` naming Collie and no
+# install, worded for the gateway, comes only from Collie's engine behind
+# the gateway, and an answer to a Foxhound-only call only from Foxhound's. `TESTING.md`'s subsection "The
+# Cloud-readiness conformance suite" lists every case with its `covers`; a
+# new cloud-facing contract lands with its case in the same pull request.
+# Bump the version whenever a case changes.
+
+[suite]
+name = "cloud-readiness"
+version = "2"
+
+[[capability]]
+name = "gateway.clients"
+target = "gateway"
+
+[[capability.case]]
+id = "a-collie-client-and-a-foxhound-client-are-each-answered-as-their-product"
+covers = ["story:14-14", "story:14-15"]
+
+[[capability.case]]
+id = "a-client-of-another-protocol-version-is-refused-at-hello"
+covers = ["story:14-14"]
+
+[[capability.case]]
+id = "a-models-client-is-held-to-a-models-settings-behind-the-gateway"
+covers = ["story:14-14"]
+
+[[capability]]
+name = "gateway.routing"
+target = "gateway"
+
+[[capability.case]]
+id = "a-collie-clients-run-lands-on-collies-engine"
+covers = ["story:14-14"]
+
+[[capability.case]]
+id = "a-foxhound-clients-run-lands-on-foxhounds-engine"
+covers = ["story:14-15"]
+
+[[capability.case]]
+id = "a-console-run-naming-nothing-only-foxhound-carries-lands-on-collies-engine"
+covers = ["story:14-17"]
+
+[[capability.case]]
+id = "a-console-crawl-start-lands-on-foxhounds-engine"
+covers = ["story:14-17"]
+
+[[capability.case]]
+id = "a-console-run-setting-a-crawl-key-lands-on-foxhounds-engine"
+covers = ["story:14-17"]
+
+[[capability.case]]
+id = "a-start-naming-a-known-run-id-goes-to-that-runs-engine"
+covers = ["story:14-17"]
+
+[[capability]]
+name = "gateway.not_in_product"
+target = "gateway"
+
+[[capability.case]]
+id = "a-collie-programs-raw-crawl-start-answers-not-in-product-naming-the-runs-product"
+covers = ["story:14-16"]
+
+[[capability.case]]
+id = "a-collie-programs-crawl-setting-answers-not-in-product-naming-the-runs-product"
+covers = ["story:14-16"]
+
+[[capability.case]]
+id = "a-collie-programs-crawl-setting-in-a-sessions-settings-answers-not-in-product-naming-the-runs-product"
+covers = ["story:14-16"]
+
+[[capability]]
+name = "gateway.runs_of_another_product"
+target = "gateway"
+
+[[capability.case]]
+id = "a-collie-client-reads-a-foxhound-run-it-did-not-start"
+covers = ["story:14-20"]
+
+[[capability.case]]
+id = "a-foxhound-clients-call-a-collie-runs-engine-lacks-answers-not-in-product"
+covers = ["story:14-20"]

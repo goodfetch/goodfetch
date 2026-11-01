@@ -38,9 +38,65 @@ fn run_state_writes(count: usize) -> usize {
     black_box(scenarios::run_state_writes(black_box(count)))
 }
 
+#[library_benchmark]
+#[bench::thousand_entries(scenarios::egress_policy(1000))]
+fn egress_judge(input: (goodfetch_engine::egress::Policy, Vec<String>)) -> usize {
+    let (policy, urls) = input;
+    black_box(scenarios::judge_all(black_box(&policy), black_box(&urls)))
+}
+
+#[library_benchmark]
+#[bench::thousand_entries_hundred_ranges(scenarios::egress_policy_with_private_ranges(1000, 100))]
+fn egress_judge_private_ranges(
+    input: (
+        goodfetch_engine::egress::Policy,
+        Vec<(String, Vec<std::net::SocketAddr>)>,
+    ),
+) -> usize {
+    let (policy, requests) = input;
+    black_box(scenarios::judge_all_with_addresses(
+        black_box(&policy),
+        black_box(&requests),
+    ))
+}
+
+#[library_benchmark]
+#[bench::fifty_values_one_mib(
+    args = (50, 1 << 20),
+    setup = scenarios::mask_input
+)]
+fn mask_stream(
+    input: (
+        goodfetch_engine::mask::Masks,
+        goodfetch_engine::mask::Mask,
+        Vec<u8>,
+    ),
+) -> (usize, goodfetch_engine::mask::Mask) {
+    let (masks, mask, stream) = input;
+    let written = black_box(scenarios::mask_stream(
+        black_box(&masks),
+        black_box(&stream),
+    ));
+    (written, mask)
+}
+
+#[library_benchmark]
+#[bench::thousand_joins_of_one_value(1000)]
+fn mask_joins(joins: usize) -> usize {
+    black_box(scenarios::mask_joins_of_one_value(black_box(joins)))
+}
+
 library_benchmark_group!(
     name = engine,
-    benchmarks = [framing, dispatch, run_state_writes]
+    benchmarks = [
+        framing,
+        dispatch,
+        run_state_writes,
+        egress_judge,
+        egress_judge_private_ranges,
+        mask_stream,
+        mask_joins
+    ]
 );
 
 main!(library_benchmark_groups = engine);

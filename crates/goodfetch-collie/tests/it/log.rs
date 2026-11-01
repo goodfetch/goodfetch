@@ -1,8 +1,9 @@
 //! The logs and traces of Collie's executable (spec #213's Seam 1; ADRs
 //! 0043, 0078, 0122 and 0132): the Attached engine's JSON log in the
-//! Goodfetch home, written only when `GOODFETCH_LOG_OUTPUT` is `file`, as
-//! test support turns it on for ADR 0072's exercise audit, which reads
-//! `rpc`'s dispatch records in it; `log.format` on stderr; the `$/log`
+//! Goodfetch home, written only when `log.output` is `file`, as test
+//! support turns it on for ADR 0072's exercise audit, which reads `rpc`'s
+//! dispatch records in it, and `stdout` refused there; `log.format` on
+//! stderr; the `$/log`
 //! events a Client asks for in `hello`; the spans an OTLP collector
 //! receives once `otlp.traces_endpoint` names it; and no Secret canary in
 //! any log, raw or in Goodfetch's encodings.
@@ -25,10 +26,9 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::sync::mpsc;
 
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
-use prost::Message as _;
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -53,12 +53,15 @@ fn log_lines(home: &Path) -> Vec<Value> {
         .collect()
 }
 
+/// With `log.output: file`, as test support sets it, an Attached engine
+/// writes the JSON lines ADR 0072's exercise audit reads into the test's
+/// Goodfetch home.
+///
+/// Covers: row:RT-17, setting:log.output, setting:log.level
 #[test]
 fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_into_the_home() {
     let env = TestEnv::new();
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "file");
-    });
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "sample.crawl", "params": {} }));
@@ -85,12 +88,15 @@ fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_int
     );
 }
 
+/// With `log.output: none`, the default of an Attached engine, it writes no
+/// log file.
+///
+/// Covers: row:RT-17, setting:log.output
 #[test]
-fn without_log_output_the_engine_writes_no_log_file() {
+fn with_log_output_none_the_engine_writes_no_log_file() {
     let env = TestEnv::new();
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env_remove("GOODFETCH_LOG_OUTPUT");
-    });
+    env.user_configuration("log.output = \"none\"\n");
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
 
@@ -99,16 +105,24 @@ fn without_log_output_the_engine_writes_no_log_file() {
     assert!(!env.home().join("logs").exists());
 }
 
+/// `log.output: stdout` on an Attached engine, whose stdout is its
+/// protocol, fails its start with `setting_not_applicable`, before any
+/// message.
+///
+/// Covers: row:RT-17, setting:log.output, error:setting_not_applicable
 #[test]
-fn an_unknown_log_output_fails_the_start() {
+fn log_output_stdout_on_an_attached_engine_fails_with_setting_not_applicable() {
     let env = TestEnv::new();
-    let engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "stdout");
-    });
+    env.user_configuration("log.output = \"stdout\"\n");
+    let engine = Attached::start(&env);
 
-    let (sent, succeeded) = engine.finish();
+    let (sent, stderr) = engine.finish_with_stderr();
 
-    assert_eq!((sent, succeeded), (vec![], false));
+    assert_eq!(
+        (sent, stderr.contains("setting_not_applicable")),
+        (vec![], true),
+        "{stderr}"
+    );
 }
 
 /// Each line of `stderr` that reads as a JSON value, and how many do not.
@@ -137,9 +151,12 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
     if let Some(format) = format {
         env.user_configuration(&format!("log.format = \"{format}\""));
     }
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG", "info,goodfetch::rpc::dispatch=trace");
-    });
+    let mut engine = Attached::start_logging(
+        &env,
+        MESSAGE_DEADLINE,
+        "info,goodfetch::rpc::dispatch=trace",
+        |_| {},
+    );
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }));
@@ -234,9 +251,8 @@ fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log
 /// The spans of one OTLP export: each one's name and string attributes.
 type Exported = Vec<(String, Vec<(String, String)>)>;
 
-/// The spans of an export's protobuf body.
-fn spans_of(body: &[u8]) -> Exported {
-    let request = ExportTraceServiceRequest::decode(body).unwrap();
+/// The spans of an export.
+fn spans_of(request: &ExportTraceServiceRequest) -> Exported {
     request
         .resource_spans
         .iter()
@@ -261,8 +277,11 @@ fn spans_of(body: &[u8]) -> Exported {
 }
 
 /// Serves one Connection of the collector stand-in: each request's body,
-/// answered `200` with nothing.
-fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) {
+/// read as an `M`, answered `200` with nothing.
+fn serve_exports<M: prost::Message + Default>(
+    stream: std::net::TcpStream,
+    exports: &mpsc::Sender<M>,
+) {
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);
     loop {
@@ -284,7 +303,7 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) 
         }
         let mut body = vec![0; length];
         reader.read_exact(&mut body).unwrap();
-        let _ = exports.send(spans_of(&body));
+        let _ = exports.send(M::decode(body.as_slice()).unwrap());
         let _ = writer.write_all(
             b"HTTP/1.1 200 OK\r\ncontent-type: application/x-protobuf\r\ncontent-length: 0\r\n\r\n",
         );
@@ -293,16 +312,89 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<Exported>) 
 
 /// An OTLP/HTTP collector stand-in on loopback, on a thread of its own: its
 /// traces endpoint, and the spans of each export it receives.
-fn collector() -> (String, mpsc::Receiver<Exported>) {
+fn collector() -> (String, mpsc::Receiver<ExportTraceServiceRequest>) {
+    let (endpoint, received, _) = recorded_collector();
+    (endpoint, received)
+}
+
+/// The collector stand-in of [`collector`], with its connection record:
+/// one message for each connection it accepted.
+fn recorded_collector() -> (
+    String,
+    mpsc::Receiver<ExportTraceServiceRequest>,
+    mpsc::Receiver<()>,
+) {
+    collector_of("/v1/traces")
+}
+
+/// An OTLP/HTTP collector stand-in on loopback, on a thread of its own: its
+/// endpoint at `path`, each export it receives, read as an `M`, and its
+/// connection record, one message for each connection it accepted.
+pub(crate) fn collector_of<M: prost::Message + Default + 'static>(
+    path: &str,
+) -> (String, mpsc::Receiver<M>, mpsc::Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+    let endpoint = format!("http://{}{path}", listener.local_addr().unwrap());
     let (exports, received) = mpsc::channel();
+    let (accepted, connections) = mpsc::channel();
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
+            let _ = accepted.send(());
             serve_exports(stream, &exports);
         }
     });
-    (endpoint, received)
+    (endpoint, received, connections)
+}
+
+/// Story 4-16 (ADR 0017): the OTLP collector is an Operator-configured
+/// endpoint, reached on loopback by default; an Operator policy that sets
+/// `egress.no_private_endpoints` refuses it before any connection, so the
+/// collector's record shows none and it receives no span, while the run
+/// itself goes on.
+/// Covers: story:4-16, setting:egress.no_private_endpoints, setting:otlp.traces_endpoint
+#[rstest]
+#[case::by_default(false, 1)]
+#[case::under_no_private_endpoints(true, 0)]
+fn a_collector_on_loopback_is_refused_only_under_an_operator_policy_of_no_private_endpoints(
+    #[case] refused: bool,
+    #[case] runs: usize,
+) {
+    let env = TestEnv::new();
+    let (endpoint, exports, connections) = recorded_collector();
+    env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
+    if refused {
+        let major = env.home().join("0.0");
+        std::fs::create_dir_all(&major).unwrap();
+        std::fs::write(
+            major.join("operator-policy.toml"),
+            "version = \"0.1\"\n\n[settings.egress]\nno_private_endpoints = true\n",
+        )
+        .unwrap();
+    }
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "traced" },
+    }));
+    let started = engine.next().unwrap();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 2, "method": "run.finish", "params": { "run_id": "traced" },
+    }));
+    let _ = engine.next();
+
+    let (_, succeeded) = engine.finish();
+
+    let exported = exports
+        .try_iter()
+        .flat_map(|request| spans_of(&request))
+        .filter(|(name, _)| name == "run")
+        .count();
+    let accepted = connections.try_iter().count();
+    assert_eq!(
+        (succeeded, &started["error"], exported, accepted.min(1)),
+        (true, &Value::Null, runs, runs)
+    );
 }
 
 /// Covers: story:3-105, setting:otlp.traces_endpoint
@@ -327,7 +419,7 @@ fn with_otlp_traces_endpoint_set_the_collector_receives_each_runs_span_with_its_
 
     let runs: Exported = exports
         .try_iter()
-        .flatten()
+        .flat_map(|request| spans_of(&request))
         .filter(|(name, _)| name == "run")
         .collect();
     assert_eq!(
@@ -340,6 +432,53 @@ fn with_otlp_traces_endpoint_set_the_collector_receives_each_runs_span_with_its_
                     ("target".to_owned(), "goodfetch_engine::runs".to_owned()),
                     ("run_id".to_owned(), "traced".to_owned())
                 ]
+            )]
+        )
+    );
+}
+
+/// The caller's span a Client's request names, in W3C Trace Context's
+/// example `traceparent`.
+const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+/// Covers: story:3-146, setting:otlp.traces_endpoint
+#[test]
+fn with_otlp_traces_endpoint_set_a_requests_server_span_continues_the_trace_its_meta_names() {
+    let env = TestEnv::new();
+    let (endpoint, exports) = collector();
+    env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "engine.info",
+        "params": { "_meta": { "traceparent": TRACEPARENT } },
+    }));
+    let reply = engine.next().unwrap();
+
+    let (_, succeeded) = engine.finish();
+
+    let served: Vec<(Vec<u8>, Vec<u8>, i32)> = exports
+        .try_iter()
+        .flat_map(|request| request.resource_spans)
+        .flat_map(|resource| resource.scope_spans)
+        .flat_map(|scope| scope.spans)
+        .filter(|span| span.name == "engine.info")
+        .map(|span| (span.trace_id, span.parent_span_id, span.kind))
+        .collect();
+    assert!(reply.get("result").is_some(), "{reply}");
+    assert_eq!(
+        (succeeded, served),
+        (
+            true,
+            vec![(
+                vec![
+                    0x0a, 0xf7, 0x65, 0x19, 0x16, 0xcd, 0x43, 0xdd, 0x84, 0x48, 0xeb, 0x21, 0x1c,
+                    0x80, 0x31, 0x9c
+                ],
+                vec![0xb7, 0xad, 0x6b, 0x71, 0x69, 0x20, 0x33, 0x31],
+                // OTLP's `SPAN_KIND_SERVER`.
+                2,
             )]
         )
     );
@@ -372,9 +511,7 @@ fn no_secret_canary_a_client_sends_reaches_the_engines_logs() {
         percent_encoded(&token),
         percent_encoded(&token)
     );
-    let mut engine = Attached::start_with(&env, |command| {
-        command.env("GOODFETCH_LOG_OUTPUT", "file");
-    });
+    let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
     let _ = engine.next();
     for request in [

@@ -210,6 +210,81 @@ fn at_least_once_delivery_fails_when_a_committed_record_is_missing() {
     );
 }
 
+/// The run of `resumed_run` as a real-process test logs it: the copy left
+/// under epoch 1 runs in a process the test does not instrument, so its
+/// writes are not in the log, nor are the crashed copy's.
+fn resumed_run_without_writes() -> Vec<Record<()>> {
+    vec![
+        fence(1),
+        commit("r1", "a"),
+        fence(2),
+        write(2, "r2", "b"),
+        commit("r2", "b"),
+    ]
+}
+
+#[test]
+fn fenced_delivery_fails_when_a_stale_record_no_logged_write_explains_is_visible() {
+    let log = log(&with(
+        resumed_run_without_writes(),
+        &[
+            visible(1, "r1", "a"),
+            visible(2, "r2", "b"),
+            visible(1, "r3", "c"),
+        ],
+    ));
+
+    let verdict = fencing(&log, GuaranteeClass::Fenced);
+
+    assert_eq!(
+        verdict,
+        Err(Violation {
+            kind: ViolationKind::StaleRecordVisible,
+            records: vec![fence(2), visible(1, "r3", "c")],
+        })
+    );
+}
+
+#[test]
+fn record_fenced_delivery_fails_when_an_unlogged_stale_copy_overwrites_a_record() {
+    let log = log(&with(
+        resumed_run_without_writes(),
+        &[visible(1, "r1", "a"), visible(1, "r2", "z")],
+    ));
+
+    let verdict = fencing(&log, GuaranteeClass::RecordFenced);
+
+    assert_eq!(
+        verdict,
+        Err(Violation {
+            kind: ViolationKind::StaleOverwrite,
+            records: vec![write(2, "r2", "b"), visible(1, "r2", "z")],
+        })
+    );
+}
+
+/// A record the log shows committed explains its visible copy, whoever
+/// wrote it, and an unlogged stale copy may add a record under Record-fenced.
+#[rstest]
+#[case::fenced(
+    GuaranteeClass::Fenced,
+    with(resumed_run_without_writes(), &[visible(1, "r1", "a"), visible(2, "r2", "b")]),
+)]
+#[case::record_fenced(
+    GuaranteeClass::RecordFenced,
+    with(resumed_run_without_writes(), &[visible(1, "r1", "a"), visible(2, "r2", "b"), visible(1, "r3", "c")]),
+)]
+fn fencing_passes_an_unlogged_copy_a_commit_explains(
+    #[case] class: GuaranteeClass,
+    #[case] records: Vec<Record<()>>,
+) {
+    let log = log(&records);
+
+    let verdict = fencing(&log, class);
+
+    assert_eq!(verdict, Ok(()));
+}
+
 /// A Limit of 100 requests: two slices of 50, the first returned with 30
 /// charged, then a slice of 20, which reaches the Limit exactly.
 fn usage_up_to_the_limit() -> Vec<Record<()>> {
@@ -261,6 +336,24 @@ fn limits_fail_when_usage_goes_past_the_limit_and_the_allowed_loss() {
                 reserve("install/requests", 20),
                 reserve("install/requests", 2),
             ],
+        })
+    );
+}
+
+/// Settling more Usage than is reserved is a bookkeeping error the checker
+/// reports, rather than clamping it to zero, which would hide Usage a
+/// reservation still holds.
+#[test]
+fn limits_fail_when_a_settle_returns_more_than_was_reserved() {
+    let log = log(&[limit(100), reserve("install/requests", 10), settle(30, 10)]);
+
+    let verdict = limits(&log, 0);
+
+    assert_eq!(
+        verdict,
+        Err(Violation {
+            kind: ViolationKind::OverSettled,
+            records: vec![reserve("install/requests", 10), settle(30, 10)],
         })
     );
 }

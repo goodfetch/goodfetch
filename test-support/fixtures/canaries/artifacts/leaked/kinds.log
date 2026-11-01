@@ -1,6 +1,10 @@
 typed password: gfcanary-password-3f9a0c2e4b6d8a10"\+/=&
 TOTP seed: GFCANARYTOTPMZXW6YTBOI2DSNRQGEZD
+one-time code: gfcanary-code-6b1d0e9f2a4c8371
 proxy password: gfcanary-proxy-password-0a1b2c3d4e5f6071"\+/=&
+HTTP authentication password: gfcanary-http-password-2e7f9a1c3b5d0846"\+/=&
+header or JSON value: gfcanary-header-value-9c0e4a6b2d8f1357"\+/=&
+caller answer: gfcanary-caller-answer-5a3c7e1f9b0d2468"\+/=&
 model API key: gfcanary-model-key-5e2f7a9c1b3d4f6e8a0c2e4f6a8b0d1e
 webhook signing secret: gfcanary-webhook-secret-7c6b5a4938271605"\+/=&
 Sink credential: gfcanary-sink-credential-1029384756abcdef"\+/=&

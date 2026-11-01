@@ -2,8 +2,10 @@
 //! owner (the engine process, a Connection, a call, a run, later a Session
 //! and a page), which holds a cancellation token, a child of its parent's,
 //! and a tracker of its tasks. Stopping an owner cancels first, then waits
-//! for its tasks. This is the only module that starts tasks and threads
-//! (ADR 0060); the engine builds no runtime, `main` does.
+//! for its tasks, then ends its actors once they handled what their
+//! mailboxes hold, whoever still holds a sender. This is the only module
+//! that starts tasks and threads (ADR 0060); the engine builds no runtime,
+//! `main` does.
 //!
 //! Blocking work runs under the owner's [`BlockingPolicy`], a value: in
 //! production on tracked blocking threads, and an actor that owns blocking
@@ -13,6 +15,7 @@
 
 use std::future::Future;
 use std::io;
+use std::ops::ControlFlow;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -34,6 +37,12 @@ pub enum BlockingPolicy {
 pub struct TaskOwner {
     token: CancellationToken,
     tracker: TaskTracker,
+    /// Its actors, which outlive its other tasks: a stop ends them only
+    /// once those have ended.
+    actors: TaskTracker,
+    /// Cancelled once a stop's other tasks have ended: each actor then
+    /// closes its mailbox, handles what it still holds and ends.
+    closing: CancellationToken,
     policy: BlockingPolicy,
 }
 
@@ -44,6 +53,8 @@ impl TaskOwner {
         Self {
             token: CancellationToken::new(),
             tracker: TaskTracker::new(),
+            actors: TaskTracker::new(),
+            closing: CancellationToken::new(),
             policy,
         }
     }
@@ -56,6 +67,8 @@ impl TaskOwner {
         Self {
             token: self.token.child_token(),
             tracker: TaskTracker::new(),
+            actors: TaskTracker::new(),
+            closing: CancellationToken::new(),
             policy: self.policy,
         }
     }
@@ -106,8 +119,10 @@ impl TaskOwner {
     /// Starts an actor named `name` that owns blocking state: `handle` gets
     /// every message `mailbox` holds at once, in order, so it can group
     /// them (the run's SQLite writer commits a group in one transaction).
-    /// The actor ends once every sender of `mailbox` is gone, and the owner
-    /// waits for it then.
+    /// The actor ends once every sender of `mailbox` is gone, or once a
+    /// stop of the owner saw its other tasks end: it closes its mailbox
+    /// then, refusing any later message, whoever holds a sender, and
+    /// handles what the mailbox still holds first. The owner waits for it.
     ///
     /// # Errors
     ///
@@ -115,22 +130,53 @@ impl TaskOwner {
     pub fn actor<M, H>(
         &self,
         name: &str,
-        mut mailbox: mpsc::Receiver<M>,
+        mailbox: mpsc::Receiver<M>,
         mut handle: H,
     ) -> io::Result<()>
     where
         M: Send + 'static,
         H: FnMut(Vec<M>) + Send + 'static,
     {
+        self.actor_until(name, mailbox, move |group| {
+            handle(group);
+            ControlFlow::Continue(())
+        })
+    }
+
+    /// Starts an actor as [`TaskOwner::actor`] does, which also ends once
+    /// `handle` breaks: its mailbox is dropped then, with every message it
+    /// still holds, so a sender's later message is refused, whoever holds a
+    /// sender still.
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses the dedicated thread.
+    pub fn actor_until<M, H>(
+        &self,
+        name: &str,
+        mut mailbox: mpsc::Receiver<M>,
+        mut handle: H,
+    ) -> io::Result<()>
+    where
+        M: Send + 'static,
+        H: FnMut(Vec<M>) -> ControlFlow<()> + Send + 'static,
+    {
+        let closing = self.closing.clone();
         match self.policy {
             BlockingPolicy::Inline => {
-                self.tracker.spawn(async move {
-                    while let Some(first) = mailbox.recv().await {
-                        handle(drain(first, &mut mailbox));
+                self.actors.spawn(async move {
+                    while let Some(first) = next(&mut mailbox, &closing).await {
+                        if handle(drain(first, &mut mailbox)).is_break() {
+                            break;
+                        }
                     }
                 });
             }
             BlockingPolicy::Threads => {
+                // The thread waits for its next message on the runtime's
+                // handle, outside any of its tasks, beside the stop's
+                // closing.
+                let runtime = tokio::runtime::Handle::current();
                 let (finished, ended) = oneshot::channel::<()>();
                 #[expect(
                     clippy::disallowed_methods,
@@ -140,12 +186,15 @@ impl TaskOwner {
                     std::thread::Builder::new()
                         .name(name.to_owned())
                         .spawn(move || {
-                            while let Some(first) = mailbox.blocking_recv() {
-                                handle(drain(first, &mut mailbox));
+                            while let Some(first) = runtime.block_on(next(&mut mailbox, &closing)) {
+                                if handle(drain(first, &mut mailbox)).is_break() {
+                                    break;
+                                }
                             }
+                            drop(mailbox);
                             let _ = finished.send(());
                         })?;
-                self.tracker.spawn(async move {
+                self.actors.spawn(async move {
                     let _ = ended.await;
                     // The thread has returned, or panicked: joining takes no
                     // time, and a panic resumes here.
@@ -163,7 +212,8 @@ impl TaskOwner {
         self.token.cancel();
     }
 
-    /// Waits for every task it started, without cancelling them.
+    /// Waits for every task it started, without cancelling them, its
+    /// actors last, each ending once every sender of its mailbox is gone.
     ///
     /// # Cancel safety
     ///
@@ -172,16 +222,37 @@ impl TaskOwner {
     pub async fn wait(&self) {
         self.tracker.close();
         self.tracker.wait().await;
+        self.actors.close();
+        self.actors.wait().await;
     }
 
-    /// Cancels its tasks, then waits for them.
+    /// Cancels its tasks, waits for them, then ends its actors once each
+    /// handled what its mailbox holds, never waiting for a sender held
+    /// anywhere else to go (#1763).
     ///
     /// # Cancel safety
     ///
     /// As [`TaskOwner::wait`]: the tasks are already cancelled.
     pub async fn stop(&self) {
         self.cancel();
-        self.wait().await;
+        self.tracker.close();
+        self.tracker.wait().await;
+        self.closing.cancel();
+        self.actors.close();
+        self.actors.wait().await;
+    }
+}
+
+/// The next message of `mailbox`; once `closing` is cancelled, the mailbox
+/// is closed first, so it answers what it holds, then none.
+async fn next<M>(mailbox: &mut mpsc::Receiver<M>, closing: &CancellationToken) -> Option<M> {
+    tokio::select! {
+        biased;
+        message = mailbox.recv() => message,
+        () = closing.cancelled() => {
+            mailbox.close();
+            mailbox.recv().await
+        }
     }
 }
 

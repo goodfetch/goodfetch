@@ -12,11 +12,24 @@
 //!   path the script builds from its parts, so the page spells out no URL
 //!   and a click requests nothing until the crawl follows it.
 //!
+//! - `links.test/answers/` (no task): links, in order, `/answers/1`, the
+//!   same page with a fragment, an anchor with no `href`, a mail address,
+//!   the off-site `http://elsewhere.test/`, a URL that does not parse
+//!   (`http://[::1/`), and `2` and `3` relative to it, the last carrying
+//!   `data-isbn`: every answer an `enqueueLinks` call gives (ADR 0093).
+//!   `/answers/<n>` (1 to 3) is a page with its ID.
+//! - `links.test/shift-jis/` (no task): a page written in `Shift_JIS`,
+//!   labelled so, linking `search?q=日本&k=한`, 한 written as the character
+//!   reference `&#54620;` since `Shift_JIS` has no 한, so a link's query is
+//!   percent-encoded as a browser encodes it (ADR 0120);
+//!   `/shift-jis/search` answers any query.
+//!
 //! A request for what a wrong base makes of a relative link (`/guide/book/…`,
 //! `/old/book/…`) answers `404` and records a `wrong_base` finding.
 
 use std::fmt::Write as _;
 
+use encoding_rs::SHIFT_JIS;
 use hyper::StatusCode;
 
 use super::{Page, Visit, crawl_task, document, name, numbered};
@@ -91,6 +104,21 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         (Some(2), "/new/shelf/") => Page::ok(shelf(None)),
         (Some(2), _) => book(visit.seed, 2, path, MOVED_BOOKS),
         (Some(3), "/") => Page::ok(rooms(visit.seed)),
+        (None, "/answers/") => Page::ok(answers()),
+        (None, "/shift-jis/") => shift_jis(&document(
+            "日本",
+            "<main>\n<h1>日本</h1>\n<p><a href=\"search?q=日本&amp;k=한\">日本</a></p>\n</main>\n",
+        )),
+        (None, "/shift-jis/search") => {
+            shift_jis(&document("検索", "<main>\n<h1>検索</h1>\n</main>\n"))
+        }
+        (None, _) => path
+            .strip_prefix("/answers/")
+            .and_then(super::canonical_number)
+            .filter(|number| (1..=3).contains(number))
+            .map_or_else(Page::not_found, |number| {
+                Page::ok(article(&format!("A-{number}"), &format!("Answer {number}")))
+            }),
         (Some(3), _) => path
             .strip_prefix("/rooms/")
             .and_then(|id| numbered(id, "R-", 2, ROOMS))
@@ -98,6 +126,35 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
                 Page::ok(article(&room_id(number), &title(visit.seed, 3, number)))
             }),
         _ => Page::not_found(),
+    }
+}
+
+/// `links.test/answers/`: a link for each answer of an `enqueueLinks` call.
+fn answers() -> String {
+    document(
+        "Answers",
+        "<main>\n<h1>Answers</h1>\n<ul class=\"links\">\n\
+<li><a href=\"/answers/1\">One</a></li>\n\
+<li><a href=\"/answers/1#top\">One again</a></li>\n\
+<li><a name=\"here\">No link</a></li>\n\
+<li><a href=\"mailto:shop@links.test\">Mail</a></li>\n\
+<li><a href=\"http://elsewhere.test/\">Elsewhere</a></li>\n\
+<li><a href=\"http://[::1/\">Broken</a></li>\n\
+<li><a href=\"2\">Two</a></li>\n\
+<li><a href=\"3\" data-isbn=\"978-3\">Three</a></li>\n\
+</ul>\n</main>\n",
+    )
+}
+
+/// `html` written in `Shift_JIS`, a character it has none for as its
+/// numeric character reference, labelled so, its `<meta>` dropped.
+fn shift_jis(html: &str) -> Page {
+    let html = html.replacen("<meta charset=\"utf-8\">", "", 1);
+    let (bytes, _, _) = SHIFT_JIS.encode(&html);
+    Page {
+        content_type: "text/html; charset=Shift_JIS",
+        body: bytes.into_owned().into(),
+        ..Page::ok(String::new())
     }
 }
 

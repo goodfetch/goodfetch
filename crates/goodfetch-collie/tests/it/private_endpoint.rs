@@ -3,21 +3,20 @@
 //! of its stdio where it listens and where its token is, in the reply to
 //! `hello`, and accepts a second Connection there whose `hello` carries the
 //! token; the endpoint passes its column of the endpoint table, each
-//! refusal checked in the engine's log until the Audit log records it (area
-//! 4); the Run index names it as the owner of the engine's live Runs, and
+//! refusal found in the Audit log; the Run index names it as the owner of
+//! the engine's live Runs, and
 //! the Daemon forwards an abort of such a Run there.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests read the engine's files, logs and Run index themselves"
 )]
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_test_support::{
-    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
-    ListenerKind, Rule, RuntimeFile, TestEnv,
+    DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress, ListenerKind,
+    RuntimeFile, TestEnv,
 };
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -97,12 +96,16 @@ fn an_attached_engine_reports_its_private_endpoint_where_a_second_connection_wit
 }
 
 /// The endpoint table's private endpoint column (ADR 0067), each refusal
-/// checked in the engine's log until the Audit log records it (area 4).
+/// found in the Audit log: the token of an earlier Attached engine, which
+/// ended with it, is expired.
 ///
-/// Covers: story:3-17
+/// Covers: story:3-17, story:4-21, story:4-24, story:4-90
 #[test]
 fn the_private_endpoint_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();
+    let mut earlier = Attached::start(&env);
+    let expired = token(&reported(&mut earlier));
+    let _ = earlier.finish();
     let mut engine = Attached::start(&env);
     let private = reported(&mut engine);
     let address = match &private.address {
@@ -126,34 +129,11 @@ fn the_private_endpoint_passes_its_endpoint_table_rows() {
         },
         token(&private),
     )
-    .with_other_listener_token("a-daemons-token");
-    let log = env
-        .home()
-        .join("logs")
-        .join(format!("goodfetch-collie-{}.jsonl", engine.pid()));
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-    let verifier = move |_: ListenerKind, rule: Rule| {
-        let reason = match rule {
-            Rule::TokenMissing => "token_missing",
-            Rule::TokenWrong | Rule::TokenFromAnotherListener => "token_wrong",
-            Rule::HelloNotFirst => "hello_not_first",
-            _ => return Ok(false),
-        };
-        let text = std::fs::read_to_string(&log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!("private_endpoint")
-                    && record["fields"]["reason"] == json!(reason)
-            })
-            .count();
-        let earlier = seen.insert(reason.to_owned(), refusals).unwrap_or(0);
-        Ok(refusals > earlier)
-    };
+    .with_other_listener_token("a-daemons-token")
+    .with_expired_token(expired);
 
-    let ran = EndpointRunner::new(verifier).run(&listener);
+    let ran = EndpointRunner::new(crate::endpoint::audit_verifier(&env, "private_endpoint"))
+        .run(&listener);
 
     let _ = engine.finish();
     assert_eq!(ran, Ok(()));

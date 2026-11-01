@@ -1,8 +1,9 @@
 # Which of goodfetch-conformance's top-level modules may import which (ADR 0126).
 [modules]
+canaries = []
 case_list = []
 host = []
-protocol = ["case_list", "host", "proving_ground", "writer"]
+protocol = ["canaries", "case_list", "host", "proving_ground", "writer"]
 proving_ground = []
 self_test = ["case_list", "host", "proving_ground", "writer"]
 writer = ["case_list"]

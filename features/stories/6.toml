@@ -540,6 +540,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 202
@@ -548,6 +549,78 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 203
+title = "As a crawl developer, I want `sitemap(url, rules)` to seed from a sitemap or a site's robots.txt, follow nested indexes, give each entry the first matching rule's Label, and count entries matching none as `no_rule`, so that a sitemap crawl needs no parser (CO-10, ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 204
+title = "As a site owner, I want a sitemap's own fetches, nested ones included, to go through the domain policy, Politeness and robots.txt and run no handler, so that a sitemap is fetched as politely as a page (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a crawl developer, I want a sitemap entry outside the crawl's scope not added with `out_of_scope`, and a robots.txt seed to admit its own host's entries from a sitemap on another host it cross-submits, so that a third-party sitemap never widens my crawl (ADR 0120; pitfall U20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 206
+title = "As a crawl developer, I want sitemaps read in gzip and plain form, up to sitemaps.org's 50,000 URLs and 50 MB uncompressed each, a larger or broken one reported with its URL and why, so that one bad sitemap never stops the rest (pitfall U19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a crawl developer, I want the progress and the report to count, per sitemap seed, the sitemaps read, those that failed with their status, the entries added and those not added by reason, so that a sitemap's effect is visible without listing 50,000 entries (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 208
+title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 209
+title = "As a crawl developer, I want `run.addSeeds(source)` to take a list, an iterable or an async iterable of seeds and send them under the connection's credits, yielding each seed's answer in order, so that a million-URL input never sits in memory (CO-02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 210
+title = "As a crawl developer, I want a keep-alive crawl (`crawl.keep_alive`) to take seeds from `addSeed` and `addSeeds` while idle, so that a crawl in a service waits for work (RT-12, golden scenario 12)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
 
 [[story]]
 id = 211
@@ -556,6 +629,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 212
@@ -564,6 +638,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 213
@@ -572,6 +647,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 214
@@ -580,6 +656,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 215
@@ -588,6 +665,43 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 216
+title = "As a crawl developer, I want no-effect query parameters learned by page signature, trap paths closed and cursor pagination preferred to offset, each rule reported with its evidence and the URLs it merged, and never across a registrable domain, so that traps end without my rules (ADR 0005; pitfalls U01, U03)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 217
+title = "As a crawl developer, I want the `www`, scheme, trailing-slash and index-file forms merged per host only on evidence (a redirect, matching page signatures, `rel=canonical`), reported as `equivalent_form`, so that a site where they differ keeps both pages (ADR 0120; pitfall U06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 218
+title = "As a crawl developer, I want a learned rule that later meets a contradicting pair to stop merging and say so in the report, so that a wrong rule is visible and stops costing pages **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 219
+title = "As a crawl developer, I want `rel=canonical` used as evidence only, a canonical to another path or registrable domain ignored, so that a mis-templated site never drops every page but one (ADR 0120; pitfall U09)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
 
 [[story]]
 id = 220
@@ -596,6 +710,34 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 221
+title = "As a crawl developer, I want `crawl.keep_url_fragment` on a Label whose requests are hash routes, served only by `light_browser` or `browser`, so that a hash-routed app's views are separate requests (ADR 0120; pitfall U05)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 222
+title = "As a crawl developer, I want a pending request that a rule learned later merges to end `skipped` with `duplicate`, so that the count of pages handled stays honest (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 223
+title = "As a crawl developer, I want a Payload stored in the Frontier apart from the engine's fields, typed by its Label, capped by `crawl.payload.max_size` (64 KiB) with `payload_invalid` naming the setting, so that large content goes to the Key-value store and the Frontier stays small (ADR 0082)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
 
 [[story]]
 id = 224
@@ -604,6 +746,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 225
@@ -612,6 +755,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 226
@@ -620,6 +764,43 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 227
+title = "As a crawl developer, I want `crawl.max_depth` and `crawl.max_requests` to refuse further enqueues with their reasons and end the Run `incomplete`, so that a bounded crawl never reads as complete (CO-07, CO-08; pitfall U01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 228
+title = "As a crawl developer, I want `crawl.max_url_length` (2,083), `crawl.max_path_segments` (20) and `crawl.max_segment_repeats` (2) on by default, a refused URL making a finished Run `unverified`, so that traps the learned rules miss still end (ADR 0120; pitfall U10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 229
+title = "As a crawl developer, I want `crawl.path_budgets` to cap the requests admitted under URL path patterns, as Spider's `with_budget`, with a URL past its budget not added with `path_budget` and the Run ending `incomplete`, so that one section of a site cannot use the whole crawl (CO-08) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 230
+title = "As a crawl developer, I want facets bounded by robots.txt, a `crawl.scope.exclude` pattern on their parameters and `crawl.max_requests`, with no default rule, so that a catalogue on one path is never cut (ADR 0120; pitfall U02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
 
 [[story]]
 id = 231
@@ -628,6 +809,142 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 232
+title = "As a crawl developer, I want `ctx.enqueueLinks(locator, label, payload?, options)` to report each matched element: added, `no_link`, `skipped_by_payload`, or not added with its reason, and to give each link its own Payload through a function, so that per-link data needs no loop (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a crawl developer, I want a link's query percent-encoded in its document's encoding, as a browser encodes it, so that a Shift_JIS page's links fetch what a browser fetches (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 236
+title = "As a crawl developer, I want enqueues, seeds, Records and Key-value store writes an attempt staged to commit together or be discarded together, so that a failed attempt leaves no stray link (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 237
+title = "As a crawl developer, I want an enqueue inside a declared Effect's body to fail with `effect_staging_refused`, so that a re-run that skips the body never loses a link silently (ADR 0106)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 238
+title = "As a crawl developer, I want `run.outcomes({ kinds: [\"skipped\", \"blocked\"], after: \"now\" })` to follow skipped and blocked links as they happen, each with its reason, in place of a callback, so that I can watch the crawl's refusals live (CO-11, ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 239
+title = "As a site owner, I want every crawl request, start URLs and sitemap entries included, and every navigation and fetch a handler makes from its page, to obey my robots.txt's group for `goodfetch-foxhound` and the operator's token merged before `*`, so that a crawl does what my file says (ADR 0086; SC-01; pitfall U17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 240
+title = "As a site owner, I want a robots.txt answered with a 4xx other than 429 read as no rules, a 429, 5xx or unreachable one never cached as no rules, the last good copy applying meanwhile and everything disallowed with none, so that an outage never lifts my rules (ADR 0086; pitfall U16)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 241
+title = "As a user, I want each origin's robots.txt kept at most 24 hours per user, shared by my runs, its fetch counted in the domain's Politeness, so that robots.txt is fetched once a day, not once a run (ADR 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 242
+title = "As a user, I want a waiting request whose robots.txt keeps failing to end `skipped` with `robots_txt` after its retries, so that no request waits forever on robots.txt (ADR 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 243
+title = "As a site owner, I want my Crawl-delay applied to my whole domain key up to `site_preferences.max_crawl_delay` (30 s), and a crawl asking for more to skip my host with `crawl_delay`, so that I am never waited out for hours nor ignored (ADR 0086; pitfall U18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 244
+title = "As a crawl developer, I want a handler's own navigation that robots.txt, a Crawl-delay or an AI-use signal refuses to raise `site_preferences_refused` with its reason, and escaping the handler to end the request `skipped` with that reason, so that a handler's `goto` cannot collect what an enqueue would skip (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 245
+title = "As a user, I want the navigation gate set on the page a handler gets and every page opened from it, backed by the per-domain limits, delay, backoff and robots.txt, and a permit's wait counted against no timeout, so that eight handlers never press one site eight times over (ADRs 0087, 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 246
+title = "As a user, I want Collie's per-Run robots.txt reading replaced, on a crawl's Run, by the shared copy, so that a crawl fetches robots.txt once per origin for all its pages (ADR 0086; Collie's part)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 247
+title = "As a site owner, I want an opt-in adaptive delay, `politeness.domain.adaptive_delay`, that lengthens a domain's delay as its responses slow, never below `politeness.domain.delay`, so that a struggling site gets more room (CO-09) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 248
+title = "As a user, I want an opt-in per-domain rate, `politeness.domain.rate`, enforced as a token bucket shared like the delay, so that I can cap a site at, say, 30 requests a minute on top of the delay (CO-09) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
 
 [[story]]
 id = 250
@@ -636,6 +953,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 251
@@ -644,6 +962,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 255
@@ -652,3 +971,270 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
+
+[[story]]
+id = 257
+title = "As a crawl developer, I want the tier learned per Label on a domain by sample comparison under `fetch.tier: auto`, and forced per Label with `fetch.tier`, Provenance recording the tier and whether it was forced, so that a crawl mixes tiers with one handler (CO-15, ADR 0093; P11, K03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 258
+title = "As a crawl developer, I want a Label on a domain split by the first segment of its URL paths when its samples disagree by segment, so that one Label covering two kinds of page does not hold both on the browser **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 259
+title = "As a crawl developer, I want a written table of which page calls each tier serves exactly, and a call it cannot serve to escalate the request to the browser under `auto` or fail with `browser_required` under a forced tier, so that I know what my handler costs (ADR 0093; P49)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 260
+title = "As a crawl developer, I want a wait for content a static document lacks, and a page failing its expected page, to escalate rather than pass empty, so that a script-rendered page never counts as an empty success (ADR 0093; P04; pitfall H22)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 261
+title = "As a crawl developer, I want the cheaper tiers to serve what they can exactly, `discovered_api` answering network waits and kept responses from the JSON calls it replays and `light_browser` serving a script-rendered page's content without layout, the rest escalating by the served-call table, so that my handler pays for the browser only where it needs it (ADRs 0093, 0110)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 262
+title = "As a crawl developer, I want a Label that keeps responses while forcing `http` or `browser_fetch`, or that keeps fragments while forcing a document tier, to fail the Run's start with `setting_not_applicable`, so that a setting that can never serve is refused (ADRs 0110, 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 263
+title = "As a crawl developer, I want `fetch.tier_race` to start browser-fetch and, after the Label-on-domain's median browser-fetch latency (500 ms before any sample), a full navigation in the same Session, the first result passing the Page check and the Label's comparison winning and the other cancelled, both counted in Politeness and Usage and the race in Provenance, so that a latency-sensitive crawl gets its page sooner (CO-16, ADRs 0040, 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 264
+title = "As a crawl developer, I want `crawl.content_types` (HTML and XHTML by default, down to a Label) to skip any other response with `content_type` before its body is read, and an accepted non-HTML type to reach my handler with its body and a page holding no document, so that a PDF is neither downloaded unasked nor read as an empty page (ADR 0119; pitfall H16)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 265
+title = "As a crawl developer, I want Provenance to record each document's encoding and where it came from (`bom`, `setting`, `header`, `meta`, `utf8` or `detected`), so that mojibake can be traced (ADR 0119; pitfall H17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 266
+title = "As a crawl developer, I want `crawl.dataset(name, { schema, key })` to declare a typed Dataset with no I/O, a duplicate name failing with `dataset_duplicate` and a key on a field the schema does not require with `dataset_key_invalid`, so that a misspelled Dataset is a type error (CO-25, ADRs 0082, 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 267
+title = "As a crawl developer, I want `ctx.push(dataset, record)` to check the Record against its schema natively and in the engine, raise `record_invalid` naming each issue's path, and stage a valid one with its attempt, so that a bad Record never commits silently (ADR 0103; pitfall D01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 268
+title = "As a crawl developer, I want each Dataset to number its committed Records from 1, in commit order, with no gaps, so that a reader resumes after a number (ADRs 0008, 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 269
+title = "As a crawl developer, I want a `succeeded` outcome to count, per Dataset, the Records committed, dropped and rejected, and say why when it committed nothing, so that an empty page is visible (ADR 0103; pitfall D02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 270
+title = "As a crawl developer, I want `run.rejectedRecords(dataset, { after })` to read the rejection table, each entry numbered with the Record as JSON, its reason, its Hook, its request and its URL, so that a Hook's rejection is never lost (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 271
+title = "As a crawl developer, I want `run.records(dataset, { after })` to read committed Records from the first, following the Run live as a cursor that never slows the crawl, so that a slow reader costs nothing (CO-29, ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 272
+title = "As a crawl developer, I want a resume refused with `dataset_unknown` when the crawl no longer declares a Dataset holding Records, and with `dataset_key_invalid` when its key changed, while a changed schema resumes and each Record keeps the hash of the schema it was committed under, so that no Record is orphaned or mis-keyed (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 273
+title = "As a crawl developer, I want every Record's Provenance to name the crawl request that produced it, its tier, its encoding, a cache or recording origin, its Clean-up rules, a Wall marker, a payment and any Value transform with its text, locale and zone, so that each value can be traced to its page (ADRs 0045, 0047, 0052, 0103, 0119, 0123)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 274
+title = "As a crawl developer, I want a Record's `wall` marker filterable in Dataset queries and every Export format, so that pages read past a Wall can be set apart (ADR 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 275
+title = "As a crawl developer, I want Secret values masked in Records as `%name%`, so that a secret never lands in a Dataset (ADR 0092)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 276
+title = "As a crawl developer, I want `run.export(dataset, { format, compression })` to return an `Export` only once its file is whole, in JSON, JSONL, CSV, XLSX, XML, Parquet, HTML table, RSS, Atom, Avro, Arrow IPC or Markdown, gzip or zstd, so that every common format comes from one call (CO-27, ADRs 0026, 0103, 0116)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 277
+title = "As a crawl developer, I want every text Export UTF-8, JSON and JSONL with no BOM and characters as themselves, CSV with a BOM only under `export.csv.bom`, and values written as decoded, so that consumers read what the page said (ADR 0119; pitfall D04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 278
+title = "As a crawl developer, I want CSV, XLSX, HTML-table and Markdown Exports to carry the union of every field seen, in first-seen order, so that a later Record's field is never dropped (CO-27; pitfall D07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 279
+title = "As a crawl developer, I want each format's options as `export.*` settings, so that an Export's shape is configured once per project (ADR 0103) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 280
+title = "As a crawl developer, I want the engine's failed write to raise `file_write_failed`, side `engine`, and leave no unfinished file, and an Export at the `critical` storage level to fail before writing, so that an Export I hold is always whole (ADRs 0116, 0122)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 304
+title = "As a CLI user, I want `goodfetch-foxhound crawl start <url> --format markdown` and `--field name=selector` to crawl in scope with no code and fill one Dataset, `pages`, keyed by URL, so that a site becomes Markdown and fields from one command (J-002, J-011, ADR 0103)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 306
+title = "As a crawl developer, I want `run.retryFailed({ blocked })` to re-admit every request whose latest outcome is `failed` (and `blocked` when asked), each keeping its ID, Label, Payload and depth with a fresh `crawl.retry.max`, and answer how many, so that I retry failures in the same Run and Dataset (ADR 0102; golden scenario 07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 307
+title = "As a crawl developer, I want requests a `Retry-After` past `politeness.retry_after.max` held ended `failed` with `response_unavailable`, so that `retryFailed` re-admits them once the site is back (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 309
+title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 310
+title = "As a crawl developer, I want the report's `learnedRules` to list each rule with its evidence and the URLs it merged, so that every merge can be audited (ADRs 0005, 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 314
+title = "As an operator, I want an Operator policy able to cap or lock `crawl.*`, `fetch.*`, `sinks.*`, `politeness.*` and `site_preferences.*`, so that a shared Daemon can forbid turning robots.txt off (ADRs 0028, 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

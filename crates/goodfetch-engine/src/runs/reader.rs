@@ -3,19 +3,28 @@
 //! closed after it, so it never takes the writer lock and never holds the
 //! writer back, whichever engine wrote the file and whether or not one
 //! still does. While this engine's writer works the Run, the reader waits
-//! for its next commit or the Run's end; a Run with no live writer here has
-//! nothing more to come.
+//! for its next commit or the Run's end; while another engine's writer
+//! holds the Run's writer lock, as an Attached engine crawling a Run a
+//! reader on the Daemon follows, the reader looks at the run file again
+//! every [`ELSEWHERE_POLL`]; a Run with no live writer anywhere has nothing
+//! more to come (ADRs 0102 and 0103).
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
-use goodfetch_protocol::run::{RunId, RunReport};
+use goodfetch_protocol::run::RunId;
 use rusqlite::Connection;
 use tokio::sync::watch;
 
 use super::folder::open_reader;
-use super::{RUN_FILE, RunError};
+use super::{Ended, RUN_FILE, RunError, Writer, test_writer};
+use crate::clock::Clock;
 use crate::tasks::TaskOwner;
+
+/// How often a reader looks at the run file again while another engine's
+/// writer works the Run, whose commits it is not told of.
+pub(super) const ELSEWHERE_POLL: Duration = Duration::from_secs(1);
 
 /// A reader of a Run's committed state.
 #[derive(Debug)]
@@ -25,6 +34,32 @@ pub struct RunReader {
     vfs: Option<String>,
     tasks: Arc<TaskOwner>,
     following: Option<Following>,
+    /// Whether this engine's writer worked the Run when the reader opened,
+    /// so its writer lock, while held, is this engine's own.
+    ours: bool,
+    /// Whether another engine's writer held the Run's writer lock at the
+    /// last [`RunReader::is_live`].
+    elsewhere: bool,
+    clock: Clock,
+}
+
+/// What opens a Run's state read-only, as a reader that takes no lock.
+#[derive(Clone, Debug)]
+pub struct RunFileOpener {
+    file: PathBuf,
+    vfs: Option<String>,
+}
+
+impl RunFileOpener {
+    /// A read-only connection of the run file's committed state; `None`
+    /// when the Run has no run file.
+    ///
+    /// # Errors
+    ///
+    /// SQLite's, when the file cannot be opened.
+    pub fn open(&self) -> rusqlite::Result<Option<Connection>> {
+        open_reader(&self.file, self.vfs.as_deref())
+    }
 }
 
 /// What a reader follows of a Run this engine works: its writer's commits
@@ -34,7 +69,7 @@ pub(super) struct Following {
     /// The writer's commits, or `None` once the Run is ending.
     pub(super) commits: Option<watch::Receiver<u64>>,
     /// The Run's report, once it ended.
-    pub(super) report: watch::Receiver<Option<RunReport>>,
+    pub(super) report: watch::Receiver<Option<Ended>>,
 }
 
 impl RunReader {
@@ -44,26 +79,78 @@ impl RunReader {
         vfs: Option<String>,
         tasks: Arc<TaskOwner>,
         following: Option<Following>,
+        clock: Clock,
     ) -> Self {
         Self {
             run_id,
             folder,
             vfs,
             tasks,
+            ours: following.is_some(),
             following,
+            elsewhere: false,
+            clock,
         }
     }
 
+    /// The Run's folder.
+    pub(super) fn folder(&self) -> &std::path::Path {
+        &self.folder
+    }
+
+    /// What opens the run file read-only as each of this reader's reads
+    /// does, for a reader that reads off the engine's tasks, such as the
+    /// SQL tab's table functions, which DuckDB calls on its own threads
+    /// (ADR 0057).
+    pub fn opener(&self) -> RunFileOpener {
+        RunFileOpener {
+            file: self.folder.join(RUN_FILE),
+            vfs: self.vfs.clone(),
+        }
+    }
+
+    /// Runs `work` under the engine's blocking policy, opening nothing:
+    /// work that reads the run file through [`RunReader::opener`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting: the work runs to its end.
+    pub async fn blocking<T, F>(&self, work: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        self.tasks.blocking(work).await
+    }
+
     /// Whether more may be committed: this engine's writer still works the
-    /// Run. Read it before a read, so that read sees every commit made
-    /// before the answer turned `false`.
-    pub fn is_live(&mut self) -> bool {
+    /// Run, or, for a Run this engine did not work when the reader opened,
+    /// another engine's writer holds its writer lock, which the reader
+    /// tests without taking it. Read it before a read, so that read sees
+    /// every commit made before the answer turned `false`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn is_live(&mut self) -> bool {
         if let Some(following) = &self.following
             && following.report.borrow().is_some()
         {
             self.following = None;
         }
-        self.following.is_some()
+        if self.following.is_some() {
+            return true;
+        }
+        if self.ours {
+            return false;
+        }
+        let folder = self.folder.clone();
+        self.elsewhere = self
+            .tasks
+            .blocking(move || test_writer(&folder))
+            .await
+            .is_ok_and(|writer| writer == Writer::Live);
+        self.elsewhere
     }
 
     /// Runs `work` on a read-only connection of the run file's committed
@@ -113,6 +200,7 @@ impl RunReader {
     }
 
     /// Waits for a commit after the last read began, or for the Run's end;
+    /// while another engine's writer works the Run, for [`ELSEWHERE_POLL`];
     /// returns at once when nothing more comes.
     ///
     /// # Cancel safety
@@ -120,6 +208,9 @@ impl RunReader {
     /// Dropping the future only stops waiting.
     pub async fn changed(&mut self) {
         let Some(Following { commits, report }) = &mut self.following else {
+            if self.elsewhere {
+                self.clock.sleep(ELSEWHERE_POLL).await;
+            }
             return;
         };
         let ended = report.wait_for(Option::is_some);

@@ -98,6 +98,19 @@ fn the_same_seed_plants_the_same_values() {
     SecretKind::ProxyPassword,
     r#"^gfcanary-proxy-password-[0-9a-f]{16}"\\\+/=&$"#
 )]
+#[case::one_time_code(SecretKind::OneTimeCode, r"^gfcanary-code-[0-9a-f]{16}$")]
+#[case::http_authentication_password(
+    SecretKind::HttpAuthenticationPassword,
+    r#"^gfcanary-http-password-[0-9a-f]{16}"\\\+/=&$"#
+)]
+#[case::header_value(
+    SecretKind::HeaderValue,
+    r#"^gfcanary-header-value-[0-9a-f]{16}"\\\+/=&$"#
+)]
+#[case::caller_answer(
+    SecretKind::CallerAnswer,
+    r#"^gfcanary-caller-answer-[0-9a-f]{16}"\\\+/=&$"#
+)]
 #[case::model_api_key(SecretKind::ModelApiKey, r"^gfcanary-model-key-[0-9a-f]{32}$")]
 #[case::webhook_signing_secret(
     SecretKind::WebhookSigningSecret,
@@ -145,6 +158,8 @@ fn a_canarys_debug_form_never_shows_its_value() {
 #[case::raw("raw.log")]
 #[case::json_escaped("json-escaped.log")]
 #[case::url_encoded("url-encoded.log")]
+#[case::url_encoded_as_a_browser_encodes_a_form("form-urlencoded.log")]
+#[case::url_encoded_as_encode_uri_component_does("uri-component.log")]
 #[case::base64("base64.log")]
 #[case::base64url("base64url.log")]
 #[case::hex("hex.log")]
@@ -264,5 +279,65 @@ fn leaks_leave_out_planted_copies() {
             .map(|hit| hit.output.as_str())
             .collect::<Vec<_>>(),
         vec!["export.csv"]
+    );
+}
+
+/// Spec #564's short-value rule (ADR 0067): a short canary has seven
+/// characters, the length under which the engine masks a value only where
+/// it was typed and in what it keeps.
+#[rstest]
+#[case::typed_password(SecretKind::TypedPassword, r#"^[a-km-z]{4}"\\\+$"#)]
+#[case::one_time_code(SecretKind::OneTimeCode, r"^[a-km-z]{7}$")]
+fn a_short_canary_has_seven_characters_of_its_kinds_alphabet(
+    #[case] kind: SecretKind,
+    #[case] shape: &str,
+) {
+    let mut canaries = Canaries::new(379);
+
+    let canary = canaries.plant_short(kind);
+
+    assert!(
+        regex::Regex::new(shape).unwrap().is_match(canary.value()),
+        "{} does not have the shape {shape}",
+        canary.id()
+    );
+}
+
+/// A page read the test captured is searched for every canary but a short
+/// one, which a read may hold by chance and the engine leaves in it.
+#[test]
+fn a_read_is_searched_for_every_canary_but_a_short_one() {
+    let mut canaries = Canaries::new(379);
+    let long = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let short = canaries
+        .plant_short(SecretKind::TypedPassword)
+        .value()
+        .to_owned();
+    let text = format!("{long} {short}");
+
+    let leaks: Vec<(String, String)> = canaries
+        .leaks(&[
+            Output::Read {
+                name: "page read",
+                bytes: text.as_bytes(),
+            },
+            Output::Bytes {
+                name: "run state",
+                bytes: text.as_bytes(),
+            },
+        ])
+        .unwrap()
+        .into_iter()
+        .filter(|hit| hit.encoding == Encoding::Raw)
+        .map(|hit| (hit.canary, hit.output))
+        .collect();
+
+    assert_eq!(
+        leaks,
+        vec![
+            ("canary-1".to_owned(), "page read".to_owned()),
+            ("canary-1".to_owned(), "run state".to_owned()),
+            ("canary-2".to_owned(), "run state".to_owned()),
+        ]
     );
 }

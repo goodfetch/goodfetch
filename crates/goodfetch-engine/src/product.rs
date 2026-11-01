@@ -25,7 +25,40 @@ pub enum Channel {
     Installer,
 }
 
+/// The deployment variable in which a channel's launcher, wrapper or image
+/// says which channel the executable came from (ADRs 0083 and 0090): one
+/// of [`Channel::name`]'s names.
+pub const CHANNEL_VARIABLE: &str = "GOODFETCH_CHANNEL";
+
 impl Channel {
+    /// Every channel.
+    pub const ALL: [Self; 6] = [
+        Self::Npm,
+        Self::Pypi,
+        Self::CratesIo,
+        Self::Homebrew,
+        Self::Oci,
+        Self::Installer,
+    ];
+
+    /// Its name, as [`CHANNEL_VARIABLE`] and a release build's stamp write
+    /// it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Npm => "npm",
+            Self::Pypi => "pypi",
+            Self::CratesIo => "crates-io",
+            Self::Homebrew => "homebrew",
+            Self::Oci => "oci",
+            Self::Installer => "installer",
+        }
+    }
+
+    /// The channel named `name`, if one is.
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|channel| channel.name() == name)
+    }
+
     /// The command that installs `product`'s executable on this channel.
     pub fn install_command(self, product: Product) -> String {
         let name = product.as_str();
@@ -58,7 +91,7 @@ pub struct Identity {
 
 /// Where a request for what the Product lacks came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Requested<'a> {
+pub enum Requested<'a> {
     /// A Client's `hello` that needs the Product.
     Hello,
     /// A call of the operation, setting or value named.
@@ -70,7 +103,7 @@ impl Identity {
     /// `needs` carries and this engine's Product lacks; `behind_gateway`
     /// when the Connection's `hello` came from Goodfetch Cloud's gateway
     /// (ADR 0096).
-    pub(crate) fn not_in_product(
+    pub fn not_in_product(
         &self,
         requested: Requested<'_>,
         needs: Product,
@@ -113,6 +146,7 @@ impl Identity {
                 Requested::Name(name) => Some(name.to_owned()),
             },
             fix,
+            install: (!behind_gateway).then_some(install),
             handover: false,
         };
         (message, details)

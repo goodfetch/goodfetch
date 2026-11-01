@@ -2,7 +2,8 @@
 //! that family's host names, and the Effect its form carries out, and on any
 //! other host name its own task list (`GET /tasks`), oracle (`POST /oracle`),
 //! time step (`PUT /time-step`), which a task's harness sets and scheduled
-//! content and drifting pages follow, certificate authority
+//! content and drifting pages follow, the `limited` proxy's hold
+//! (`PUT /limited-proxy-hold`), certificate authority
 //! (`GET /certificate-authority`), observations (`GET /observations`), the
 //! replay proxy's refusals (`GET /replay`), the Fake model's calls
 //! (`GET /model-calls`) and the revocation of the portal's sessions
@@ -22,6 +23,9 @@ use crate::adversarial;
 use crate::agent;
 use crate::browser_pages;
 use crate::catalog;
+use crate::certificates;
+use crate::clean_up;
+use crate::consent;
 use crate::crawl::{self, Families};
 use crate::encodings;
 use crate::exchange::{Reply, Request};
@@ -51,8 +55,8 @@ pub(crate) struct Site {
     port: u16,
     /// The families' host names: each family's own and each of its tasks'.
     hosts: BTreeMap<String, Option<String>>,
-    /// The seed's certificate authority, as PEM.
-    certificate_authority: String,
+    /// The seed's certificate authority and client certificate.
+    pems: Pems,
     observations: Arc<Observations>,
     logins: Logins,
     canaries: Canaries,
@@ -70,22 +74,34 @@ struct TimeStep {
     step: u64,
 }
 
+/// Whether the `limited` proxy holds the requests it counts, as
+/// `PUT /limited-proxy-hold` sets it.
+#[derive(Serialize, Deserialize)]
+struct LimitedHold {
+    held: bool,
+}
+
 /// The families' own host names, each family's tasks served on
 /// `<ordinal>.<host>`.
 const FAMILY_HOSTS: [&str; 4] = [catalog::HOST, rendered::HOST, login::HOST, schedule::HOST];
 
+/// What the site hands a client of the seed's certificates, each as PEM.
+pub(crate) struct Pems {
+    /// The certificate authority every leaf chains to.
+    pub(crate) certificate_authority: String,
+    /// The client certificate the hosts that require mutual TLS accept.
+    pub(crate) client_certificate: String,
+    /// Its private key, PKCS #8.
+    pub(crate) client_key: String,
+}
+
 impl Site {
-    pub(crate) fn new(
-        seed: u64,
-        port: u16,
-        certificate_authority: String,
-        observations: Arc<Observations>,
-    ) -> Self {
+    pub(crate) fn new(seed: u64, port: u16, pems: Pems, observations: Arc<Observations>) -> Self {
         Self {
             seed,
             port,
             hosts: Self::hosts(seed),
-            certificate_authority,
+            pems,
             observations,
             logins: Logins::default(),
             canaries: Canaries::default(),
@@ -103,7 +119,7 @@ impl Site {
 
     /// The seed's certificate authority, as PEM.
     pub(crate) fn certificate_authority(&self) -> &str {
-        &self.certificate_authority
+        &self.pems.certificate_authority
     }
 
     /// Every host name a page family is served on, each with the task its
@@ -119,6 +135,11 @@ impl Site {
                 extraction::HOST,
                 files::HOST,
                 languages::HOST,
+                clean_up::HOST,
+                clean_up::FRAME_HOST,
+                clean_up::PAYMENT_HOST,
+                consent::HOST,
+                consent::FRAME_HOST,
             ])
             .map(|host| (host.to_owned(), None))
             .collect();
@@ -141,6 +162,7 @@ impl Site {
         hosts.extend(raw_site::hosts().into_iter().map(|host| (host, None)));
         hosts.extend(hostile::hosts());
         hosts.extend(canaries::hosts());
+        hosts.extend(certificates::hosts());
         hosts
     }
 
@@ -183,6 +205,9 @@ impl Site {
         let ok = |(content_type, body)| (StatusCode::OK, content_type, body);
         let html = |page: String| ok(("text/html; charset=utf-8", page.into_bytes()));
         let page = if of(extraction::HOST) {
+            if let Some(location) = extraction::moved(path).filter(|_| *method == Method::GET) {
+                return Some(Reply::found(&location));
+            }
             extraction::page(self.seed, path).map(ok)
         } else if of(encodings::HOST) {
             encodings::page(self.seed, path).map(ok)
@@ -225,15 +250,18 @@ impl Site {
                 return page.into_reply();
             }
         }
-        let held = browser_pages::hold(&name, request.path).map(crawl::Held::after);
+        let held = browser_pages::hold(&name, request.path)
+            .or_else(|| access::hold(&name, request.path))
+            .map(crawl::Held::after);
         (self.respond(host, request), held)
     }
 
     /// The connection a request asks the server to hold open, given its
     /// `Host` header: one of the `live` family's WebSocket and server-sent
-    /// events stream.
+    /// events stream, or the `access` family's page events WebSocket.
     pub(crate) fn push(host: &str, method: &Method, path: &str) -> Option<Push> {
-        browser_pages::push(&observation::host_name(host), method, path)
+        let name = observation::host_name(host);
+        browser_pages::push(&name, method, path).or_else(|| access::push(&name, method, path))
     }
 
     /// The whole response, as bytes, of a request to `path` on `host` (its
@@ -287,6 +315,15 @@ impl Site {
         if let Some(reply) = canaries::respond(self.seed, &self.canaries, &name, request) {
             return reply;
         }
+        if let Some(reply) = certificates::respond(&name, request.path) {
+            return reply;
+        }
+        if let Some(reply) = clean_up::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = consent::respond(&name, request) {
+            return reply;
+        }
         if name == model::HOST {
             // The Fake model answers its own paths (`Self::model`).
             return Reply::not_found();
@@ -338,6 +375,7 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::PUT, "/limited-proxy-hold") => self.set_limited_hold(request.body),
             (&Method::POST, "/canaries") => self.plant(request),
             (&Method::GET, "/canaries") => self.canaries.document(),
             (&Method::POST, "/revoke-sessions") => {
@@ -362,11 +400,27 @@ impl Site {
                 headers: Vec::new(),
                 body: self.observations.document().into(),
             },
+            (&Method::GET, "/network-fixtures") => match self.observations.network_fixtures() {
+                Some(fixtures) => Reply::json(StatusCode::OK, &fixtures),
+                None => Reply::not_found(),
+            },
             (&Method::GET, "/certificate-authority") => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
                 headers: Vec::new(),
-                body: self.certificate_authority.clone().into(),
+                body: self.pems.certificate_authority.clone().into(),
+            },
+            (&Method::GET, "/client-certificate") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/x-pem-file",
+                headers: Vec::new(),
+                body: self.pems.client_certificate.clone().into(),
+            },
+            (&Method::GET, "/client-key") => Reply {
+                status: StatusCode::OK,
+                content_type: "application/x-pem-file",
+                headers: Vec::new(),
+                body: self.pems.client_key.clone().into(),
             },
             _ => Reply::not_found(),
         }
@@ -539,6 +593,17 @@ impl Site {
         };
         self.observations.set_time_step(time_step.step);
         Reply::json(StatusCode::OK, &time_step)
+    }
+
+    /// Sets whether the `limited` proxy holds each request it counts until
+    /// released, which a harness turns on to send two at once and off to
+    /// let the held one go on.
+    fn set_limited_hold(&self, body: &Bytes) -> Reply {
+        let Ok(hold) = serde_json::from_slice::<LimitedHold>(body) else {
+            return Reply::error(StatusCode::BAD_REQUEST, "malformed_limited_proxy_hold");
+        };
+        self.observations.set_limited_hold(hold.held);
+        Reply::json(StatusCode::OK, &hold)
     }
 
     /// Judges a submission against its task's expected result.

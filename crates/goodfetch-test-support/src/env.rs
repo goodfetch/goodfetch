@@ -17,9 +17,14 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
-use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::exercise::{self, DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::locales::{LocaleTableError, table_lang, table_zone};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
-use crate::runtime_file::major_folder;
+use crate::runtime_file::{
+    DaemonEndpoint, RUNTIME_FILE, RuntimeFile, SOCKET_FOLDER_PREFIX, major_folder,
+};
+#[cfg(target_os = "linux")]
+use crate::variables::LAZYFS_FOLDER_VARIABLE;
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
 };
@@ -31,13 +36,9 @@ pub const START_TIME: &str = "2026-01-05T09:00:00Z";
 /// [`START_TIME`] in seconds since the Unix epoch.
 const START_SECONDS: u64 = 1_767_603_600;
 
-/// Where an engine started with the map writes its logs: JSON lines in the
-/// Goodfetch home's log folder (ADR 0122), standing in for `log.output:
-/// file` until the engine reads its configuration.
-const LOG_OUTPUT: (&str, &str) = ("GOODFETCH_LOG_OUTPUT", "file");
-
-/// Which logs it writes: `rpc`'s dispatch records and the engine's outcome
-/// records, which ADR 0072's exercise audit reads, beside the default level.
+/// Which logs every engine the test starts writes: `rpc`'s dispatch records
+/// and the engine's outcome records, which ADR 0072's exercise audit reads,
+/// beside the default level.
 fn log_level() -> String {
     format!("info,{DISPATCH_TARGET}=trace,{OUTCOME_TARGET}=trace")
 }
@@ -45,10 +46,28 @@ fn log_level() -> String {
 /// How long a folder name keeps the test's name.
 const NAME_LENGTH: usize = 64;
 
+/// Where a LazyFS test's folder is made unless [`LAZYFS_FOLDER_VARIABLE`]
+/// names another folder. A FUSE mount is refused outside the folders the
+/// operating system lets a user mount in: Ubuntu's AppArmor profile of
+/// `fusermount3` allows only `$HOME`, `/mnt`, `/run/user/<uid>`, `/media` and
+/// `/tmp`, so a `TMPDIR` elsewhere, such as the local gate's `/g`, cannot
+/// hold the mount. `/tmp` is in that list and on every Linux, and short
+/// enough that `<home>/0.0/daemon.sock` stays within the engine's 103-byte
+/// limit for a Unix socket's path (the OS's is 108).
+#[cfg(target_os = "linux")]
+const LAZYFS_PARENT: &str = "/tmp";
+
 /// The settings every test's user configuration starts with: the Console
 /// of every Daemon the test starts listens on a port the OS chooses, never
-/// on its major's fixed port (ADR 0059).
-pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\n";
+/// on its major's fixed port (ADR 0059); and every engine process writes
+/// its JSON log into the home's log folder (ADR 0122), at the test's level
+/// (`log.level`, [`TestEnv::log_level`]), keeping every process's files
+/// (`log.file.max_files`): a process other than the Daemon keeps only its
+/// executable's newest sets at its start, and the test's exercise record
+/// reads every engine's log when the test ends, so a test that starts more
+/// processes than the default 5 would lose the first ones' records.
+pub const TEST_SETTINGS: &str =
+    "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";
@@ -56,12 +75,14 @@ const USER_CONFIGURATION: &str = "configuration.toml";
 /// One test's isolated setup. Its folder is removed when it drops, unless
 /// the test failed: then it is kept and listed on stderr. Dropping it also
 /// fails the test if a process it started is still alive, or if its
-/// crash-dump folder holds a file. Its map turns on the JSON log of every
-/// engine the test starts, whose lines it copies into the test's exercise
-/// record when it drops, under `just test`.
+/// crash-dump folder holds a file. Its user configuration turns on the
+/// JSON log of every engine the test starts, whose lines it copies into
+/// the test's exercise record when it drops, under `just test`.
 pub struct TestEnv {
     folder: tempfile::TempDir,
     home: PathBuf,
+    /// The `log.level` of its user configuration.
+    log_level: std::cell::RefCell<String>,
     crash_dumps: PathBuf,
     env: BTreeMap<String, String>,
     seed: u64,
@@ -83,10 +104,68 @@ impl TestEnv {
             .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
     }
 
+    /// The running test's setup as [`TestEnv::new`] makes it, its folder on
+    /// a memory file system where the OS keeps one at a known place
+    /// (`/dev/shm` on Linux), else in the temporary folder as `new`'s: for
+    /// an in-process test of a store, whose synced writes and new files
+    /// then wait for no disk, however busy other writers keep it
+    /// (fix-queue 123), and for the Daemon soak, whose HTTP crawls start no
+    /// browser and whose Runs' stores a busy disk slowed past its cap
+    /// (fix-queue 128). Any other test that starts a browser or an engine
+    /// keeps [`TestEnv::new`]: its copies would sit in memory. A failed
+    /// test's folder is kept on disk, in the temporary folder, and removed
+    /// from memory; the folder of a test killed before its teardown is
+    /// moved there by the next in-memory setup.
+    ///
+    /// # Panics
+    ///
+    /// As [`TestEnv::new`].
+    pub fn in_memory() -> Self {
+        Self::create_in(
+            &current_test(),
+            &Variables::from_process(),
+            memory_folder().as_deref(),
+        )
+        .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+    }
+
     /// The setup of the test with this full name, from these variables.
     /// Prints `goodfetch-test-seed=<n>` to stderr once the seed is known,
     /// before anything else, so a test killed on a timeout still shows it.
     pub fn create(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        Self::create_in(test, variables, None)
+    }
+
+    /// The running test's setup for a LazyFS mount of its folders
+    /// ([`crate::LazyFs`]): its folder made in [`LAZYFS_FOLDER_VARIABLE`]'s
+    /// folder, or in `/tmp`, whatever `TMPDIR` names.
+    ///
+    /// # Panics
+    ///
+    /// If its folder cannot be made or a variable cannot be read.
+    #[cfg(target_os = "linux")]
+    pub fn for_lazyfs() -> Self {
+        Self::create_for_lazyfs(&current_test(), &Variables::from_process())
+            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+    }
+
+    /// [`TestEnv::for_lazyfs`] of the test with this full name, from these
+    /// variables.
+    #[cfg(target_os = "linux")]
+    pub fn create_for_lazyfs(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        let parent = variables
+            .get(LAZYFS_FOLDER_VARIABLE)
+            .unwrap_or(LAZYFS_PARENT);
+        Self::create_in(test, variables, Some(Path::new(parent)))
+    }
+
+    /// [`TestEnv::create`], its folder made in `parent`, or in the
+    /// operating system's temporary folder (`TMPDIR`) when it is `None`.
+    fn create_in(
+        test: &str,
+        variables: &Variables,
+        parent: Option<&Path>,
+    ) -> Result<Self, TestEnvError> {
         let seed = variables.seed(test)?;
         #[expect(
             clippy::print_stderr,
@@ -96,9 +175,22 @@ impl TestEnv {
             eprintln!("goodfetch-test-seed={seed}");
         }
         let suite = variables.suite()?;
-        let folder = tempfile::Builder::new()
-            .prefix(&format!("{} é ", folder_name(test)))
-            .tempdir()?;
+        // An in-memory folder's name carries its process, so a later setup
+        // can tell the folder of a test killed before its teardown.
+        let memory = memory_folder().filter(|memory| parent == Some(memory.as_path()));
+        let prefix = match memory {
+            Some(memory) => {
+                move_folders_of_killed_tests(&memory);
+                format!("{} é{OWNER_MARK}{}-", folder_name(test), std::process::id())
+            }
+            None => format!("{} é ", folder_name(test)),
+        };
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(&prefix);
+        let folder = match parent {
+            Some(parent) => builder.tempdir_in(parent)?,
+            None => builder.tempdir()?,
+        };
         let root = folder.path();
         let home = root.join("home");
         let crash_dumps = home.join(crash_dumps::FOLDER);
@@ -122,12 +214,11 @@ impl TestEnv {
                 .ok_or_else(|| TestEnvError::NotUnicode(path.clone()))?;
             env.insert(name.to_owned(), value.to_owned());
         }
+        #[cfg(unix)]
         restrict_to_owner(&root.join("runtime"))?;
-        write_user_configuration(&home, "")?;
+        write_user_configuration(&home, "", &log_level())?;
         env.insert("TZ".to_owned(), "UTC".to_owned());
         env.insert("LANG".to_owned(), "C.UTF-8".to_owned());
-        env.insert(LOG_OUTPUT.0.to_owned(), LOG_OUTPUT.1.to_owned());
-        env.insert("GOODFETCH_LOG".to_owned(), log_level());
         let record = ExerciseRecord::of(variables);
         if let Some(record) = &record {
             record.open()?;
@@ -145,6 +236,7 @@ impl TestEnv {
         Ok(Self {
             folder,
             home,
+            log_level: std::cell::RefCell::new(log_level()),
             crash_dumps,
             env,
             seed,
@@ -155,24 +247,30 @@ impl TestEnv {
         })
     }
 
-    /// The same setup with `LANG` for this locale tag (`tr-TR` becomes
-    /// `tr_TR.UTF-8`).
-    #[must_use]
-    pub fn with_locale(mut self, tag: &str) -> Self {
-        self.env.insert("LANG".to_owned(), posix_locale(tag));
-        self
+    /// The same setup with `LANG` for this locale of the shared table
+    /// (ADR 0073), given by its BCP 47 tag (`tr-TR` becomes `tr_TR.UTF-8`).
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::LocaleUnknown`] for a tag outside the table.
+    pub fn with_locale(mut self, tag: &str) -> Result<Self, LocaleTableError> {
+        self.env.insert("LANG".to_owned(), table_lang(tag)?);
+        Ok(self)
     }
 
-    /// The same setup with `TZ` for this time zone.
-    #[must_use]
-    pub fn with_time_zone(mut self, zone: &str) -> Self {
-        self.env.insert("TZ".to_owned(), zone.to_owned());
-        self
+    /// The same setup with `TZ` for this time zone of the shared table.
+    ///
+    /// # Errors
+    ///
+    /// [`LocaleTableError::TimeZoneUnknown`] for a zone outside the table.
+    pub fn with_time_zone(mut self, zone: &str) -> Result<Self, LocaleTableError> {
+        self.env
+            .insert("TZ".to_owned(), table_zone(zone)?.to_owned());
+        Ok(self)
     }
 
     /// The same setup with one more variable in the map every child gets,
-    /// such as `GOODFETCH_LOG=info` for a run on a pseudo-terminal whose
-    /// transcript two runs compare (the trace lines carry their instant).
+    /// such as `TERM` for a run on a pseudo-terminal.
     #[must_use]
     pub fn with_variable(mut self, name: &str, value: &str) -> Self {
         self.env.insert(name.to_owned(), value.to_owned());
@@ -190,16 +288,53 @@ impl TestEnv {
     }
 
     /// Writes the home's user configuration with `settings`, lines of TOML
-    /// under `[settings]`, after [`TEST_SETTINGS`], which every test's home
-    /// starts with, unless `settings` sets `console.address` itself.
+    /// under `[settings]`, after [`TEST_SETTINGS`] and the test's
+    /// `log.level`, which every test's home starts with, each unless
+    /// `settings` sets its key itself.
     ///
     /// # Panics
     ///
     /// If the file cannot be written.
     pub fn user_configuration(&self, settings: &str) {
-        write_user_configuration(&self.home, settings).unwrap_or_else(|error| {
+        write_user_configuration(&self.home, settings, &self.log_level.borrow()).unwrap_or_else(
+            |error| panic!("the test's user configuration cannot be written: {error}"),
+        );
+    }
+
+    /// Sets the `log.level` of every engine the test starts from now on,
+    /// a `tracing` filter directive, such as `trace` for a test whose
+    /// stdout must hold no log line at any level, or `info` for a
+    /// pseudo-terminal's transcript two runs compare (the trace lines carry
+    /// their instant): in the user configuration as it is, whoever wrote
+    /// it, every other line kept (ADR 0122).
+    ///
+    /// # Panics
+    ///
+    /// If the file cannot be read or written.
+    pub fn log_level(&self, filter: &str) {
+        filter.clone_into(&mut self.log_level.borrow_mut());
+        set_log_level(&self.home, filter).unwrap_or_else(|error| {
             panic!("the test's user configuration cannot be written: {error}")
         });
+    }
+
+    /// The lines its teardown copies into the test's exercise record, as
+    /// they stand: its command record's, its answer record's, then those of
+    /// the engines' logs in its home (ADR 0072), under any runner.
+    ///
+    /// # Panics
+    ///
+    /// If a record or a log file cannot be read, or holds a line that is no
+    /// JSON.
+    pub fn exercise_lines(&self) -> Vec<serde_json::Value> {
+        exercise::taken_lines(self.folder(), &self.home)
+            .unwrap_or_else(|error| panic!("the test's exercise lines cannot be read: {error}"))
+            .iter()
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|error| panic!("an exercise line is no JSON ({error}): {line}"))
+            })
+            .collect()
     }
 
     /// `<home>/crash-dumps`, which the map names in
@@ -248,6 +383,20 @@ impl TestEnv {
         command
     }
 
+    /// Starts `command` with the standard streams it sets, and records it,
+    /// for a process whose output goes to a file, such as LazyFS's.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn spawn_with_streams(
+        &self,
+        command: &mut std::process::Command,
+    ) -> io::Result<Process> {
+        let program = Path::new(command.get_program())
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let child = command.spawn()?;
+        Ok(self.processes.record(program, child))
+    }
+
     /// Starts a command with its standard input and output piped and records
     /// its process, which must have exited when the test's teardown runs.
     pub fn spawn(&self, command: &mut std::process::Command) -> io::Result<Process> {
@@ -262,6 +411,118 @@ impl TestEnv {
     }
 }
 
+impl TestEnv {
+    /// Keeps the test's folder after the value drops, as a failed test's
+    /// is, and lists it in the test's output: `goodfetch-test-env` does so
+    /// when the TypeScript or Python test it serves failed.
+    pub fn keep(&mut self) {
+        self.folder.disable_cleanup(true);
+        #[expect(
+            clippy::print_stderr,
+            reason = "a failed test lists its kept folder in its output (ADR 0062)"
+        )]
+        {
+            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+        }
+    }
+}
+
+impl TestEnv {
+    /// Keeps the failed test's folder and returns where: a folder on the
+    /// memory file system is copied to the temporary folder on disk, under
+    /// its own name, and removed from memory when the value drops, since a
+    /// kept folder holds RAM there until someone deletes it; if the copy
+    /// fails, the folder stays in memory.
+    fn kept_folder(&mut self) -> PathBuf {
+        let folder = self.folder.path();
+        let in_memory = memory_folder().is_some_and(|memory| folder.starts_with(memory));
+        if in_memory && let Ok(on_disk) = copy_to_disk(folder) {
+            // The value's drop removes the folder from memory.
+            return on_disk;
+        }
+        self.folder.disable_cleanup(true);
+        self.folder().to_owned()
+    }
+}
+
+/// What an in-memory folder's name holds before its process's ID.
+const OWNER_MARK: &str = " pid";
+
+/// Moves to disk each in-memory test folder in `memory` whose process is
+/// gone: a test killed on its timeout runs no teardown, and its folder
+/// would hold RAM until someone deleted it. Each is listed on stderr as
+/// `goodfetch-test-folder-moved=<path>`. Best effort: a folder another
+/// setup is moving, or one that cannot be copied, stays.
+fn move_folders_of_killed_tests(memory: &Path) {
+    let Ok(entries) = std::fs::read_dir(memory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(owner) = owner_of(&name.to_string_lossy()) else {
+            continue;
+        };
+        if Path::new("/proc").join(owner.to_string()).exists() {
+            continue;
+        }
+        let left = entry.path();
+        if let Ok(on_disk) = copy_to_disk(&left) {
+            let _ = std::fs::remove_dir_all(&left);
+            #[expect(
+                clippy::print_stderr,
+                reason = "a killed test's folder is listed where it was moved to, as a kept folder is (ADR 0062)"
+            )]
+            {
+                eprintln!("goodfetch-test-folder-moved={}", on_disk.display());
+            }
+        }
+    }
+}
+
+/// The process ID an in-memory test folder's name holds, if it is one.
+fn owner_of(name: &str) -> Option<u32> {
+    let (_, rest) = name.rsplit_once(" é")?;
+    let (owner, _) = rest.strip_prefix(OWNER_MARK)?.split_once('-')?;
+    owner.parse().ok()
+}
+
+/// Copies `folder` to the temporary folder on disk under its own name and
+/// returns the copy. Fails when that name is taken, as by another setup
+/// moving the same folder, and removes a partial copy of its own.
+fn copy_to_disk(folder: &Path) -> io::Result<PathBuf> {
+    let name = folder
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let on_disk = std::env::temp_dir().join(name);
+    std::fs::create_dir(&on_disk)?;
+    if let Err(error) = copy_contents(folder, &on_disk) {
+        let _ = std::fs::remove_dir_all(&on_disk);
+        return Err(error);
+    }
+    Ok(on_disk)
+}
+
+/// Copies what the folder `from` holds into the folder `to`: its folders,
+/// files and, on Unix, symbolic links; a socket or other special file is
+/// left out.
+fn copy_contents(from: &Path, to: &Path) -> io::Result<()> {
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            std::fs::create_dir(&target)?;
+            copy_contents(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        } else if kind.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(entry.path())?, &target)?;
+        }
+    }
+    Ok(())
+}
+
 impl Default for TestEnv {
     fn default() -> Self {
         Self::new()
@@ -273,6 +534,7 @@ impl Drop for TestEnv {
         // Children first, so a browser that crashes while it is stopped has
         // finished writing its dump.
         let alive = self.processes.stop_alive();
+        remove_socket_folders_outside(&self.home);
         let panicking = std::thread::panicking();
         let recorded = self.record.as_ref().map_or(Ok(()), |record| {
             record.append_logs(self.folder.path(), &self.home)
@@ -300,7 +562,7 @@ impl Drop for TestEnv {
         if !panicking && alive.is_empty() && dumps.is_empty() {
             return;
         }
-        self.folder.disable_cleanup(true);
+        let kept = self.kept_folder();
         let alive = ProcessesAlive { programs: alive };
         let dumps = CrashDumps { dumps };
         #[expect(
@@ -308,7 +570,7 @@ impl Drop for TestEnv {
             reason = "a failed test lists its kept folder and the failure's reasons, since a typed panic payload prints none (ADRs 0062 and 0069)"
         )]
         {
-            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+            eprintln!("goodfetch-test-folder-kept={}", kept.display());
             if !alive.programs.is_empty() {
                 eprintln!("{alive}");
             }
@@ -326,15 +588,42 @@ impl Drop for TestEnv {
     }
 }
 
+/// Removes each socket folder a Daemon of `home` made under `/tmp`, its
+/// socket's path in the home being too long for the OS, and left behind
+/// when it was killed: a folder named `SOCKET_FOLDER_PREFIX…` that holds the
+/// socket a runtime file of the home names.
+fn remove_socket_folders_outside(home: &Path) {
+    let Ok(majors) = std::fs::read_dir(home) else {
+        return;
+    };
+    for major in majors.flatten() {
+        let Ok(found) = RuntimeFile::read(&major.path().join(RUNTIME_FILE)) else {
+            continue;
+        };
+        if let DaemonEndpoint::Unix(socket) = found.endpoint
+            && !socket.starts_with(home)
+            && let Some(folder) = socket.parent()
+            && folder
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(SOCKET_FOLDER_PREFIX))
+        {
+            // Best effort: a folder another test removed is fine.
+            let _ = std::fs::remove_dir_all(folder);
+        }
+    }
+}
+
 /// An `assert_cmd` command with the environment cleared and the test's map
 /// applied, run in the test's folder.
 pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
     assert_cmd::Command::from_std(env.process_command(program))
 }
 
-/// The `LANG` value of a BCP 47 locale tag: `tr-TR` is `tr_TR.UTF-8`.
-pub(crate) fn posix_locale(tag: &str) -> String {
-    format!("{}.UTF-8", tag.replace('-', "_"))
+/// The memory file system an in-memory setup's folder lies in, where the
+/// OS keeps one at a known place: `/dev/shm` on Linux.
+fn memory_folder() -> Option<PathBuf> {
+    let shm = Path::new("/dev/shm");
+    (cfg!(target_os = "linux") && shm.is_dir()).then(|| shm.to_path_buf())
 }
 
 /// The test's name as a folder name every OS accepts.
@@ -355,29 +644,67 @@ fn folder_name(test: &str) -> String {
 /// Writes `home`'s user configuration of the workspace's major: its format
 /// version, then [`TEST_SETTINGS`] and `settings` under `[settings]`; when
 /// `settings` sets the Console's address itself, its value alone.
-fn write_user_configuration(home: &Path, settings: &str) -> io::Result<()> {
+/// Sets `log.level` to `filter` in `home`'s user configuration: its line
+/// replaced, or one added under `[settings]`, every other line kept.
+fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
+    let file = home
+        .join(major_folder(env!("CARGO_PKG_VERSION")))
+        .join(USER_CONFIGURATION);
+    let level = format!("log.level = \"{filter}\"");
+    let mut lines: Vec<String> = std::fs::read_to_string(&file)?
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("log.level"))
+        .map(str::to_owned)
+        .collect();
+    match lines.iter().position(|line| line.trim() == "[settings]") {
+        Some(table) => lines.insert(table + 1, level),
+        None => lines.extend(["[settings]".to_owned(), level]),
+    }
+    replace(&file, &(lines.join("\n") + "\n"))
+}
+
+/// Writes `home`'s user configuration: [`TEST_SETTINGS`] and `log.level`
+/// at `log_level`, each unless `settings` sets its key, then `settings`.
+fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io::Result<()> {
     let folder = home.join(major_folder(env!("CARGO_PKG_VERSION")));
     std::fs::create_dir_all(&folder)?;
-    let defaults = if settings.contains("console.address") {
-        ""
-    } else {
-        TEST_SETTINGS
-    };
-    std::fs::write(
-        folder.join(USER_CONFIGURATION),
-        format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
+    let level = format!("log.level = \"{log_level}\"\n");
+    let defaults: String = TEST_SETTINGS
+        .lines()
+        .map(|line| format!("{line}\n"))
+        .chain(std::iter::once(level))
+        .filter(|line| {
+            let key = line.split('=').next().unwrap_or_default().trim();
+            !settings.contains(key)
+        })
+        .collect();
+    replace(
+        &folder.join(USER_CONFIGURATION),
+        &format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
     )
+}
+
+/// Replaces `file` with `text` at once: an engine reading it meanwhile, as
+/// one the test started before does while the test starts another, reads
+/// it before or after, never cut. The text and the rename are synced: a
+/// LazyFS test's power cut after a write on its mounted home, such as the
+/// `log.level` each engine start sets, leaves the file as written, never
+/// empty.
+fn replace(file: &Path, text: &str) -> io::Result<()> {
+    let folder = file.parent().unwrap_or(Path::new("."));
+    let mut replacement = tempfile::NamedTempFile::new_in(folder)?;
+    io::Write::write_all(&mut replacement, text.as_bytes())?;
+    replacement.as_file().sync_all()?;
+    replacement.persist(file).map_err(|error| error.error)?;
+    #[cfg(unix)]
+    std::fs::File::open(folder)?.sync_all()?;
+    Ok(())
 }
 
 #[cfg(unix)]
 fn restrict_to_owner(folder: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_folder: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 /// Why a test's setup cannot start.

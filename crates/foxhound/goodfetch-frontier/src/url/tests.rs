@@ -3,7 +3,9 @@ use proptest::prelude::*;
 use rstest::rstest;
 use url::Url;
 
-use super::{document_base, parse};
+use encoding_rs::{Encoding, SHIFT_JIS, UTF_8, UTF_16LE, WINDOWS_1252};
+
+use super::{document_base, parse, parse_link};
 
 fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
@@ -99,6 +101,47 @@ fn a_documents_base_url_is_its_base_href_resolved_against_its_own_url(
     );
 }
 
+/// A link's query is percent-encoded in its document's encoding, as the
+/// HTML standard's URL parsing encodes it, a character the encoding cannot
+/// write as `&#<code point>;` percent-encoded; its path and fragment, and
+/// every part of a UTF-16 document's links, in UTF-8 (ADR 0120). The bytes
+/// are the encodings' own: 日本 is `93 FA 96 7B` in `Shift_JIS`, whose last
+/// byte is `{`, which the query's percent-encode set leaves as it is; é is
+/// `E9` and € `80` in windows-1252; 한 is U+D55C, 54620.
+///
+/// Covers: story:6-233
+#[rstest]
+#[case::a_shift_jis_query(SHIFT_JIS, "/search?q=日本", "http://links.test/search?q=%93%FA%96{")]
+#[case::a_shift_jis_path_in_utf_8(
+    SHIFT_JIS,
+    "/日本?q=日本#日本",
+    "http://links.test/%E6%97%A5%E6%9C%AC?q=%93%FA%96{#%E6%97%A5%E6%9C%AC"
+)]
+#[case::a_character_shift_jis_cannot_write(
+    SHIFT_JIS,
+    "?k=한",
+    "http://links.test/library/shelves/?k=%26%2354620%3B"
+)]
+#[case::a_windows_1252_query(WINDOWS_1252, "/a?q=é€", "http://links.test/a?q=%E9%80")]
+#[case::a_utf_16_document_in_utf_8(
+    UTF_16LE,
+    "/a?q=日本",
+    "http://links.test/a?q=%E6%97%A5%E6%9C%AC"
+)]
+#[case::ascii_as_written(SHIFT_JIS, "/a?q=b%20c&d", "http://links.test/a?q=b%20c&d")]
+fn a_links_query_is_encoded_in_its_documents_encoding(
+    #[case] encoding: &'static Encoding,
+    #[case] href: &str,
+    #[case] resolved: &str,
+) {
+    let base = url("http://links.test/library/shelves/");
+
+    assert_eq!(
+        parse_link(href, &base, encoding).map(String::from),
+        Ok(resolved.to_owned())
+    );
+}
+
 #[test]
 fn a_document_whose_own_url_does_not_parse_has_no_base_url() {
     assert_eq!(document_base("/guide/", Some("/library/")), None);
@@ -141,5 +184,18 @@ proptest! {
             Ok(_) => Err(NotAddedReason::UnsupportedScheme),
         };
         prop_assert_eq!(parse(&input, Some(&base)).map(String::from), expected);
+    }
+
+    /// On any input and base, a UTF-8 document's link parses as an
+    /// enqueue's URL does.
+    ///
+    /// Covers: story:6-233
+    #[test]
+    fn a_utf_8_documents_link_parses_as_an_enqueue_does(
+        input in prop_oneof![any::<String>(), url_like()],
+        base in prop_oneof![Just("http://links.test/library/shelves/"), Just("https://xn--bcher-kva.example:8443/a/b?c#d")],
+    ) {
+        let base = url(base);
+        prop_assert_eq!(parse_link(&input, &base, UTF_8), parse(&input, Some(&base)));
     }
 }

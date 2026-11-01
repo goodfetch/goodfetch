@@ -34,25 +34,31 @@ pub(crate) fn unrecorded() -> TestEnv {
     TestEnv::create(&current_test(), &variables).unwrap()
 }
 
-/// The CLI helper running one probe of `probe.rs`, this test binary run as a
-/// child, as the fixture command.
-fn probe_cli<'env>(env: &'env TestEnv, name: &str) -> goodfetch_test_support::Cli<'env> {
-    cli(env, std::env::current_exe().unwrap()).args([
+/// The arguments that run one probe of `probe.rs`, this test binary run as
+/// a child, as the fixture command.
+pub(crate) fn probe_arguments(name: &str) -> [&str; 6] {
+    [
         "--exact",
         name,
         "--ignored",
         "--nocapture",
         "--test-threads",
         "1",
-    ])
+    ]
 }
 
-fn collie() -> PathBuf {
+/// The CLI helper running one probe of `probe.rs` as the fixture command.
+fn probe_cli<'env>(env: &'env TestEnv, name: &str) -> goodfetch_test_support::Cli<'env> {
+    cli(env, std::env::current_exe().unwrap()).args(probe_arguments(name))
+}
+
+/// The commit's Collie executable, from the test tool manifest.
+pub(crate) fn collie() -> PathBuf {
     tools().unwrap().path(Tool::Collie).unwrap().to_owned()
 }
 
 /// Every JSON line of the file at `path`.
-fn json_lines(path: &Path) -> Vec<Value> {
+pub(crate) fn json_lines(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path)
         .unwrap()
         .lines()
@@ -117,7 +123,7 @@ fn the_command_record_holds_the_matched_command_and_its_exit_code() {
 
 #[rstest]
 #[case::unknown_command(&["frobnicate", "--now"], "frobnicate --now")]
-#[case::command_group_alone(&["browsers"], "browsers")]
+#[case::command_group_alone(&["browser"], "browser")]
 fn arguments_that_match_no_command_feature_are_recorded_as_unmatched(
     #[case] arguments: &[&str],
     #[case] unmatched: &str,
@@ -158,7 +164,7 @@ fn teardown_copies_the_command_record_into_the_tests_exercise_record() {
             json!({ "test": "sample::it installs" }),
             json!({
                 "target": "goodfetch::test::command",
-                "fields": { "command": "browsers.install", "exit_code": 0 },
+                "fields": { "command": "browser.install", "exit_code": 0 },
             }),
         ]
     );
@@ -205,7 +211,7 @@ fn a_locale_case_sets_lang_and_tz_only_for_the_child_it_runs() {
 
 #[test]
 fn a_variable_the_setup_adds_reaches_the_child_over_the_maps_own() {
-    let env = unrecorded().with_variable("GOODFETCH_LOG", "info");
+    let env = unrecorded().with_variable("TZ", "Europe/Paris");
 
     let output = probe_cli(&env, "probe::prints_its_environment")
         .run()
@@ -215,7 +221,7 @@ fn a_variable_the_setup_adds_reaches_the_child_over_the_maps_own() {
         output
             .stdout
             .lines()
-            .any(|line| line.ends_with("env:GOODFETCH_LOG=info")),
+            .any(|line| line.ends_with("env:TZ=Europe/Paris")),
         "{output}"
     );
 }

@@ -17,6 +17,11 @@ reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
 crate = "libduckdb-sys"
 reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
 
+# Apache Arrow, which the `duckdb` crate takes for its Arrow results.
+[[bans.deny]]
+crate = "arrow"
+reason = "exists for DuckDB, which only Foxhound's SQL tab uses (ADR 0088)"
+
 # wreq, for the impersonated HTTP fetch tier, and the crates that exist for
 # it; not its BoringSSL, which Collie's TLS relay links (ADR 0124).
 [[bans.deny]]
@@ -39,23 +44,46 @@ reason = "exists for wreq, which only Foxhound uses (ADR 0124)"
 crate = "http2"
 reason = "wreq's HTTP/2 fork, which only Foxhound uses (ADR 0124)"
 
-# BoringSSL, through the fork wreq uses, only for the TLS relay, which stays
-# in Collie's Rust SDK crate (ADR 0124): each under the listed direct parents
-# only.
+# What wreq and wreq-util bring that nothing else uses: wreq's connection
+# cache, wreq-util's options builder, and the Brotli crate wreq-util reads
+# compressed TLS certificates with (spec #579).
+[[bans.deny]]
+crate = "lru"
+reason = "exists in the graph for wreq, which only Foxhound uses (spec #579, ADR 0124)"
+
+[[bans.deny]]
+crate = "typed-builder"
+reason = "exists in the graph for wreq-util, which only Foxhound uses (spec #579, ADR 0124)"
+
+[[bans.deny]]
+crate = "brotli"
+reason = "exists in the graph for wreq-util's certificate compression, which only Foxhound uses (spec #579, ADR 0124)"
+
+# BoringSSL, through the fork wreq uses, only for the TLS relay (ADR 0124):
+# each under the listed direct parents only. The relay is the egress relay's
+# terminating mode in `goodfetch-page`, which Collie's Rust SDK crate links
+# with no Cargo feature (#635).
 [[bans.deny]]
 crate = "tokio-btls"
-wrappers = ["goodfetch-collie"]
+wrappers = ["goodfetch-page"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 [[bans.deny]]
 crate = "btls"
-wrappers = ["goodfetch-collie", "tokio-btls"]
+wrappers = ["goodfetch-page", "tokio-btls"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 [[bans.deny]]
 crate = "btls-sys"
-wrappers = ["btls"]
+wrappers = ["btls", "goodfetch-page"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
+
+# reqwest, the HTTP fetch tier's transport: Foxhound's alone (spec #579,
+# ADR 0088). The Brotli decoder is no longer Foxhound's alone: Collie's
+# engine decodes `br` bodies under the response limits (SC-05, #644).
+[[bans.deny]]
+crate = "reqwest"
+reason = "only Foxhound's HTTP fetch tier uses reqwest (spec #579, ADR 0088)"
 
 # Paid fetches (ADR 0045), Foxhound's alone (ADR 0088).
 [[bans.deny]]
@@ -102,6 +130,12 @@ reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
 crate = "sqlx-mysql"
 reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
 
+# rusqlite's statement cache, which only the Frontier turns on (its `cache`
+# feature) to keep its per-seed scope insert prepared.
+[[bans.deny]]
+crate = "hashlink"
+reason = "only the Frontier's statement cache uses it, through rusqlite's `cache` feature"
+
 # The test-only crates, which no Product ships (ADRs 0062, 0069, 0087 and
 # 0125): the shared helpers, the test adapters and the test executables.
 [[bans.deny]]
@@ -117,6 +151,10 @@ crate = "goodfetch-scripted-model"
 reason = "test-only adapter (ADR 0125)"
 
 [[bans.deny]]
+crate = "goodfetch-recording-gate"
+reason = "test-only adapter of the page's value and response observer (ADR 0125)"
+
+[[bans.deny]]
 crate = "goodfetch-scripted-engine"
 reason = "test-only executable (ADR 0069)"
 
@@ -124,9 +162,21 @@ reason = "test-only executable (ADR 0069)"
 crate = "goodfetch-test-env"
 reason = "test-only executable (ADR 0062)"
 
+[[bans.deny]]
+crate = "goodfetch-stub-gateway"
+reason = "test-only adapter: the Stub gateway, a stand-in of Goodfetch Cloud's gateway (ADRs 0096 and 0125)"
+
 # xtask codegen: begin, Foxhound's crates, which Collie's executable never ships (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
 crate = "goodfetch-crawl"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-dataset"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-fetch-tier"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
@@ -143,6 +193,10 @@ reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-sink"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-sql-tab"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 # xtask codegen: end

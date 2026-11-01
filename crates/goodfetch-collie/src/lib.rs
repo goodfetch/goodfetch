@@ -10,7 +10,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "area 5's page raises `blocked` with the cause `classify` gives (#711)"
+        reason = "the pages read a cause and its rule; `blocked` carries the rest of the evidence (#711)"
     )
 )]
 mod block_detection;
@@ -20,5 +20,5 @@ pub mod executable;
 mod pins;
 mod sample;
 
-pub use composition::composition;
+pub use composition::{composition, composition_with};
 pub use pins::pinned_artifacts;

@@ -2,7 +2,7 @@
 # The rest of .github/actions/host-tools: pnpm at package.json's version, the
 # CPython lines of $RUNTIMES (one, ends or all; the free-threaded build of
 # 3.14 joins on Linux) at ci/host/runtimes.env's exact versions, recorded in
-# GOODFETCH_PYTHONS, then `just fetch`,
+# GOODFETCH_PYTHONS, then `just fetch` and the locked Playwright's browsers,
 # every download before ADR 0043's deny. With ARCHITECTURE=x64 on Apple
 # silicon, the CPython builds are x86-64, run under Rosetta 2.
 set -euo pipefail
@@ -50,3 +50,13 @@ done
 export UV_PYTHON=${pythons[0]}
 echo "UV_PYTHON=$UV_PYTHON" >>"$environment"
 just fetch
+# The browsers of the locked Playwright: the Release suite runs every
+# Playwright test on Chromium, Firefox and WebKit (TESTING.md, Browsers), and
+# none can be downloaded under the deny. On Linux, with the system libraries
+# they need.
+browsers=(chromium firefox webkit)
+if [[ "$(uname -s)" == Linux ]]; then
+  pnpm exec playwright install --with-deps "${browsers[@]}"
+else
+  pnpm exec playwright install "${browsers[@]}"
+fi

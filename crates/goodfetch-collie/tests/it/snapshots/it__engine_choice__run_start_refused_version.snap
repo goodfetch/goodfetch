@@ -1,0 +1,8 @@
+---
+source: crates/goodfetch-collie/tests/it/engine_choice.rs
+expression: stderr.trim()
+---
+This Client speaks protocol 0.1, and this engine speaks 1.0: it accepts 1.0 to 1.0.
+code: protocol_version_unsupported
+retryable: false
+fix: Upgrade the Client to one that speaks protocol 1.x. Run `[COLLIE] daemon restart` to restart the Daemon on its major's pick.

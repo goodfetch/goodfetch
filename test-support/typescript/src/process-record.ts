@@ -5,10 +5,11 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { TestSupportError } from "./errors.ts";
 
-/** How a recorded process ended: its exit code, or the signal that ended it. */
+/** How a recorded process ended: its exit code, or the signal that ended it, and the error that kept it from starting, if one did. */
 export interface Exit {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
+  readonly error?: Error | undefined;
 }
 
 /** A process started through a record, with its three standard streams piped. */
@@ -38,11 +39,15 @@ export class ProcessRecord {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
-    // A failed spawn emits `error`, then `close`; `exit` reports it as ended.
-    child.on("error", () => {});
+    // A failed spawn emits `error`, then `close`; `exit` reports it as ended,
+    // with the error that says why, such as a missing program's ENOENT.
+    let spawnError: Error | undefined;
+    child.on("error", (error) => {
+      spawnError = error;
+    });
     const exit = new Promise<Exit>((resolve) => {
       child.once("close", (code, signal) => {
-        resolve({ code, signal });
+        resolve({ code, signal, error: spawnError });
       });
     });
     const recorded = { child, exit };

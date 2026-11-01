@@ -1,5 +1,6 @@
-//! A Foxhound crawl's Session pool (ADRs 0006, 0021, 0035, 0059 and 0088):
-//! the Sessions a crawl keeps, each request served by a new Session while
+//! A Foxhound crawl's Session pools (ADRs 0006, 0021, 0035, 0059, 0088 and
+//! 0093): the Run's pool, and one of its own for each Label that sets what
+//! a login rests on; the Sessions each keeps, each request served by a new Session while
 //! the pool has room and then by one drawn from `Entropy` among those open
 //! at its domain's proxy tier; each Session scored on how its pages ended
 //! and retired past its error score, its uses or its age; a block that
@@ -9,13 +10,16 @@
 //! crate under `crates/foxhound/`, since only Foxhound links it (STYLE.md,
 //! reason 2).
 
+pub mod escalation;
+mod labels;
 mod pool;
 mod settings;
 mod store;
 
 use goodfetch_engine::Contribution;
 
-pub use pool::{Effect, SessionPool};
+pub use labels::{LabelPools, PoolKey};
+pub use pool::{Effect, LocalAddressing, Rotated, SessionPool};
 pub use settings::PoolSettings;
 pub use store::Changes;
 

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
-use super::{Answer, Context, Cut, Framing, Page, Pages, READ_LIMIT, Request, reason, settle};
+use super::{
+    Answer, Context, Cut, FILLER, Framing, LATE, Page, Pages, READ_LIMIT, Request, reason, settle,
+};
 use crate::observation::{End, Protocol};
 
 /// Serves requests until the client closes, asks to close, or an answer
@@ -62,12 +64,38 @@ where
                     message.extend_from_slice(body);
                 }
                 let _ = send(&mut stream, &message).await;
-                // HTTP/1.1 has no stream to reset: either cut closes the
-                // connection.
-                let (Cut::Connection | Cut::Stream) = cut;
+                // HTTP/1.1 has no stream to reset: every cut closes the
+                // connection, a late one once it waited.
+                match cut {
+                    Cut::Connection | Cut::Stream => {}
+                    Cut::Late => tokio::time::sleep(LATE).await,
+                }
                 context.delivered(request.recorded, declared, sent, End::ConnectionClosed);
                 // Dropped without a TLS `close_notify`: the client sees the
                 // connection end mid-message.
+                return;
+            }
+            Answer::Filler { page, length } => {
+                let declared = length.map(|length| usize::try_from(length).unwrap_or(usize::MAX));
+                let (sent, end) = Box::pin(write_filler(&mut stream, &page, length)).await;
+                context.delivered(request.recorded, declared, sent, end);
+                let _ = stream.shutdown().await;
+                return;
+            }
+            Answer::Stalled { page, sent } => {
+                let declared = (page.framing == Framing::Length).then_some(page.body.len());
+                let sent = sent.min(page.body.len());
+                let mut message = head_bytes(&page).into_bytes();
+                message.extend_from_slice(&page.body[..sent]);
+                if send(&mut stream, &message).await.is_ok() {
+                    // What the client sends meanwhile is read and dropped,
+                    // until it goes.
+                    let mut ignored = Vec::new();
+                    while fill(&mut stream, &mut ignored).await {
+                        ignored.clear();
+                    }
+                }
+                context.delivered(request.recorded, declared, sent, End::ConnectionClosed);
                 return;
             }
             Answer::Refuse(_) => {
@@ -226,6 +254,63 @@ fn head_bytes(page: &Page) -> String {
     }
     head.push_str("\r\n");
     head
+}
+
+/// The bytes a filler body is written in at once.
+const FILLER_CHUNK: usize = 64 * 1024;
+
+/// Writes `page`'s head, then filler as its body, framed as the page says:
+/// `length` bytes of it, or, with none, until the client goes. Answers the
+/// body's bytes written, and how the answer ended.
+async fn write_filler<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    page: &Page,
+    length: Option<u64>,
+) -> (usize, End) {
+    let mut head = head_bytes(&Page {
+        body: Vec::new(),
+        ..page.clone()
+    });
+    if let (Framing::Length, Some(length)) = (page.framing, length) {
+        head = head.replace(
+            "content-length: 0\r\n",
+            &format!("content-length: {length}\r\n"),
+        );
+    }
+    if send(stream, head.as_bytes()).await.is_err() {
+        return (0, End::ConnectionClosed);
+    }
+    let chunk = vec![FILLER; FILLER_CHUNK];
+    let mut left = length;
+    let mut sent = 0_usize;
+    loop {
+        let take = left.map_or(FILLER_CHUNK, |left| {
+            usize::try_from(left)
+                .unwrap_or(usize::MAX)
+                .min(FILLER_CHUNK)
+        });
+        if take == 0 {
+            break;
+        }
+        let mut message = Vec::with_capacity(take + 16);
+        if page.framing == Framing::Chunked {
+            message.extend_from_slice(format!("{take:x}\r\n").as_bytes());
+        }
+        message.extend_from_slice(&chunk[..take]);
+        if page.framing == Framing::Chunked {
+            message.extend_from_slice(b"\r\n");
+        }
+        if stream.write_all(&message).await.is_err() {
+            return (sent, End::ConnectionClosed);
+        }
+        sent += take;
+        left = left.map(|left| left - take as u64);
+    }
+    if page.framing == Framing::Chunked && send(stream, b"0\r\n\r\n").await.is_err() {
+        return (sent, End::ConnectionClosed);
+    }
+    let _ = stream.flush().await;
+    (sent, End::Complete)
 }
 
 /// Writes a whole answer.

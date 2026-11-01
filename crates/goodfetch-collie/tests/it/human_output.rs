@@ -14,7 +14,7 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// stops it as the command ends, so `run finish` reads its report.
 fn start(env: &TestEnv, run_id: &str) {
     let output = cli(env, COLLIE)
-        .args(["run", "start", "--run-id", run_id])
+        .args(["run", "start", "--run-id", run_id, "--attached"])
         .run()
         .unwrap();
     assert_eq!(output.exit, Some(0), "{output}");
@@ -34,7 +34,7 @@ fn two_time_zones_print_one_instant_with_their_offsets_and_json_prints_it_in_utc
     let env = TestEnv::new();
     start(&env, "first");
     let report = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--json"])
+        .args(["run", "finish", "first", "--json", "--attached"])
         .json("RunReport")
         .unwrap();
     let Value::String(utc) = &report.documents[0]["started_at"] else {
@@ -42,12 +42,12 @@ fn two_time_zones_print_one_instant_with_their_offsets_and_json_prints_it_in_utc
     };
 
     let kathmandu = cli(&env, COLLIE)
-        .args(["run", "finish", "first"])
+        .args(["run", "finish", "first", "--attached"])
         .with_time_zone("Asia/Kathmandu")
         .run()
         .unwrap();
     let in_utc = cli(&env, COLLIE)
-        .args(["run", "finish", "first"])
+        .args(["run", "finish", "first", "--attached"])
         .with_time_zone("UTC")
         .run()
         .unwrap();
@@ -79,13 +79,13 @@ fn human_output_reads_no_locale(#[case] locale: &str) {
     let env = TestEnv::new();
     start(&env, "first");
     let in_english = cli(&env, COLLIE)
-        .args(["run", "finish", "first"])
+        .args(["run", "finish", "first", "--attached"])
         .with_locale("en-US")
         .run()
         .unwrap();
 
     let elsewhere = cli(&env, COLLIE)
-        .args(["run", "finish", "first"])
+        .args(["run", "finish", "first", "--attached"])
         .with_locale(locale)
         .run()
         .unwrap();
@@ -120,7 +120,9 @@ fn a_command_piped_holds_no_escape_byte(#[case] flags: &[&str]) {
 /// instant, which two runs on a pseudo-terminal compared with each other
 /// must not hold.
 fn without_trace_lines() -> TestEnv {
-    TestEnv::new().with_variable("GOODFETCH_LOG", "info")
+    let env = TestEnv::new();
+    env.log_level("info");
+    env
 }
 
 /// Covers: story:11-208, command:engine.info
@@ -144,7 +146,7 @@ fn a_results_colour_never_carries_meaning_alone(#[case] property: ColourProperty
 fn a_failures_colour_never_carries_meaning_alone(#[case] property: ColourProperty) {
     let env = without_trace_lines();
 
-    let checked = property.check(&env, COLLIE, &["run", "finish", "missing"]);
+    let checked = property.check(&env, COLLIE, &["run", "finish", "missing", "--attached"]);
 
     assert!(checked.is_ok(), "{checked:?}");
 }

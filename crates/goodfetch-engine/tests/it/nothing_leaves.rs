@@ -23,7 +23,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
 use serde_json::{Value, json};
@@ -68,6 +68,7 @@ fn pin(build: &str, url: String) -> PinnedArtifact {
         platform: Some(BuildPlatform::LinuxX64),
         url,
         archive_digest: Some(ARCHIVE_DIGEST.parse::<Digest>().unwrap()),
+        application_settings: std::collections::BTreeMap::new(),
         digest: FILES_DIGEST.parse::<Digest>().unwrap(),
     }
 }
@@ -109,10 +110,8 @@ fn now(env: &TestEnv) -> jiff::Timestamp {
 
 /// What a test reads of each request the Proving ground recorded.
 fn requests(observations: &Value) -> Vec<Value> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| {
             json!({
                 "host": request["host"],
@@ -153,6 +152,10 @@ fn connections_to(observations: &Value, name: &str) -> Vec<Value> {
 
 /// Covers: story:4-81, row:SC-10
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the file the download wrote, outside the runtime"
+)]
 fn a_first_use_download_sends_one_plain_get_naming_nothing_about_the_install() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -273,7 +276,7 @@ fn under_egress_offline_a_missing_build_is_refused_before_any_connection() {
     assert!(
         details
             .fix
-            .starts_with("Run `goodfetch-collie browsers install` beforehand"),
+            .starts_with("Run `goodfetch-collie browser install` beforehand"),
         "{}",
         details.fix
     );
@@ -281,5 +284,78 @@ fn under_egress_offline_a_missing_build_is_refused_before_any_connection() {
     assert_eq!(
         connections_to(&proving_ground.observations().unwrap(), "target"),
         Vec::<Value>::new()
+    );
+}
+
+/// The names of the spans an exporting process ends, kept in memory.
+#[derive(Clone, Debug, Default)]
+struct Collector(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+impl opentelemetry_sdk::trace::SpanExporter for Collector {
+    fn export(
+        &self,
+        batch: Vec<opentelemetry_sdk::trace::SpanData>,
+    ) -> impl std::future::Future<Output = opentelemetry_sdk::error::OTelSdkResult> + Send {
+        self.0
+            .lock()
+            .unwrap()
+            .extend(batch.into_iter().map(|span| span.name.into_owned()));
+        std::future::ready(Ok(()))
+    }
+}
+
+/// While the engine exports its spans, a download made in a request's span
+/// sends the same plain GET: no `traceparent`, `tracestate` or `baggage`
+/// header reaches a site from the engine's HTTP client (ADR 0132).
+///
+/// Covers: story:3-146
+#[test]
+fn with_spans_exported_a_download_in_a_requests_span_sends_no_trace_header() {
+    use opentelemetry::trace::TracerProvider as _;
+    use tracing::Instrument as _;
+    use tracing_subscriber::Layer as _;
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+    let pinned = archive_pin(&proving_ground);
+    let collector = Collector::default();
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_simple_exporter(collector.clone())
+        .build();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_opentelemetry::layer()
+            .with_tracer(provider.tracer("goodfetch"))
+            .with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                metadata.is_span()
+            })),
+    );
+
+    tracing::subscriber::with_default(subscriber, || {
+        let request = tracing::info_span!("request", otel.kind = "server");
+        goodfetch_test_support::runtime()
+            .block_on(
+                cache
+                    .prepare(
+                        &pinned,
+                        &pinned_by(),
+                        &fetching(&proving_ground, None),
+                        now(&env),
+                        &mut |_| {},
+                    )
+                    .instrument(request),
+            )
+            .unwrap();
+    });
+    provider.shutdown().unwrap();
+
+    assert!(
+        collector.0.lock().unwrap().contains(&"request".to_owned()),
+        "the request's span was not exported"
+    );
+    assert_eq!(
+        requests(&proving_ground.observations().unwrap()),
+        [plain_get(&proving_ground)]
     );
 }

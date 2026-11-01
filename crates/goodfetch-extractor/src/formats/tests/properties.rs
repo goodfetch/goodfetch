@@ -46,10 +46,11 @@ proptest! {
         let read = serde_json::to_value(read(&html, request)).unwrap();
 
         let keys: Vec<&str> = read.as_object().unwrap().keys().map(String::as_str).collect();
-        let mut expected = vec!["base_url", "main_content", "url"];
-        if markdown {
-            expected.insert(2, "markdown");
-        }
+        let expected = if markdown {
+            vec!["base_url", "main_content", "markdown", "url"]
+        } else {
+            vec!["base_url", "url"]
+        };
         prop_assert_eq!(keys, expected);
     }
 
@@ -59,7 +60,7 @@ proptest! {
     fn no_main_content_is_empty_markdown(html in markup()) {
         let read = read(&html, json!({ "markdown": true }));
 
-        if read.main_content == MainContent::None {
+        if read.main_content == Some(MainContent::None) {
             prop_assert_eq!(read.markdown, Some(String::new()));
         }
     }

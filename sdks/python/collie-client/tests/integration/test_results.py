@@ -28,5 +28,9 @@ def test_result_from_a_newer_engine_keeps_its_unknown_field() -> None:
 
 def test_params_refuse_an_unknown_field() -> None:
     """A misspelled input field is an error, never ignored (ADR 0077, G3)."""
-    with pytest.raises(pydantic.ValidationError):
+    with pytest.raises(pydantic.ValidationError) as refused:
         SampleEchoParams.model_validate({"text": "hi", "txet": 1})
+
+    assert [(error["type"], error["loc"]) for error in refused.value.errors()] == [
+        ("extra_forbidden", ("txet",))
+    ]

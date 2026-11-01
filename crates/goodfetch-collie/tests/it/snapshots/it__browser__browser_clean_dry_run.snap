@@ -1,0 +1,18 @@
+---
+source: crates/goodfetch-collie/tests/it/browser.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "bytes_freed": 273,
+  "dry_run": true,
+  "removed": [
+    {
+      "bytes": 273,
+      "name": "chrome-for-testing",
+      "version": "unused-since-2020"
+    }
+  ]
+}
+----- stderr -----

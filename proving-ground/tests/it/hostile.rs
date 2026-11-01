@@ -1,7 +1,7 @@
-//! ADR 0067's hostile input beside SSRF: the `redirects`, `headers` and
-//! `downloads` families, each page served with its expected result, which
-//! names what a correct tool refuses, with which typed error where one is
-//! decided, or keeps.
+//! ADR 0067's hostile input beside SSRF: the `redirects`, `headers`,
+//! `downloads` and `bombs` families, each page served with its expected
+//! result, which names what a correct tool refuses, with which typed error
+//! where one is decided, or keeps.
 //!
 //! A refusing tool is played by a submission that reports the failure the
 //! expected result names; a non-refusing tool by one that follows the page
@@ -216,6 +216,39 @@ fn a_chain_of_19_redirects_is_followed_to_its_record() {
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
 
+/// The chain a domain policy of `redirects.test` refuses at its third
+/// redirect: two within the family's host, then one to `catalog.test`.
+#[test]
+fn a_chain_leaves_its_hosts_family_at_its_third_redirect() {
+    let proving_ground = ProvingGround::start(SEED);
+    let mut url = proving_ground.url("17.redirects.test", "/leaves/3");
+    let mut locations = Vec::new();
+
+    for _ in 0..3 {
+        let answer = proving_ground.get(&url);
+        let location = answer.header("location").expect("a redirect").to_owned();
+        url = if location.starts_with('/') {
+            format!("{}{location}", origin(&url))
+        } else {
+            location.clone()
+        };
+        locations.push(location);
+    }
+    let landed = proving_ground.get(&url);
+
+    assert_eq!(
+        (locations, landed.status),
+        (
+            vec![
+                "/leaves/2".to_owned(),
+                "/leaves/1".to_owned(),
+                proving_ground.url("catalog.test", "/catalog/1"),
+            ],
+            200
+        )
+    );
+}
+
 #[rstest]
 #[case::a_chain_of_20("redirects/18")]
 #[case::a_loop("redirects/19")]
@@ -250,9 +283,13 @@ fn a_tool_that_follows_a_chain_of_20_and_keeps_its_record_is_a_false_success() {
 
 /// The whole response to a `GET` of `url` over a new HTTP/1.1 connection,
 /// as its bytes arrive, read to the connection's end: what a client reads
-/// of a head no HTTP library parses.
+/// of a head no HTTP library parses. An `https` URL is read over plain
+/// HTTP/1.1 too, which the Proving ground's one address also serves.
 fn raw_get(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
-    let rest = url.strip_prefix("http://").expect("an http URL");
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .expect("an http or https URL");
     let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
     let mut stream =
         TcpStream::connect(proving_ground.address()).expect("the Proving ground listens");
@@ -545,4 +582,110 @@ fn a_harmless_name_is_kept_exactly(#[case] id: &str, #[case] name: &str) {
 
     assert_eq!(kept["outcome"], "verified", "{kept}");
     assert_ne!(renamed["outcome"], "verified", "{renamed}");
+}
+
+// --- bombs ---
+
+/// The body of a raw response, after its blank line, as its bytes: a bomb's
+/// compressed body, which is not UTF-8.
+fn body_bytes(response: &[u8]) -> &[u8] {
+    let start = head(response).len() + 2;
+    &response[start..]
+}
+
+/// The bytes `body` decodes to under gzip, as a tool with no limit would
+/// inflate them.
+fn gunzip(body: &[u8]) -> Vec<u8> {
+    let mut decoded = Vec::new();
+    flate2::read::GzDecoder::new(body)
+        .read_to_end(&mut decoded)
+        .expect("the gzip body decodes");
+    decoded
+}
+
+/// The typed error a decompression bomb's refusal names.
+fn ratio_refused() -> Value {
+    json!({ "code": "response_limit_exceeded", "setting": "network.max_decompression_ratio" })
+}
+
+#[rstest]
+#[case::gzip("bombs/1", "gzip")]
+#[case::deflate("bombs/2", "deflate")]
+#[case::brotli("bombs/3", "br")]
+#[case::zstd("bombs/4", "zstd")]
+#[case::double_gzip("bombs/5", "gzip, gzip")]
+fn a_decompression_bomb_is_served_compressed_and_only_a_refusal_is_verified(
+    #[case] id: &str,
+    #[case] encoding: &str,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
+
+    assert!(
+        holds(
+            head(&response),
+            format!("content-encoding: {encoding}").as_bytes()
+        ),
+        "served under its coding: {}",
+        String::from_utf8_lossy(head(&response))
+    );
+    assert!(
+        body_bytes(&response).len() < 256 * 1024,
+        "the body is small and compressed, {} bytes",
+        body_bytes(&response).len()
+    );
+
+    let refused = proving_ground.judge(&refusal(id, &ratio_refused())).json();
+    let claimed = proving_ground.judge(&submission(id, "success", &[])).json();
+
+    assert_eq!(refused["outcome"], "verified", "{refused}");
+    assert_eq!(claimed["outcome"], "false_success", "{claimed}");
+}
+
+#[test]
+fn a_gzip_bomb_decodes_far_past_the_ratio_limit() {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "bombs/1"));
+    let compressed = body_bytes(&response);
+
+    let decoded = gunzip(compressed);
+
+    assert!(
+        decoded.len() >= 10 * 1024 * 1024,
+        "the body decodes to megabytes, not {} bytes",
+        decoded.len()
+    );
+    assert!(
+        decoded.len() / compressed.len() > 100,
+        "far past the 100:1 ratio the engine allows"
+    );
+}
+
+#[test]
+fn a_bomb_refused_with_the_wrong_limit_setting_fails_and_names_both() {
+    let proving_ground = ProvingGround::start(SEED);
+    let reported = json!({ "code": "response_limit_exceeded", "setting": "network.max_body_size" });
+
+    let answer = proving_ground.judge(&refusal("bombs/1", &reported)).json();
+
+    assert_eq!(answer["outcome"], "failed", "{answer}");
+    assert_eq!(
+        answer["wrong_error"]["expected"],
+        ratio_refused(),
+        "{answer}"
+    );
+}
+
+#[test]
+fn the_safe_compressed_page_is_kept() {
+    let proving_ground = ProvingGround::start(SEED);
+    let response = raw_get(&proving_ground, &start_url(&proving_ground, "bombs/6"));
+    assert!(holds(head(&response), b"content-encoding: gzip"));
+
+    let page = String::from_utf8(gunzip(body_bytes(&response))).expect("the safe page is UTF-8");
+    let answer = proving_ground
+        .judge(&submission("bombs/6", "success", &[read_record(&page)]))
+        .json();
+
+    assert_eq!(answer["outcome"], "verified", "{answer}");
 }

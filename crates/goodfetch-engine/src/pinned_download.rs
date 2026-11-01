@@ -10,11 +10,12 @@
 //! translation point of this boundary's failures into [`Failure`] (ADR
 //! 0127).
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::path::Path;
 use std::str::FromStr;
 
-use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
+use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
@@ -23,8 +24,11 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
 
 use crate::clock::Clock;
+use crate::egress::EndpointPolicy;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Resolve, Server};
+use crate::settings::Resolved;
+use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
 /// version (ADR 0043).
@@ -51,6 +55,16 @@ impl Digest {
     /// Its 32 bytes.
     pub(crate) fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Its 64 lowercase hexadecimal digits, without the `sha256:` prefix.
+    pub fn hex(&self) -> String {
+        self.0
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
     }
 }
 
@@ -189,6 +203,10 @@ pub struct Fetching {
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
     pub delays: Delays,
+    /// What the Operator policy lets a Clean-up rules source reach, an
+    /// Operator-configured endpoint (ADRs 0017 and 0047):
+    /// `egress.no_private_endpoints`.
+    pub endpoints: EndpointPolicy,
 }
 
 impl Fetching {
@@ -201,6 +219,29 @@ impl Fetching {
             trusted_certificates: Vec::new(),
             clock,
             delays: Delays::BUILT_IN,
+            endpoints: EndpointPolicy::default(),
+        }
+    }
+
+    /// What a download may do under a Run's resolved `settings`, on
+    /// `clock`: `egress.offline`, `network.resolve`, the resolver's delays
+    /// and `egress.no_private_endpoints`, with no extra certificate
+    /// authority.
+    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+        Self {
+            offline: settings
+                .get(EGRESS_OFFLINE.name)
+                .filter(|offline| offline.value == serde_json::Value::Bool(true))
+                .map(|offline| offline.layer),
+            resolve: settings
+                .hosts(NETWORK_RESOLVE.name)
+                .into_iter()
+                .fold(Resolve::new(), |mapping, (host, addresses)| {
+                    mapping.with(host, addresses)
+                }),
+            delays: Delays::of(settings),
+            endpoints: EndpointPolicy::of(settings),
+            ..Self::new(clock)
         }
     }
 }
@@ -240,6 +281,12 @@ impl PinnedUrl {
     /// The host, which errors and progress name, never the full URL.
     pub(crate) fn host(&self) -> &str {
         &self.host
+    }
+
+    /// The last segment of its path: the name a single executable it
+    /// serves is placed under.
+    pub(crate) fn file_name(&self) -> &str {
+        self.uri.path().rsplit('/').next().unwrap_or_default()
     }
 }
 
@@ -289,15 +336,20 @@ pub(crate) async fn download(
         .header(hyper::header::USER_AGENT, USER_AGENT)
         .body(Empty::<Bytes>::new())
         .map_err(|_| Failure::Network)?;
+    let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = http_client::Network {
+        exceptions: None,
+        client_certificates: None,
         resolve: &fetching.resolve,
-        trusted_certificates: &fetching.trusted_certificates,
+        trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
+        local: None,
     };
     let server = Server {
         host: &url.host,
         port: url.port,
+        plain: false,
     };
     let mut response = http_client::send(&server, request, &network)
         .await

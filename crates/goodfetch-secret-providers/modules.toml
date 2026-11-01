@@ -1,0 +1,12 @@
+# Which of goodfetch-secret-providers's top-level modules may import which
+# (ADR 0126).
+[modules]
+aws_sm = ["endpoint"]
+azure_kv = ["endpoint"]
+bitwarden = ["cli"]
+cli = []
+contribution = ["aws_sm", "azure_kv", "bitwarden", "gcp_sm", "one_password", "vault"]
+endpoint = []
+gcp_sm = ["endpoint"]
+one_password = ["cli"]
+vault = ["endpoint"]

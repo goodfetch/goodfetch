@@ -3,11 +3,16 @@
 //! generated from the catalog. It asks at the terminal and raises the
 //! Limit through `usage.raise` only when the person answers yes; when stdin
 //! is no terminal, as under a script, an agent or CI, it is refused with
-//! `person_required` before any engine call. It takes no `--json`.
+//! `person_required` before any engine call. It takes no `--json`. It
+//! raises the Limit on the Daemon when one runs or `--daemon` is given,
+//! else on an Attached engine, as any command whose value does not outlive
+//! it (ticket #1183).
 
 use std::process::ExitCode;
 
-use goodfetch_cli::engine_choice::{self, Answer, CommandCall};
+use goodfetch_cli::engine_choice::{
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime,
+};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
@@ -17,10 +22,14 @@ use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde_json::Value;
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
-/// raises it on `engine` when they answer yes.
+/// raises it when they answer yes: on the engine `choice` and the
+/// executable's Daemon, `daemons`, choose, a command whose value does not
+/// outlive it ([`engine_choice`]), or else an Attached engine, `engine` on
+/// `dependencies`.
 pub(super) fn raise(
     engine: &Engine,
     dependencies: Dependencies,
+    (daemons, choice): (&dyn Daemons, Choice),
     params: &UsageRaiseParams,
     human: &Human,
 ) -> ExitCode {
@@ -46,9 +55,19 @@ pub(super) fn raise(
         params: serde_json::to_value(params).expect("invariant: the params serialize"),
         cancellable: USAGE_RAISE.cancellable,
         follower: None,
+        pager: None,
+        stopper: None,
+        input: None,
     };
     let product = engine.identity().product;
-    match engine_choice::call_attached(engine, dependencies, product, call) {
+    let warn = |text: &str| human.warning(text);
+    let reach = EngineChoice {
+        choice,
+        lifetime: Lifetime::Passing,
+        daemons,
+        warn: &warn,
+    };
+    match engine_choice::call(engine, dependencies, product, &reach, call) {
         Answer::Result(Value::Object(fields)) => {
             for (name, value) in fields {
                 human.field(&name, &text(&value));
@@ -59,21 +78,17 @@ pub(super) fn raise(
             output::line(&text(&value));
             ExitCode::from(exit_codes::SUCCESS)
         }
-        Answer::Error(error) => {
-            let group = goodfetch_cli::generated::group(&error);
-            human.failure(
-                &error.message,
-                &[
-                    ("code", error.data.code.clone()),
-                    ("retryable", error.data.retryable.to_string()),
-                ],
-            );
-            ExitCode::from(exit_codes::of_error(&error.data.code, group))
-        }
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            ExitCode::from(exit_codes::unanswered())
-        }
+        // A person-only command takes no `--json`: its failure prints on
+        // stderr, as every command's does.
+        Answer::Error(error) => output::fail(error, Some(USAGE_RAISE.name), false, human),
+        Answer::Refused(error) => output::fail_exiting(
+            error,
+            Some(USAGE_RAISE.name),
+            exit_codes::DAEMON_REFUSED,
+            false,
+            human,
+        ),
+        Answer::Unanswered(error) => output::fail(error, None, false, human),
         Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
 }

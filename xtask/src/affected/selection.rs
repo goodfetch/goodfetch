@@ -190,6 +190,15 @@ fn owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<Owner<'a>> {
         .map(|(_, owner)| owner)
 }
 
+/// The name of the member that owns `path`, as the selection lists it: a
+/// crate's name, a package's folder.
+pub(crate) fn owner_name(workspace: &Workspace, path: &RepoPath) -> Option<String> {
+    owner(workspace, path).map(|owner| match owner {
+        Owner::Crate(krate) => krate.name.clone(),
+        Owner::Package(package) => package.folder.as_str().to_owned(),
+    })
+}
+
 /// `roots` and every member that depends on one of them, directly or not.
 fn with_dependants<'a, T>(
     members: &[&'a T],
@@ -262,14 +271,6 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             None => everything = true,
         }
     }
-    // A crate whose tests run a changed crate's executable is reached by it.
-    let running: Vec<String> = workspace
-        .crates
-        .iter()
-        .filter(|krate| krate.runs.iter().any(|run| changed.crates.contains(run)))
-        .map(|krate| krate.name.clone())
-        .collect();
-    changed.crates.extend(running);
     if everything {
         // A path no member owns, such as a lockfile, a tool's settings or a
         // workflow, may change any test: every one of the Products' runs.
@@ -291,12 +292,88 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             .filter(|package| in_scope(&package.folder))
             .collect();
     }
+    // A crate that embeds a package's build changes with that package and
+    // with what its build and code depend on, not with what its tests alone
+    // use (ADR 0057's Console in Collie).
+    let all_packages: Vec<&Package> = workspace.packages.iter().collect();
+    let roots = changed
+        .packages
+        .iter()
+        .map(|package| package.name.clone())
+        .collect();
+    let built_packages: BTreeSet<&RepoPath> = with_dependants(
+        &all_packages,
+        &roots,
+        |package| &package.name,
+        |package| &package.runtime_dependencies,
+    )
+    .into_iter()
+    .map(|package| &package.folder)
+    .collect();
+    changed.crates.extend(
+        workspace
+            .embedded
+            .iter()
+            .filter(|embedded| built_packages.contains(&embedded.package))
+            .map(|embedded| embedded.krate.clone()),
+    );
+    // A crate's executable changes with it and with what its build depends
+    // on, not with its dev-dependencies; a crate or package whose tests run
+    // a changed executable through the test tool manifest is reached by it.
+    let members: Vec<&Crate> = workspace.crates.iter().collect();
+    let built = names(&with_dependants(
+        &members,
+        &changed.crates,
+        |krate| &krate.name,
+        |krate| &krate.built_from,
+    ));
+    let runs_a_built_executable =
+        |runs: &BTreeSet<String>| runs.iter().any(|run| built.contains(run));
+    changed.crates.extend(
+        workspace
+            .crates
+            .iter()
+            .filter(|krate| runs_a_built_executable(&krate.runs))
+            .map(|krate| krate.name.clone()),
+    );
+    changed.packages.extend(
+        workspace
+            .packages
+            .iter()
+            .filter(|package| runs_a_built_executable(&package.runs)),
+    );
     changed
 }
 
 /// The folders of the changed packages of one ecosystem and of their
-/// dependants.
+/// dependants; every package of the ecosystem when they reach one that every
+/// run of its runner loads.
 fn package_folders(
+    workspace: &Workspace,
+    changed: &[&Package],
+    ecosystem: Ecosystem,
+) -> BTreeSet<RepoPath> {
+    let reached = dependant_folders(workspace, changed, ecosystem);
+    let loaded_by_every_run = workspace.packages.iter().any(|package| {
+        package.ecosystem == ecosystem
+            && package.loaded_by_every_run
+            && reached.contains(&package.folder)
+    });
+    if loaded_by_every_run {
+        workspace
+            .packages
+            .iter()
+            .filter(|package| package.ecosystem == ecosystem)
+            .map(|package| package.folder.clone())
+            .collect()
+    } else {
+        reached
+    }
+}
+
+/// The folders of the changed packages of one ecosystem and of the packages
+/// that depend on them.
+fn dependant_folders(
     workspace: &Workspace,
     changed: &[&Package],
     ecosystem: Ecosystem,
@@ -435,6 +512,31 @@ impl Selection {
     /// Each selected job's ID, as the workflow's `if:` reads them.
     pub(crate) fn job_ids(&self) -> impl Iterator<Item = &'static str> {
         self.jobs.iter().map(|job| job.id())
+    }
+
+    /// Whether the selection runs `job`.
+    pub(crate) fn selects(&self, job: Job) -> bool {
+        self.jobs.contains(&job)
+    }
+
+    /// Every member whose tests the selection runs, as `just test` takes
+    /// them: the crates by name, the pnpm and uv packages by folder.
+    pub(crate) fn members(&self) -> BTreeSet<String> {
+        self.crates
+            .iter()
+            .cloned()
+            .chain(
+                self.vitest_packages
+                    .iter()
+                    .chain(&self.pytest_packages)
+                    .map(|folder| folder.as_str().to_owned()),
+            )
+            .collect()
+    }
+
+    /// Whether the selection reaches any crate.
+    pub(crate) fn reaches_a_crate(&self) -> bool {
+        !self.crates.is_empty()
     }
 
     /// What the local gate runs (ADR 0135): `quick` when the change selects

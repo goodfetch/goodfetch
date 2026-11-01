@@ -24,7 +24,12 @@
 //! VFS named by a value (ADR 0060). Its format is of the Usage ledger's
 //! family (ADR 0066): its major never changes and newer minors only add. A
 //! Run with `politeness.sharing = run` takes its Permits from a file of its
-//! own in memory, under the same rules.
+//! own in memory, under the same rules, its waiters woken within the
+//! engine.
+//!
+//! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
+//! in one transaction, kept whole so the rules that guard the count in
+//! flight under a key change together.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -35,7 +40,7 @@ use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, POLITENESS_FILE};
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 use crate::transport;
@@ -51,8 +56,16 @@ const WAKES: usize = 256;
 /// another run counts it as in flight meanwhile.
 const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long a statement waits while another engine's connection holds the
+/// file, its switch to WAL included.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
+
+/// The endpoint a Politeness file of one Run's own, in memory, names for
+/// its waiters: every one is in this engine, woken without a socket.
+const IN_MEMORY_ENDPOINT: &str = "in-memory";
 
 /// The engine's own tables, which every Politeness file holds.
 const SCHEMA: &[&str] = &[
@@ -103,10 +116,23 @@ pub struct PolitenessOptions {
 pub enum Verdict {
     /// It does.
     Go,
-    /// Not before this moment, such as a delay's or a backoff's end.
-    Until(SystemTime),
+    /// Not before this moment, such as a delay's or a backoff's end, for
+    /// the reason it gives.
+    Until(SystemTime, Hold),
+    /// Not before this moment, the time a site asked for, further away than
+    /// the run waits: the request is not sent, and ends (ADR 0118).
+    Refused(SystemTime),
     /// Not until a request in flight under it ends.
     Busy,
+}
+
+/// Why a key admits nothing before a moment (ADR 0102's wait reasons).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    /// Its last request started less than the delay between starts ago.
+    Delay,
+    /// It backs off, or waits for the time a site asked for.
+    BackOff,
 }
 
 /// How a request that held a Permit ended, for its key.
@@ -114,10 +140,11 @@ pub enum Verdict {
 pub enum Ending {
     /// Its key may go on.
     Done,
-    /// Its response asked its key to back off.
-    BackOff,
+    /// Its response asked its key to back off, and to wait until the
+    /// moment its `Retry-After` names, if any, when that is later.
+    BackOff(Option<SystemTime>),
     /// Its response asked its key to wait until this moment, such as a
-    /// `Retry-After`.
+    /// redirect's `Retry-After`.
     Until(SystemTime),
     /// The site answered that too many requests came, a 429, with the
     /// moment its `Retry-After` names, if any.
@@ -151,7 +178,8 @@ pub trait PermitRule: Send + Sync {
 
     /// A request under `key` ended at `now` as `ending` says, `in_flight`
     /// others still in flight; answers when `key` may go again, if later
-    /// than `now`.
+    /// than `now` and the run waits for it: `None` also when its requests
+    /// are refused until then ([`Verdict::Refused`]).
     ///
     /// # Errors
     ///
@@ -196,8 +224,12 @@ impl Permit {
 pub enum Taken {
     /// The request may go, holding this Permit.
     Granted(Permit),
-    /// Not now: try again at this moment, or, when `None`, once woken.
-    Wait(Option<SystemTime>),
+    /// Not now: try again at this moment, for the reason given, or, when
+    /// `None`, once woken, since requests under the key are in flight.
+    Wait(Option<(SystemTime, Hold)>),
+    /// Not before this moment, further away than the run waits: the request
+    /// is not sent (see [`Verdict::Refused`]).
+    Refused(SystemTime),
 }
 
 /// A wake a waiter of this engine received: its Run may try `key` again.
@@ -236,6 +268,15 @@ pub enum PolitenessError {
     /// The OS refused the wake endpoint or its folder.
     #[error("the Politeness file's wake endpoint: {0}")]
     WakeEndpoint(String),
+    /// The disk was full or failed an I/O at a transaction (ADR 0122): it
+    /// was rolled back, and nothing of it is acknowledged.
+    #[error("the Politeness file at `{path}` could not be written to its storage: {message}")]
+    Storage {
+        /// The file.
+        path: PathBuf,
+        /// SQLite's message.
+        message: String,
+    },
     /// The file's actor has stopped.
     #[error("the Politeness file's actor has stopped")]
     Closed,
@@ -270,6 +311,9 @@ struct Inner {
     wakes: broadcast::Sender<Wake>,
     endpoint: Option<String>,
     _wake_folder: Option<tempfile::TempDir>,
+    /// The first transaction that met a full disk or an I/O error, as
+    /// SQLite named it, once one did (ADR 0122).
+    failures: watch::Sender<Option<String>>,
 }
 
 impl fmt::Debug for Politeness {
@@ -311,9 +355,7 @@ impl Politeness {
         let (connection, folder) = owner
             .blocking(move || -> Result<_, PolitenessError> {
                 let connection = open_file(&opened, vfs.as_deref(), &tables)?;
-                let folder = tempfile::Builder::new()
-                    .prefix("goodfetch-wake-")
-                    .tempdir()
+                let folder = transport::socket_folder("goodfetch-wake-", WAKE_SOCKET)
                     .map_err(|error| PolitenessError::WakeEndpoint(error.to_string()))?;
                 Ok((connection, folder))
             })
@@ -387,10 +429,17 @@ impl Politeness {
         let context = Context {
             path,
             engine: String::new(),
-            endpoint: None,
+            endpoint: Some(IN_MEMORY_ENDPOINT.to_owned()),
             holder_gone: |_, _| false,
         };
-        Self::start(connection, context, wakes, None, None, owner)
+        Self::start(
+            connection,
+            context,
+            wakes,
+            Some(IN_MEMORY_ENDPOINT.to_owned()),
+            None,
+            owner,
+        )
     }
 
     fn start(
@@ -415,7 +464,15 @@ impl Politeness {
             wakes,
             endpoint,
             _wake_folder: wake_folder,
+            failures: watch::Sender::new(None),
         })))
+    }
+
+    /// The first transaction of the file that met a full disk or an I/O
+    /// error, once one did (ADR 0122): the Runs that take its Permits stop
+    /// on it.
+    pub fn storage_failures(&self) -> watch::Receiver<Option<String>> {
+        self.0.failures.subscribe()
     }
 
     /// The wakes this engine's waiters receive, from the moment it is
@@ -453,12 +510,52 @@ impl Politeness {
         let holder = holder.clone();
         let (taken, turn) = self
             .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, rule.as_ref(), now)
+                take_in(connection, context, &key, &holder, rule.as_ref(), now, true)
             })
             .await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
         }
+        Ok(taken)
+    }
+
+    /// Takes a Permit under `key` for `holder` at `now` as [`take`] does,
+    /// for a request beside one `holder` already sent, such as a hedge's
+    /// second copy (ADRs 0040 and 0086): it never waits in turn, so a
+    /// refusal for want of room registers no waiter, and a grant leaves
+    /// `holder`'s place among the key's waiters as it was.
+    ///
+    /// [`take`]: Politeness::take
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::take`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::take`].
+    pub async fn take_beside(
+        &self,
+        key: &str,
+        holder: &Holder,
+        rule: Arc<dyn PermitRule>,
+        now: SystemTime,
+    ) -> Result<Taken, PolitenessError> {
+        let key = key.to_owned();
+        let holder = holder.clone();
+        let (taken, _) = self
+            .run(move |connection, context| {
+                take_in(
+                    connection,
+                    context,
+                    &key,
+                    &holder,
+                    rule.as_ref(),
+                    now,
+                    false,
+                )
+            })
+            .await?;
         Ok(taken)
     }
 
@@ -517,6 +614,35 @@ impl Politeness {
         .await
     }
 
+    /// Runs `work` on the tables a contribution added to the file, in one
+    /// transaction committed when it returns `Ok` and rolled back
+    /// otherwise, such as Foxhound's shared robots.txt copy (ADR 0086).
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` or `Storage` when the transaction failed, `Closed` when the
+    /// file's actor stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a transaction already queued.
+    pub async fn transact<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.run(move |connection, context| {
+            let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(failed)?;
+            let done = work(&transaction).map_err(failed)?;
+            transaction.commit().map_err(failed)?;
+            Ok(done)
+        })
+        .await
+    }
+
     /// Runs `work` on the file's actor and answers what it returned.
     async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
     where
@@ -532,7 +658,18 @@ impl Politeness {
             .send(job)
             .await
             .map_err(|_| PolitenessError::Closed)?;
-        answered.await.map_err(|_| PolitenessError::Closed)?
+        let answer = answered.await.map_err(|_| PolitenessError::Closed)?;
+        if let Err(PolitenessError::Storage { message, .. }) = &answer {
+            tracing::warn!(%message, "a transaction of the Politeness file met a full disk or an I/O error and was rolled back");
+            self.0.failures.send_if_modified(|failure| {
+                let first = failure.is_none();
+                if first {
+                    *failure = Some(message.clone());
+                }
+                first
+            });
+        }
+        answer
     }
 
     /// Wakes the waiter whose turn it is; one whose endpoint is gone loses
@@ -590,10 +727,30 @@ pub fn moment(milliseconds: i64) -> SystemTime {
     UNIX_EPOCH + std::time::Duration::from_millis(u64::try_from(milliseconds).unwrap_or_default())
 }
 
-fn sqlite_error(path: &Path, error: &impl fmt::Display) -> PolitenessError {
-    PolitenessError::Sqlite {
-        path: path.to_owned(),
-        message: error.to_string(),
+/// The failure of a transaction of the file at `path` on `error`: a full
+/// disk or an I/O error as such, after which SQLite may have rolled the
+/// whole transaction back, and the transaction's drop rolls back the rest
+/// (ADR 0122).
+fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> PolitenessError {
+    let storage = error
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(rusqlite::Error::sqlite_error_code)
+        .is_some_and(|code| {
+            matches!(
+                code,
+                rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
+            )
+        });
+    if storage {
+        PolitenessError::Storage {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        PolitenessError::Sqlite {
+            path: path.to_owned(),
+            message: error.to_string(),
+        }
     }
 }
 
@@ -619,12 +776,8 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    connection.busy_timeout(BUSY_TIMEOUT).map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "OFF")
         .map_err(failed)?;
@@ -801,6 +954,7 @@ fn take_in(
     holder: &Holder,
     rule: &dyn PermitRule,
     now: SystemTime,
+    in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
     let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
     let transaction = connection
@@ -834,20 +988,23 @@ fn take_in(
                 .map_err(failed)?;
             let id = transaction.last_insert_rowid();
             rule.started(&transaction, key, now).map_err(failed)?;
-            transaction
-                .execute(
-                    "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
-                    (key, &holder.run_id),
-                )
-                .map_err(failed)?;
+            if in_turn {
+                transaction
+                    .execute(
+                        "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
+                        (key, &holder.run_id),
+                    )
+                    .map_err(failed)?;
+            }
             Taken::Granted(Permit {
                 id,
                 key: key.to_owned(),
             })
         }
-        Verdict::Until(until) => Taken::Wait(Some(until)),
+        Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
+        Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
-            if let Some(endpoint) = &context.endpoint {
+            if in_turn && let Some(endpoint) = &context.endpoint {
                 turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)
                     .map_err(failed)?;
             }

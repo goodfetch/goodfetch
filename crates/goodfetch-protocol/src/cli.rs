@@ -38,9 +38,11 @@ pub struct CommandError {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub message: String,
     /// The operation the command called, by its canonical name, such as
-    /// `run.finish`.
+    /// `run.finish`; absent when the command failed before it could call
+    /// one, as `npx @goodfetch/collie` does when it finds no executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub operation: String,
+    pub operation: Option<String>,
     /// The Error code's own details, such as `fix`.
     #[serde(flatten)]
     pub details: Map<String, Value>,
@@ -108,15 +110,33 @@ pub const TERMINATED: ExitCodeRow = ExitCodeRow {
     description: "The command was sent `SIGTERM`: its call was cancelled, and the Run it started checkpointed and stopped, resumable by its Run ID.",
 };
 
+/// `audit verify`, whose log or export holds an entry that does not
+/// verify, like `sha256sum -c` meeting a mismatch (ADR 0069).
+pub const AUDIT_LOG_NOT_INTACT: ExitCodeRow = ExitCodeRow {
+    name: "audit_log_not_intact",
+    code: 22,
+    description: "`audit verify` found an entry that does not verify: the Audit log, or the export it was given, was edited, deleted from, reordered or truncated at the sequence its output names.",
+};
+
 /// The rows that are no Error code's or group's.
-pub const OUTCOMES: [ExitCodeRow; 6] = [
+pub const OUTCOMES: [ExitCodeRow; 7] = [
     SUCCESS,
     USAGE,
     RUN_STOPPED,
     VERDICT_NOT_VERIFIED,
+    AUDIT_LOG_NOT_INTACT,
     INTERRUPTED,
     TERMINATED,
 ];
+
+/// The one failure that exits by another Error code's row (ADR 0069's
+/// #1183 note): a Daemon's `not_in_product` refusal of `hello` while it
+/// cannot hand over exits by `protocol_version_unsupported`'s row, since
+/// the same `daemon restart` in its `fix` ends both. That row says so.
+pub const REFUSED_AT_HELLO: &str = "The Daemon refused the command's `hello`: by protocol version (`protocol_version_unsupported`), or, while it could not hand over, by Product (`not_in_product`, whose own row is for a call refused after `hello`). Run the `daemon restart` the refusal's `fix` names, or upgrade the Client.";
+
+/// The row whose description [`REFUSED_AT_HELLO`] gives.
+const ROW_OF_REFUSED_AT_HELLO: &str = "protocol_version_unsupported";
 
 /// ADR 0069's whole exit-code table, by exit code: the [`OUTCOMES`], each
 /// group's row and each Error code's own row. An Error code without a row
@@ -134,7 +154,11 @@ pub fn exit_code_table() -> Vec<ExitCodeRow> {
             Some(ExitCodeRow {
                 name: definition.name,
                 code: definition.exit_code?,
-                description: definition.description,
+                description: if definition.name == ROW_OF_REFUSED_AT_HELLO {
+                    REFUSED_AT_HELLO
+                } else {
+                    definition.description
+                },
             })
         });
     let mut table: Vec<ExitCodeRow> = OUTCOMES.into_iter().chain(groups).chain(codes).collect();

@@ -1,9 +1,21 @@
 """The shared snapshot redactions and filters (ADR 0062)."""
 
+import json
+import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
+import pytest
 from goodfetch_test_support import redact
 from inline_snapshot import snapshot
+
+CASES = json.loads(
+    (
+        Path(__file__).resolve().parents[3] / "fixtures" / "snapshot-filter-cases.json"
+    ).read_text(encoding="utf-8")
+)["cases"]
+"""The shared cases every language's `redact` passes."""
 
 
 @dataclass(frozen=True)
@@ -90,4 +102,39 @@ def test_a_value_outside_the_shared_rules_stays_in_the_snapshot() -> None:
 
     assert redacted == snapshot(
         "proxy https://example.com:8443/ answered token 7c1f in state succeeded"
+    )
+
+
+@pytest.mark.parametrize("case", CASES, ids=[case["description"] for case in CASES])
+def test_each_shared_case_redacts_as_its_file_says(case: dict[str, str]) -> None:
+    """The shared cases redact alike in Rust, TypeScript and Python."""
+    assert redact(case["output"]) == case["redacted"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a Windows folder name holds no quote"
+)
+def test_the_tests_folder_redacts_in_each_form_an_output_prints_it(
+    tmp_path: Path,
+) -> None:
+    """The folder redacts as its path, its canonical path and each in a JSON string."""
+    real = tmp_path / 'real "q" \\b'
+    real.mkdir()
+    folder = tmp_path / "link"
+    folder.symlink_to(real)
+    canonical = os.path.realpath(folder)
+    output = " ".join(
+        [
+            f"{folder}/a {canonical}/b",
+            json.dumps(
+                {"path": f"{folder}/c"}, ensure_ascii=False, separators=(",", ":")
+            ),
+            json.dumps(
+                {"path": f"{canonical}/d"}, ensure_ascii=False, separators=(",", ":")
+            ),
+        ]
+    )
+
+    assert redact(output, folder=folder) == (
+        '[FOLDER]/a [FOLDER]/b {"path":"[FOLDER]/c"} {"path":"[FOLDER]/d"}'
     )

@@ -7,6 +7,7 @@ expression: "serde_json::to_string_pretty(&reply[\"error\"]).unwrap()"
   "data": {
     "code": "not_in_product",
     "fix": "Run it with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`), or connect to a Foxhound engine.",
+    "install": "cargo install goodfetch-foxhound --locked --features executable",
     "needs": "foxhound",
     "product": "collie",
     "product_version": "0.0.0",

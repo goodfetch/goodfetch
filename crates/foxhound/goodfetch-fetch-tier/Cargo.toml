@@ -1,0 +1,75 @@
+[package]
+name = "goodfetch-fetch-tier"
+description = "Foxhound's fetch tiers: the HTTP transports, the fetch driver above them, the decoding of a document's content codings, and the pages Foxhound hands a crawl's handlers (ADRs 0020, 0087, 0093, 0118, 0119 and 0129)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
+
+[dependencies]
+brotli-decompressor.workspace = true
+btls.workspace = true
+bytes.workspace = true
+cssparser.workspace = true
+data-encoding.workspace = true
+dom_query.workspace = true
+encoding_rs.workspace = true
+flate2.workspace = true
+http-body-util.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-extractor.workspace = true
+goodfetch-frontier.workspace = true
+goodfetch-page.workspace = true
+goodfetch-protocol.workspace = true
+h2.workspace = true
+html5ever.workspace = true
+jiff.workspace = true
+http.workspace = true
+http2.workspace = true
+hyper.workspace = true
+quick-xml.workspace = true
+reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync"] }
+tokio-util.workspace = true
+tower-layer.workspace = true
+tower-service.workspace = true
+tracing.workspace = true
+url.workspace = true
+webpki-root-certs.workspace = true
+wreq.workspace = true
+wreq-proto.workspace = true
+wreq-util.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+goodfetch-test-support.workspace = true
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rcgen = { workspace = true, features = ["ring"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+gungraun.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+toml.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time", "net"] }
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
+
+[lints]
+workspace = true

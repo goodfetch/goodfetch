@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 701324ec408740ed2d753224e6126874a56a8e6ea33e45abc30f1ec0cc75f54d # shrinks to (initial_state, transitions, seen_counter) = (Model { items: [Item { attempts: 0, done: false }, Item { attempts: 0, done: false }], delivered: 0, committed: [], last_answer: [], crashed: false }, [Deliver(FailsRetryably), Deliver(Records(0))], None)
+cc ee27c5c58aeca05eb7e829ab5a7889d643950a4a5f45bc6a163c4edc44059e01 # shrinks to (initial_state, transitions, seen_counter) = (Model { items: [Item { attempts: 0, done: false }, Item { attempts: 0, done: false }], delivered: 0, committed: [], last_answer: [], crashed: false, lifecycle: Running }, [Deliver(Records(2)), Deliver(Records(0))], None)

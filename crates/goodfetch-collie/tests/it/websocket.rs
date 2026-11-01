@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use tungstenite::handshake::client::generate_key;
 use tungstenite::{Message, WebSocket};
 
-use crate::daemon_run::{Foreground, free_address, token};
+use crate::daemon_run::{ANY_PORT, Foreground, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -34,8 +34,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A `daemon run` listening at a free loopback address, once it serves.
 fn exposed(env: &TestEnv) -> (Foreground, SocketAddr) {
-    let address = free_address();
-    env.user_configuration(&format!("daemon.address = \"{address}\"\n"));
+    env.user_configuration(&format!("daemon.address = \"{ANY_PORT}\"\n"));
     let mut daemon = Foreground::start(env, COLLIE, &[]);
     let DaemonEndpoint::Tcp(address) = daemon.serving() else {
         panic!("`daemon run` listens on TCP");
@@ -62,7 +61,15 @@ fn reason(rule: Rule) -> Option<&'static str> {
         Rule::OriginForeign => "origin_foreign",
         Rule::OriginMissing => "origin_missing",
         Rule::HelloNotFirst => "hello_not_first",
-        Rule::ProbesAnswerStatusOnly => return None,
+        Rule::ProbesAnswerStatusOnly
+        | Rule::CsrfTokenMissing
+        | Rule::SignInRevoked
+        | Rule::SignInRateExceeded
+        | Rule::TokenForAnotherFile
+        | Rule::TokenExpired
+        | Rule::TokenRevoked
+        | Rule::TokenScopedElsewhere
+        | Rule::OriginMissingWithoutHeaderToken => return None,
     })
 }
 
@@ -74,6 +81,9 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::DaemonSocket => "daemon_socket",
         ListenerKind::PrivateEndpoint => "private_endpoint",
         ListenerKind::OpsListener => "ops_listener",
+        ListenerKind::Console => "console",
+        ListenerKind::ContentOrigin => "content_origin",
+        ListenerKind::ProxyRelay => "proxy_relay",
     }
 }
 

@@ -9,7 +9,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-use crate::daemon::files::new_token;
+use crate::endpoint::new_token;
+use crate::transport;
 
 /// The socket's name in the folder.
 const SOCKET: &str = "engine.sock";
@@ -26,17 +27,16 @@ pub(crate) struct PrivateFiles {
 }
 
 impl PrivateFiles {
-    /// Makes the folder, mode `0700`, and writes a new token into its file,
-    /// mode `0600`.
+    /// Makes the folder, mode `0700`, in the OS's temporary folder, or in
+    /// `/tmp` when the socket's path there is too long for the OS, and
+    /// writes a new token into its file, mode `0600`.
     ///
     /// # Errors
     ///
     /// When the folder or the file cannot be made, or the OS generator
     /// gives no token.
     pub(crate) fn create() -> io::Result<Self> {
-        let folder = tempfile::Builder::new()
-            .prefix("goodfetch-engine-")
-            .tempdir()?;
+        let folder = transport::socket_folder("goodfetch-engine-", SOCKET)?;
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
         let mut file = owner_only(&folder.path().join(TOKEN_FILE))?;
         file.write_all(token.as_bytes())?;

@@ -31,10 +31,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use chacha20::ChaCha20Rng;
-use chacha20::rand_core::{Rng as _, SeedableRng as _};
+use chacha20::rand_core::Rng as _;
 use serde::{Deserialize, Serialize};
 
 use crate::proving_ground::ProvingGround;
+use crate::seeded;
 
 /// Every value's mark, which the `gitleaks` rule's keyword is.
 const MARK: &str = "gfcanary";
@@ -52,6 +53,18 @@ type Searched<'a> = (&'a Canary, Vec<(Encoding, Vec<u8>)>);
 /// RFC 4648's base32 alphabet.
 const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
+/// The length, in characters, under which a value is short (spec #564's
+/// short-value rule, ADR 0067): the engine masks it only where it was typed
+/// and in what it keeps, so a page read may hold it by chance.
+pub const SHORT_VALUE: usize = 8;
+
+/// The characters of a short canary's value, which hex and base64 text
+/// rarely hold side by side: lowercase letters but `l`.
+const SHORT_ALPHABET: &[u8; 25] = b"abcdefghijkmnopqrstuvwxyz";
+
+/// The end of a short value that may hold any character.
+const SHORT_HARD_TAIL: &str = "\"\\+";
+
 /// The kinds of secret a canary stands for (ADR 0067).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,8 +73,17 @@ pub enum SecretKind {
     TypedPassword,
     /// A TOTP seed, base32 as RFC 6238's authenticators take it.
     TotpSeed,
+    /// A one-time code a code source reads, such as one emailed or texted.
+    OneTimeCode,
     /// The password of an upstream proxy.
     ProxyPassword,
+    /// The password `session.http_credentials` answers a site's HTTP
+    /// authentication with.
+    HttpAuthenticationPassword,
+    /// A header or JSON value `page.request` or a route sends.
+    HeaderValue,
+    /// A value a `caller:` Secret reference's resolver returns.
+    CallerAnswer,
     /// A Model provider's API key.
     ModelApiKey,
     /// A webhook's signing secret.
@@ -78,10 +100,14 @@ pub enum SecretKind {
 
 impl SecretKind {
     /// Every kind, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 13] = [
         Self::TypedPassword,
         Self::TotpSeed,
+        Self::OneTimeCode,
         Self::ProxyPassword,
+        Self::HttpAuthenticationPassword,
+        Self::HeaderValue,
+        Self::CallerAnswer,
         Self::ModelApiKey,
         Self::WebhookSigningSecret,
         Self::SinkCredential,
@@ -96,7 +122,11 @@ impl SecretKind {
         match self {
             Self::TypedPassword => "typed_password",
             Self::TotpSeed => "totp_seed",
+            Self::OneTimeCode => "one_time_code",
             Self::ProxyPassword => "proxy_password",
+            Self::HttpAuthenticationPassword => "http_authentication_password",
+            Self::HeaderValue => "header_value",
+            Self::CallerAnswer => "caller_answer",
             Self::ModelApiKey => "model_api_key",
             Self::WebhookSigningSecret => "webhook_signing_secret",
             Self::SinkCredential => "sink_credential",
@@ -111,7 +141,11 @@ impl SecretKind {
         match self {
             Self::TypedPassword => "typed password",
             Self::TotpSeed => "TOTP seed",
+            Self::OneTimeCode => "one-time code",
             Self::ProxyPassword => "proxy password",
+            Self::HttpAuthenticationPassword => "HTTP authentication password",
+            Self::HeaderValue => "header or JSON value",
+            Self::CallerAnswer => "`caller:` answer",
             Self::ModelApiKey => "model API key",
             Self::WebhookSigningSecret => "webhook signing secret",
             Self::SinkCredential => "Sink credential",
@@ -147,7 +181,11 @@ impl SecretKind {
     fn shape(self) -> (&'static str, usize) {
         match self {
             Self::TypedPassword => ("password", 16),
+            Self::OneTimeCode => ("code", 16),
             Self::ProxyPassword => ("proxy-password", 16),
+            Self::HttpAuthenticationPassword => ("http-password", 16),
+            Self::HeaderValue => ("header-value", 16),
+            Self::CallerAnswer => ("caller-answer", 16),
             Self::WebhookSigningSecret => ("webhook-secret", 16),
             Self::SinkCredential => ("sink-credential", 16),
             Self::ModelApiKey => ("model-key", 32),
@@ -166,6 +204,9 @@ impl SecretKind {
             self,
             Self::TypedPassword
                 | Self::ProxyPassword
+                | Self::HttpAuthenticationPassword
+                | Self::HeaderValue
+                | Self::CallerAnswer
                 | Self::WebhookSigningSecret
                 | Self::SinkCredential
         )
@@ -180,8 +221,10 @@ pub enum Encoding {
     Raw,
     /// Inside a JSON string: `"`, `\` and control characters escaped.
     JsonEscaped,
-    /// Percent-encoded: every byte but `A-Z a-z 0-9 - . _ ~`, in uppercase
-    /// hex.
+    /// Percent-encoded, in uppercase hex: every byte but `A-Z a-z 0-9 - . _
+    /// ~`; as a browser encodes a form, keeping `*` and writing a space `+`;
+    /// or as JavaScript's `encodeURIComponent` does, keeping `! ~ * ' ( )`
+    /// too.
     UrlEncoded,
     /// Base64, standard or URL-safe, at any alignment inside a longer
     /// encoded run (such as a password in a Basic `Authorization` header).
@@ -268,6 +311,12 @@ impl Canary {
         &self.value
     }
 
+    /// Whether its value has fewer than [`SHORT_VALUE`] characters, so a search
+    /// leaves it out of a page read ([`Output::Read`]).
+    pub fn is_short(&self) -> bool {
+        self.value.chars().count() < SHORT_VALUE
+    }
+
     /// The Proving ground task whose flow uses it, when planted through it.
     pub fn task(&self) -> Option<&str> {
         self.proving_ground
@@ -298,7 +347,20 @@ impl Canary {
             Encoding::JsonEscaped,
             json_escaped(&self.value).into_bytes(),
         );
-        add(Encoding::UrlEncoded, url_encoded(value).into_bytes());
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, UNRESERVED).into_bytes(),
+        );
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, FORM_KEPT)
+                .replace("%20", "+")
+                .into_bytes(),
+        );
+        add(
+            Encoding::UrlEncoded,
+            url_encoded(value, URI_COMPONENT_KEPT).into_bytes(),
+        );
         for alphabet in [
             &data_encoding::BASE64_NOPAD,
             &data_encoding::BASE64URL_NOPAD,
@@ -338,6 +400,15 @@ pub enum Output<'a> {
     Path(&'a Path),
     /// Bytes the test holds, such as a captured `repr`, named for the hits.
     Bytes {
+        /// The name hits give it.
+        name: &'a str,
+        /// Its bytes.
+        bytes: &'a [u8],
+    },
+    /// A page read the test holds, such as a call's result or an event's
+    /// text: searched for every canary but a short one, which the engine
+    /// masks in a read only where it was typed (spec #564).
+    Read {
         /// The name hits give it.
         name: &'a str,
         /// Its bytes.
@@ -420,11 +491,8 @@ impl Canaries {
     /// An empty set whose values are drawn from `seed`, the test's own
     /// (`TestEnv::seed`), so a seed always plants the same values.
     pub fn new(seed: u64) -> Self {
-        let mut key = [0_u8; 32];
-        key[..8].copy_from_slice(&seed.to_le_bytes());
-        key[8..16].copy_from_slice(b"canaries");
         Self {
-            stream: ChaCha20Rng::from_seed(key),
+            stream: seeded::stream(seed, b"canaries"),
             planted: Vec::new(),
         }
     }
@@ -434,6 +502,40 @@ impl Canaries {
     pub fn plant(&mut self, kind: SecretKind) -> &Canary {
         let value = loop {
             let value = self.draw(kind);
+            if self.planted.iter().all(|canary| canary.value != value) {
+                break value;
+            }
+        };
+        let id = self.next_id();
+        self.push(Canary {
+            id,
+            kind,
+            value,
+            planted_in: Vec::new(),
+            proving_ground: None,
+        })
+    }
+
+    /// Plants a short canary of `kind`: seven characters, under [`SHORT_VALUE`],
+    /// lowercase letters, the last three `"\+` for a kind whose value may
+    /// hold any character. It bears no mark, so `gitleaks` knows none, and
+    /// a search leaves it out of a page read.
+    pub fn plant_short(&mut self, kind: SecretKind) -> &Canary {
+        let tail = if kind.takes_any_character() {
+            SHORT_HARD_TAIL
+        } else {
+            ""
+        };
+        let value = loop {
+            let random: String = (0..SHORT_VALUE - 1 - tail.len())
+                .map(|_| {
+                    char::from(
+                        SHORT_ALPHABET[usize::try_from(self.stream.next_u32() % 25)
+                            .expect("invariant: below 25 fits a usize")],
+                    )
+                })
+                .collect();
+            let value = format!("{random}{tail}");
             if self.planted.iter().all(|canary| canary.value != value) {
                 break value;
             }
@@ -551,6 +653,14 @@ impl Canaries {
         for output in outputs {
             match output {
                 Output::Bytes { name, bytes } => search_bytes(&forms, name, bytes, &mut hits),
+                Output::Read { name, bytes } => {
+                    let long: Vec<Searched<'_>> = forms
+                        .iter()
+                        .filter(|(canary, _)| !canary.is_short())
+                        .cloned()
+                        .collect();
+                    search_bytes(&long, name, bytes, &mut hits);
+                }
                 Output::Path(path) => {
                     for file in files(path)? {
                         let bytes = std::fs::read(&file).map_err(|source| CanaryError::Read {
@@ -742,11 +852,22 @@ fn json_escaped(value: &str) -> String {
     quoted[1..quoted.len() - 1].to_owned()
 }
 
-/// `value` percent-encoded, every byte but the unreserved ones (RFC 3986).
-fn url_encoded(value: &[u8]) -> String {
+/// The marks RFC 3986 leaves unreserved.
+const UNRESERVED: &[u8] = b"-._~";
+
+/// The marks a browser keeps as it encodes a form
+/// (`application/x-www-form-urlencoded`), which writes a space `+`.
+const FORM_KEPT: &[u8] = b"*-._";
+
+/// The marks JavaScript's `encodeURIComponent` keeps.
+const URI_COMPONENT_KEPT: &[u8] = b"-_.!~*'()";
+
+/// `value` percent-encoded, every byte but the ASCII letters, digits and
+/// `kept`.
+fn url_encoded(value: &[u8], kept: &[u8]) -> String {
     let mut encoded = String::new();
     for byte in value {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(byte) {
+        if byte.is_ascii_alphanumeric() || kept.contains(byte) {
             encoded.push(char::from(*byte));
         } else {
             write!(encoded, "%{byte:02X}").expect("invariant: writing to a String succeeds");

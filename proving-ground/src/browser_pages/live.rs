@@ -7,6 +7,14 @@
 //! `networkidle` (no request in flight for 500 ms, WebSocket connections
 //! and server-sent events left out) comes on the first and never on the second,
 //! and a tool that reads the board before its last update reads a stale one.
+//!
+//! Each host also serves a late board at `/late`, which no task names: its
+//! one periodic request (`/late/updates/1`) starts at its document's `load`
+//! event and is held [`LATE_HOLD`], longer than the 500 ms of quiet, so
+//! `networkidle` comes only once that request finished, not 500 ms after
+//! `load` (pitfall B03). It starts at that event rather than at a time after
+//! it, so no stalled timer of a loaded machine can leave 500 ms of quiet
+//! before it.
 
 use std::time::Duration;
 
@@ -32,6 +40,13 @@ const MOST_UPDATES: u64 = 10_000_000;
 /// How long the server holds each periodic request in flight.
 const HOLD: Duration = Duration::from_millis(100);
 
+/// The path before the number of the late board's periodic request.
+const LATE_UPDATES: &str = "/late/updates/";
+
+/// How long the server holds the late board's request in flight: past the
+/// 500 ms of quiet after `load`, so a page read then is still updating.
+const LATE_HOLD: Duration = Duration::from_millis(800);
+
 /// The generator place of the family's values.
 const FAMILY_PLACE: u64 = 21;
 
@@ -52,7 +67,10 @@ fn reading(seed: u64, ordinal: u32, number: u64) -> String {
 /// The number of the periodic request at `path`, if it is one task
 /// `ordinal`'s page makes.
 fn update(ordinal: u32, path: &str) -> Option<u64> {
-    let digits = path.strip_prefix("/updates/")?;
+    let digits = path.strip_prefix("/updates/").or_else(|| {
+        path.strip_prefix(LATE_UPDATES)
+            .filter(|digits| *digits == "1")
+    })?;
     if digits.starts_with('0') || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
@@ -65,6 +83,9 @@ fn update(ordinal: u32, path: &str) -> Option<u64> {
 pub(super) fn page(seed: u64, ordinal: u32, path: &str) -> Option<Reply> {
     if path == "/board" {
         return Some(Reply::html(board(ordinal)));
+    }
+    if path == "/late" {
+        return Some(Reply::html(late()));
     }
     let number = update(ordinal, path)?;
     Some(Reply::json(
@@ -84,18 +105,37 @@ pub(super) fn push(path: &str) -> Option<Push> {
 
 /// The hold of a periodic request.
 pub(super) fn hold(path: &str) -> Option<Duration> {
-    path.starts_with("/updates/").then_some(HOLD)
+    if path.starts_with(LATE_UPDATES) {
+        Some(LATE_HOLD)
+    } else {
+        path.starts_with("/updates/").then_some(HOLD)
+    }
 }
 
 /// The board of task `ordinal`.
 fn board(ordinal: u32) -> String {
     let updates =
         updates(ordinal).map_or_else(|| "unbounded".to_owned(), |count| count.to_string());
+    page_of("Live board", &format!("data-updates=\"{updates}\""))
+}
+
+/// The late board: one periodic request, at its `load`.
+fn late() -> String {
+    page_of(
+        "Late board",
+        &format!("data-updates=\"1\" data-at-load data-requests=\"{LATE_UPDATES}\""),
+    )
+}
+
+/// A board titled `title`, its script given `attributes`.
+fn page_of(title: &str, attributes: &str) -> String {
     document(
-        "Live board",
+        title,
         "",
-        "<h1>Live board</h1>\n<dl class=\"board\" data-id=\"board\">\n<dt>State</dt><dd id=\"state\">loading</dd>\n<dt>Updates</dt><dd id=\"updates\">0</dd>\n<dt>Reading</dt><dd id=\"reading\">none</dd>\n<dt>Socket messages</dt><dd id=\"socket\">0</dd>\n<dt>Server-sent events</dt><dd id=\"events\">0</dd>\n</dl>\n",
-        &format!("<script data-updates=\"{updates}\">\n{SCRIPT}</script>\n"),
+        &format!(
+            "<h1>{title}</h1>\n<dl class=\"board\" data-id=\"board\">\n<dt>State</dt><dd id=\"state\">loading</dd>\n<dt>Updates</dt><dd id=\"updates\">0</dd>\n<dt>Reading</dt><dd id=\"reading\">none</dd>\n<dt>Socket messages</dt><dd id=\"socket\">0</dd>\n<dt>Server-sent events</dt><dd id=\"events\">0</dd>\n</dl>\n"
+        ),
+        &format!("<script {attributes}>\n{SCRIPT}</script>\n"),
     )
 }
 

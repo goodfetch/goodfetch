@@ -6,12 +6,16 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./canaries": "./src/canaries.ts",
     "./case-log": "./src/case-log.ts",
     "./conformance": "./src/conformance.ts",
+    "./daemon-calls": "./src/daemon-calls.ts",
     "./features": "./src/features.ts",
     "./journey": "./src/journey.ts",
+    "./offline-cache": "./src/offline-cache.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-adapter": "./src/protocol-adapter.ts",
+    "./protocol-contract": "./src/protocol-contract.ts",
     "./result-document-reporter": "./src/result-document-reporter.ts",
     "./screens": "./src/screens.ts",
     "./screenshot": "./src/screenshot.ts",
@@ -19,6 +23,7 @@
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
     "./vitest-browser/text-spacing": "./src/vitest-browser-text-spacing.ts",
+    "./vitest-browser/pseudo-locale": "./src/vitest-browser-pseudo-locale.ts",
     "./vitest-browser/commands": "./src/vitest-browser-commands.ts"
   },
   "scripts": {
@@ -42,5 +47,14 @@
     "typescript": "catalog:",
     "vitest": "catalog:",
     "ws": "8.22.0"
+  },
+  "goodfetch": {
+    "runs": [
+      "goodfetch-collie",
+      "goodfetch-conformance",
+      "goodfetch-foxhound",
+      "goodfetch-proving-ground",
+      "goodfetch-test-support"
+    ]
   }
 }

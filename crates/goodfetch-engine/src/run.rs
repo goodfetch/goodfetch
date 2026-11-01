@@ -5,13 +5,16 @@
 //! `run.pause` and `run.migrate` checkpoint a Run and stop it, resumable;
 //! `run.resume` takes the next run epoch of an interrupted Run and starts
 //! its kind's driver again; `run.set_progress_message` sets the program's
-//! own status line about its Run. Also the one translation of a start's, a Run's
+//! own status line about its Run; `run.progress` and `run.report` read a
+//! Run, through the engine that works it when that is another (ADR 0102).
+//! Also the one translation of a start's, a Run's
 //! or a setting's failure into its Error code, which a Product's own start,
 //! such as Foxhound's `crawl.start`, answers with too.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
@@ -20,48 +23,70 @@ use goodfetch_protocol::checkpoint::{
     WriteSide,
 };
 use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
-use goodfetch_protocol::run::{Checkpoint, Lifecycle};
 use goodfetch_protocol::run::{
-    RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN, RUN_IN_USE,
-    RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START, RUN_STATE_UNAVAILABLE,
-    ReachedLimit, RunAbortParams, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
-    RunKind, RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams,
-    RunStarted, StartedAs, StopReason,
+    Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
+use goodfetch_protocol::run::{
+    RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
+    RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
+    RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
+    RunDetails, RunDiscarded, RunId, RunIdInvalidDetails, RunKind, RunParams, RunProgress,
+    RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams,
+    StartedAs, StopReason,
+};
+use goodfetch_protocol::run::{
+    RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
+    RunListParams, RunProgressParams,
+};
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::secrets::{
-    SECRET_DOMAIN_NOT_ALLOWED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
-    SecretUnavailableDetails,
+    RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails, SECRET_DOMAIN_NOT_ALLOWED,
+    SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SecretDomainNotAllowedDetails,
+    SecretInputRefusedDetails, SecretUnavailableDetails,
 };
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
     SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails, TIMEOUT_RUN,
+    SettingUnknownDetails, SettingsLayer, TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
 use crate::composition::{CallContext, CallError, Handler};
+use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
-use crate::runs::{EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started};
+use crate::runs::{
+    EndedBy, Forwarded, ListError, Resume, Resumed, RunError, Start, StartError, Started,
+    StorageExhausted,
+};
 use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 8] {
+pub(crate) fn handlers() -> [Handler; 14] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
+        Handler::new(&RUN_STOP, stop),
+        Handler::new(&RUN_USAGE, usage),
         Handler::new(&RUN_ABORT, abort),
         Handler::new(&RUN_CHECKPOINT, checkpoint),
         Handler::new(&RUN_PAUSE, pause),
         Handler::new(&RUN_MIGRATE, migrate),
         Handler::new(&RUN_RESUME, resume),
         Handler::new(&RUN_SET_PROGRESS_MESSAGE, set_progress_message),
+        Handler::new(&RUN_DISCARD, discard),
+        Handler::new(&RUN_PROGRESS_READ, progress),
+        Handler::new(&RUN_REPORT, report),
+        Handler::new(&RUN_LIST, list),
     ]
 }
 
@@ -203,8 +228,11 @@ pub fn start_error(error: StartError) -> CallError {
             }
         }
         StartError::Draining { run_id } => draining(run_id),
+        StartError::Discarding { run_id, folder } => discarding(run_id, &folder),
+        StartError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
+        StartError::Refused(refused) => *refused,
     }
 }
 
@@ -243,6 +271,21 @@ pub fn secret_error(error: &SecretError) -> CallError {
                 reference: reference.to_string(),
                 domain: domain.clone(),
                 domains: domains.clone(),
+            },
+        ),
+        SecretError::InputRefused {
+            placeholder,
+            reference,
+            domain,
+            reason,
+        } => CallError::new(
+            &SECRET_INPUT_REFUSED,
+            message,
+            &SecretInputRefusedDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                domain: domain.clone(),
+                reason: *reason,
             },
         ),
         SecretError::Unrecorded { .. } => {
@@ -292,10 +335,25 @@ fn draining(run_id: Option<RunId>) -> CallError {
     )
 }
 
-/// The failure a call answers with for a refused setting, on an engine
-/// that runs as `identity`: the one translation of each refusal into its
-/// Error code.
-pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
+/// The failure a call on `context`'s Connection answers with for a refused
+/// setting: the one translation of each refusal into its Error code. A
+/// setting the engine's Product lacks is worded for Goodfetch Cloud's
+/// gateway when the Connection's `hello` came from it, naming the run's
+/// Product rather than an install that would not help there (ADR 0096).
+pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError {
+    translated(error, context.identity(), context.behind_gateway())
+}
+
+/// The failure a command of the executable itself answers with for a
+/// refused setting, outside any Connection: no gateway relays it, so a
+/// setting the engine's Product lacks names the install that carries it.
+pub fn local_settings_error(error: &SettingsError, identity: &Identity) -> CallError {
+    translated(error, identity, false)
+}
+
+/// [`settings_error`]'s translation, for the engine `identity` names,
+/// behind Goodfetch Cloud's gateway or not.
+fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
     let message = error.to_string();
     match error {
         SettingsError::Unknown {
@@ -345,7 +403,8 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
             },
         ),
         SettingsError::NotInProduct { key, needs } => {
-            let (message, details) = identity.not_in_product(Requested::Name(key), *needs, false);
+            let (message, details) =
+                identity.not_in_product(Requested::Name(key), *needs, behind_gateway);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
         SettingsError::Format {
@@ -385,6 +444,32 @@ pub fn settings_error(error: &SettingsError, identity: &Identity) -> CallError {
     }
 }
 
+/// `resources_exhausted` for a Run whose filesystem is at the `critical`
+/// storage level (ADR 0122): its folder, its free space and the setting,
+/// with a fix that names the folder to free or the setting to lower.
+fn storage_exhausted(exhausted: &StorageExhausted) -> CallError {
+    let folder = exhausted.folder.display().to_string();
+    let filesystem = &exhausted.filesystem;
+    CallError::new(
+        &RESOURCES_EXHAUSTED,
+        format!(
+            "The filesystem of `{folder}` has {} bytes free, below `storage.critical_free`: the Run `{}` cannot write there.",
+            filesystem.free, exhausted.run_id
+        ),
+        &ResourcesExhaustedDetails {
+            resource: Resource::Storage,
+            run_id: Some(exhausted.run_id.clone()),
+            path: Some(folder.clone()),
+            free_bytes: Some(filesystem.free),
+            limit: filesystem.limit.clone(),
+            fix: format!(
+                "Free space on the filesystem of `{folder}`, or lower `storage.critical_free`, then start the Run `{}` again.",
+                exhausted.run_id
+            ),
+        },
+    )
+}
+
 /// A failure only a bug in Goodfetch causes, such as a transition a Run's
 /// table refuses, already logged at `error` (ADR 0128).
 fn internal(message: String) -> CallError {
@@ -417,7 +502,7 @@ pub fn run_error(error: RunError, identity: &Identity) -> CallError {
 }
 
 /// The Error code a Run's failure answers with, for a call of `operation`.
-fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
+pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,
@@ -498,18 +583,194 @@ fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -
             run_id,
             folder,
             error,
-        } => CallError::new(
-            &RUN_STATE_UNAVAILABLE,
-            format!("The state of the Run `{run_id}` is unavailable: {error}"),
-            &RunDetails {
-                run_id,
-                path: Some(folder.display().to_string()),
-            },
-        ),
+        } => state_unavailable(run_id, &folder, &error),
         RunError::Internal { message, .. } => internal(message),
         RunError::Draining(run_id) => draining(Some(run_id)),
+        RunError::Secret { error, .. } => secret_error(&error),
+        RunError::KeyMismatch {
+            run_id,
+            reference,
+            wrapped_by,
+        } => key_mismatch(run_id, &reference, wrapped_by),
+        RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
+        RunError::Live(run_id) => live(run_id),
+        RunError::Interrupted(run_id) => interrupted(run_id),
+        RunError::Discarding { run_id, folder } => discarding(run_id, &folder),
+        RunError::Forwarded(failure) => forwarded(*failure),
         RunError::Stopped => stopped(),
     }
+}
+
+/// `run_state_unavailable`: the state of `run_id` in `folder` failed with
+/// `error`.
+fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -> CallError {
+    CallError::new(
+        &RUN_STATE_UNAVAILABLE,
+        format!("The state of the Run `{run_id}` is unavailable: {error}"),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// The failure the owner of a Run answered a forwarded read with.
+fn forwarded(failure: goodfetch_protocol::jsonrpc::ErrorObject) -> CallError {
+    match goodfetch_protocol::entries::error_code(&failure.data.code) {
+        Some(definition) => CallError::new(definition, failure.message, &failure.data.details),
+        None => internal(format!("{}: {}", failure.data.code, failure.message)),
+    }
+}
+
+/// `run_in_use`: this engine discards the Run `run_id`, holding its lock.
+fn discarding(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!(
+            "This engine is discarding the Run `{run_id}`; once the discard ends, the Run is gone."
+        ),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
+/// `run_interrupted`: `run_id` has no live writer and has not ended.
+fn interrupted(run_id: RunId) -> CallError {
+    CallError::new(
+        &RUN_INTERRUPTED,
+        format!("The Run `{run_id}` has no live writer and has not ended, so it has no report."),
+        &RunInterruptedDetails {
+            fix: format!("Start the Run with its Run ID `{run_id}` to resume it."),
+            run_id,
+        },
+    )
+}
+
+/// Reads `operation` with `params` of the Run `run_id` through the engine
+/// that works it, when that is another engine (ADR 0102): its answer, or
+/// `None` for the read to go on here, from the Run's committed state. A
+/// read never takes the Run's writer lock.
+///
+/// # Errors
+///
+/// The failure the owner answered.
+///
+/// # Cancel safety
+///
+/// Dropping the future abandons the read; the owner may still answer it,
+/// to no one.
+pub async fn through_owner<R: DeserializeOwned>(
+    context: &CallContext,
+    operation: &'static Operation,
+    run_id: &RunId,
+    params: &impl Serialize,
+) -> Result<Option<R>, CallError> {
+    let needs = if operations_of(Product::Collie).any(|known| known.name == operation.name) {
+        Product::Collie
+    } else {
+        Product::Foxhound
+    };
+    let params = serde_json::to_value(params).expect("invariant: params encode");
+    let answer = context
+        .runs()
+        .through_owner(run_id, needs, operation.name, params)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), operation.name))?;
+    answer
+        .map(|answer| {
+            serde_json::from_value(answer).map_err(|error| {
+                internal(format!(
+                    "the Run's owner answered `{}` with no value of its result: {error}",
+                    operation.name
+                ))
+            })
+        })
+        .transpose()
+}
+
+async fn progress(
+    params: RunProgressParams,
+    context: CallContext,
+) -> Result<RunProgress, CallError> {
+    if let Some(answer) =
+        through_owner(&context, &RUN_PROGRESS_READ, &params.run_id, &params).await?
+    {
+        return Ok(answer);
+    }
+    context
+        .runs()
+        .progress(params.run_id, params.after)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_PROGRESS_READ.name))
+}
+
+async fn list(params: RunListParams, context: CallContext) -> Result<RunList, CallError> {
+    match context.runs().list(params).await {
+        Ok(runs) => Ok(RunList { runs }),
+        Err(ListError::Stopped) => Err(stopped()),
+        Err(ListError::Format {
+            format,
+            found,
+            compatibility,
+            install,
+        }) => {
+            let format = goodfetch_protocol::formats::FORMATS
+                .iter()
+                .find(|known| known.name == format)
+                .copied()
+                .unwrap_or(&goodfetch_protocol::formats::RUN_INDEX);
+            Err(match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            })
+        }
+        Err(error @ ListError::Unreadable(_)) => Err(internal(error.to_string())),
+    }
+}
+
+async fn report(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+    if let Some(answer) = through_owner(&context, &RUN_REPORT, &params.run_id, &params).await? {
+        return Ok(answer);
+    }
+    context
+        .runs()
+        .report(params.run_id)
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_REPORT.name))
+}
+
+/// `run_live`: this engine still runs `run_id`, so it is not discarded.
+fn live(run_id: RunId) -> CallError {
+    CallError::new(
+        &RUN_LIVE,
+        format!(
+            "This engine still runs the Run `{run_id}`; stop it with `run.stop` or `run.abort`, or let it finish, then discard it."
+        ),
+        &RunDetails { run_id, path: None },
+    )
+}
+
+/// `run_key_mismatch`: the key-encryption key `reference` does not open
+/// the data key of `run_id`, which the key `wrapped_by` names wrapped.
+fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) -> CallError {
+    CallError::new(
+        &RUN_KEY_MISMATCH,
+        format!(
+            "The key-encryption key `{reference}` does not open the data key of the Run `{run_id}`, which `{wrapped_by}` wrapped where the Run began."
+        ),
+        &RunKeyMismatchDetails {
+            run_id,
+            setting: RUN_STATE_KEY_REFERENCE.name.to_owned(),
+            reference: reference.to_string(),
+            wrapped_by,
+            fix: format!(
+                "Set `{}` to a Secret reference that gives the key that wrapped it, in project configuration or configuration, then resume again.",
+                RUN_STATE_KEY_REFERENCE.name
+            ),
+        },
+    )
 }
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
@@ -523,9 +784,10 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let started = context
         .runs()
         .start(Start {
@@ -537,7 +799,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             ended_by: EndedBy::Finish,
             initialize: None,
             policy_version: settings.resolved().policy_version().map(str::to_owned),
-            weakened_by: settings.resolved().weakened_by(),
+            weakened: settings.resolved().weakened(),
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
@@ -557,12 +819,81 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
     })
 }
 
-async fn finish(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
+async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+    let finishing = context.runs().finish(params.run_id);
+    let report = match params.timeout {
+        Some(millis) => {
+            Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
+                .within(&context.runs().clock(), "Run's end", finishing)
+                .await?
+        }
+        None => finishing.await,
+    };
+    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_FINISH.name))?)
+}
+
+/// `run.stop`: the Run stops at its next safe point as an abort by its
+/// program; the wait is bounded by `timeout.close`, or the call's own
+/// `timeout`, and only the wait ends past it (ADR 0102).
+async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+    // The stop is asked before the call's first await, so a call its Client
+    // cancels still stops the Run; only the wait ends with it (#1743).
+    let stopping = context
+        .runs()
+        .stop_at_safe_point(params.run_id.clone(), StoppedBy::Program);
+    let deadline = match params.timeout {
+        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis, SettingsLayer::Run),
+        None => close_deadline(&context, &params.run_id).await,
+    };
+    let report = deadline
+        .within(&context.runs().clock(), "Run's next safe point", stopping)
+        .await?;
+    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_STOP.name))?)
+}
+
+/// The `timeout.close` the live Run `run_id` resolved, or its default.
+async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
+    let resolved = match context.runs().live(run_id.clone()).await {
+        Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
+        Err(_) => None,
+    };
+    resolved
+        .and_then(|resolved| Deadline::of(&resolved, &TIMEOUT_CLOSE))
+        .unwrap_or_else(|| {
+            let default = (TIMEOUT_CLOSE.default)().as_u64().unwrap_or(30_000);
+            Deadline::given(&TIMEOUT_CLOSE, default, SettingsLayer::Default)
+        })
+}
+
+/// What a call that ends a Run answers once it ended: its report, or the
+/// error its ending raises, the one that failed a `failed` Run or a write
+/// at its end that failed (ADRs 0102 and 0116).
+fn ending(report: RunReport) -> Result<RunReport, CallError> {
+    let Some(error) = &report.error else {
+        return Ok(report);
+    };
+    Err(match goodfetch_protocol::entries::error_code(&error.code) {
+        Some(definition) => CallError::new(definition, error.message.clone(), &error.details),
+        None => internal(format!("{}: {}", error.code, error.message)),
+    })
+}
+
+async fn usage(params: RunParams, context: CallContext) -> Result<RunUsage, CallError> {
     context
         .runs()
-        .finish(params.run_id)
+        .usage(params.run_id)
         .await
-        .map_err(|error| run_error(error, context.identity()))
+        .map_err(|error| run_error_of(error, context.identity(), RUN_USAGE.name))
+}
+
+async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded, CallError> {
+    let run_id = params.run_id;
+    context
+        .runs()
+        .discard(run_id.clone())
+        .await
+        .map_err(|error| run_error_of(error, context.identity(), RUN_DISCARD.name))?;
+    Ok(RunDiscarded { run_id })
 }
 
 async fn set_progress_message(
@@ -620,9 +951,10 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             recipe: None,
             settings: params.settings,
             origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let resumed = context
         .runs()
         .resume(Resume {
@@ -631,19 +963,22 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().duration(TIMEOUT_RUN.name),
             settings: Some(settings.clone()),
+            retry_failed: false,
         })
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;
     Ok(match resumed {
-        Resumed::New { run, kind, needs } => {
+        Resumed::New {
+            run, kind, needs, ..
+        } => {
             let started = RunStarted {
                 run_id: run.id().clone(),
                 started_as: StartedAs::Resumed,
                 lifecycle: Lifecycle::Running,
                 needs,
             };
-            if let Some(driver) = context.runs().driver(kind) {
-                run.spawn(driver(*run.clone(), context.client().clone(), settings));
+            if let Some(driver) = context.driver(kind) {
+                run.spawn(driver(*run.clone(), context.clone(), settings));
             }
             started
         }

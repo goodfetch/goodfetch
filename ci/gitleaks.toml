@@ -20,5 +20,22 @@ paths = [
 ]
 
 [[allowlists]]
+description = "The certificate_file fuzz target's seeds and dictionary (ADR 0067): keys made once for the seeds, which sign nothing and guard nothing, and the PEM markers it mutates around"
+paths = [
+  '''(^|/)crates/goodfetch-engine/fuzz/certificate_file/seeds/''',
+  '''(^|/)crates/goodfetch-engine/fuzz/certificate_file/dictionary\.dict$''',
+]
+
+[[allowlists]]
+description = "Third-party filter lists vendored as published (ADR 0047, #713): their comments cite upstream commit IDs, which match token rules"
+paths = [
+  '''(^|/)crates/goodfetch-clean-up-rules/rules/[^/]+\.txt$''',
+]
+
+[[allowlists]]
 description = "RFC 6455's sample Sec-WebSocket-Key, which the Proving ground's WebSocket tests send"
 regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']
+
+[[allowlists]]
+description = "The made-up private key a TLS settings test pastes where a Secret reference belongs (#626), in its first and its final form: 57 and 53 characters, not base64, no key at all"
+regexes = ['''AgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg''']

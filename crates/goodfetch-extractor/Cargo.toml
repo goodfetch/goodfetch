@@ -7,19 +7,40 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+# benches/scenarios.rs is a module of the bench targets, not a target.
+autobenches = false
 
 [dependencies]
 dom_query.workspace = true
 dom_smoothie.workspace = true
+ego-tree.workspace = true
 goodfetch-protocol.workspace = true
 htmd.workspace = true
+html5ever.workspace = true
+lol_html.workspace = true
 markup5ever_rcdom.workspace = true
+phonenumber.workspace = true
+scraper.workspace = true
+rs-trafilatura.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+gungraun.workspace = true
+mimalloc.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-serde_json.workspace = true
+
+# ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "heap"
+harness = false
 
 [lints]
 workspace = true

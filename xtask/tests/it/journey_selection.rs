@@ -154,3 +154,87 @@ fn tag_selects_from_the_tags_catalog() {
     );
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
+
+/// The fixture's runners' listings, as `xtask journeys listings` writes them,
+/// in which a nextest test carries J-001@cli alone.
+fn write_listings(workspace: &Workspace) {
+    workspace.write(
+        "listings/nextest.json",
+        br#"{ "rust-suites": { "journeyed::it": { "testcases": { "journeys::j001::cli": {} } } } }"#,
+    );
+    workspace.write("listings/vitest.json", b"[]");
+    workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);
+    workspace.write(
+        "listings/playwright.json",
+        br#"{ "config": { "rootDir": "." }, "suites": [] }"#,
+    );
+}
+
+/// A printed nextest filter runs the chosen variant's test and no other,
+/// as `just journeys` runs it through `just test`.
+#[test]
+fn a_printed_nextest_filter_runs_exactly_the_chosen_variants_test() {
+    let workspace = Workspace::from_fixture("journey-listings");
+    workspace.append(
+        "tests/it/journeys/j001.rs",
+        "\n#[test]\nfn foxhound_cli() {}\n",
+    );
+    workspace.append("tests/it/main.rs", "\n#[test]\nfn not_a_journey() {}\n");
+    workspace.write(
+        ".config/nextest.toml",
+        b"[profile.default.junit]\npath = \"junit.xml\"\n",
+    );
+    let selected = select(&workspace, &["--surface", "cli"]);
+    assert_eq!(selected.code, 0, "{}", selected.stderr);
+    let filter: Vec<String> = filters(&selected)
+        .into_iter()
+        .filter(|(runner, _)| runner == "nextest")
+        .map(|(_, argument)| argument)
+        .collect();
+
+    let output = workspace
+        .command("cargo")
+        .args(["nextest", "run", "--no-fail-fast"])
+        .args(&filter)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    let report = workspace.read_text("target/nextest/default/junit.xml");
+    let ran: Vec<&str> = report
+        .split("<testcase name=\"")
+        .skip(1)
+        .filter_map(|case| case.split('"').next())
+        .collect();
+    assert_eq!(ran, ["journeys::j001::cli"]);
+}
+
+/// With the runners' listings, each chosen variant no test carries is named,
+/// and a choice none of whose variants has a test fails rather than run no
+/// test and pass.
+#[rstest]
+#[case::some_carried(
+    &["--id", "J-001"],
+    0,
+    &["J-001@console", "J-001@sdk-python", "J-001@sdk-typescript", "J-001@foxhound-cli"]
+)]
+#[case::none_carried(&["--surface", "sdk-python"], 1, &["J-001@sdk-python"])]
+fn select_with_listings_names_each_chosen_variant_no_test_carries(
+    #[case] flags: &[&str],
+    #[case] code: i32,
+    #[case] untested: &[&str],
+) {
+    let workspace = Workspace::from_fixture("journey-listings");
+    write_listings(&workspace);
+
+    let outcome = select(&workspace, &[flags, &["--listings", "listings"]].concat());
+
+    assert_eq!(outcome.code, code, "{}", outcome.stderr);
+    let named: Vec<&str> = outcome
+        .stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("note[no-test] "))
+        .filter_map(|line| line.split(':').next())
+        .collect();
+    assert_eq!(named, untested, "{}", outcome.stderr);
+}

@@ -18,8 +18,17 @@
 //! - `fields`: Records that gain fields over time (pitfall D07);
 //! - `sitemaps`: a sitemap index past the protocol's 50,000 entries, plain
 //!   and gzip;
+//! - `learning`: pages from which a Frontier learns a parameter with no
+//!   effect, a trap and cursor pagination preferred to offset (ADR 0005),
+//!   and equivalent forms on evidence (ADR 0120), each threshold met and
+//!   one short of it;
 //! - `scope`: a site with a `www` host and a subdomain beside a sister
-//!   domain and an off-site host (pitfall U15), on host names of its own.
+//!   domain and an off-site host (pitfall U15), on host names of its own;
+//! - `sitemap-seed`: a site whose sitemaps a sitemap seed reads, its
+//!   robots.txt cross-submitting one on a partner host (pitfall U20), on
+//!   host names of its own;
+//! - `tiers`: static and script-rendered listings on one host, apart by
+//!   their paths' first segment, from which a crawl learns its tiers.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
@@ -28,14 +37,17 @@
 
 mod facets;
 mod fields;
+mod learning;
 mod limits;
 mod links;
 mod pacing;
 mod parameters;
 mod scale;
 mod scope;
+mod sitemap_seed;
 mod sitemaps;
 mod statuses;
+mod tiers;
 mod traps;
 
 use std::collections::BTreeMap;
@@ -54,7 +66,7 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 10] = [
+const FAMILIES: [(&str, &str); 14] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
@@ -65,6 +77,10 @@ const FAMILIES: [(&str, &str); 10] = [
     (facets::HOST, facets::FAMILY),
     (fields::HOST, fields::FAMILY),
     (sitemaps::HOST, sitemaps::FAMILY),
+    (learning::HOST, learning::FAMILY),
+    (learning::SHOP_HOST, learning::FAMILY),
+    (learning::WWW_HOST, learning::FAMILY),
+    (tiers::HOST, tiers::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -203,6 +219,7 @@ pub(crate) struct Families {
     traps: traps::State,
     limits: limits::State,
     facets: facets::State,
+    tiers: tiers::State,
 }
 
 impl Families {
@@ -213,6 +230,7 @@ impl Families {
             traps: traps::State::default(),
             limits: limits::State::default(),
             facets: facets::State::default(),
+            tiers: tiers::State::default(),
         }
     }
 
@@ -245,6 +263,9 @@ impl Families {
             fields::FAMILY => fields::respond(&visit),
             sitemaps::FAMILY => sitemaps::respond(&visit),
             scope::FAMILY => scope::respond(&visit),
+            sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
+            learning::FAMILY => learning::respond(&visit),
+            tiers::FAMILY => tiers::respond(&visit, &self.tiers),
             _ => scale::respond(&visit),
         })
     }
@@ -254,6 +275,9 @@ impl Families {
 fn family_of(host: &str) -> Option<&'static str> {
     if scope::serves(host) {
         return Some(scope::FAMILY);
+    }
+    if sitemap_seed::serves(host) {
+        return Some(sitemap_seed::FAMILY);
     }
     FAMILIES.iter().find_map(|(name, family)| {
         let task_host = host
@@ -273,6 +297,11 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
         .iter()
         .map(|(host, _)| ((*host).to_owned(), None))
         .chain(scope::HOSTS.iter().map(|host| ((*host).to_owned(), None)))
+        .chain(
+            sitemap_seed::HOSTS
+                .iter()
+                .map(|host| ((*host).to_owned(), None)),
+        )
         .chain(
             tasks(seed, None)
                 .into_iter()

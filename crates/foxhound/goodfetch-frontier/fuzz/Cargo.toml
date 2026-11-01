@@ -2,7 +2,7 @@
 # outside the workspace: each target's body is a plain function of the
 # Frontier, whose seeds and past crashers `fuzz_replay!` replays from
 # `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
-# `cargo fuzz run url_key fuzz/url_key/seeds`.
+# `cargo fuzz run url_key fuzz/url_key/seeds`, and `sitemap` alike.
 [package]
 name = "goodfetch-frontier-fuzz"
 version = "0.0.0"
@@ -21,6 +21,13 @@ libfuzzer-sys = "0.4.10"
 [[bin]]
 name = "url_key"
 path = "fuzz_targets/url_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sitemap"
+path = "fuzz_targets/sitemap.rs"
 test = false
 doc = false
 bench = false

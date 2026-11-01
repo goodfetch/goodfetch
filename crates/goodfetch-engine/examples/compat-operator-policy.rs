@@ -23,7 +23,10 @@ fn any_key(_: &Setting) -> bool {
 }
 
 fn bounded_key(setting: &Setting) -> bool {
-    matches!(setting.kind, ValueKind::Count | ValueKind::Duration)
+    matches!(
+        setting.kind,
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration
+    )
 }
 
 fn main() {
@@ -41,8 +44,15 @@ fn main() {
     text.push_str("\n[managed]\ninstall_limits = [{ usage_kind = \"paid_solves\", currency = \"USD\", period = { every = \"month\", time_zone = \"UTC\" }, amount = 20000000 }]\n");
     let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
         .expect("invariant: the crate's version is a Product version");
-    operator_policy(&text, Product::Foxhound, &version)
-        .expect("invariant: the engine reads what it wrote");
-    std::fs::write(output.join(OPERATOR_POLICY_FILE), text)
-        .expect("invariant: the output folder is writable");
+    let files = std::iter::once((OPERATOR_POLICY_FILE.to_owned(), text)).chain(
+        ["settings", "lock"]
+            .into_iter()
+            .flat_map(|table| settings_corpus::shaped_examples(table, any_key))
+            .map(|(name, text)| (format!("{name}.toml"), text)),
+    );
+    for (name, text) in files {
+        operator_policy(&text, Product::Foxhound, &version)
+            .expect("invariant: the engine reads what it wrote");
+        std::fs::write(output.join(name), text).expect("invariant: the output folder is writable");
+    }
 }

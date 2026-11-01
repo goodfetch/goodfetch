@@ -59,7 +59,7 @@ fn use_foxhound() -> Contribution {
                     ended_by: EndedBy::Driver,
                     initialize: None,
                     policy_version: None,
-                    weakened_by: Vec::new(),
+                    weakened: Vec::new(),
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,
@@ -72,7 +72,7 @@ fn use_foxhound() -> Contribution {
                 panic!("the Run began before");
             };
             run.uses(Product::Foxhound).await;
-            run.end(Ending::Finished).await;
+            run.end(Ending::Finished(Vec::new())).await;
             Ok::<Value, CallError>(json!({ "run_id": run.id() }))
         },
     ))
@@ -253,6 +253,7 @@ fn run_state_location_puts_the_run_folders_where_it_names() {
         &engine_with(Product::Collie, None),
         || Dependencies {
             environment: std::collections::BTreeMap::new(),
+            keychain: crate::secrets::Keychain::absent(),
             run_state_location: RunStateLocation::Folder(elsewhere.clone()),
             ..dependencies(&env)
         },

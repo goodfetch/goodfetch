@@ -1,0 +1,46 @@
+#:schema ./journey.schema.json
+id = "J-032"
+title = "Crawl a site whose certificate is invalid by listing its domain for trust on first use, and see the crawl stop when the key changes until I accept it"
+goal = """
+A person crawls a site whose certificate fails verification, listing its \
+domain for trust on first use. The first crawl MUST fetch the site and pin \
+its key, marking each Record fetched under the exception in its Provenance. \
+Once the site presents another key, the crawl MUST stop the site with \
+`certificate_changed` before any request reaches it, until the person \
+accepts the new key in a terminal; the next crawl MUST then fetch the site \
+again (ADR 0042, SC-06)."""
+area = 4
+product = "foxhound"
+status = "active"
+covers = ["story:4-35", "story:4-36", "story:4-104", "row:SC-06"]
+
+[proving_ground]
+seed = 32
+
+[surfaces]
+cli = "M1"
+sdk-rust = "M2"
+sdk-typescript = "M2"
+sdk-python = "M2"
+
+[[steps]]
+text = "Crawl the site from a program, listing its domain for trust on first use in the crawl's settings"
+
+[[steps]]
+text = "Crawl the site the same way once its server presents another key"
+
+[[steps]]
+text = "Accept the site's new key in a terminal (`certs accept`)"
+on = "cli"
+
+[[steps]]
+text = "Crawl the site the same way again"
+
+[[expect]]
+text = "The first crawl fetched the site through its exception, and its Record's Provenance carries the exception and the key it pinned"
+
+[[expect]]
+text = "The crawl after the key changed failed the site's request with `certificate_changed`, and no request reached the site"
+
+[[expect]]
+text = "Once the new key was accepted, the crawl fetched the site under the new key"

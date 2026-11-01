@@ -55,14 +55,20 @@ export interface CanaryHit {
   placement: Placement;
 }
 
+/** The marks RFC 3986 leaves unreserved. */
 const UNRESERVED = /^[A-Za-z0-9\-._~]$/;
+/** The marks a browser keeps as it encodes a form, which writes a space `+`. */
+const FORM_KEPT = /^[A-Za-z0-9*\-._]$/;
+/** The marks JavaScript's `encodeURIComponent` keeps. */
+const URI_COMPONENT_KEPT = /^[A-Za-z0-9\-_.!~*'()]$/;
 
-function urlEncoded(bytes: Uint8Array): string {
+/** `bytes` percent-encoded, every byte but those `kept` matches. */
+function urlEncoded(bytes: Uint8Array, kept: RegExp): string {
   let encoded = "";
   for (const byte of bytes) {
     const character = String.fromCharCode(byte);
     encoded +=
-      byte < 0x80 && UNRESERVED.test(character)
+      byte < 0x80 && kept.test(character)
         ? character
         : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
   }
@@ -90,7 +96,9 @@ function forms(canary: Canary): [Encoding, Buffer][] {
   };
   add("raw", value);
   add("json_escaped", JSON.stringify(canary.value).slice(1, -1));
-  add("url_encoded", urlEncoded(value));
+  add("url_encoded", urlEncoded(value, UNRESERVED));
+  add("url_encoded", urlEncoded(value, FORM_KEPT).replaceAll("%20", "+"));
+  add("url_encoded", urlEncoded(value, URI_COMPONENT_KEPT));
   for (const alphabet of ["base64", "base64url"] as const) {
     for (const alignment of [0, 1, 2]) add("base64", base64At(value, alignment, alphabet));
   }

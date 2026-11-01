@@ -25,6 +25,7 @@ use super::{Client, attached_on, dependencies, engine, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
+use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -75,6 +76,7 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         console: DaemonConsole::Absent,
         drain: None,
         install: None,
+        ops: Ops::default(),
         websocket: None,
     }
 }
@@ -147,12 +149,18 @@ pub(super) fn hello_with(
     json!({ "jsonrpc": "2.0", "id": 0, "method": "hello", "params": params })
 }
 
-fn cli_hello() -> Value {
+pub(super) fn cli_hello() -> Value {
     hello_with("collie", "0.1", "cli", Some(TOKEN))
 }
 
+/// The `hello` of an SDK program's Connection, whose Runs end with it
+/// (ADR 0078).
+fn sdk_hello() -> Value {
+    hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
+}
+
 /// A Client that said `hello` with the token.
-async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
+pub(super) async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
     let mut client = connect(dialer).await;
     client.send(&[hello]).await;
     let answer = client.next().await.unwrap();
@@ -357,6 +365,9 @@ fn daemon_status_counts_its_clients_and_live_runs() {
             call(&mut first, 1, "run.start", json!({ "run_id": "one" })).await;
             call(&mut second, 1, "run.start", json!({ "run_id": "two" })).await;
             let status = call(&mut first, 2, "daemon.status", json!({})).await;
+            // A CLI command's Run outlives its Connection and holds the
+            // Daemon from its idle stop, so it ends before the test does.
+            call(&mut first, 3, "run.finish", json!({ "run_id": "one" })).await;
             first.close().await;
             second.close().await;
             status
@@ -387,8 +398,8 @@ fn the_end_of_one_clients_connection_stops_only_its_runs() {
         &env,
         the_pick(),
         |dialer| async move {
-            let mut leaving = opened(&dialer, cli_hello()).await;
-            let mut staying = opened(&dialer, cli_hello()).await;
+            let mut leaving = opened(&dialer, sdk_hello()).await;
+            let mut staying = opened(&dialer, sdk_hello()).await;
             call(&mut leaving, 1, "run.start", json!({ "run_id": "left" })).await;
             call(&mut staying, 1, "run.start", json!({ "run_id": "stays" })).await;
             leaving.close().await;
@@ -407,6 +418,95 @@ fn the_end_of_one_clients_connection_stops_only_its_runs() {
             index_row(&env, "stays")["lifecycle"].clone()
         ),
         (json!(1), json!("stopped"), json!("stopped"))
+    );
+}
+
+/// Each CLI command is a Connection of its own, so the Runs a CLI
+/// Connection starts outlive it: the next command finds them live (ADRs
+/// 0024 and 0088).
+///
+/// Covers: story:11-199
+#[test]
+fn the_runs_a_cli_connection_starts_outlive_it() {
+    let env = TestEnv::new();
+
+    let (_, live) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut starting = opened(&dialer, cli_hello()).await;
+            call(
+                &mut starting,
+                1,
+                "run.start",
+                json!({ "run_id": "lasting" }),
+            )
+            .await;
+            starting.close().await;
+            while starting.next().await.is_some() {}
+            tokio::time::sleep(MINUTE).await;
+            let mut next = opened(&dialer, cli_hello()).await;
+            let status = call(&mut next, 1, "daemon.status", json!({})).await;
+            call(&mut next, 2, "run.finish", json!({ "run_id": "lasting" })).await;
+            next.close().await;
+            status["result"]["live_runs"].clone()
+        },
+    );
+
+    assert_eq!(
+        (live, index_row(&env, "lasting")["lifecycle"].clone()),
+        (json!(1), json!("finished"))
+    );
+}
+
+/// A Run that outlives the CLI command that started it keeps the Daemon
+/// from its idle stop until it ends, with no Client connected, so a crawl
+/// started from the CLI runs to its end; once it ended, the Daemon stops
+/// idle as before (608-O1).
+///
+/// Covers: story:3-18, story:11-199, setting:daemon.idle_timeout
+#[test]
+fn a_run_that_outlived_its_cli_command_keeps_the_daemon_until_it_ends() {
+    let env = TestEnv::new();
+
+    let (end, (live, after)) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut starting = opened(&dialer, cli_hello()).await;
+            call(
+                &mut starting,
+                1,
+                "run.start",
+                json!({ "run_id": "lasting" }),
+            )
+            .await;
+            starting.close().await;
+            while starting.next().await.is_some() {}
+            tokio::time::sleep(60 * MINUTE).await;
+            let mut next = opened(&dialer, cli_hello()).await;
+            let status = call(&mut next, 1, "daemon.status", json!({})).await;
+            call(&mut next, 2, "run.finish", json!({ "run_id": "lasting" })).await;
+            next.close().await;
+            while next.next().await.is_some() {}
+            tokio::time::sleep(11 * MINUTE).await;
+            (
+                status["result"]["live_runs"].clone(),
+                answers(&dialer).await,
+            )
+        },
+    );
+
+    assert_eq!(
+        (
+            live,
+            after,
+            index_row(&env, "lasting")["lifecycle"].clone(),
+            format!("{end:?}")
+        ),
+        (json!(1), false, json!("finished"), "Idle".to_owned())
     );
 }
 
@@ -576,7 +676,7 @@ fn a_daemon_not_the_pick_hands_over_once_only_a_console_is_left() {
         |dialer| async move {
             let mut console =
                 opened(&dialer, hello_with("collie", "0.1", "console", Some(TOKEN))).await;
-            let mut script = opened(&dialer, cli_hello()).await;
+            let mut script = opened(&dialer, sdk_hello()).await;
             call(&mut script, 1, "run.start", json!({ "run_id": "busy" })).await;
             script.close().await;
             while script.next().await.is_some() {}
@@ -612,7 +712,7 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-fn stuck() -> Contribution {
+pub(super) fn stuck() -> Contribution {
     Contribution::new("test-stuck").with_handler(Handler::new(
         &STUCK,
         |params: Value, context: CallContext| async move {
@@ -627,7 +727,7 @@ fn stuck() -> Contribution {
                     ended_by: EndedBy::Driver,
                     initialize: None,
                     policy_version: None,
-                    weakened_by: Vec::new(),
+                    weakened: Vec::new(),
                     binding: None,
                     clean_up_digest: None,
                     checkpoint_interval: None,
@@ -647,7 +747,7 @@ fn stuck() -> Contribution {
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is
 /// cancelled, with the default drain grace.
-fn draining(asked: &CancellationToken) -> DaemonOptions {
+pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
         drain: Some(Drain {

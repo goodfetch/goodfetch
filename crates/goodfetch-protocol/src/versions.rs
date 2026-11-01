@@ -26,27 +26,22 @@ pub const UPGRADE_SOURCE_UNSUPPORTED: ErrorCodeDefinition = ErrorCodeDefinition 
     arrived_in: ARRIVED_IN,
 };
 
-/// What `upgrade-files --json` prints: the major it upgraded from and to,
-/// and the files of the new major's copy, by their path in Goodfetch home.
+/// What `upgrade-files --json` prints (spec #608): the files of the new
+/// major's copy, by their path in Goodfetch home; every list empty when
+/// Goodfetch home holds no older major's files.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct UpgradeFilesOutput {
-    /// The older major whose files it copied, such as `1` or `0.4`; none
-    /// when Goodfetch home holds no older major's files.
+pub struct FilesUpgraded {
+    /// The files it gave the new major from the older major's.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub from: Option<String>,
-    /// The executable's own major.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub to: String,
-    /// The files it gave the new major.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub copied: Vec<String>,
+    pub upgraded: Vec<String>,
     /// The files the new major already held as the older major has them,
     /// as after an earlier run.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub unchanged: Vec<String>,
-    /// The files the new major already held otherwise, which it kept.
+    /// The files the new major already held otherwise, which it refused
+    /// to overwrite and kept.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub kept: Vec<String>,
+    pub refused: Vec<String>,
 }
 
 fn yes() -> serde_json::Value {

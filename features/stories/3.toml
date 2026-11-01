@@ -317,6 +317,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 41
@@ -325,6 +326,7 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+product = "foxhound"
 
 [[story]]
 id = 42
@@ -1196,4 +1198,108 @@ title = "As a maintainer, I want the engine's state table written out for a Conn
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 153
+title = "As a developer, I want `run.finish` to end a Collie Run at once and a crawl once it is drained, and `run.stop` to stop a Run at its next safe point with a Checkpoint within `timeout.close`, each answering its Run report, a `failed` Run raising its error and a timeout on the wait ending only the wait, so that I end a Run the same way in both Products (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 154
+title = "As a developer or a person reading a Run, I want its Run report to hold its three axes with their reasons, its stop reason with its details (a Limit with its scope, scope ID and period reset, `timeout`, `abort` with who, `engine_lost`, `resources` with the resource and folder), its Usage, every setting that weakened it, its Plan, Operator policy version, settings, Plugins, warnings, recording, Checkpoint, uncertain Effects, Console page and times, and for a crawl how its requests ended, its Records, Sinks, learned rules and sitemaps, a part no area supplied being absent rather than zero, so that nobody has to recompute what a Run did (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 155
+title = "As a user, I want each warning an area hands over (a fingerprint, browser build, human input, proxy exit or filter vendor of area 8, Foxhound's trap links off, throttled CPU, low storage, a degraded Politeness store, Clean-up rules older than 14 days, a failed write of the Plan file or recording at the Run's end, an unavailable baseline, a Plugin's figures) in the Run report with the Sessions or folder it concerns, and a code a newer engine sends kept as it is, so that every weakening I did not choose is in front of me (ADRs 0102 and 0116)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 156
+title = "As a developer, I want the Run report to say why the call did nothing (`nothingDone`): the start found the Run ended, no seed of a crawl reached a handler, or a resume found nothing left, so that I never mistake an empty Run for a done one (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 157
+title = "As a developer, I want `run.usage` to give my Run's model Usage, browser time, proxy bytes, paid solves and Paid fetches, the Limits that apply to it with what is left of each and the uncapped mark, a Collie engine keeping a Foxhound scope it receives as an unknown value, so that my program reads its spending while it runs (ADR 0101)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 158
+title = "As a site owner, I want a domain's backoff drawn with decorrelated jitter, each wait between `politeness.backoff.initial` and three times the previous one (the first between `initial` and three times it), never below `initial` nor above `politeness.backoff.max`, so that domains behind one origin that back off together come back apart (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 159
+title = "As a site owner, I want my `Retry-After`, in seconds or as an HTTP-date measured against my response's `Date`, waited out by every run on my domain key, past `politeness.backoff.max` and up to `politeness.retry_after.max`, a value that does not parse, `0` or a date already past adding no wait, so that a crawl sends me nothing before the time I asked (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 160
+title = "As a user, I want a request that a site's `Retry-After` holds further away than `politeness.retry_after.max`, the request whose response asked and each one admitted to the domain meanwhile, to end `failed` with `response_unavailable`, unsent and never waited for, its error carrying `retryAfter` and a `fix` naming the setting, a Collie engine refusing the key with `not_in_product`, so that one site's maintenance window never holds my crawl for hours and `run.retry_failed` re-admits those requests once the site is back (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 161
+title = "As a developer, I want `run.progress` to answer my Run's progress at once, with its writer, run epoch, last Checkpoint time, Human pauses and status message, then the latest value after each change, a flood of changes coalesced, until a last value that says how the Run ended, so that I follow a Run without polling or a periodic status line (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 162
+title = "As a crawl developer, I want my crawl's progress to say why due requests wait, one group per reason (`domain_concurrency`, `domain_delay`, `crawl_delay`, `backoff`, `robots_txt`, `handler_concurrency`, `governor`, `session`, `human_pause`) with its count, a fixed number of the domains it holds with when each is next admitted, and the setting behind the wait with its value and layer, a reason a newer engine sends kept, so that a slow crawl is never a count with no reason (ADRs 0102 and 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 163
+title = "As a developer, I want a Human pause beginning and ending each to give my Run's progress a new value, the pause showing its Session and page, its reason, its `until`, whether the program or the engine raised it (and the engine's step), since when and its deadline, so that a waiting person is never a silent hang (ADRs 0092 and 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 164
+title = "As a developer, I want the progress of a Run whose engine died to say `writer: none`, and a start with its Run ID to resume it, so that I know a Run waits for me rather than for its engine (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 165
+title = "As a developer holding only a Run's ID, I want its progress, its report, its Run trace, its Key-value store's reads and a crawl's outcomes and Records read through the engine the Run index names as its owner, or from its run state when no engine works it, never taking or blocking its writer lock, a live Run's report arriving at its end without ending it and an interrupted one's raising `run_interrupted`, so that a monitoring program or an export reads another program's Run safely (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"

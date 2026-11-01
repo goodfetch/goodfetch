@@ -24,10 +24,10 @@ const ARGUMENTS: [&str; 6] = [
 #[test]
 fn attached() {
     let env = TestEnv::new();
+    env.log_level("trace");
     let mut command = env.process_command(COLLIE);
     command
         .args(ARGUMENTS)
-        .env("GOODFETCH_LOG", "trace")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let process = env.spawn(&mut command).unwrap();

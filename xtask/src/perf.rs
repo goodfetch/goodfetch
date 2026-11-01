@@ -4,7 +4,10 @@
 //! Callgrind and DHAT, and the brotli bytes of each size-limit entry. The
 //! base and the head are measured in one job on one runner, so the runner's
 //! CPU cancels out; `compare` then holds each figure to its threshold over
-//! the base's and to its ceiling, and writes one table.
+//! the base's and to its ceiling, and writes one table. Until M1's
+//! optimization pass a figure past either is a note that fails nothing
+//! (`budget::GATING`, ADR 0134 as amended on 2026-10-22); a broken
+//! measurement still fails.
 
 mod admission;
 mod budget;
@@ -30,6 +33,7 @@ use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::{github, output};
 
+use budget::Gating;
 use compare::{Row, Verdict};
 
 // The figures `xtask rss check` saves for the drift check, in the same file.
@@ -128,7 +132,7 @@ pub(crate) struct Reports {
     #[arg(long)]
     admission: Option<PathBuf>,
     /// The pull request's acceptance, as `pull-request` saved it; with
-    /// none, every tripped figure fails.
+    /// none, every tripped figure is reported, as `budget::GATING` decides.
     #[arg(long)]
     pull_request: Option<PathBuf>,
     /// The job's summary page (`GITHUB_STEP_SUMMARY`), which gets the
@@ -224,8 +228,15 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
         None => Vec::new(),
     };
     let ceilings = ceilings::check(root, &rows, &base_measured)?;
+    let gating = budget::GATING;
     let mut text = format!(
-        "### Performance budget\n\n{}\n#### Absolute ceilings\n\n{}",
+        "### Performance budget\n\n{}{}\n#### Absolute ceilings\n\n{}",
+        match gating {
+            Gating::Informational => {
+                "Until M1's optimization pass, a figure past its threshold or over its ceiling is noted and fails nothing (ADR 0134, as amended on 2026-10-22).\n\n"
+            }
+            Gating::Enforced => "",
+        },
         table::render(&rows),
         ceilings::render(&ceilings)
     );
@@ -241,21 +252,31 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
     if let Some(summary) = &reports.summary {
         output::append(&root.join(summary), &format!("{text}\n"))?;
     }
-    let mut findings: Vec<Finding> = rows.iter().filter_map(finding).collect();
-    findings.extend(ceilings::findings(&ceilings));
+    let mut budget_findings: Vec<Finding> =
+        rows.iter().filter_map(|row| finding(row, gating)).collect();
+    budget_findings.extend(ceilings::over(&ceilings, gating));
+    // A broken measurement fails whatever the gating.
+    let mut findings = ceilings::not_measured(&ceilings);
     findings.extend(admission::findings(&admissions));
+    match gating {
+        Gating::Informational => check::note(&budget_findings),
+        Gating::Enforced => findings.extend(budget_findings),
+    }
     Ok(check::report(&findings))
 }
 
-fn finding(row: &Row) -> Option<Finding> {
+fn finding(row: &Row, gating: Gating) -> Option<Finding> {
     let id = row.measured.id();
     match row.verdict {
         Verdict::Tripped => Some(Finding::new(
             "performance-change",
             id,
             format!(
-                "changed by {} over the base, past its threshold; list it with its change and reason in the pull request's \"Performance change\" section",
-                table::change(row).unwrap_or_default()
+                "changed by {} over the base, past its threshold; {}",
+                table::change(row).unwrap_or_default(),
+                gating.remedy(
+                    "list it with its change and reason in the pull request's \"Performance change\" section"
+                )
             ),
         )),
         // `ceilings` reports every ceiling, a row's own included.

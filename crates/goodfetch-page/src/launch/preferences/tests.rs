@@ -1,3 +1,4 @@
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::starting_preferences;
@@ -31,13 +32,17 @@ fn a_profile_keeps_the_preferences_it_already_has() {
     );
 }
 
-#[test]
-fn preferences_that_are_no_json_object_start_again() {
-    for existing in ["", "{", "[]", "true", r#"{"plugins":3}"#] {
-        assert_eq!(
-            parsed(&starting_preferences(Some(existing))),
-            json!({ "plugins": { "always_open_pdf_externally": true } }),
-            "{existing}"
-        );
-    }
+/// Preferences that are no JSON object, or whose `plugins` is none, start
+/// again.
+#[rstest]
+#[case::empty("")]
+#[case::cut_short("{")]
+#[case::an_array("[]")]
+#[case::a_boolean("true")]
+#[case::plugins_no_object(r#"{"plugins":3}"#)]
+fn preferences_that_do_not_read_start_again(#[case] existing: &str) {
+    assert_eq!(
+        parsed(&starting_preferences(Some(existing))),
+        json!({ "plugins": { "always_open_pdf_externally": true } })
+    );
 }

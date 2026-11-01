@@ -1,8 +1,10 @@
 //! The Performance budget of every change (ADR 0071, as amended by ADRs 0087
 //! and 0133): `xtask perf compare` reads gungraun's summaries of the head,
 //! measured against the base's saved baseline, and size-limit's reports of
-//! the base and the head, then fails on a figure past its threshold that the
-//! pull request does not accept, and on a Console build over its ceiling.
+//! the base and the head, then reports a figure past its threshold that the
+//! pull request does not accept, and a Console build over its ceiling. Until
+//! M1's optimization pass each is a note that fails nothing (ADR 0134, as
+//! amended on 2026-10-22); a benchmark that fails its admission still fails.
 //! The reports here are written the way gungraun (summary format 7) and
 //! size-limit write them.
 //! Covers: story:1-108
@@ -140,27 +142,45 @@ fn figure_up_4_9_percent_on_its_base_passes(#[case] key: &str) {
 #[case::total_allocations("TotalBlocks", "total-allocations")]
 #[case::total_bytes("TotalBytes", "total-bytes")]
 #[case::bytes_at_the_global_maximum("AtTGmaxBytes", "global-maximum-bytes")]
-fn figure_up_5_1_percent_on_its_base_fails(#[case] key: &str, #[case] figure: &str) {
+fn figure_up_5_1_percent_on_its_base_is_noted_with_its_change_and_passes(
+    #[case] key: &str,
+    #[case] figure: &str,
+) {
     let workspace = Workspace::from_fixture("empty");
     write_gungraun(&workspace, &[metric(key, Some(1_000_000), Some(1_051_000))]);
 
     let outcome = compare(&workspace, &[]);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "performance-change",
             &format!("{BENCHMARK} {figure}")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert!(
+        note_line(&outcome, "performance-change").contains("+5.10%"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// The note line of `kind` an outcome printed.
+fn note_line<'a>(outcome: &'a Outcome, kind: &str) -> &'a str {
+    outcome
+        .stdout
+        .lines()
+        .find(|line| line.starts_with(&format!("note[{kind}] ")))
+        .unwrap_or_default()
 }
 
 /// gungraun 0.20's own report of the Frontier's fixture benchmark, run
 /// with `--baseline=base` by `xtask perf run` after a change that lengthened
 /// every URL (Linux arm64, in a container).
 #[test]
-fn real_gungraun_report_of_a_lengthened_url_trips_three_figures() {
+fn real_gungraun_report_of_a_lengthened_url_notes_three_figures() {
     let workspace = Workspace::from_fixture("empty");
     workspace.add_fixture_file("perf/gungraun-head.jsonl", "perf/head.jsonl");
 
@@ -168,8 +188,9 @@ fn real_gungraun_report_of_a_lengthened_url_trips_three_figures() {
 
     let heap = "goodfetch-frontier/heap::frontier::queue_unique/thousand_urls";
     let instructions = "goodfetch-frontier/instructions::frontier::queue_unique/thousand_urls";
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![
             finding(
                 "performance-change",
@@ -182,7 +203,7 @@ fn real_gungraun_report_of_a_lengthened_url_trips_three_figures() {
             ),
         ]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]
@@ -221,11 +242,11 @@ const BUNDLES: [&str; 4] = [
 ];
 
 #[rstest]
-#[case::grown_by_4_9_kb(104_900, 0)]
-#[case::grown_by_exactly_5_kb(105_000, 0)]
-#[case::shrunk(90_000, 0)]
-#[case::grown_by_5_1_kb(105_100, 1)]
-fn entry_grown_past_5_kb_brotli_fails(#[case] head: u64, #[case] code: i32) {
+#[case::grown_by_4_9_kb(104_900, false)]
+#[case::grown_by_exactly_5_kb(105_000, false)]
+#[case::shrunk(90_000, false)]
+#[case::grown_by_5_1_kb(105_100, true)]
+fn entry_grown_past_5_kb_brotli_is_noted(#[case] head: u64, #[case] tripped: bool) {
     let workspace = Workspace::from_fixture("empty");
     write_bundles(
         &workspace,
@@ -235,7 +256,7 @@ fn entry_grown_past_5_kb_brotli_fails(#[case] head: u64, #[case] code: i32) {
 
     let outcome = compare(&workspace, &BUNDLES);
 
-    let expected = if code == 1 {
+    let expected = if tripped {
         vec![finding(
             "performance-change",
             "size-limit/collie-client brotli",
@@ -243,27 +264,29 @@ fn entry_grown_past_5_kb_brotli_fails(#[case] head: u64, #[case] code: i32) {
     } else {
         vec![]
     };
-    assert_eq!(outcome.findings(), expected);
-    assert_eq!(outcome.code, code, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.notes(), expected);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[rstest]
 #[case::collie("collie-console")]
 #[case::foxhound("foxhound-console")]
-fn console_build_over_1_mb_brotli_fails(#[case] entry: &str) {
+fn console_build_over_1_mb_brotli_is_noted(#[case] entry: &str) {
     let workspace = Workspace::from_fixture("empty");
     write_bundles(&workspace, &[(entry, 999_000)], &[(entry, 1_000_001)]);
 
     let outcome = compare(&workspace, &BUNDLES);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "over-ceiling",
             &format!("size-limit/{entry} brotli")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 /// A size over its ceiling never shows as at it: brotli kB round up.
@@ -298,6 +321,38 @@ fn console_build_of_exactly_1_mb_brotli_passes() {
     let outcome = compare(&workspace, &BUNDLES);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// Each Product's initial route (what loads before the Runs screen's first
+/// render) has the ceiling the owner approved: 1.25 times its first build's
+/// measure, rounded up (ADR 0071, as amended by ADR 0087): Collie's 111,823
+/// bytes (#937), Foxhound's 128,939 (#1235).
+#[rstest]
+#[case::collie_at_its_ceiling("collie-console-initial-route", 139_779, false)]
+#[case::collie_a_byte_over_it("collie-console-initial-route", 139_780, true)]
+#[case::foxhound_at_its_ceiling("foxhound-console-initial-route", 161_174, false)]
+#[case::foxhound_a_byte_over_it("foxhound-console-initial-route", 161_175, true)]
+fn console_initial_route_over_its_ceiling_is_noted(
+    #[case] entry: &str,
+    #[case] head: u64,
+    #[case] over: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_bundles(&workspace, &[(entry, head)], &[(entry, head)]);
+
+    let outcome = compare(&workspace, &BUNDLES);
+
+    let expected = if over {
+        vec![finding(
+            "over-ceiling",
+            &format!("size-limit/{entry} brotli"),
+        )]
+    } else {
+        vec![]
+    };
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -362,6 +417,7 @@ fn tripped_figure_listed_and_accepted_on_the_head_passes(#[case] comment: &str) 
     let outcome = compare_for_pull_request(&workspace, &github, &[]);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -387,7 +443,10 @@ fn tripped_figure_listed_and_accepted_on_the_head_passes(#[case] comment: &str) 
     "## Performance change\n\n- goodfetch-frontier/instructions::frontier::push instructions: +5.10%\n",
     &format!("Performance change accepted for {HEAD_SHA}.")
 )]
-fn tripped_figure_without_a_matching_acceptance_fails(#[case] body: &str, #[case] comment: &str) {
+fn tripped_figure_without_a_matching_acceptance_is_noted(
+    #[case] body: &str,
+    #[case] comment: &str,
+) {
     let workspace = Workspace::from_fixture("empty");
     write_gungraun(
         &workspace,
@@ -397,14 +456,15 @@ fn tripped_figure_without_a_matching_acceptance_fails(#[case] body: &str, #[case
 
     let outcome = compare_for_pull_request(&workspace, &github, &[]);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "performance-change",
             &format!("{BENCHMARK} instructions")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]
@@ -423,11 +483,12 @@ fn entry_grown_past_5_kb_listed_and_accepted_on_the_head_passes() {
     let outcome = compare_for_pull_request(&workspace, &github, &BUNDLES);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]
-fn console_build_over_1_mb_fails_whatever_the_pull_request_says() {
+fn console_build_over_1_mb_is_noted_whatever_the_pull_request_says() {
     let workspace = Workspace::from_fixture("empty");
     write_bundles(
         &workspace,
@@ -441,14 +502,15 @@ fn console_build_over_1_mb_fails_whatever_the_pull_request_says() {
 
     let outcome = compare_for_pull_request(&workspace, &github, &BUNDLES);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "over-ceiling",
             "size-limit/foxhound-console brotli"
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 /// The admission runs of the head's new benchmark, one gungraun report per
@@ -545,6 +607,39 @@ fn new_benchmark_with_fewer_than_20_admission_runs_fails_its_admission() {
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
 }
 
+/// A broken measurement still fails while the budget only notes: a figure
+/// past its threshold beside a new benchmark that fails its admission.
+#[test]
+fn admission_failure_fails_beside_a_noted_figure_past_its_threshold() {
+    let workspace = Workspace::from_fixture("empty");
+    write_admission(&workspace, 20, 1_000_000, 1_006_000);
+    let tripped = summary(
+        "crates/foxhound/goodfetch-frontier",
+        "heap::frontier::push",
+        &[metric("TotalBytes", Some(1_000_000), Some(1_051_000))],
+    );
+    let new = workspace.read_text("perf/head.jsonl");
+    workspace.write("perf/head.jsonl", format!("{new}\n{tripped}\n").as_bytes());
+
+    let outcome = compare(&workspace, &ADMISSION);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "admission-spread",
+            &format!("{BENCHMARK} instructions")
+        )]
+    );
+    assert_eq!(
+        outcome.notes(),
+        vec![finding(
+            "performance-change",
+            "goodfetch-frontier/heap::frontier::push total-bytes"
+        )]
+    );
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+}
+
 /// A run of every verdict: the frontier's figures within, past and below
 /// their thresholds, a new benchmark with its admission runs, an entry
 /// accepted and a Console build over its ceiling.
@@ -617,7 +712,7 @@ fn table_lists_every_figure_with_its_base_head_change_and_verdict() {
     );
 
     insta::assert_snapshot!(outcome.stdout);
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]
@@ -634,7 +729,7 @@ fn table_is_written_to_the_jobs_summary_page_too() {
     let table = outcome
         .stdout
         .lines()
-        .take_while(|line| !line.starts_with("error["))
+        .take_while(|line| !line.starts_with("note["))
         .collect::<Vec<_>>()
         .join("\n");
     assert_eq!(
@@ -700,7 +795,7 @@ fn tripped_figure_accepted_in_the_pull_request_that_merged_the_commit_passes() {
 }
 
 #[test]
-fn tripped_figure_of_a_commit_no_pull_request_merged_fails() {
+fn tripped_figure_of_a_commit_no_pull_request_merged_is_noted() {
     let workspace = Workspace::from_fixture("empty");
     write_gungraun(
         &workspace,
@@ -712,14 +807,15 @@ fn tripped_figure_of_a_commit_no_pull_request_merged_fails() {
 
     let outcome = compare_for_merge_commit(&workspace, &github);
 
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
     assert_eq!(
-        outcome.findings(),
+        outcome.notes(),
         vec![finding(
             "performance-change",
             &format!("{BENCHMARK} instructions")
         )]
     );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
 #[test]

@@ -85,6 +85,11 @@
             "arrived_in": "0.1",
             "description": "Who did what it records."
           },
+          "chained": {
+            "arrived_in": "0.1",
+            "description": "Whether its hash chains it to the entry before it: `false` for an\nentry of a Run whose `security.audit_chain` was off, whose hash is\n`SHA-256` of 32 zero bytes and its own canonical JSON alone, and\nwhich `audit verify` steps over while it verifies the chain around\nit; left out when chained.",
+            "type": "boolean"
+          },
           "details": {
             "arrived_in": "0.1",
             "description": "What its kind records, such as a Secret reference and the domain it\nwas sent to, never a secret's value."
@@ -124,6 +129,18 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Surface"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
           },
           "time": {
             "$ref": "#/$defs/PointInTime",
@@ -220,7 +237,7 @@
           },
           {
             "const": "cloud",
-            "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+            "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
             "type": "string"
           },
           {

@@ -1,9 +1,11 @@
 ---
 source: crates/goodfetch-collie/tests/it/upgrade_files.rs
-assertion_line: 62
+assertion_line: 64
 expression: output.to_string()
 ---
 exit: 4
 ----- stdout -----
 ----- stderr -----
-[INSTANT] ERROR goodfetch_collie::executable::upgrade: the files of major 0.1 are newer than this Goodfetch's major 0.0; upgrade Goodfetch to major 0.1 or newer to use them code="upgrade_source_unsupported"
+the files of major 0.1 are newer than this Goodfetch's major 0.0; upgrade Goodfetch to major 0.1 or newer to use them
+code: upgrade_source_unsupported
+retryable: false

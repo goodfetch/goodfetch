@@ -18,6 +18,10 @@ pub enum ValueKind {
     Boolean,
     /// A whole number from 0.
     Count,
+    /// A whole number from 0 to this one, as `network.max_json_depth`,
+    /// which the engine could not apply past its ceiling; a larger value is
+    /// `setting_invalid`. It caps and narrows as a count does.
+    CountUpTo(u64),
     /// A duration in whole milliseconds, the one unit of every surface's
     /// wire (ADR 0080).
     Duration,
@@ -37,7 +41,36 @@ pub enum ValueKind {
     Optional(&'static ValueKind),
     /// A Secret reference, `provider:rest`, never a value (ADR 0015).
     SecretReference,
+    /// A value of a shape the protocol defines once as a type, such as
+    /// `session.source`'s tagged union (ADR 0056).
+    Shape(&'static ValueShape),
 }
+
+/// A shape of values the protocol defines once as a type: its name, what
+/// checks a value against it, its JSON Schema with nothing referenced
+/// outside it, and values of it that together give each of its fields a
+/// value, for the corpora that need them.
+#[derive(Debug)]
+pub struct ValueShape {
+    /// The type's name.
+    pub name: &'static str,
+    /// Whether `value` is of the shape, or what is wrong with it.
+    pub check: fn(&Value) -> Result<(), String>,
+    /// Its JSON Schema, every subschema inline.
+    pub schema: fn() -> Value,
+    /// Values of it, the first the most common, that together give each of
+    /// its fields a value.
+    pub examples: fn() -> Vec<Value>,
+}
+
+/// Two shapes are one when they name one type.
+impl PartialEq for ValueShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for ValueShape {}
 
 impl ValueKind {
     /// Whether `value` is of this kind, or what is wrong with it.
@@ -52,6 +85,10 @@ impl ValueKind {
             Self::Boolean => wrong("`true` or `false`"),
             Self::Count | Self::Duration if value.is_u64() => Ok(()),
             Self::Count => wrong("a whole number from 0"),
+            Self::CountUpTo(most) => match value.as_u64() {
+                Some(count) if count <= *most => Ok(()),
+                _ => wrong(&format!("a whole number from 0 to {most}")),
+            },
             Self::Duration => wrong("a whole number of milliseconds"),
             Self::Text if value.is_string() => Ok(()),
             Self::Text => wrong("text"),
@@ -84,6 +121,7 @@ impl ValueKind {
                 )),
                 None => Err("expected a Secret reference such as `env:NAME`".to_owned()),
             },
+            Self::Shape(shape) => (shape.check)(value),
         }
     }
 
@@ -93,10 +131,12 @@ impl ValueKind {
     /// otherwise the same value. Both are of this kind.
     pub fn narrows(&self, higher: &Value, lower: &Value) -> bool {
         match self {
-            Self::Count | Self::Duration => match (higher.as_u64(), lower.as_u64()) {
-                (Some(higher), Some(lower)) => higher <= lower,
-                _ => higher == lower,
-            },
+            Self::Count | Self::CountUpTo(_) | Self::Duration => {
+                match (higher.as_u64(), lower.as_u64()) {
+                    (Some(higher), Some(lower)) => higher <= lower,
+                    _ => higher == lower,
+                }
+            }
             Self::Price => match (
                 higher.as_str().and_then(price),
                 lower.as_str().and_then(price),
@@ -130,6 +170,7 @@ impl ValueKind {
         match self {
             Self::Boolean => json!({ "type": "boolean" }),
             Self::Count => json!({ "type": "integer", "minimum": 0 }),
+            Self::CountUpTo(most) => json!({ "type": "integer", "minimum": 0, "maximum": most }),
             Self::Duration => json!({
                 "type": "integer",
                 "minimum": 0,
@@ -150,6 +191,7 @@ impl ValueKind {
                 "pattern": REFERENCE_PATTERN,
                 "description": "A Secret reference, such as `env:NAME`.",
             }),
+            Self::Shape(shape) => (shape.schema)(),
         }
     }
 }
@@ -193,6 +235,43 @@ fn price(text: &str) -> Option<Price<'_>> {
     })
 }
 
+/// A price as [`ValueKind::Price`] reads it: an amount in millionths of
+/// its currency, the unit of a currency Limit (ADR 0041), and the ISO 4217
+/// currency.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PriceValue {
+    /// The amount, in millionths of the currency, rounded up past the
+    /// sixth decimal so that a price is never read below what it says.
+    pub millionths: u64,
+    /// The currency, such as `USD`.
+    pub currency: String,
+}
+
+impl PriceValue {
+    /// Reads `text`, such as `"0.05 USD"`; none when it is not a price or
+    /// its amount does not fit.
+    pub fn parse(text: &str) -> Option<Self> {
+        let price = price(text)?;
+        let (kept, rest) = price
+            .fraction
+            .split_at(price.fraction.len().min(MILLIONTHS_DIGITS));
+        let fraction: u64 = format!("{kept:0<MILLIONTHS_DIGITS$}").parse().ok()?;
+        let whole: u64 = price.whole.parse().ok()?;
+        let up = u64::from(rest.bytes().any(|digit| digit != b'0'));
+        let millionths = whole
+            .checked_mul(1_000_000)?
+            .checked_add(fraction)?
+            .checked_add(up)?;
+        Some(Self {
+            millionths,
+            currency: price.currency.to_owned(),
+        })
+    }
+}
+
+/// The decimals of a millionth.
+const MILLIONTHS_DIGITS: usize = 6;
+
 /// Who may set a Setting, by layer (ADR 0028 and the ADRs that amend it).
 /// Operator policy may lock or cap any key that is not [`Authority::Fixed`].
 #[derive(Clone, Copy, Debug)]
@@ -210,6 +289,12 @@ pub enum Authority {
     /// give the values this accepts, as `tls.accept_invalid_certs`'s entries
     /// without a pin, which ask for trust on first use (ADR 0042).
     ConfigurationExcept(fn(&Value) -> bool),
+    /// As [`Authority::Configuration`], except that project configuration
+    /// gives only the values this accepts, as `proxy.providers`, whose
+    /// prices only the machine's own layers set since a currency Limit
+    /// trusts them (O12 of the deep review); another project value is
+    /// `setting_locked`.
+    ConfigurationProjectLimited(fn(&Value) -> bool),
     /// Only Operator policy, as `wall.denied_domains` (ADR 0052).
     OperatorPolicy,
     /// Only Operator policy and user configuration, the machine's own
@@ -219,6 +304,27 @@ pub enum Authority {
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
+    /// As [`Authority::NotByRecipe`], and never a Client acting for a model,
+    /// whose value is `setting_locked`, as `proxy.server` and the proxy's
+    /// credentials, which send a Secret reference's value to a destination
+    /// they also name (ADR 0092).
+    NotByRecipeOrModel,
+    /// Every layer but a Client acting for a model, whose value is
+    /// `setting_locked`, as `proxy.kind`, whose kinds' prices the person
+    /// pays (O11 of the deep review).
+    NotByModel,
+    /// Every layer but a Client acting for a model, whose value is
+    /// `setting_locked`, and a Recipe, unless the Operator policy sets the
+    /// boolean setting this names to `true`, as `egress.private_ranges`
+    /// (ticket #622, ADR 0017's note).
+    NotByModelRecipeAllowedBy(&'static str),
+    /// Every layer, but a Recipe and a Client acting for a model only
+    /// narrow the list of hosts the layers below give, each entry a host
+    /// and its subdomains, as the domain policy's `egress.allowed_domains`
+    /// and `egress.blocked_domains` (spec #563, G5); a widening value from
+    /// them is `setting_locked`. The program's own code and configuration
+    /// set any value.
+    HostsNarrowedByRecipeOrModel(HostList),
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -232,12 +338,29 @@ impl Authority {
             Self::Narrowed => "narrowed",
             Self::Configuration => "configuration",
             Self::ConfigurationExcept(_) => "configuration_except",
+            Self::ConfigurationProjectLimited(_) => "configuration_project_limited",
             Self::OperatorPolicy => "operator_policy",
             Self::Machine => "machine",
             Self::NotByRecipe => "not_by_recipe",
+            Self::NotByRecipeOrModel => "not_by_recipe_or_model",
+            Self::NotByModel => "not_by_model",
+            Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
+            Self::HostsNarrowedByRecipeOrModel(_) => "hosts_narrowed_by_recipe_or_model",
             Self::Fixed => "fixed",
         }
     }
+}
+
+/// What a list of hosts of [`Authority::HostsNarrowedByRecipeOrModel`]
+/// does with the hosts it lists, which says which way it narrows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostList {
+    /// It allows them: a value narrows by listing no host the value below
+    /// does not cover, as `egress.allowed_domains`.
+    Allows,
+    /// It blocks them: a value narrows by covering every host the value
+    /// below lists, as `egress.blocked_domains`.
+    Blocks,
 }
 
 #[cfg(test)]

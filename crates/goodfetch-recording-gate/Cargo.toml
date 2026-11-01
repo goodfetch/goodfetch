@@ -1,0 +1,18 @@
+[package]
+name = "goodfetch-recording-gate"
+description = "The Recording gate: a test adapter of the page's navigation gate, lease check and response observer (spec #577; ADR 0125); only ever a dev-dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+goodfetch-engine.workspace = true
+goodfetch-page.workspace = true
+goodfetch-protocol.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[lints]
+workspace = true

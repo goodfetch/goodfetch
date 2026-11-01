@@ -27,6 +27,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::{Map, Value};
 
 use crate::browser_cache::{self, MaxUnusedAge};
+use crate::durable;
 use crate::home::{Home, major_name};
 use crate::lowest_minor;
 use crate::settings::{LOWEST_MINOR_KEY, SettingsFiles};
@@ -156,6 +157,7 @@ impl InstalledList {
         file.sync_all()?;
         drop(file);
         fs::rename(&partial, &self.path)?;
+        durable::sync_folder(self.path.parent().unwrap_or(Path::new(".")));
         drop(lock);
         Ok(())
     }

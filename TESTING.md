@@ -1367,6 +1367,19 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F6.opens` | store opens and statement preparations per delivered batch | 0 | after #1583 | B1 | must not grow |
 | `F6.transactions` | transactions per delivered batch | 1 | after #1583 | B1 | must not grow |
 | `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | after #1583 | B1 | must not grow |
+| `C6.file_opens` | files opened per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.compilations` | compilations per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | after #1583 | B2 | must not grow |
+| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | after #1583 | B2 | must not grow |
+| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | after #1583 | B3 | must not grow |
+| `E7.document_loads` | whole-document loads per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.opens` | store opens per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.prepares` | statement preparations per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.transactions` | transactions per Working-copy update | 1 | after #1583 | B3 | must not grow |
+| `E7.syncs` | syncs per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | after #1583 | B3 | must not grow |
 | `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow |
 | `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow |
 | `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |

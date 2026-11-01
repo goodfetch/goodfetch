@@ -10,11 +10,9 @@
 // The run's program is the test: the served Daemon has no browser to read
 // pages with, so the run reports reading the catalog's first listing page,
 // the Journey seed's `catalog/1` task, through its status line.
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { RunProgress } from "@goodfetch/collie-client/generated";
 import { journey } from "@goodfetch/test-support/journey";
-import { expect, type ServedDaemon } from "@goodfetch/test-support/playwright";
+import { expect } from "@goodfetch/test-support/playwright";
 import type { Page } from "@playwright/test";
 import { callDaemon } from "@goodfetch/test-support/daemon-calls";
 
@@ -33,23 +31,6 @@ async function facts(page: Page): Promise<Record<string, string>> {
   const terms = await page.getByRole("term").allTextContents();
   const values = await page.getByRole("definition").allTextContents();
   return Object.fromEntries(terms.map((term, index) => [term, values[index] ?? ""]));
-}
-
-/** Keeps the Console on the port it has when the test's Daemon starts again, as a Daemon on its fixed port does. */
-async function keptOnItsPort(daemon: ServedDaemon): Promise<void> {
-  for (const major of await readdir(daemon.home)) {
-    const file = join(daemon.home, major, "configuration.toml");
-    const text = await readFile(file, "utf8").catch(() => undefined);
-    if (text?.includes("console.address") === true) {
-      await writeFile(
-        file,
-        text.replace(
-          /console\.address = "127\.0\.0\.1:0"/,
-          `console.address = "127.0.0.1:${daemon.port}"`,
-        ),
-      );
-    }
-  }
 }
 
 journey(
@@ -78,7 +59,6 @@ journey(
     });
 
     await step("Stop the Daemon", async () => {
-      await keptOnItsPort(daemon);
       await cli(["daemon", "stop"]);
     });
 
@@ -145,4 +125,6 @@ journey(
       },
     );
   },
+  // The open page keeps its address across the Daemon's stop and start.
+  { namedConsolePort: true },
 );

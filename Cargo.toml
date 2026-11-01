@@ -433,6 +433,9 @@ undocumented_unsafe_blocks = "deny"
 # above when a `wreq` release contains it, and move the `wreq` pin to that
 # release. `goodfetch-fetch-tier`'s fuzz crate carries the same patch.
 #
+# Both forks declare `rust-version = "1.97"`, the workspace's MSRV (ADR 0030),
+# where upstream declares 1.98: they compile on 1.97, as `just msrv` proves.
+#
 # And of `wreq-util` 0.2.0, carried in `vendor/wreq-util` as version
 # `0.2.0+goodfetch.1`: upstream's commit
 # de0dc6349bc2d4d1bd0bbbaa059b45ab1df3b0fd (its `.cargo_vcs_info.json`) with

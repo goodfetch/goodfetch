@@ -7,6 +7,7 @@ import { createServer, type Server } from "node:http";
 import { describe, expect, onTestFinished } from "vitest";
 import { test as base } from "@goodfetch/test-support";
 import { answersAs, consoleIdentity } from "../src/console-identity.ts";
+import { reserveNamedPort } from "../src/named-port.ts";
 import { executableConsole, startServedDaemon, type ServedDaemon } from "../src/served-daemon.ts";
 
 /** An HTTP listener on `port` that answers every request `200` with a CSRF token of its own. */
@@ -35,6 +36,8 @@ interface Served {
  */
 const test = base.extend<{ started: Served }>({
   started: async ({ processes, task, toolManifest }, use) => {
+    // Named and claimed past the Daemon's stop, so the freed port waits for the test's own listener.
+    const named = await reserveNamedPort();
     const started = await startServedDaemon({
       processes,
       testName: task.fullName,
@@ -42,6 +45,7 @@ const test = base.extend<{ started: Served }>({
       product: "collie",
       provingGroundSeed: undefined,
       consoleServer: executableConsole,
+      consolePort: named.port,
       oidc: {
         issuer: "http://127.0.0.1:1",
         clientId: "console",
@@ -56,6 +60,7 @@ const test = base.extend<{ started: Served }>({
     };
     await use({ daemon: started.daemon, close });
     await close();
+    await named.release();
   },
 });
 

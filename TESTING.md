@@ -23,13 +23,14 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 17. [SDK and CLI tests](#sdk-and-cli-tests)
 18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
 19. [Performance budgets](#performance-budgets)
-20. [Security](#security)
-21. [Console and docs site](#console-and-docs-site)
-22. [Feature coverage](#feature-coverage)
-23. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
-24. [Which stories need a Journey](#which-stories-need-a-journey)
-25. [Goodfetch Chromium](#goodfetch-chromium)
-26. [Free tiers and local secrets](#free-tiers-and-local-secrets)
+20. [Quality register](#quality-register)
+21. [Security](#security)
+22. [Console and docs site](#console-and-docs-site)
+23. [Feature coverage](#feature-coverage)
+24. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
+25. [Which stories need a Journey](#which-stories-need-a-journey)
+26. [Goodfetch Chromium](#goodfetch-chromium)
+27. [Free tiers and local secrets](#free-tiers-and-local-secrets)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md), apart from section 2's rule that a test is never retried, which [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md) wrote in place of the line ADR 0062 moved there.
 
@@ -192,7 +193,7 @@ How each dependency is injected is in [Injection and determinism](#injection-and
   - **An SDK unit test plays a script in process** with `playScript(name)`, `name` being a script of the corpus such as `"self-test/call-answered.json"`, checked against `script.schema.json` (`fixture_invalid` otherwise). It returns `transport`, the in-memory transport the SDK takes (a `ReadableWritablePair<Uint8Array, Uint8Array>`: the engine's bytes to read and the Client's to write, newline-delimited JSON-RPC each way as on an Attached engine's stdio; closing `writable` closes the Client's end), `messages`, every message read and written as `goodfetch-scripted-engine` records them, and `done()`. It plays each step as the executable does; a message no step expects rejects the Client's write and its next read at once with `unexpected_message`, and `done()`, which ends the play as the Client closing its end would, throws `unused_step` for a step left unused, or returns how the script ended (`finished`, `closed`, or `exit` with its code).
   - `journeyDocument(facts)` and `writeJourneyDocument(path, facts)` build a Journey variant's `journey` result document on the types `xtask codegen` generates from the bundle (`src/generated/`); the facts hold no outcome, and the document is frozen with the outcome derived ([Journeys](#tests-and-results)). `conformanceDocument(facts)` and `writeConformanceDocument(path, facts)` do the same for a `conformance` document, by `goodfetch-protocol`'s rules, from a header and each declared capability's cases with their entries. `journeyVectors(variant)` and `conformanceVectors(header)` give the shared outcome vectors as facts, and `parseCaseList`/`readCaseList` read a suite's case list (`case_list_invalid` otherwise).
   - `@goodfetch/test-support/case-log`'s `CaseLogReporter({ out, caseList })` writes the case log of Client conformance cases ([SDKs](#sdks)), each entry checked against the bundle's `case_log_entry` schema (`case_log_entry_invalid` otherwise); `vitest.config.ts` runs it into `target/case-logs/vitest.jsonl` and declares `clientCaseTags(readClientCases(caseList))` as tags. A test records its checks and evidence through the `clientCase` fixture (`check(name, assertion)`, `message`, `oracleAnswer`, `observation`), refused with `client_case_untagged` on a test with no `client_case/` tag.
-  - Its Playwright fixtures are `@goodfetch/test-support/playwright`'s `test`: a served test imports `test` and `expect` from it, never from `@playwright/test`. Its `context` and `request` are Playwright's own, refused with `bypass_csp_refused` when the test sets `bypassCSP` or `contextOptions.bypassCSP`; `failOnErrors`, on in every test, records each page's errors (`watchPageErrors`) and fails the test with `page_errors` at teardown, except those a test that provokes them on purpose, such as the production CSP's refusals, asserts and forgets with `failOnErrors.take()`; `coversKnownFeatures`, on in every test, fails it with `covers_unknown` at teardown when a `covers` annotation names a Feature the configuration's `metadata.features` does not list, or the configuration passes no such list. `axe`, on in every test, audits each open page once the test has passed (`auditAccessibility`, before `failOnErrors` judges the pages) and fails it with `axe_violations`, `axe_exception_unmatched` or `axe_exception_too_broad`; `expectAccessible(page)` runs the same audit on the way ([Accessibility](#accessibility)). A served Console test takes `daemon`: a Daemon of its own, started by `goodfetch-test-env --daemon=<product>` in a home of its own and run by the executable of its `product` option (`test.use({ product: "foxhound" })` for a Foxhound screen), with the Console the `consoleServer` option serves on port 0 (`url`, `port`), by default `executableConsole`, the Console the Daemon serves itself from its executable's Console build at the URL its runtime file reports, and `provingGround` when it sets `provingGroundSeed`; at teardown the test's pages are audited and closed, so no Console reaches for a Daemon the harness stopped, then it stops, leaving no runtime file and no process. Its `executable` is the one running the Daemon and `env` the test's cleared environment; the `engine` option runs the Daemon on another executable, for a skew run. The `sizeCapped` option, a size in bytes, puts the test's whole folder on a size-capped filesystem of its own ([ADR 0122](docs/adr/0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md)): a tmpfs mounted in a user and mount namespace that `goodfetch-test-env` starts in, through the `unshare` `ci/os-services.sh setup` installs, on Linux only (`size_capped_unsupported` elsewhere, where a test of it skips until test support makes the small disk image). The test reaches it through `daemon.sizeCapped` (`outside(path)` under `/proc/<pid>/root`, `fill(folder, room)` and `free()`), and `daemon.run(args)` runs the executable in the test's home, inside those namespaces through `nsenter` when there are any. `executableConsole`'s sign-in link is the one the executable's `console --json --no-browser` prints, which carries the Daemon's token in its fragment; it has no single sign-on yet, so a test of one passes the server that stands in for it, and it fails with `console_not_served` when the Daemon serves no Console. `signIn` installs the virtual authenticator on the context (`credentials.install()`) and signs a person in the way they do: `withLink(page)` follows the executable's single-user sign-in link and waits until the page has taken its token out of the address, `withOidc(page)` signs `OIDC_PERSON` in through the worker's local OIDC provider (`oidc-provider`, at the version the package pins, its tarball pinned by the lockfile's SHA-512 digest), each failing with `sign_in_failed` unless the Console then answers its session address as signed in. Neither writes a cookie: `context` and `request` refuse a `storageState` with `storage_state_refused`, and oxlint refuses `addCookies`, `setStorageState` and `document.cookie` in test files.
+  - Its Playwright fixtures are `@goodfetch/test-support/playwright`'s `test`: a served test imports `test` and `expect` from it, never from `@playwright/test`. A test whose Console keeps its address across a Daemon restart sets the `namedConsolePort` option, a port outside the OS's ephemeral range that test support claims for it (`reserveNamedPort`): never restart a Daemon on a port the OS chose, which another program can take in between (#2035). Its `context` and `request` are Playwright's own, refused with `bypass_csp_refused` when the test sets `bypassCSP` or `contextOptions.bypassCSP`; `failOnErrors`, on in every test, records each page's errors (`watchPageErrors`) and fails the test with `page_errors` at teardown, except those a test that provokes them on purpose, such as the production CSP's refusals, asserts and forgets with `failOnErrors.take()`; `coversKnownFeatures`, on in every test, fails it with `covers_unknown` at teardown when a `covers` annotation names a Feature the configuration's `metadata.features` does not list, or the configuration passes no such list. `axe`, on in every test, audits each open page once the test has passed (`auditAccessibility`, before `failOnErrors` judges the pages) and fails it with `axe_violations`, `axe_exception_unmatched` or `axe_exception_too_broad`; `expectAccessible(page)` runs the same audit on the way ([Accessibility](#accessibility)). A served Console test takes `daemon`: a Daemon of its own, started by `goodfetch-test-env --daemon=<product>` in a home of its own and run by the executable of its `product` option (`test.use({ product: "foxhound" })` for a Foxhound screen), with the Console the `consoleServer` option serves on port 0 (`url`, `port`), by default `executableConsole`, the Console the Daemon serves itself from its executable's Console build at the URL its runtime file reports, and `provingGround` when it sets `provingGroundSeed`; at teardown the test's pages are audited and closed, so no Console reaches for a Daemon the harness stopped, then it stops, leaving no runtime file and no process. Its `executable` is the one running the Daemon and `env` the test's cleared environment; the `engine` option runs the Daemon on another executable, for a skew run. The `sizeCapped` option, a size in bytes, puts the test's whole folder on a size-capped filesystem of its own ([ADR 0122](docs/adr/0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md)): a tmpfs mounted in a user and mount namespace that `goodfetch-test-env` starts in, through the `unshare` `ci/os-services.sh setup` installs, on Linux only (`size_capped_unsupported` elsewhere, where a test of it skips until test support makes the small disk image). The test reaches it through `daemon.sizeCapped` (`outside(path)` under `/proc/<pid>/root`, `fill(folder, room)` and `free()`), and `daemon.run(args)` runs the executable in the test's home, inside those namespaces through `nsenter` when there are any. `executableConsole`'s sign-in link is the one the executable's `console --json --no-browser` prints, which carries the Daemon's token in its fragment; it has no single sign-on yet, so a test of one passes the server that stands in for it, and it fails with `console_not_served` when the Daemon serves no Console. `signIn` installs the virtual authenticator on the context (`credentials.install()`) and signs a person in the way they do: `withLink(page)` follows the executable's single-user sign-in link and waits until the page has taken its token out of the address, `withOidc(page)` signs `OIDC_PERSON` in through the worker's local OIDC provider (`oidc-provider`, at the version the package pins, its tarball pinned by the lockfile's SHA-512 digest), each failing with `sign_in_failed` unless the Console then answers its session address as signed in. Neither writes a cookie: `context` and `request` refuse a `storageState` with `storage_state_refused`, and oxlint refuses `addCookies`, `setStorageState` and `document.cookie` in test files.
   - `@goodfetch/test-support/protocol-adapter`'s `createProtocolAdapter({ product })`, called inside a test, is the in-memory adapter of the protocol a Console component or screen test passes to the Console's Client ([Components](#components)), in Node or Vitest Browser Mode. `transport.open(listener)` opens a Connection carrying JSON-RPC text; the adapter answers `hello` itself, refusing as the engine does (the generated refusal vectors of `crates/goodfetch-protocol/generated/refusals/protocol/`) a Product it does not carry with `not_in_product` and another protocol version with `protocol_version_unsupported`, and `engine.info`, unless the test set an answer, with the engine `hello` names, since the Console Client's stall watchdog asks it of a Connection silent for a stall timeout; `answer(operation, valueOrFunction)` answers every call of an operation, in any order, with a result or `failure(code, details)`, typed by the generated catalog types, and `requests` lists what the Client sent. `push(event, position)` streams an event to each subscription as its credits allow; `drop()` closes every Connection, and a subscription that resumes `after` a position continues from it, or, after `forgetPositions()`, starts with `events.resync`; `restart()` stands for a restarted Daemon, a new engine instance whose positions count from 1 again; `$/cancel` answers `call_cancelled`. `serve(handle, bytes)` gives `bodyFetcher(handle)` a body's bytes. Every message and answer is checked with Ajv against the committed bundle and catalog of `crates/goodfetch-protocol/generated/`: a value `answer` or `push` refuses throws `answer_invalid` or `event_invalid` at once, and a call the test did not answer, a request or a function's answer the bundle refuses, and a body never served fail the test at its end with `call_unanswered`, `request_invalid`, `answer_invalid` or `body_unserved`, even when the Client swallowed them. Once its test ends, it closes every Connection without telling the Client, so a late answer or event reaches no later test's Client; a function answer still pending then is dropped unchecked, since no Client saw it. Its `transport` and `bodyFetcher` are the shapes the Console's Client takes (`console/collie/src/client/client.ts`, `createConsoleClient`), beside a `PageVisibility` the test sets.
   - `@goodfetch/test-support/features`'s `readFeatureIds(root)` gives the Feature IDs of `features/inventory.json`, checked against its committed schema (`inventory_invalid` otherwise), which `vitest.config.ts` declares as tags and `playwright.config.ts` passes as `metadata.features`.
   - `goodfetch-test-support` (`test-support/python/`, never published) is a pytest plugin registered through `pytest11`.
@@ -1134,7 +1135,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **Only counted figures fail a change:** instructions and heap metrics per benchmark, protocol and render counts per scenario, and bundle bytes. No check on a GitHub-hosted runner compares a duration with a threshold.
   _Why:_ shared runners vary by about 2.7% in wall time, and instruction counts of one binary on one machine repeat exactly.
 - **No test asserts elapsed time, a rate or a duration.** Time is measured only by the Performance series and the benchmark, both Live checks.
-- **Until M1's optimization pass, the counted figures inform and fail nothing** ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md), as amended on 2026-10-22). `xtask perf` lists each figure past its threshold or over its ceiling, with its change or value, as a `note[performance-change]` or `note[over-ceiling]` line in the gate's log, and no pull request needs a "Performance change" section or acceptance comment. A broken measurement still fails: a benchmark that fails its admission, or a ceiling whose figure the head lost. The switch is the constant `GATING` in `xtask/src/perf/budget.rs`; the optimization pass's pull request sets it back to `Enforced`, and the acceptance and ceiling rules below gate from then on.
+- **Until M1's optimization pass, the counted figures inform and fail nothing,** a dated waiver of the [Quality register](#exceptions) (X20) ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md), as amended on 2026-10-22). `xtask perf` lists each figure past its threshold or over its ceiling, with its change or value, as a `note[performance-change]` or `note[over-ceiling]` line in the gate's log, and no pull request needs a "Performance change" section or acceptance comment. A broken measurement still fails: a benchmark that fails its admission, or a ceiling whose figure the head lost. The switch is the constant `GATING` in `xtask/src/perf/budget.rs`; the optimization pass's pull request sets it back to `Enforced`, and the acceptance and ceiling rules below gate from then on.
 
 ### Benchmarks
 
@@ -1222,6 +1223,246 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 | Performance targets and the Spider comparison | the owner's machine, before each owner test; never a suite |
 | Drift check against the last release | the daily test-health job |
 | Performance series | a nightly Live check on the owner's machine when it is on, labelled with that machine; the rented reference host is declined while there is no revenue (ADR 0076). The Console's lab metrics: `just console-lighthouse`, with `GOODFETCH_PERF_MACHINE` naming the machine, appends a record per Product's Console, Collie's and Foxhound's, each served by its own executable, to `target/perf-series/console-lighthouse.jsonl` |
+
+## Quality register
+
+Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
+
+Until the gate's spec builds them, three things this section names don't exist yet: the counters of counted work, the floor guard and the register check. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
+
+### Floor
+
+Always enforced on the diff. A breach is a hard violation in `code-review`.
+
+- **No new suppression comment,** except these forms, which never expire and always name what they suppress:
+  - Rust: `#[expect(lint, reason = "…")]` ([`STYLE.md`](STYLE.md)), never `#[allow]`;
+  - a test run as a child process by another test: `#[ignore = "run as a child by <test>"]`;
+  - the SDKs' type tests: `@ts-expect-error` and `# type: ignore[code]` ([SDKs](#sdks));
+  - Python: `# pyright: ignore[rule]`;
+  - TypeScript: `oxlint-disable-next-line <rule>` with its reason, in the syntax the gate's spec takes from oxlint's documentation.
+- **No unimplemented stub, or empty catch, standing in for the work.**
+- **No skipped or deleted test without a `Quality-change` trailer.** A test replaced at a deepened module's interface names its replacement.
+- **No secret in source.**
+- **No register row weakened outside the rules below.**
+- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer.
+
+_Why:_ the floor is diff-scoped, so the suppressions the code already holds (412 `#[expect]`, 28 `#[ignore]`, 51 `oxlint-disable` on 2026-11-01) fail nothing, while a new bare one does.
+
+### Recorded changes
+
+- **A change the Floor would flag but these rules allow carries a commit trailer:** `Quality-change: <file or row>: <reason>`. That covers a test removed with its replacement named, a row raised within its Cost contract, and an edit to the gate's own files.
+- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140.
+
+### Enforced
+
+Limits that fail the merge gate. Every row has a number and a command.
+
+| Dimension | Rule | Checked by | Runs at |
+|---|---|---|---|
+| Rust lints and types | 0 warnings | `cargo clippy --workspace --all-targets --all-features -- -D warnings` (`just lint`) | merge gate |
+| TypeScript types | 0 errors | `pnpm exec tsc -p tsconfig.json` and `pnpm -r --if-present run typecheck` (`just lint`) | merge gate |
+| Python types | 0 errors | `uv run pyright` and `uv run mypy .`, both strict (`just lint`) | merge gate |
+| TypeScript and Python lints | 0 errors | `pnpm exec oxlint` and `uv run ruff check .` (`just lint`) | merge gate |
+| Secrets in commits | 0 findings | `just commit-leaks` | merge gate |
+| Secret canaries' rule | catches every leaked artifact, passes the clean one | `ci/tool.sh gitleaks ci/canary-rule.sh` (`just lint`) | merge gate |
+| Dependency advisories | 0 | `just audit` | merge gate |
+| Dependency bans, licenses and sources | 0 | `cargo deny check … bans licenses sources` and `ci/deny/products.sh` (`just lint`) | merge gate |
+| Workflow security | 0 findings | `zizmor` and `actionlint` (`just lint`) | merge gate |
+| Generated code | current | `xtask codegen --check` (`just lint`) | merge gate |
+| Feature declarations | inventory current, every declaration known | `xtask features check` (Quick) and `just features-tests` (Pre-merge), [Feature coverage](#feature-coverage) | merge gate |
+
+### Measured, not yet enforced
+
+The ratchet. A figure is compared with its "Today" value, never with the previous commit. Counted work has zero tolerance: one more count per unit is a regression. The gate's spec builds each row's command, which promotes it to Enforced (a tightening). Each row's Contract is ADR 0140's cap: no row may allow more, and a gap below it is an Exception. "After #1583" means the row's first figure is taken on its benchmark once the gate's spec builds it, after [#1583](https://github.com/goodfetch/goodfetch/pull/1583) merges.
+
+| Row | Metric, per unit | Contract | Today | Benchmark | Direction |
+|---|---|---|---|---|---|
+| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | after #1583 | B1 | must not grow |
+| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow |
+| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow |
+| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow |
+| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow |
+| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow |
+| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow |
+| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow |
+| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow |
+| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow |
+| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow |
+| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.compilations` | glob, regex and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow |
+| `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow |
+| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow |
+| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow |
+| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow |
+| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow |
+| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow |
+| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | after #1583 | B1 | must not grow |
+| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow |
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
+| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow |
+| `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow |
+| `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | after #1583 | B2 | must not grow |
+| `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow |
+| `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow |
+| `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow |
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow |
+| `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow |
+| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow |
+| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow |
+| `C4.provenance_entries` | Provenance entries per navigation | 1 | after #1583 | B2 | must not grow |
+| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | after #1583 | B2 | must not grow |
+| `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow |
+| `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow |
+| `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow |
+| `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | after #1583 | B2 | must not grow |
+| `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow |
+| `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | after #1583 | B2 | must not grow |
+| `C5.cache_lookups` | Response cache lookups per request, `cache.mode` not `off` (0 when off) | 1 | after #1583 | B2 | must not grow |
+| `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | after #1583 | B2 | must not grow |
+| `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | after #1583 | B2 | must not grow |
+| `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | after #1583 | B2 | must not grow |
+| `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow |
+| `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow |
+| `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
+| `E1.allocations` | allocations and bytes allocated per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
+| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow |
+| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow |
+| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow |
+| `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow |
+| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow |
+| `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow |
+| `E3.prepares` | statement preparations per Slice taken | 0 | after #1583 | B3 | must not grow |
+| `E4.configuration_reads` | configuration reads per governor sample | 0 | after #1583 | B3 | must not grow |
+| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | after #1583 | B3 | must not grow |
+| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | after #1583 | B3 | must not grow |
+| `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | after #1583 | B3 | must not grow |
+| `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow |
+| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow |
+| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
+| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
+| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow |
+| `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | after #1583 | B1, B2 | must not grow |
+| `E6.opens` | opens and statement preparations per permit | 0 | after #1583 | B1, B2 | must not grow |
+| `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | after #1583 | B1 | must not grow |
+| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | after #1583 | B1 | must not grow |
+| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | after #1583 | B1 | must not grow |
+| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | after #1583 | B1 | must not grow |
+| `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | after #1583 | B1 | must not grow |
+| `F5.calls` | requests out and typed decodes per Hook called | 1 each | after #1583 | B1 | must not grow |
+| `F5.builds` | chain builds and compilations per stage | 0 | after #1583 | B1 | must not grow |
+| `F6.opens` | store opens and statement preparations per delivered batch | 0 | after #1583 | B1 | must not grow |
+| `F6.transactions` | transactions per delivered batch | 1 | after #1583 | B1 | must not grow |
+| `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | after #1583 | B1 | must not grow |
+| `C6.file_opens` | files opened per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.compilations` | compilations per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | after #1583 | B2 | must not grow |
+| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | after #1583 | B2 | must not grow |
+| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | after #1583 | B2 | must not grow |
+| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | after #1583 | B3 | must not grow |
+| `E7.document_loads` | whole-document loads per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.opens` | store opens per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.prepares` | statement preparations per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.transactions` | transactions per Working-copy update | 1 | after #1583 | B3 | must not grow |
+| `E7.syncs` | syncs per Working-copy update | 0 | after #1583 | B3 | must not grow |
+| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | after #1583 | B3 | must not grow |
+| `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow |
+| `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow |
+| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
+| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) |
+
+Some tickets name a row by what it counts: Hook stages are `F5.*`, the Politeness path `E6.*`, Sink delivery `F6.*`, an Extractor Plugin `F1.plugin_*`, Live view reads `C2.live_view_commands`, closed shadow roots `C2.closed_root_commands`, cache hits `C5.cache_lookups` and `C5.cache_file_opens`, record mode `C5.body_reads`, the second GET `C5.charset_refetches`, and validations and serializations `F4.validations` and `F4.serializations`.
+
+The benchmarks are ADR 0140's: B1 is `goodfetch-foxhound`'s in-memory crawl (`crawl::in_memory_pages`), B2 a `goodfetch-page` Session against a scripted browser on the in-memory CDP end, and B3 `goodfetch-engine`'s `dispatch` with large params, Audit entries, charges and governor samples. Each runs with its path's default features on and once with each feature that can be switched off turned off. The gate's spec names each benchmark's ID.
+
+- **Rows measured until `GATING` turns on** ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md)): ADR 0071's +5 % comparison with the base, and the absolute ceilings of [Performance budgets](#performance-budgets). `xtask perf` reports them as notes until #1577's pull request sets `GATING` to `Enforced`, under Exception X20, which ends then or on its date. The rows of counted work above do not wait for it: each is enforced from the pull request that builds its command.
+- **Project coverage** is compared by ADR 0072's weekly coverage job, which opens an issue when it falls, as `xtask budgets` does; no merge fails on it.
+
+**Context, not a Today value.** A count is compared only with the same benchmark on the same input, so the profile's figures stand beside the rows, never in them. Profile of 2026-10-30, on a Hetzner CCX43 at tip `0fd15a3a7`, crawling the Proving ground's 1,000-page site at 16 requests at once, code-free and in `fast` on tmpfs unless noted:
+
+| Figure | Per page |
+|---|---|
+| HTML parses | 8 |
+| `Matcher::new` calls | about 672 |
+| statement preparations | 135.5 |
+| run-state commits | 7.4–8.0 |
+| WAL fsyncs, `full` on ext4 | 7.5 |
+| files opened (`openat`) | 7.9, of which 4.1 fail |
+| system calls | 329 (Spider: 12) |
+| configuration files read, whole crawl | 650 |
+| `/proc/meminfo` opened, whole crawl | 177 |
+
+### Exceptions
+
+Each known gap between today's code and ADR 0140's contracts, recorded at adoption on 2026-11-01. A gap the first measure finds is added in the gate spec's pull request with the same expiry; that is adoption, not a loosening. On expiry, the gate fails again with no action from anyone. The spec that removes each gap writes the row's measured figure in the same pull request.
+
+| ID | Rule | Path | Reason | Owner | Expires | Removed by |
+|---|---|---|---|---|---|---|
+| X1 | `F1.parses`, `F1.selector_compilations`, `F1.readability_runs` | F1 | 8 parses per page; the clean-up compiles about 614 selectors twice per page even with no format (`goodfetch-extractor/src/formats.rs:131`, `goodfetch-clean-up-rules/src/removal.rs:95`); readability runs again for formats; the gate's use signals (`goodfetch-fetch-tier/src/gate.rs:389`), each redirect hop's refresh stub (`refresh.rs:62`) and a document tier's served calls (`tiers.rs:2163`, `tiers/calls.rs:416`) each parse the page again. It also covers #767, #788, #715, #760, #762 and #994 if they land before #1577: each keeps today's parse, which #1577 moves onto the Page analysis | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X2 | `F1.file_opens`, `E5.file_opens`, `E5.spawns` | F1, E5 | each Provenance and request-log entry creates its folder and opens its file (`goodfetch-engine/src/run_trace.rs:80`, `:126`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 for the page's entries; the Shared paths spec for the rest |
+| X3 | `F1.bytes_allocated` | F1 | 234.45 bytes allocated per body byte against ADR 0134's 2 | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X4 | `F2.transactions`, `F2.syncs`, `F2.writer_reads` | F2 | about 8 commits and 7.5 fsyncs (`full`) per page; `RunState::read` goes through the writer (`goodfetch-engine/src/run_state.rs:510`, `:735`, `:814`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X5 | `F2.prepares`, `F2.configuration_reads` | F2, F3, F4 | 135 statement preparations per page; settings read again at each admission (`goodfetch-engine/src/settings.rs:253`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X6 | `F3.invariant_reads`, `F3.compilations`, `F3.prepares`, `F3.payload_serializations`, `F3.validations` | F3 | the Scope is read and its globs compiled per links batch (`goodfetch-crawl/src/enqueue/links.rs:460`, `goodfetch-frontier/src/scope.rs:385`); a validator is built per payload, and each payload is serialized only to measure it (`goodfetch-frontier/src/payload.rs:155`, `:328`); each redirect hop reads the Scope in a writer transaction (`goodfetch-fetch-tier/src/gate.rs:790`), and each sitemap read reads it again and compiles its rules (`goodfetch-crawl/src/work_items.rs:289`, `goodfetch-frontier/src/sitemap.rs:551`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X7 | `F4.declaration_reads`, `F4.validator_builds` | F4 | Datasets read and a validator built per check (`goodfetch-crawl/src/lease.rs:404`, `goodfetch-dataset/src/declaration.rs:140`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X8 | `F4.deep_copies` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`); suspected, confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X9 | `C1.file_opens`, `C1.log_sends_off` | C1 | the CDP command log is always on and its writer creates its folder and opens its file per batch (`goodfetch-page/src/driver.rs:312`, `goodfetch-page/src/trace.rs:93`, `:100`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X10 | `C2.commands`, `C2.world_creations`, `C2.document_worlds` | C2 | every read creates its isolated world (`goodfetch-page/src/driver.rs:1439`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X11 | `C3.script_sends`, `C3.check_commands` | C3 | every check sends `check.js`'s 9,631 bytes (`goodfetch-page/src/guard.rs:205`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X12 | `C4.detection_reads`, `C4.compilations` | C4 | up to 3 detection reads per navigation (`goodfetch-page/src/pages/blocked.rs:70`, `recovery.rs:257`, `consent.rs:212`); the Page check compiles its globs per judgment (`recovery.rs:179`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X13 | `C5.spawns`, `C5.file_opens` | C5 | each refused request spawns a task that appends to the request log (`goodfetch-page/src/interception/pipeline.rs:1731`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X14 | `E1.deep_copies`, `E1.encodes` | E1 | each message is copied whole and walked about 5 times; each answer and event is encoded twice (`goodfetch-engine/src/rpc/framing.rs:179`, `composition.rs:438`, `rpc.rs:140`, `events.rs:202`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X16 | `E3.statements`, `E3.opens`, `E3.prepares` | E3 | each charge reads every Limit back (`goodfetch-engine/src/ledger/charging.rs:332`); each Slice opens a connection (`ledger.rs:278`, `:680`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X17 | `E4.configuration_reads`, `E4.meminfo_opens`, `E4.static_opens`, `E4.process_reads`, `E4.pool_walks` | E4 | each sample reads both settings files, opens `/proc/meminfo` 3 times, reads `self/cgroup` and `self/mountinfo`, and walks each browser twice (`goodfetch-engine/src/governor.rs:304`, `:319`); each page opened walks its browser again (`goodfetch-page/src/pool.rs:581`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X18 | `C5.fetch_messages_no_rule` | C5 | every page pauses every request for the egress check, the domain policy and the relay's 407 (`goodfetch-page/src/interception.rs:576`, `:1084`); those are security guarantees of ADRs 0014 and 0017 until the relay enforces them | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X19 | `E6.transactions`, `E6.opens`, `E6.robots_parses`, `E6.robots_reads` | E6 | each permit prepares its statements per call (`goodfetch-engine/src/politeness.rs:502`, `:576`); each request reads the robots.txt copy and parses it again (`goodfetch-frontier/src/robots_txt.rs`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X20 | ADR 0071's +5 % comparison and ADR 0134's ceilings | all | `GATING` is `Informational` (ADR 0134): a waiver, which ends at #1577's merge or on this date, whichever comes first | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+
+### Rules
+
+- **"Runs at" names one of two moments:** implementer done (`tdd`) or the merge gate. The rows of counted work run at implementer done, at most 60 seconds per benchmark family; the rows read under Valgrind (instructions, allocations, bytes) run at the merge gate, through `xtask perf`.
+- **Every enforced row has a number and a command.** A dimension with a number and no command stays in the Measured table until its command exists.
+- **Counters only.** An enforced row counts counted work (ADR 0140), or instructions, allocations, bytes or system calls. Wall time and resident memory stay [Performance targets](#performance-targets), each figure with the setup it was measured on, and compared only with a figure from the same setup. Work is counted per unit of the outcome that does it, and each benchmark's input produces every outcome its path has.
+- **A ceiling is the measured value, or the value an ADR sets,** never a round number above it. For work ADR 0140 plans and no code does yet, the row starts at the ADR's value. Raising a row up to its Cost contract, in the pull request whose spec names the added count, is not a loosening: the commit records it with a `Quality-change:` trailer. Above the contract, it is a loosening.
+- **The ratchet.** A measured figure is compared with its recorded Today value. The pull request that improves a figure writes the new value in the same change. Counted work has zero tolerance. A figure that varies (coverage, instructions, bytes allocated) has a tolerance of 0.5 %. In parallel runs, only the merger writes a new Today value.
+- **Coverage is a ratchet,** "must not fall", with no per-changed-line threshold; test quality, when measured, is ADR 0072's mutation score.
+- **Tightening is silent; loosening is loud.** These need no approval:
+  - lowering a number, adding a row or promoting a measured row to enforced;
+  - extending a benchmark's input or counters to a new outcome or feature.
+
+  These need the owner, and an amendment of ADR 0140 when they raise a Cost contract:
+  - raising a number (outside the contract case above), or removing or demoting a row;
+  - changing a row's command or Runs at;
+  - narrowing a benchmark's input or what its counters see;
+  - adding or extending an Exception.
+
+  A loosening never rides in the pull request of the feature that failed the limit.
+- **Exceptions expire.** Each has an owner and an expiry date, 90 days by default.
+- **No gate is informational without an owner and an expiry.** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends (ADR 0134, as ADR 0140 amends it).
+- **Drift has a fixed baseline.** No counted figure passes 1.10 times its pinned reference build, #1577's tuned build and then each release tag, without an amendment the owner approves (ADR 0071, as ADR 0140 amends it).
+- **The register is the source of the numbers.** The gate's code reads the register, or the register check compares the two and fails on a difference, as for `xtask perf`'s ceilings.
+- **The register check runs with the merge gate.** It fails when:
+  - an enforced row's command does not exist;
+  - an Exception has expired;
+  - a path of ADR 0140 has no row, or a count in a Cost contract has no row;
+  - a row allows more than its contract's cap.
+- **Each counter proves it can fail.** A benchmark's own tests plant one extra unit of each counted work it gates and expect a failure.
+- **A row changes in the pull request that lowers its figure, raises it within its contract as its spec names, or amends ADR 0140.** Nothing waits for a separate maintenance task.
 
 ## Security
 

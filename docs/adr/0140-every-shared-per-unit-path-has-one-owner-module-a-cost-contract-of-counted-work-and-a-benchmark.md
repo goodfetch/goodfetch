@@ -139,9 +139,9 @@ These are recorded here, and each blocks only the tickets that would extend its 
 ## Consequences
 
 - **Three specs carry this decision, in order:**
-  1. **The gate's spec:** the benchmarks B1 to B3, the counters, the commands of the Enforced rows, the floor guard and the register check. It measures every row's first figure, and the path tickets that `/to-tickets` cuts are blocked on its benchmark ticket.
+  1. **[The gate's spec](https://github.com/goodfetch/goodfetch/issues/1837):** the benchmarks B1 to B3, the counters, the commands of the Enforced rows, the floor guard and the register check. It measures every row's first figure, and each of its per-path tickets blocks the tickets that extend that path. GitHub holds at most 50 blocking links per issue, so no one ticket can carry them all.
   2. **[#1577](https://github.com/goodfetch/goodfetch/issues/1577),** ADR 0138's optimization pass, which removes F1's, F2's and the Datasets' Exceptions.
-  3. **The Shared paths spec,** which removes the Exceptions of C1 to C5, E1 to E5, F3 and F4. It starts with one audit ticket per family of paths: the owner's entry point is read with the LSP's call hierarchy, so that cases strand E's grep could not see are found.
+  3. **[The Shared paths spec](https://github.com/goodfetch/goodfetch/issues/1838),** which removes the Exceptions of C1 to C5, E1 to E5, F3 and F4. It starts with its audit tickets: the owner's entry point is read with the LSP's call hierarchy, so that cases strand E's grep could not see are found.
 - **The open tickets were swept once on 2026-11-01** ([its proposal](../../rnd/research/2026-11-01-shared-paths-ticket-sweep/proposal.md)): 874 untouched, 189 given their rows as acceptance criteria, 9 rewritten and 35 sent to the owner. The Politeness, Hook and Sink paths and the corrections above come from those 35. The gate's per-path tickets block each ticket that extends their path.
 - **Every later step applies the path check** of `system-qualities` (`/to-spec`, `/to-tickets`, `/implement-spec`, `code-review`), through the pointers in `docs/agents/domain.md` and `AGENTS.md`.
 - **Amends ADR 0071:** the fixed-baseline drift gate.

@@ -29,10 +29,9 @@ use std::process::{ExitCode, Stdio};
 
 use goodfetch_engine::browser_cache;
 use goodfetch_engine::daemon::service::{
-    self, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
+    self, ConsoleSocket, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
 };
 use goodfetch_engine::installed::fingerprint;
-use goodfetch_engine::transport;
 use goodfetch_protocol::console::{ADDRESS as CONSOLE_ADDRESS, default_address};
 use goodfetch_protocol::daemon::{
     DaemonStopping, DaemonToken, DaemonUninstallOutput, HttpListenerToken, InstalledService,
@@ -193,8 +192,10 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
     } else {
         None
     };
+    // Held until the service manager listens on it, so no other program
+    // takes a port chosen for port 0 in between (#1821).
     let console = match &socket {
-        Some(_) => console_address(machine),
+        Some(_) => console_socket(machine, manager),
         None => None,
     };
     let domain = launchd_domain(machine, manager)?;
@@ -205,7 +206,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         executable: &copy.executable,
         build: &copy.id.build,
         socket: socket.as_deref(),
-        console,
+        console: console.as_ref(),
         environment: machine.environment,
         launchd_domain: domain.as_deref(),
     })
@@ -227,16 +228,15 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         }
         return Err(failure);
     }
+    drop(console);
     Ok((plan.service, stopped))
 }
 
-/// The Console's address the service manager listens on for the Daemon
-/// it starts (ADR 0031): `console.address` from the machine's layers, else
-/// its default, port 0 replaced by a port free now, since the service
-/// manager listens there before any Daemon reports where it is; none, and
-/// the Console's address left to the Daemon, when it is no `host:port` or
-/// no port is free.
-fn console_address(machine: &Machine<'_>) -> Option<SocketAddr> {
+/// What the service manager listens on for the Console for the Daemon it
+/// starts (ADR 0031): `console.address` from the machine's layers, else its
+/// default, as [`ConsoleSocket::of`] says; none, and the Console's address
+/// left to the Daemon, when it is no `host:port` or no port can be held.
+fn console_socket(machine: &Machine<'_>, manager: ServiceManager) -> Option<ConsoleSocket> {
     let identity = machine.identity;
     let configured =
         browsers::machine_settings(machine.home, identity.product, &identity.product_version)
@@ -252,10 +252,14 @@ fn console_address(machine: &Machine<'_>) -> Option<SocketAddr> {
         tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");
         return None;
     };
-    match transport::free_port(address) {
-        Ok(address) => Some(address),
+    match ConsoleSocket::of(manager, address) {
+        Ok(None) => {
+            tracing::warn!(%address, "this service manager listens on no port chosen for port 0, so the first visit to the Console does not start the Daemon");
+            None
+        }
+        Ok(console) => console,
         Err(error) => {
-            tracing::warn!(%error, %address, "no port is free for the Console, so the first visit to the Console does not start the Daemon");
+            tracing::warn!(%error, %address, "no port can be held for the Console, so the first visit to the Console does not start the Daemon");
             None
         }
     }

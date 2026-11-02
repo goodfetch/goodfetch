@@ -12,6 +12,7 @@
 
 mod commands;
 mod contract;
+mod coverage;
 mod document;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -37,6 +38,9 @@ pub(crate) enum Command {
         #[arg(long)]
         today: Option<Date>,
     },
+    /// Compares the coverage job's reports with the `coverage.project` row
+    /// and keeps one issue on a fall (ADR 0072).
+    Coverage(coverage::Arguments),
 }
 
 /// The file holding the register, from the workspace's folder.
@@ -54,7 +58,10 @@ pub(crate) fn run(
     environment: &Environment,
     xtask: &clap::Command,
 ) -> Result<ExitCode> {
-    let Command::Check { today } = command;
+    let today = match command {
+        Command::Check { today } => today,
+        Command::Coverage(arguments) => return coverage::run(arguments, environment),
+    };
     let today = today.unwrap_or_else(|| {
         jiff::Timestamp::now()
             .to_zoned(jiff::tz::TimeZone::UTC)

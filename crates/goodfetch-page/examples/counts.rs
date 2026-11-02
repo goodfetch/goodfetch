@@ -30,7 +30,7 @@
 )]
 #![expect(
     clippy::print_stdout,
-    reason = "the benchmark's one output, which `xtask counts` reads"
+    reason = "the counts harness (ADR 0140): the benchmark's one output, which `xtask counts` reads"
 )]
 
 #[path = "../benches/session.rs"]

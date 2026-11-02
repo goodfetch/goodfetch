@@ -35,11 +35,11 @@
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
-    reason = "why a row goes unprinted, which `xtask counts` fails, beside its finding"
+    reason = "the counts harness (ADR 0140): why a row goes unprinted, which `xtask counts` fails, beside its finding"
 )]
 #![expect(
     clippy::print_stdout,
-    reason = "the benchmark's one output, which `xtask counts` reads"
+    reason = "the counts harness (ADR 0140): the benchmark's one output, which `xtask counts` reads"
 )]
 
 #[path = "../benches/audit.rs"]

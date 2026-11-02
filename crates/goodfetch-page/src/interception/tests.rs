@@ -38,6 +38,7 @@ fn state_of(
                 never_block: Arc::new(NeverBlock::new()),
                 lists: None,
                 choices: goodfetch_clean_up_rules::matching::Choices::default(),
+                work: goodfetch_counted_work::CountedWork::default(),
             },
         },
         pending,

@@ -282,6 +282,7 @@ pub(crate) fn filter_lists(count: usize) -> (usize, steps::Blocking) {
             annoyances: true,
             ..Choices::default()
         },
+        work: CountedWork::default(),
     };
     (count, blocking)
 }

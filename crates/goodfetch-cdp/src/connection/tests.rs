@@ -9,6 +9,7 @@ use super::{Connection, Driver, Ended, SessionId, SubscriptionEnd};
 use crate::Failure;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
+use crate::generated::fetch;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -98,6 +99,75 @@ fn each_command_counts_one_encode_and_one_send_on_the_work_it_was_given() {
 
     assert_eq!(work.read(Row::CdpEncodes), 3);
     assert_eq!(work.read(Row::CdpSends), 3);
+}
+
+/// C5's seam (ADR 0140): each `Fetch` command written and each `Fetch` event
+/// read is one message of the interception's, and a command that answers a
+/// paused request is one answer; no other domain's message counts.
+#[test]
+fn each_fetch_message_and_each_answer_to_a_paused_request_counts_on_the_work() {
+    let work = CountedWork::default();
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let mut browser = Browser {
+        stream: browser,
+        framer: Framer::default(),
+    };
+    runtime().block_on(async {
+        let client = async {
+            connection
+                .send(None, &fetch::EnableParams::default(), TIMEOUT)
+                .await
+                .unwrap();
+            connection
+                .send(None, &GetVersionParams {}, TIMEOUT)
+                .await
+                .unwrap();
+            connection
+                .send(
+                    None,
+                    &fetch::ContinueRequestParams {
+                        request_id: "paused".to_owned(),
+                        url: None,
+                        method: None,
+                        post_data: None,
+                        headers: None,
+                        intercept_response: None,
+                    },
+                    TIMEOUT,
+                )
+                .await
+                .unwrap();
+            drop(connection);
+        };
+        let answers = async {
+            for answered in 0..3 {
+                let command = browser.received().await;
+                if answered == 2 {
+                    // Read before the last answer, so before the client ends.
+                    for method in ["Fetch.requestPaused", "Page.loadEventFired"] {
+                        browser
+                            .send(&json!({ "method": method, "params": {} }))
+                            .await;
+                    }
+                }
+                let result = if answered == 1 { version() } else { json!({}) };
+                browser
+                    .send(&json!({ "id": command["id"], "result": result }))
+                    .await;
+            }
+        };
+        tokio::join!(driver.run(), client, answers);
+    });
+
+    assert_eq!(
+        (
+            work.read(Row::InterceptedFetchMessages),
+            work.read(Row::InterceptedAnswers)
+        ),
+        (3, 1)
+    );
 }
 
 #[test]

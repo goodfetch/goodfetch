@@ -165,6 +165,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     values: &[
         "cdp_command",
         "hook_stage",
+        "intercepted_request",
         "json_rpc_message",
         "page_analysis",
         "record",
@@ -199,6 +200,12 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "constant_lookups",
         "sends",
         "log_sends_off",
+        "fetch_messages_no_rule",
+        "spawns",
+        "matches",
+        "answers",
+        "compilations",
+        "entries",
     ],
 };
 

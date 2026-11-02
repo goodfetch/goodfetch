@@ -94,11 +94,29 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
+    /// command sent or an event read, for a page's requests.
+    InterceptedFetchMessages,
+    /// `C5.spawns`: a task spawned for a refused request.
+    InterceptedSpawns,
+    /// `C5.file_opens`: a file opened or a folder created for a refused
+    /// request, as the Run trace's request log does.
+    InterceptedFileOpens,
+    /// `C5.matches`: a paused request matched against the compiled Filter
+    /// lists.
+    InterceptedMatches,
+    /// `C5.answers`: a CDP command that answers a paused request.
+    InterceptedAnswers,
+    /// `C5.compilations`: a glob or regular expression compiled for a paused
+    /// request.
+    InterceptedCompilations,
+    /// `C5.entries`: an entry sent to the Run trace's request log.
+    InterceptedEntries,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 33] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -125,6 +143,13 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::InterceptedFetchMessages,
+        Self::InterceptedSpawns,
+        Self::InterceptedFileOpens,
+        Self::InterceptedMatches,
+        Self::InterceptedAnswers,
+        Self::InterceptedCompilations,
+        Self::InterceptedEntries,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -152,6 +177,13 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::InterceptedFetchMessages
+            | Self::InterceptedSpawns
+            | Self::InterceptedFileOpens
+            | Self::InterceptedMatches
+            | Self::InterceptedAnswers
+            | Self::InterceptedCompilations
+            | Self::InterceptedEntries => "intercepted_request",
         }
     }
 
@@ -178,9 +210,15 @@ impl Row {
             Self::RecordConstantLookups => "constant_lookups",
             Self::SinkTransactions | Self::RecordTransactions => "transactions",
             Self::MessageEncodes | Self::CdpEncodes => "encodes",
-            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
+            Self::PageFileOpens | Self::CdpFileOpens | Self::InterceptedFileOpens => "file_opens",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::InterceptedFetchMessages => "fetch_messages_no_rule",
+            Self::InterceptedSpawns => "spawns",
+            Self::InterceptedMatches => "matches",
+            Self::InterceptedAnswers => "answers",
+            Self::InterceptedCompilations => "compilations",
+            Self::InterceptedEntries => "entries",
         }
     }
 
@@ -214,6 +252,13 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::InterceptedFetchMessages => "C5.fetch_messages_no_rule",
+            Self::InterceptedSpawns => "C5.spawns",
+            Self::InterceptedFileOpens => "C5.file_opens",
+            Self::InterceptedMatches => "C5.matches",
+            Self::InterceptedAnswers => "C5.answers",
+            Self::InterceptedCompilations => "C5.compilations",
+            Self::InterceptedEntries => "C5.entries",
         }
     }
 
@@ -227,8 +272,15 @@ impl Row {
 #[derive(Clone, Debug, Default)]
 pub struct CountedWork(Arc<Counts>);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Counts([Count; Row::ALL.len()]);
+
+// By hand: the standard library's `Default` stops at arrays of 32.
+impl Default for Counts {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| Count::default()))
+    }
+}
 
 impl CountedWork {
     /// Counts one unit of `row`'s work.

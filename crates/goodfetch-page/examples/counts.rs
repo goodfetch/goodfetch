@@ -6,7 +6,8 @@
 //! counts need no Valgrind and no optimized build.
 //!
 //! `--plant <row>` does one extra unit of that row's work per command the
-//! browser reads. The run fails here if the work it counts did not happen, or
+//! browser reads, which is at least one per unit of every row: each request
+//! paused, each pause and each refusal is answered by a command. The run fails here if the work it counts did not happen, or
 //! if a feature off did not take its work away.
 #![expect(
     clippy::disallowed_methods,
@@ -45,7 +46,7 @@ fn cells() -> [Cell; 2] {
             settings: json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
-            removes: &[Row::CdpSends],
+            removes: &[Row::CdpSends, Row::InterceptedMatches],
         },
     ]
 }
@@ -98,8 +99,19 @@ fn main() {
     });
     let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.session;
+        let session::Counted {
+            commands,
+            requests,
+            paused,
+            refused,
+            work,
+        } = &cell.session;
         assert!(*commands > 0, "the cell {} sent no command", cell.name);
+        assert!(
+            *requests > 0 && *refused > 0,
+            "the cell {} paused {requests} requests and refused {refused}",
+            cell.name
+        );
         for row in cell.removes {
             assert!(
                 work.read(*row) < default.work.read(*row),
@@ -114,7 +126,16 @@ fn main() {
             .collect();
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "commands": commands }, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": {
+                    "commands": commands,
+                    "requests": requests,
+                    "pauses": paused,
+                    "refusals": refused,
+                },
+                "counts": counts,
+            })
         );
     }
 }

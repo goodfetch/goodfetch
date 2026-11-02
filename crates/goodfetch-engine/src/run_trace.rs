@@ -11,6 +11,12 @@
 //! (ADR 0121). Every line passes through the Run's `Mask` as a kept output
 //! (spec #564): no value a Run resolved is written, unless the Run's
 //! `security.redaction` is off.
+//!
+//! Each line is one entry an intercepted request sends the Run trace's
+//! writer, and the folder and file the log opens to append it are that
+//! request's, counted on the interception's rows (`C5.entries`,
+//! `C5.file_opens`; ADR 0140). The Provenance log's are a page's
+//! (`F1.file_opens`).
 
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
@@ -104,8 +110,9 @@ impl RequestLog {
         line.push(b'\n');
         let file = Arc::clone(&self.file);
         let work = self.work.clone();
+        work.count(Row::InterceptedEntries);
         self.owner
-            .blocking(move || append(&file, &line, &work))
+            .blocking(move || append(&file, &line, &work, Row::InterceptedFileOpens))
             .await
     }
 }
@@ -138,19 +145,19 @@ pub async fn provenance(
     line.push(b'\n');
     let file = run_folder.join(PROVENANCE);
     let work = work.clone();
-    owner.blocking(move || append(&file, &line, &work)).await
+    owner
+        .blocking(move || append(&file, &line, &work, Row::PageFileOpens))
+        .await
 }
 
-fn append(file: &Path, line: &[u8], work: &CountedWork) -> io::Result<()> {
+/// Appends `line` to `file`, its folder created and the file opened on the
+/// row `opens` of `work`.
+fn append(file: &Path, line: &[u8], work: &CountedWork, opens: Row) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        work.create_dir_all(Row::PageFileOpens, folder)?;
+        work.create_dir_all(opens, folder)?;
     }
-    work.open_file(
-        Row::PageFileOpens,
-        OpenOptions::new().create(true).append(true),
-        file,
-    )?
-    .write_all(line)
+    work.open_file(opens, OpenOptions::new().create(true).append(true), file)?
+        .write_all(line)
 }
 
 #[cfg(test)]

@@ -43,6 +43,31 @@ const EVENTS: usize = 4_096;
 /// The bytes read from the pipe at once.
 const READ: usize = 64 * 1024;
 
+/// The domain whose messages pause a page's requests and answer them: each
+/// of its commands and events is `C5.fetch_messages_no_rule`'s work (ADR 0140).
+const FETCH: &str = "Fetch.";
+
+/// The commands that answer a paused request, each one `C5.answers`' unit of
+/// work (ADR 0140): it goes on, is answered or fails.
+const ANSWERS: [&str; 5] = [
+    "Fetch.continueRequest",
+    "Fetch.continueResponse",
+    "Fetch.continueWithAuth",
+    "Fetch.failRequest",
+    "Fetch.fulfillRequest",
+];
+
+/// Counts `method`'s work on the interception's rows: a `Fetch` message, and
+/// an answer to a paused request.
+fn count_interception(work: &CountedWork, method: &str) {
+    if method.starts_with(FETCH) {
+        work.count(Row::InterceptedFetchMessages);
+        if ANSWERS.contains(&method) {
+            work.count(Row::InterceptedAnswers);
+        }
+    }
+}
+
 /// A target's session on the connection: the `sessionId` its commands and
 /// events carry.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -383,6 +408,7 @@ where
                     self.work.count(Row::CdpEncodes);
                     let bytes = frame(&message);
                     self.work.count(Row::CdpSends);
+                    count_interception(&self.work, method);
                     if let Err(error) = self.writer.write_all(&bytes).await {
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
@@ -397,7 +423,9 @@ where
                     }
                     loop {
                         match framer.next_frame() {
-                            Ok(Some(bytes)) => dispatch(&bytes, &mut pending, &self.subscribers),
+                            Ok(Some(bytes)) => {
+                                dispatch(&bytes, &mut pending, &self.subscribers, &self.work);
+                            }
                             Ok(None) => break,
                             Err(FramingError::TooLarge { answering }) => {
                                 dropped(answering, &mut pending);
@@ -438,8 +466,14 @@ fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
 
 /// Hands one message to the command it answers or to the subscribers of
 /// its session, never waiting for one: a subscription its holder dropped
-/// leaves, and one that fell [`EVENTS`] behind ends.
-fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Shared) {
+/// leaves, and one that fell [`EVENTS`] behind ends. An event's work is
+/// counted on `work`.
+fn dispatch(
+    bytes: &[u8],
+    pending: &mut BTreeMap<u64, Pending>,
+    subscribers: &Shared,
+    work: &CountedWork,
+) {
     let Ok(mut message) = serde_json::from_slice::<Value>(bytes) else {
         tracing::warn!("the browser sent a message that is not JSON");
         return;
@@ -460,6 +494,7 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
     let Some(Value::String(method)) = message.get_mut("method").map(Value::take) else {
         return;
     };
+    count_interception(work, &method);
     let session = match message.get_mut("sessionId").map(Value::take) {
         Some(Value::String(session)) => Some(SessionId(session)),
         _ => None,

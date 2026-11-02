@@ -150,11 +150,54 @@ pub enum Row {
     /// `C4.provenance_entries`: a Provenance entry a navigation's judgement
     /// writes.
     NavigationProvenanceEntries,
+    /// `E7.merge_round_trips`: a round trip to the Merge host for a
+    /// Working-copy update.
+    WorkingCopyMergeRoundTrips,
+    /// `E7.document_loads`: a whole document loaded for a Working-copy update.
+    WorkingCopyDocumentLoads,
+    /// `E7.document_encodes`: a whole document encoded for a Working-copy
+    /// update.
+    WorkingCopyDocumentEncodes,
+    /// `E7.opens`: a store opened for a Working-copy update.
+    WorkingCopyOpens,
+    /// `E7.prepares`: a statement prepared for a Working-copy update.
+    WorkingCopyPrepares,
+    /// `E7.transactions`: a transaction for a Working-copy update.
+    WorkingCopyTransactions,
+    /// `E7.syncs`: a sync for a Working-copy update.
+    WorkingCopySyncs,
+    /// `E7.encodes`: an encode of a Working-copy update for the Connections
+    /// that follow it.
+    WorkingCopyEncodes,
+    /// `E2.configuration_reads`: a read of the machine's settings files for
+    /// an Audit entry.
+    AuditConfigurationReads,
+    /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
+    AuditOpens,
+    /// `E2.prunes`: a prune pass over the Audit log.
+    AuditPrunes,
+    /// `E2.transactions`: a transaction the Audit log's store committed.
+    AuditTransactions,
+    /// `E2.syncs`: a write of the Audit log's head file; the store's own
+    /// syncs are seen by a counting VFS, which no production store has.
+    AuditSyncs,
+    /// `C6.file_opens`: a file opened or a folder created for a Live view
+    /// frame.
+    LiveViewFileOpens,
+    /// `C6.compilations`: a selector, glob or regular expression compiled for
+    /// a Live view frame.
+    LiveViewCompilations,
+    /// `C6.spawns`: a task spawned for a Live view frame.
+    LiveViewSpawns,
+    /// `C6.acknowledgements`: a Live view frame's acknowledgement command.
+    LiveViewAcknowledgements,
+    /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
+    LiveViewSeals,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 50] = [
+    pub const ALL: [Self; 68] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -205,6 +248,24 @@ impl Row {
         Self::NavigationCompilations,
         Self::NavigationScriptCompilations,
         Self::NavigationProvenanceEntries,
+        Self::WorkingCopyMergeRoundTrips,
+        Self::WorkingCopyDocumentLoads,
+        Self::WorkingCopyDocumentEncodes,
+        Self::WorkingCopyOpens,
+        Self::WorkingCopyPrepares,
+        Self::WorkingCopyTransactions,
+        Self::WorkingCopySyncs,
+        Self::WorkingCopyEncodes,
+        Self::AuditConfigurationReads,
+        Self::AuditOpens,
+        Self::AuditPrunes,
+        Self::AuditTransactions,
+        Self::AuditSyncs,
+        Self::LiveViewFileOpens,
+        Self::LiveViewCompilations,
+        Self::LiveViewSpawns,
+        Self::LiveViewAcknowledgements,
+        Self::LiveViewSeals,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -254,6 +315,24 @@ impl Row {
             | Self::NavigationCompilations
             | Self::NavigationScriptCompilations
             | Self::NavigationProvenanceEntries => "navigation",
+            Self::WorkingCopyMergeRoundTrips
+            | Self::WorkingCopyDocumentLoads
+            | Self::WorkingCopyDocumentEncodes
+            | Self::WorkingCopyOpens
+            | Self::WorkingCopyPrepares
+            | Self::WorkingCopyTransactions
+            | Self::WorkingCopySyncs
+            | Self::WorkingCopyEncodes => "working_copy_update",
+            Self::AuditConfigurationReads
+            | Self::AuditOpens
+            | Self::AuditPrunes
+            | Self::AuditTransactions
+            | Self::AuditSyncs => "audit_entry",
+            Self::LiveViewFileOpens
+            | Self::LiveViewCompilations
+            | Self::LiveViewSpawns
+            | Self::LiveViewAcknowledgements
+            | Self::LiveViewSeals => "live_view_frame",
         }
     }
 
@@ -264,21 +343,23 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
+            Self::PageFileOpens | Self::CdpFileOpens | Self::LiveViewFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageEncodes | Self::CdpEncodes => "encodes",
+            Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
-            Self::SinkOpens | Self::ChargeOpens => "opens",
+            Self::SinkOpens | Self::ChargeOpens | Self::WorkingCopyOpens | Self::AuditOpens => {
+                "opens"
+            }
             Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
-            Self::ConfigurationReads => "configuration_reads",
-            Self::Prunes => "prunes",
+            Self::ConfigurationReads | Self::AuditConfigurationReads => "configuration_reads",
+            Self::Prunes | Self::AuditPrunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
             Self::RecordDeclarationReads => "declaration_reads",
             Self::RecordValidatorBuilds => "validator_builds",
@@ -292,7 +373,9 @@ impl Row {
             | Self::HopTransactions
             | Self::SitemapTransactions
             | Self::RunTransactions
-            | Self::ChargeTransactions => "transactions",
+            | Self::ChargeTransactions
+            | Self::WorkingCopyTransactions
+            | Self::AuditTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -300,10 +383,19 @@ impl Row {
             | Self::HopCompilations
             | Self::SitemapCompilations
             | Self::PayloadCompilations
-            | Self::NavigationCompilations => "compilations",
+            | Self::NavigationCompilations
+            | Self::LiveViewCompilations => "compilations",
             Self::NavigationDetectionReads => "detection_reads",
             Self::NavigationScriptCompilations => "script_compilations",
             Self::NavigationProvenanceEntries => "provenance_entries",
+            Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
+            Self::WorkingCopyDocumentLoads => "document_loads",
+            Self::WorkingCopyDocumentEncodes => "document_encodes",
+            Self::WorkingCopyPrepares => "prepares",
+            Self::WorkingCopySyncs | Self::AuditSyncs => "syncs",
+            Self::LiveViewSpawns => "spawns",
+            Self::LiveViewAcknowledgements => "acknowledgements",
+            Self::LiveViewSeals => "seals",
         }
     }
 
@@ -363,6 +455,24 @@ impl Row {
             Self::NavigationCompilations => "C4.compilations",
             Self::NavigationScriptCompilations => "C4.script_compilations",
             Self::NavigationProvenanceEntries => "C4.provenance_entries",
+            Self::WorkingCopyMergeRoundTrips => "E7.merge_round_trips",
+            Self::WorkingCopyDocumentLoads => "E7.document_loads",
+            Self::WorkingCopyDocumentEncodes => "E7.document_encodes",
+            Self::WorkingCopyOpens => "E7.opens",
+            Self::WorkingCopyPrepares => "E7.prepares",
+            Self::WorkingCopyTransactions => "E7.transactions",
+            Self::WorkingCopySyncs => "E7.syncs",
+            Self::WorkingCopyEncodes => "E7.encodes",
+            Self::AuditConfigurationReads => "E2.configuration_reads",
+            Self::AuditOpens => "E2.opens",
+            Self::AuditPrunes => "E2.prunes",
+            Self::AuditTransactions => "E2.transactions",
+            Self::AuditSyncs => "E2.syncs",
+            Self::LiveViewFileOpens => "C6.file_opens",
+            Self::LiveViewCompilations => "C6.compilations",
+            Self::LiveViewSpawns => "C6.spawns",
+            Self::LiveViewAcknowledgements => "C6.acknowledgements",
+            Self::LiveViewSeals => "C6.seals",
         }
     }
 

@@ -10814,7 +10814,8 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "run_trace"
           ]
         },
         {
@@ -10826,7 +10827,9 @@
             "file_opens",
             "locale_form_builds",
             "plugin_serializations",
-            "plugin_answer_parses"
+            "plugin_answer_parses",
+            "spawns",
+            "formatting_off"
           ]
         }
       ],

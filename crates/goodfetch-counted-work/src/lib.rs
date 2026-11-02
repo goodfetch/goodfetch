@@ -51,11 +51,19 @@ pub enum Row {
     PagePluginSerializations,
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
     PagePluginAnswerParses,
+    /// `E5.file_opens`: a file opened or a folder created for a Run-trace
+    /// entry.
+    RunTraceFileOpens,
+    /// `E5.spawns`: a task spawned for a Run-trace entry.
+    RunTraceSpawns,
+    /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
+    /// switched off.
+    RunTraceFormattingOff,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 10] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -63,10 +71,14 @@ impl Row {
         Self::PageLocaleFormBuilds,
         Self::PagePluginSerializations,
         Self::PagePluginAnswerParses,
+        Self::RunTraceFileOpens,
+        Self::RunTraceSpawns,
+        Self::RunTraceFormattingOff,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
-    /// metric label's value is, so `page_analysis` for the register's F1.
+    /// metric label's value is, so `page_analysis` for the register's F1 and
+    /// `run_trace` for its E5.
     #[must_use]
     pub const fn path(self) -> &'static str {
         match self {
@@ -77,6 +89,9 @@ impl Row {
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
+            Self::RunTraceFileOpens | Self::RunTraceSpawns | Self::RunTraceFormattingOff => {
+                "run_trace"
+            }
         }
     }
 
@@ -87,10 +102,12 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens => "file_opens",
+            Self::PageFileOpens | Self::RunTraceFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
+            Self::RunTraceSpawns => "spawns",
+            Self::RunTraceFormattingOff => "formatting_off",
         }
     }
 
@@ -105,6 +122,9 @@ impl Row {
             Self::PageLocaleFormBuilds => "F1.locale_form_builds",
             Self::PagePluginSerializations => "F1.plugin_serializations",
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
+            Self::RunTraceFileOpens => "E5.file_opens",
+            Self::RunTraceSpawns => "E5.spawns",
+            Self::RunTraceFormattingOff => "E5.formatting_off",
         }
     }
 

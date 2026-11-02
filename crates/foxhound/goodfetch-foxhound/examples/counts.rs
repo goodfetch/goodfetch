@@ -14,6 +14,10 @@
 //! before its first page: a selector checked and a locale's forms built once
 //! per crawl are no page's work (ADRs 0138 and 0140), and a build moved onto
 //! each page counts at once.
+//!
+//! The Run-trace rows count per entry: each cell prints, beside its pages,
+//! the entries its Run trace holds, read from the trace's files once its
+//! engine stopped, and fails if it wrote none.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stdout,
@@ -31,7 +35,9 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
-use scenarios::{Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
+use scenarios::{
+    Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant, run_trace_plant,
+};
 use serde_json::{Map, Value, json};
 
 /// The plant of the row named `name`.
@@ -44,7 +50,7 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
         other => Row::ALL
             .into_iter()
             .find(|row| row.name() == other)
-            .and_then(|row| page_analysis_plant(row, &work))
+            .and_then(|row| page_analysis_plant(row, &work).or_else(|| run_trace_plant(row, &work)))
             .unwrap_or_else(|| panic!("no plant for the row {other}")),
     }
 }
@@ -109,6 +115,8 @@ fn cells() -> [Cell; 3] {
 struct Counted {
     name: &'static str,
     pages: u64,
+    /// The entries its Run trace holds, read from its files.
+    entries: u64,
     work: CountedWork,
     /// What [`FROM_FIRST_PAGE`] held when the first page was asked for.
     started: Arc<OnceLock<Vec<u64>>>,
@@ -198,9 +206,11 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
             "the crawl builds its field's forms once, as it starts"
         );
     }
+    assert!(crawled.entries > 0, "the crawl wrote no Run-trace entry");
     Counted {
         name: cell.name,
         pages: u64::try_from(pages).expect("invariant: a dozen pages"),
+        entries: crawled.entries,
         work,
         started,
         removes: cell.removes,
@@ -242,7 +252,11 @@ fn main() {
             .collect();
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "pages": cell.pages }, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": { "pages": cell.pages, "entries": cell.entries },
+                "counts": counts,
+            })
         );
     }
 }

@@ -15,7 +15,7 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::crawl_scenario::{
-    Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant,
+    Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant, run_trace_plant,
 };
 
 /// The total body bytes `benches/pages.source.toml` records.
@@ -105,6 +105,62 @@ fn a_planted_unit_of_a_page_analysis_row_adds_one_a_page(#[case] row: Row) {
     );
 
     assert_eq!(planted - default, u64::try_from(PAGES.len() + 1).unwrap());
+}
+
+/// One extra unit of a Run-trace row's work per page served adds exactly its
+/// pages' worth, through its one counted function or at its seam (ADR 0140):
+/// each counter sees the work `xtask counts` holds to its limit per entry.
+#[rstest]
+#[case::file_opens(Row::RunTraceFileOpens)]
+#[case::spawns(Row::RunTraceSpawns)]
+#[case::formatting_off(Row::RunTraceFormattingOff)]
+fn a_planted_unit_of_a_run_trace_row_adds_one_a_page(#[case] row: Row) {
+    let default = counted(row, Options::default());
+    let metrics = Metrics::none();
+    let plant = run_trace_plant(row, metrics.counted_work());
+    let planted = counted(
+        row,
+        Options {
+            metrics,
+            plant,
+            ..Options::default()
+        },
+    );
+
+    assert_eq!(planted - default, u64::try_from(PAGES.len() + 1).unwrap());
+}
+
+/// The crawl writes Run-trace entries, and each costs what the Run-trace rows
+/// count (Exception X2): a folder created and a file opened, the page's opens
+/// too, and a task spawned for its write. No kind of entry the crawl writes can
+/// be switched off, so none is formatted while off.
+#[test]
+fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawns_its_write() {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            ..Options::default()
+        },
+    );
+
+    let entries = crawled.entries;
+    assert!(entries > 0, "the crawl wrote no Run-trace entry");
+    assert_eq!(
+        (
+            work.read(Row::RunTraceFileOpens),
+            work.read(Row::RunTraceSpawns),
+            work.read(Row::RunTraceFormattingOff),
+            work.read(Row::PageFileOpens),
+        ),
+        (2 * entries, entries, 0, 2 * entries)
+    );
 }
 
 /// The fixture does what the Page analysis rows count: a crawl runs readability,

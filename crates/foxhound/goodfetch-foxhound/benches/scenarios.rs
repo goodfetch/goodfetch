@@ -236,12 +236,67 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
     Some(plant)
 }
 
+/// The plant of a Run-trace row `row`: one extra folder or file opened
+/// through its one counted function, or one task or formatting counted at
+/// the seam it crosses; none for any other row.
+pub(crate) fn run_trace_plant(row: Row, work: &CountedWork) -> Option<Plant> {
+    let work = work.clone();
+    let plant: Plant = match row {
+        Row::RunTraceFileOpens => Arc::new(move |_: &str| {
+            let exe = std::env::current_exe().expect("invariant: a running executable has a path");
+            work.open_file(row, OpenOptions::new().read(true), &exe)
+                .expect("invariant: a running executable can be read");
+        }),
+        Row::RunTraceSpawns | Row::RunTraceFormattingOff => {
+            Arc::new(move |_: &str| work.count(row))
+        }
+        _ => return None,
+    };
+    Some(plant)
+}
+
 /// What the crawl answered: each Record of `pages`, how many requests a
-/// handler handled, and the body bytes the site sent.
+/// handler handled, the body bytes the site sent, and the entries its Run
+/// trace holds.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) handled: u64,
     pub(crate) body_bytes: u64,
+    pub(crate) entries: u64,
+}
+
+/// The entries the Run traces under `home` hold: one line each of every
+/// `.jsonl` file of a `trace` folder, read from the files once the engine
+/// stopped, so the count is the files' and not the writer's.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the benchmark reads its Run trace once its engine stopped, on no async worker"
+)]
+fn entries(home: &Path) -> u64 {
+    let mut folders = vec![home.to_owned()];
+    let mut entries = 0;
+    while let Some(folder) = folders.pop() {
+        let Ok(children) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for child in children.flatten() {
+            let path = child.path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "jsonl")
+                && folder.file_name().is_some_and(|name| name == "trace")
+            {
+                let lines = std::fs::read_to_string(&path)
+                    .expect("invariant: the Run trace's file is readable")
+                    .lines()
+                    .count();
+                entries += u64::try_from(lines).expect("invariant: a few lines");
+            }
+        }
+    }
+    entries
 }
 
 /// `hello`'s line.
@@ -368,6 +423,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         records,
         handled,
         body_bytes: sent.load(Ordering::Relaxed),
+        entries: entries(home),
     }
 }
 

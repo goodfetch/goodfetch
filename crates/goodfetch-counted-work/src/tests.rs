@@ -90,6 +90,10 @@ fn each_row_counts_on_its_own() {
             ("F4.deep_copies", 0),
             ("F4.constant_lookups", 0),
             ("F4.transactions", 0),
+            ("C1.encodes", 0),
+            ("C1.sends", 0),
+            ("C1.file_opens", 0),
+            ("C1.log_sends_off", 0),
         ]
     );
 }

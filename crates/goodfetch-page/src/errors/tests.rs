@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use goodfetch_cdp::{Connection, Failure, Framer};
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::page::BrowserExit;
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
@@ -66,7 +67,7 @@ fn failure(browser: Browser) -> Failure {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer);
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
         let (_, failure, ()) = tokio::join!(
             driver.run(),
             async {

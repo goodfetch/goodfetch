@@ -47,7 +47,15 @@ const B1: Family = Family {
     target: "counts",
 };
 
-const FAMILIES: [Family; 1] = [B1];
+const B3: Family = Family {
+    name: "B3",
+    package: "goodfetch-engine",
+    // Not `counts`: an example's executable has one path per name, whatever
+    // its package, and B1's is `counts`.
+    target: "counts-b3",
+};
+
+const FAMILIES: [Family; 2] = [B1, B3];
 
 /// One counted row of the register.
 struct Row {
@@ -67,19 +75,45 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 1] = [Row {
-    name: "F1.parses",
-    family: "B1",
-    unit: "pages",
-    happens: true,
-}];
+const ROWS: [Row; 5] = [
+    Row {
+        name: "F1.parses",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+    },
+    Row {
+        name: "E3.statements",
+        family: "B3",
+        unit: "covered_charges",
+        happens: false,
+    },
+    Row {
+        name: "E3.slice_transactions",
+        family: "B3",
+        unit: "slices",
+        happens: true,
+    },
+    Row {
+        name: "E3.opens",
+        family: "B3",
+        unit: "charges",
+        happens: false,
+    },
+    Row {
+        name: "E3.prepares",
+        family: "B3",
+        unit: "slices",
+        happens: false,
+    },
+];
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// Only this family's rows (B1).
+    /// Only this family's rows (B1, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1).
+    /// Only this path's rows (F1, E3).
     #[arg(long)]
     path: Option<String>,
     /// Has the benchmark do one extra unit of this row's work.
@@ -284,6 +318,12 @@ fn verdict(
                 ));
                 continue;
             };
+            // A feature off may take the whole outcome away, which is what
+            // its cell shows.
+            if *units == 0 && cell.name != DEFAULT_CELL {
+                output::line(&format!("{} [{}]: no {}", row.name, cell.name, row.unit));
+                continue;
+            }
             if *units == 0 || (row.happens && *count == 0 && cell.name == DEFAULT_CELL) {
                 findings.push(Finding::new(
                     "work-not-done",

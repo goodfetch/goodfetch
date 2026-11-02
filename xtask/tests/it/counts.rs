@@ -175,3 +175,29 @@ fn a_register_without_the_row_reaches_no_verdict() {
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }
+
+/// A feature off may take a row's whole outcome away: it has no figure then,
+/// and fails nothing.
+#[test]
+fn a_feature_off_that_removes_the_outcome_has_no_figure() {
+    let script = "#!/bin/sh\n\
+         echo '{\"cell\":\"default\",\"units\":{\"pages\":13},\"counts\":{\"F1.parses\":104}}'\n\
+         echo '{\"cell\":\"a_feature_off\",\"units\":{\"pages\":0},\"counts\":{\"F1.parses\":0}}'\n";
+    let (workspace, executable) = workspace("8", script);
+
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F1.parses [a_feature_off]: no pages"),
+        "{}",
+        outcome.stdout
+    );
+}

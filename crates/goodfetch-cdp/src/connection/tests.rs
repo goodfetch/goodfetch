@@ -64,10 +64,12 @@ fn version() -> Value {
     })
 }
 
-/// C1's seam (ADR 0140): each command the driver writes costs one encode and
-/// one send, on the work the connection was given.
+/// C1's seam (ADR 0140): each command the driver writes costs one send and
+/// the encode of its frame, on the work the connection was given; a typed
+/// command's params serialized to a `Value` first are an encode of their own
+/// (#1861's Decision 3, recorded under X21).
 #[test]
-fn each_command_counts_one_encode_and_one_send_on_the_work_it_was_given() {
+fn each_command_counts_its_encodes_and_one_send_on_the_work_it_was_given() {
     let work = CountedWork::default();
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
@@ -78,12 +80,16 @@ fn each_command_counts_one_encode_and_one_send_on_the_work_it_was_given() {
     };
     runtime().block_on(async {
         let client = async {
-            for _ in 0..3 {
+            for _ in 0..2 {
                 connection
                     .send(None, &GetVersionParams {}, TIMEOUT)
                     .await
                     .unwrap();
             }
+            connection
+                .send_raw("Browser.getVersion", None, json!({}), TIMEOUT)
+                .await
+                .unwrap();
             drop(connection);
         };
         let answers = async {
@@ -97,7 +103,8 @@ fn each_command_counts_one_encode_and_one_send_on_the_work_it_was_given() {
         tokio::join!(driver.run(), client, answers);
     });
 
-    assert_eq!(work.read(Row::CdpEncodes), 3);
+    // Two typed commands of two encodes each, and a raw one of one.
+    assert_eq!(work.read(Row::CdpEncodes), 5);
     assert_eq!(work.read(Row::CdpSends), 3);
 }
 

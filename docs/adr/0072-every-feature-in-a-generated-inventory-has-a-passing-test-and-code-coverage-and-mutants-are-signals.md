@@ -150,6 +150,7 @@ A Feature with an entry in `features/exceptions.toml` is **excepted**, by its ev
 - **Verdicts never come from an instrumented build.** Its results are stored under their own configuration and never decide a Feature's status.
 - **`just coverage`** runs it locally over what changed.
   > Agent decision, accepted by the owner on 2026-10-21 (#321): the coverage job is `.github/workflows/coverage.yml`, on Saturdays and by hand. Its tests' JUnit files carry the runtime `instrumented`, so the results store keeps them as a configuration of their own and the flaky-test scan never compares them with an uninstrumented run; its step is not a test step. cargo-llvm-cov builds into a target folder of its own, and test support passes `LLVM_PROFILE_FILE` to every executable a test starts.
+  > Agent decision of 2026-11-02 (#1879, pending owner review), under ADR 0140's `coverage.project` ratchet: a `compare` job after the coverage job, holding the issue token and running none of the product, compares the project's line coverage with the Quality register's row within 0.5 % of the row's figure, and keeps one `needs-triage` issue when it falls. It fails no check and no merge, so "no percentage in any gate" stands.
 
 ### Mutation testing: read in review, never scored
 

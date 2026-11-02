@@ -251,8 +251,8 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
 
     let outcome = workspace.xtask(&[
         "counts",
-        "--family",
-        "B3",
+        "--path",
+        "E1",
         "--executable",
         &format!("B3={}", path.display()),
     ]);

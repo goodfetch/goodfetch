@@ -934,6 +934,12 @@ targets:
     cargo run --quiet -p xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet -p xtask -- targets report --measured target/targets
 
+# The Counted work of each row of the Quality register on its benchmark,
+# against its limit (ADR 0140; TESTING.md, Quality register); `--prove` plants
+# one extra unit of each row's work and fails on a counter that misses it.
+counts *args:
+    cargo run --quiet -p xtask -- counts {{ args }}
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman

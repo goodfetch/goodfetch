@@ -111,6 +111,12 @@ impl CrashVfs {
         lock(&self.disk).operations
     }
 
+    /// How many syncs the VFS has run, as a counted benchmark reads them
+    /// (ADR 0140).
+    pub fn syncs(&self) -> u64 {
+        lock(&self.disk).syncs
+    }
+
     /// Injects `fault` at the I/O operation numbered `index`, from 0 at
     /// registration (see [`CrashVfs::operations`]). A later call for the
     /// same index replaces the fault.
@@ -324,6 +330,8 @@ struct Disk {
     stream: ChaCha20Rng,
     /// How many I/O operations ran.
     operations: u64,
+    /// How many of them were syncs.
+    syncs: u64,
     /// The faults still to inject, by the index of their operation.
     faults: BTreeMap<u64, IoFault>,
     /// Whether the disk is full.
@@ -359,6 +367,7 @@ impl Disk {
             // Its own domain of the seed, apart from a kill's moment.
             stream: seeded::stream(seed, b"crash-vfs"),
             operations: 0,
+            syncs: 0,
             faults: BTreeMap::new(),
             full: false,
         }
@@ -732,6 +741,7 @@ impl Vfs for SqliteVfs {
         let mut disk = lock(&self.disk);
         disk.refuse_crashed(handle, vars::SQLITE_IOERR_FSYNC)?;
         disk.operate(vars::SQLITE_IOERR_FSYNC)?;
+        disk.syncs += 1;
         let file = disk.file(&handle.path)?;
         file.durable.clone_from(&file.current);
         file.unsynced.clear();

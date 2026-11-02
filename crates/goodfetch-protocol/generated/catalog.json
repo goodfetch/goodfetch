@@ -1753,6 +1753,7 @@
         {
           "name": "shared_path",
           "values": [
+            "json_rpc_message",
             "page_analysis"
           ]
         },
@@ -1765,7 +1766,9 @@
             "file_opens",
             "locale_form_builds",
             "plugin_serializations",
-            "plugin_answer_parses"
+            "plugin_answer_parses",
+            "deep_copies",
+            "encodes"
           ]
         }
       ],

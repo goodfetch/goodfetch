@@ -25,6 +25,7 @@ static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
 mod certificates;
 mod children;
 mod client_certificates;
+mod counted_messages;
 mod dns;
 mod downloads;
 mod egress;
@@ -35,7 +36,18 @@ mod heap;
 mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+// B3's message scenario, which `counted_messages` checks.
 mod local_addresses;
+#[path = "../../benches/messages.rs"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the scenario runs on the test Clock and Entropy (ADR 0059)"
+)]
+#[expect(
+    dead_code,
+    reason = "what only the Valgrind targets read of the scenario"
+)]
+mod message_scenario;
 mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;

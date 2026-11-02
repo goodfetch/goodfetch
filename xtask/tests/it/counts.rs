@@ -191,3 +191,217 @@ fn a_register_without_the_row_reaches_no_verdict() {
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }
+
+/// A register with B3's rows, its counted rows at their first figures.
+const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+     | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+     |---|---|---|---|---|---|---|---|\n\
+     | `E1.deep_copies` | deep copies per incoming message | 0 | 1.1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E1.encodes` | encodes per answer or event | 1 | 2 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E1.instructions` | instructions per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E1.instructions_large` | instructions per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E1.allocations_large` | allocations per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E1.bytes_allocated` | bytes per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n";
+
+fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::path::PathBuf {
+    workspace.write(name, script.as_bytes());
+    let path = workspace.path().join(name);
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    path
+}
+
+/// B3's counted rows each divide by their own outcome: copies by the messages
+/// in, encodes by the messages out.
+#[rstest]
+#[case::each_within_its_limit(11, 20, 0, &[])]
+#[case::copies_over_per_message_in(12, 20, 1, &["E1.deep_copies"])]
+#[case::encodes_over_per_message_out(11, 21, 1, &["E1.encodes"])]
+fn each_b3_row_divides_by_the_outcome_that_did_its_work(
+    #[case] copies: u64,
+    #[case] encodes: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", B3_REGISTER.as_bytes());
+    let path = executable_script(
+        &workspace,
+        "benchmark.sh",
+        &format!(
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes}}}}}'\n"
+        ),
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B3",
+        "--executable",
+        &format!("B3={}", path.display()),
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// One bench target's gungraun summaries: for each cell, `no_messages` at 500
+/// and each scenario `per_message` over it per message of a hundred.
+fn summaries(bench: &str, metrics: &[&str], small: u64, large: u64) -> String {
+    let mut lines = Vec::new();
+    for suffix in ["", "_log_off"] {
+        for (id, per_message) in [
+            ("no_messages", 0),
+            ("small_params", small),
+            ("large_params", large),
+        ] {
+            let figures: Vec<String> = metrics
+                .iter()
+                .map(|metric| {
+                    format!(
+                        "\"{metric}\":{{\"values\":{{\"new\":{}}}}}",
+                        500 + per_message * 100
+                    )
+                })
+                .collect();
+            lines.push(format!(
+                "{{\"version\":\"7\",\"module_path\":\"{bench}::engine::dispatch_messages\",\"id\":\"{id}{suffix}\",\"package_dir\":\"/x/goodfetch-engine\",\"profiles\":[{{\"data\":{{\"total\":{{\"metrics\":{{{}}}}}}}}}]}}",
+                figures.join(",")
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+/// A stand-in `cargo` whose `bench` prints each target's summaries, `small`
+/// and `large` per message, and `planted` more when told to plant anything.
+fn stand_in_cargo(small: u64, large: u64, planted: u64) -> String {
+    let target = |bench: &str, metrics: &[&str]| {
+        format!(
+            "case \"$*\" in *\"--bench {bench}\"*)\n  if [ -n \"$GOODFETCH_COUNTS_PLANT\" ]; then cat <<'END'\n{}\nEND\n  else cat <<'END'\n{}\nEND\n  fi ;;\nesac\n",
+            summaries(bench, metrics, small + planted, large + planted),
+            summaries(bench, metrics, small, large),
+        )
+    };
+    format!(
+        "#!/bin/sh\n{}{}",
+        target("instructions", &["Ir"]),
+        target("heap", &["TotalBlocks", "TotalBytes"])
+    )
+}
+
+fn valgrind_workspace(script: &str) -> (Workspace, std::path::PathBuf) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", B3_REGISTER.as_bytes());
+    let cargo = executable_script(&workspace, "cargo.sh", script);
+    (workspace, cargo)
+}
+
+/// Each figure is the difference with the run of no messages over a hundred
+/// messages, and may pass its limit by 0.5 % at most.
+#[rstest]
+#[case::at_its_limit(1000, 5000, 0, &[])]
+#[case::within_its_tolerance(1005, 5025, 0, &[])]
+#[case::small_over_its_tolerance(1006, 5000, 1, &["E1.instructions", "E1.allocations", "E1.bytes_allocated"])]
+#[case::large_over_its_tolerance(1000, 5026, 1, &["E1.instructions_large", "E1.allocations_large", "E1.bytes_allocated_large"])]
+fn a_valgrind_row_is_read_from_its_benchmark_within_its_tolerance(
+    #[case] small: u64,
+    #[case] large: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let (workspace, cargo) = valgrind_workspace(&stand_in_cargo(small, large, 0));
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--family", "B3", "--valgrind"],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome.stdout.contains("E1.instructions [log_off]: "),
+        "{}",
+        outcome.stdout
+    );
+    let mut found = outcome.findings();
+    found.dedup();
+    assert_eq!(
+        found,
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// A row with no plain number in its Contract and no figure yet has no limit:
+/// the `1.10` of `1.10 × the figure` is no count of instructions.
+#[test]
+fn a_contract_with_no_plain_number_gives_no_limit_until_a_figure() {
+    let (workspace, cargo) = valgrind_workspace(&stand_in_cargo(1, 1, 0));
+    let register = B3_REGISTER.replace(
+        "small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 |",
+        "small params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 |",
+    );
+    workspace.write("TESTING.md", register.as_bytes());
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--family", "B3", "--valgrind"],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 2, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome.stderr.contains("no row E1.instructions"),
+        "{}",
+        outcome.stderr
+    );
+}
+
+#[test]
+fn proving_a_valgrind_row_expects_the_planted_unit_to_fail_it() {
+    let (workspace, cargo) = valgrind_workspace(&stand_in_cargo(1, 1, 100_000));
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--family", "B3", "--valgrind", "--prove"],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("E1.instructions_large: one planted unit fails"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn proving_fails_a_valgrind_row_blind_to_its_plant() {
+    let (workspace, cargo) = valgrind_workspace(&stand_in_cargo(1, 1, 0));
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--family", "B3", "--valgrind", "--prove"],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert!(
+        outcome
+            .findings()
+            .contains(&finding("counter-blind", "E1.allocations")),
+        "{}",
+        outcome.stdout
+    );
+}

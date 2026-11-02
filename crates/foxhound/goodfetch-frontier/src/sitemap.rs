@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::response_limits::{BodyFailure, Decoding, LimitExceeded, Limits};
 use goodfetch_engine::run_state::RunStateTables;
@@ -503,6 +504,7 @@ pub fn read(
     policy: &Policy,
     id: &str,
     document: &Document,
+    work: &CountedWork,
     mut add: impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<()> {
     let Some((url, seed, given_rules)) = connection
@@ -557,6 +559,9 @@ pub fn read(
                 )
             })?;
             // The rules were compiled when the seed was given.
+            for _ in &rules {
+                work.count(Row::SitemapCompilations);
+            }
             let rules = Rules::of(&rules).unwrap_or(Rules {
                 compiled: Vec::new(),
             });

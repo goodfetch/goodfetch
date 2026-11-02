@@ -17,6 +17,7 @@
 //! measures, its host, registrable domain and origin, indexed, so a check
 //! looks a URL's measures up rather than reading every seed.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
@@ -374,6 +375,27 @@ impl Scope {
             ),
         )?;
         Ok(())
+    }
+
+    /// [`Scope::read`], for an outcome that admits on the Frontier's path:
+    /// the read counted on `reads`, and each glob it compiles on
+    /// `compilations` (ADR 0140, `F3`).
+    ///
+    /// # Errors
+    ///
+    /// As [`Scope::read`].
+    pub fn read_counted(
+        connection: &Connection,
+        work: &CountedWork,
+        reads: Row,
+        compilations: Row,
+    ) -> rusqlite::Result<Self> {
+        work.count(reads);
+        let scope = Self::read(connection)?;
+        for _ in scope.include.globs.iter().chain(&scope.exclude.globs) {
+            work.count(compilations);
+        }
+        Ok(scope)
     }
 
     /// The scope the run file `connection` holds; the default one in a run

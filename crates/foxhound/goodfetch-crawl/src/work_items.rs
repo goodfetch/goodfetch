@@ -248,10 +248,11 @@ fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
 pub(crate) fn check_seeds<'a>(
     payloads: &payload::PayloadRules,
     seeds: impl IntoIterator<Item = &'a Seed>,
+    work: &CountedWork,
 ) -> Result<(), CallError> {
     seeds
         .into_iter()
-        .try_for_each(|seed| check_seed(payloads, seed))
+        .try_for_each(|seed| check_seed(payloads, seed, work))
 }
 
 /// Checks `seed` before it is admitted: a request's Payload against its
@@ -262,14 +263,18 @@ pub(crate) fn check_seeds<'a>(
 /// # Errors
 ///
 /// `payload_invalid` or `pattern_unsupported`.
-pub(crate) fn check_seed(payloads: &payload::PayloadRules, seed: &Seed) -> Result<(), CallError> {
+pub(crate) fn check_seed(
+    payloads: &payload::PayloadRules,
+    seed: &Seed,
+    work: &CountedWork,
+) -> Result<(), CallError> {
     match seed {
-        Seed::Request(seed) => payloads.check(&seed.label, seed.payload.as_ref()),
+        Seed::Request(seed) => payloads.check(&seed.label, seed.payload.as_ref(), work),
         Seed::Sitemap(seed) => {
             sitemap::Rules::of(&seed.rules).map_err(CallError::from)?;
             seed.rules
                 .iter()
-                .try_for_each(|rule| payloads.check(&rule.label, None))
+                .try_for_each(|rule| payloads.check(&rule.label, None, work))
         }
     }
 }
@@ -283,15 +288,27 @@ pub(crate) fn read_sitemap(
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &sitemap::Document,
+    work: &CountedWork,
 ) -> rusqlite::Result<bool> {
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let scope = Scope::read(connection)?;
+    let scope = Scope::read_counted(
+        connection,
+        work,
+        Row::SitemapInvariantReads,
+        Row::SitemapCompilations,
+    )?;
     let mut positions = Positions::of(connection)?;
-    sitemap::read(connection, &scope, policy, id, document, |url, adding| {
-        add(connection, &mut positions, url, from_sitemap(adding))
-    })?;
+    sitemap::read(
+        connection,
+        &scope,
+        policy,
+        id,
+        document,
+        work,
+        |url, adding| add(connection, &mut positions, url, from_sitemap(adding)),
+    )?;
     connection.execute(
         "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
         (SUCCEEDED, id),
@@ -399,6 +416,8 @@ pub(crate) struct Positions {
     /// The positions given since the last [`Positions::taken`], by URL.
     taken: BTreeMap<String, u64>,
     admitting: goodfetch_frontier::Admitting,
+    /// Where a stored Payload's serialization is counted.
+    work: CountedWork,
 }
 
 impl Positions {
@@ -419,6 +438,7 @@ impl Positions {
             next: u64::try_from(next).unwrap_or(1),
             taken: BTreeMap::new(),
             admitting: goodfetch_frontier::Admitting::RunFile,
+            work: CountedWork::default(),
         })
     }
 
@@ -446,6 +466,18 @@ impl Positions {
             },
             ..Self::of(connection)?
         })
+    }
+
+    /// [`Positions::of`], counting each Payload it stores on `work`.
+    pub(crate) fn counted(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
+        let mut positions = Self::of(connection)?;
+        positions.counting(work);
+        Ok(positions)
+    }
+
+    /// Has each Payload it stores counted on `work`.
+    pub(crate) fn counting(&mut self, work: &CountedWork) {
+        self.work = work.clone();
     }
 
     /// Gives each URL in `kept` the position it holds there from now on,
@@ -548,7 +580,7 @@ pub(crate) fn add(
         |row| row.get(0),
     )
     .and_then(|id: String| {
-        payload::store(connection, &id, adding.payload)?;
+        payload::store(connection, &id, adding.payload, &positions.work)?;
         Ok(id)
     })
 }

@@ -35,6 +35,11 @@ fn in_memory_pages() -> usize {
         scenarios::body_bytes(),
         "invariant: the site sends each body once"
     );
+    assert_eq!(
+        crawled.attempts,
+        u64::try_from(scenarios::PAGES.len() + 1).unwrap_or(u64::MAX),
+        "the site serves each page to one attempt"
+    );
     black_box(crawled.records.len())
 }
 

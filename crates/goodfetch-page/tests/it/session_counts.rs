@@ -68,38 +68,35 @@ fn a_session_counts_each_commands_work() {
     );
 }
 
-/// On each of the two documents, a click, a fill and a press each wait for
-/// one check, which sends one command and `check.js`'s source with it (X11).
-/// Each kind's commands: the click makes the guard's world in its document,
-/// checks, moves, presses and releases the pointer and disarms; the fill
-/// checks and inserts its text; the press checks, sends its key down and up,
-/// and waits for the renderer. On the second document the click's first
-/// check finds the first document's world gone, a check of its own, and the
-/// world is made again exactly once.
+/// On each of the two documents with actions, a click, a fill and a press
+/// each wait for one check, which sends one command and `check.js`'s source
+/// with it (X11). Each kind's commands: the click checks, moves, presses and
+/// releases the pointer and disarms; the fill checks and inserts its text;
+/// the press checks, sends its key down and up, and waits for the renderer.
+/// Each navigation's charset read makes the guard's world in its document
+/// before them, the earlier document's being gone, so no action makes it
+/// and no check finds it gone. The program's reads are waits whose checks
+/// count on these rows too, and are C2's: the figures leave them out.
 #[test]
 fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
-    let Counted {
-        checks,
-        attempts,
-        work,
-        ..
-    } = run(None);
+    let counted = run(None);
+    let checks = counted.checks;
 
     assert_eq!(
-        attempts,
+        counted.attempts,
         BTreeMap::from([("click", 2), ("fill", 2), ("press", 2)])
     );
-    assert_eq!(checks, 7);
-    assert_eq!(work.read(Row::ActionScriptSends), checks);
-    assert_eq!(work.read(Row::ActionCheckCommands), checks);
+    assert_eq!(checks, 6);
+    assert_eq!(counted.count(Row::ActionScriptSends), checks);
+    assert_eq!(counted.count(Row::ActionCheckCommands), checks);
     assert_eq!(
         [
             Row::ActionClickCommands,
             Row::ActionFillCommands,
             Row::ActionPressCommands,
         ]
-        .map(|row| work.read(row)),
-        [13, 4, 8]
+        .map(|row| counted.count(row)),
+        [10, 4, 8]
     );
 }
 

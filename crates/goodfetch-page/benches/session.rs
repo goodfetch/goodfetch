@@ -138,6 +138,17 @@ pub(crate) const READ_ROWS: [Row; 3] = [
     Row::PageReadDocumentWorlds,
 ];
 
+/// The rows C3's actions count, read over the actions alone: each of the
+/// program's reads is a wait, whose checks count on these rows too, and are
+/// C2's outcome, not an action's.
+const ACTION_ROWS: [Row; 5] = [
+    Row::ActionScriptSends,
+    Row::ActionCheckCommands,
+    Row::ActionClickCommands,
+    Row::ActionFillCommands,
+    Row::ActionPressCommands,
+];
+
 /// The range the pages' address is in, which the Run lists in
 /// `egress.private_ranges`, as a program against a local site does.
 const PAGES_RANGE: &str = "192.0.2.0/24";
@@ -168,7 +179,8 @@ pub(crate) struct Counted {
     pub(crate) commands: u64,
     /// The navigations the browser was asked for, each once.
     pub(crate) navigations: u64,
-    /// The guard's checks the browser was asked for, each once.
+    /// The guard's checks the browser was asked for outside the program's
+    /// reads, each once.
     pub(crate) checks: u64,
     /// The guarded actions the engine answered, by kind.
     pub(crate) attempts: BTreeMap<&'static str, u64>,
@@ -190,18 +202,20 @@ pub(crate) struct Counted {
     pub(crate) refused: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
-    /// What [`READ_ROWS`] counted while the program read.
+    /// What [`READ_ROWS`] and [`ACTION_ROWS`] counted while the program read.
     during_reads: BTreeMap<&'static str, u64>,
 }
 
 impl Counted {
     /// What `row` counted over the outcome it is held per: over the program's
-    /// reads for [`READ_ROWS`], over the whole Session for every other row.
+    /// reads for [`READ_ROWS`], over the whole Session but its reads for
+    /// [`ACTION_ROWS`], over the whole Session for every other row.
     pub(crate) fn count(&self, row: Row) -> u64 {
-        self.during_reads
-            .get(row.name())
-            .copied()
-            .unwrap_or_else(|| self.work.read(row))
+        let during = self.during_reads.get(row.name()).copied();
+        if ACTION_ROWS.contains(&row) {
+            return self.work.read(row) - during.unwrap_or(0);
+        }
+        during.unwrap_or_else(|| self.work.read(row))
     }
 }
 
@@ -459,16 +473,13 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
         }
         "Page.addScriptToEvaluateOnNewDocument" => (json!({ "identifier": "script" }), Vec::new()),
         "Runtime.callFunctionOn" => {
-            let context = params["executionContextId"].as_u64();
-            let world = context.and_then(|context| page.worlds.get(&context));
-            if world.is_some_and(|(_, loader)| *loader != page.loader) {
-                return Err(
-                    json!({ "code": -32000, "message": "Cannot find context with specified id" }),
-                );
-            }
+            gone(page, &params["executionContextId"])?;
             called(params, &page.loader)
         }
-        "Runtime.evaluate" => (json!({ "result": { "type": "undefined" } }), Vec::new()),
+        "Runtime.evaluate" => {
+            gone(page, &params["contextId"])?;
+            (json!({ "result": { "type": "undefined" } }), Vec::new())
+        }
         "Page.navigate" => {
             let url = params["url"].as_str().unwrap_or_default();
             url.clone_into(&mut page.loader);
@@ -476,6 +487,18 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
         }
         _ => (json!({}), Vec::new()),
     })
+}
+
+/// The browser's error for a call in `context`, a world of a document `page`
+/// no longer shows: an earlier document's world is gone.
+fn gone(page: &Page, context: &Value) -> Result<(), Value> {
+    let world = context
+        .as_u64()
+        .and_then(|context| page.worlds.get(&context));
+    if world.is_some_and(|(_, loader)| *loader != page.loader) {
+        return Err(json!({ "code": -32000, "message": "Cannot find context with specified id" }));
+    }
+    Ok(())
 }
 
 /// What a function called in an isolated world of `document` answers, and
@@ -696,12 +719,13 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
             if method == "Page.navigate" {
                 counts.navigations.fetch_add(1, Ordering::Relaxed);
             }
+            let reading = &counts.reading;
             if method == "Runtime.callFunctionOn"
                 && command["params"]["functionDeclaration"].as_str() == Some(CHECK)
+                && !reading.now.load(Ordering::Relaxed)
             {
                 counts.checks.fetch_add(1, Ordering::Relaxed);
             }
-            let reading = &counts.reading;
             if reading.now.load(Ordering::Relaxed) {
                 reading.commands.fetch_add(1, Ordering::Relaxed);
                 if method == "Runtime.callFunctionOn" {
@@ -789,10 +813,12 @@ impl Client {
     }
 }
 
-/// What a program does on a Session: opens a page and navigates it, twice, so
-/// a navigation sits in the middle, reads each document [`READS`] times once
-/// the navigation's own work ended, adding what [`READ_ROWS`] counted
-/// meanwhile to `during_reads`, then on each page clicks, fills and presses.
+/// What a program does on a Session: opens a page and navigates it to each of
+/// [`PAGES`], so a navigation sits in the middle, reads each document
+/// [`READS`] times once the navigation's own work ended, adding what
+/// [`READ_ROWS`] counted meanwhile to `during_reads`, then on each page but
+/// the Consent prompt's clicks, fills and presses: the prompt's page is C4's,
+/// and its runner's work no action's.
 /// Answers once the browser heard all of it, with the actions the engine
 /// answered, by kind.
 async fn program(
@@ -833,6 +859,7 @@ async fn program(
             .await;
         quiet(&heard.units, work).await;
         let before = READ_ROWS.map(|row| work.read(row));
+        let actions_before = ACTION_ROWS.map(|row| work.read(row));
         heard.reading.now.store(true, Ordering::Relaxed);
         for _ in 0..READS {
             client
@@ -847,8 +874,12 @@ async fn program(
         }
         quiet(&heard.units, work).await;
         heard.reading.now.store(false, Ordering::Relaxed);
-        for (row, before) in READ_ROWS.into_iter().zip(before) {
+        let read_rows = READ_ROWS.into_iter().zip(before);
+        for (row, before) in read_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
             *during_reads.entry(row.name()).or_default() += work.read(row) - before;
+        }
+        if url == CONSENT_PAGE {
+            continue;
         }
         for (kind, operation) in ACTIONS {
             let params = match kind {

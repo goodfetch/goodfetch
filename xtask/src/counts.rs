@@ -51,12 +51,9 @@ const FAMILIES: [Family; 1] = [B1];
 
 /// One counted row of the register.
 struct Row {
-    /// Its name in the register, `<path>.<work>`.
+    /// Its name in the register, `<path>.<work>`, and the name its
+    /// benchmark prints its count under.
     name: &'static str,
-    /// The name its benchmark prints its count under: the register's, or the
-    /// register's with an outcome when several outcomes do a row's work, each
-    /// its own figure (`F3.compilations.hop`) under the row's one limit.
-    counted: &'static str,
     /// The family that counts it.
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
@@ -71,52 +68,22 @@ struct Row {
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
 const ROWS: [Row; 16] = [
-    b1("F1.parses", "F1.parses", "pages", true),
-    b1(
-        "F3.invariant_reads",
-        "F3.invariant_reads",
-        LINKS_BATCHES,
-        false,
-    ),
-    b1("F3.invariant_reads", "F3.invariant_reads.hop", HOPS, false),
-    b1(
-        "F3.invariant_reads",
-        "F3.invariant_reads.sitemap",
-        SITEMAPS,
-        false,
-    ),
-    b1("F3.compilations", "F3.compilations", LINKS_BATCHES, false),
-    b1("F3.compilations", "F3.compilations.hop", HOPS, false),
-    b1(
-        "F3.compilations",
-        "F3.compilations.sitemap",
-        SITEMAPS,
-        false,
-    ),
-    b1(
-        "F3.compilations",
-        "F3.compilations.payload",
-        PAYLOADS,
-        false,
-    ),
-    b1("F3.prepares", "F3.prepares", LINKS_BATCHES, false),
-    b1("F3.prepares", "F3.prepares.hop", HOPS, false),
-    b1("F3.prepares", "F3.prepares.sitemap", SITEMAPS, false),
-    b1("F3.transactions", "F3.transactions", LINKS_BATCHES, false),
-    b1("F3.transactions", "F3.transactions.hop", HOPS, false),
-    b1(
-        "F3.transactions",
-        "F3.transactions.sitemap",
-        SITEMAPS,
-        false,
-    ),
-    b1(
-        "F3.payload_serializations",
-        "F3.payload_serializations",
-        PAYLOADS,
-        true,
-    ),
-    b1("F3.validations", "F3.validations", PAYLOADS, true),
+    b1("F1.parses", "pages", true),
+    b1("F3.invariant_reads", LINKS_BATCHES, false),
+    b1("F3.invariant_reads.hop", HOPS, false),
+    b1("F3.invariant_reads.sitemap", SITEMAPS, false),
+    b1("F3.compilations", LINKS_BATCHES, false),
+    b1("F3.compilations.hop", HOPS, false),
+    b1("F3.compilations.sitemap", SITEMAPS, false),
+    b1("F3.compilations.payload", PAYLOADS, false),
+    b1("F3.prepares", LINKS_BATCHES, false),
+    b1("F3.prepares.hop", HOPS, false),
+    b1("F3.prepares.sitemap", SITEMAPS, false),
+    b1("F3.transactions", LINKS_BATCHES, false),
+    b1("F3.transactions.hop", HOPS, false),
+    b1("F3.transactions.sitemap", SITEMAPS, false),
+    b1("F3.payload_serializations", PAYLOADS, true),
+    b1("F3.validations", PAYLOADS, true),
 ];
 
 /// The links batches B1's crawl admitted.
@@ -128,10 +95,9 @@ const SITEMAPS: &str = "sitemaps";
 /// The URLs it enqueued with a Payload.
 const PAYLOADS: &str = "payloads";
 
-const fn b1(name: &'static str, counted: &'static str, unit: &'static str, happens: bool) -> Row {
+const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
-        counted,
         family: "B1",
         unit,
         happens,
@@ -197,7 +163,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         bail!("no counted row matches the family and path asked for");
     }
     if let Some(planted) = &arguments.plant
-        && !rows.iter().any(|row| row.counted == planted)
+        && !rows.iter().any(|row| row.name == planted)
     {
         bail!("{planted} is no counted row of what runs");
     }
@@ -205,13 +171,13 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     if arguments.prove {
         let mut findings = Vec::new();
         for row in &rows {
-            let cells = cells(&executables[row.family], Some(row.counted))?;
+            let cells = cells(&executables[row.family], Some(row.name))?;
             let caught = verdict(&[row], &cells, &limits)?
                 .iter()
                 .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
             output::line(&format!(
                 "{}: one planted unit {}",
-                row.counted,
+                row.name,
                 if caught { "fails" } else { "passes unseen" }
             ));
             if !caught {
@@ -239,7 +205,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 arguments
                     .plant
                     .as_deref()
-                    .is_none_or(|plant| plant == row.counted)
+                    .is_none_or(|plant| plant == row.name)
             })
             .collect();
         findings.extend(verdict(&of_family, &cells, &limits)?);
@@ -332,6 +298,14 @@ fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
     Ok(cells)
 }
 
+/// One of the units `unit` names, as a figure's line says it.
+fn one_of(unit: &str) -> &str {
+    match unit {
+        LINKS_BATCHES => "links batch",
+        unit => unit.trim_end_matches('s'),
+    }
+}
+
 /// Prints each row's figure in each of `cells` and answers what fails.
 fn verdict(
     rows: &[&Row],
@@ -344,8 +318,7 @@ fn verdict(
             .get(row.name)
             .with_context(|| format!("the Quality register has no row {}", row.name))?;
         for cell in cells {
-            let (Some(count), Some(units)) =
-                (cell.counts.get(row.counted), cell.units.get(row.unit))
+            let (Some(count), Some(units)) = (cell.counts.get(row.name), cell.units.get(row.unit))
             else {
                 findings.push(Finding::new(
                     "row-not-counted",
@@ -371,9 +344,9 @@ fn verdict(
             let figure = Limit::figure(*count, *units);
             output::line(&format!(
                 "{} [{}]: {figure} per {}, limit {limit} ({count} over {units})",
-                row.counted,
+                row.name,
                 cell.name,
-                row.unit.trim_end_matches('s'),
+                one_of(row.unit),
             ));
             if limit.exceeded_by(*count, *units) {
                 findings.push(Finding::new(
@@ -381,7 +354,7 @@ fn verdict(
                     row.name,
                     format!(
                         "{figure} per {} in the cell `{}`, over its limit of {limit}",
-                        row.unit.trim_end_matches('s'),
+                        one_of(row.unit),
                         cell.name
                     ),
                 ));

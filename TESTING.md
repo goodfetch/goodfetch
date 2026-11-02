@@ -1345,12 +1345,12 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `E1.allocations_large` | allocations per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 46.75 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.bytes_allocated` | bytes allocated per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 5410.81 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E1.bytes_allocated_large` | bytes allocated per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 617845.09 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
-| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
-| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
-| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
-| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow | none yet | none yet |
-| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | 1.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.prepares` | statement preparations per Audit entry | 0 | 32.6 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.prunes` | prune passes per Audit entry | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.transactions` | transactions per Audit entry | 1 | 3.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | 9.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow | none yet | none yet |
 | `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow | none yet | none yet |
 | `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow | none yet | none yet |
@@ -1439,7 +1439,7 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 | X12 | `C4.detection_reads`, `C4.compilations` | C4 | up to 3 detection reads per navigation (`goodfetch-page/src/pages/blocked.rs:70`, `recovery.rs:257`, `consent.rs:212`); the Page check compiles its globs per judgment (`recovery.rs:179`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X13 | `C5.spawns`, `C5.file_opens` | C5 | each refused request spawns a task that appends to the request log (`goodfetch-page/src/interception/pipeline.rs:1731`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X14 | `E1.deep_copies`, `E1.encodes` | E1 | each message is copied whole and walked about 5 times; each answer and event is encoded twice (`goodfetch-engine/src/rpc/framing.rs:179`, `composition.rs:438`, `rpc.rs:140`, `events.rs:202`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes`, `E2.transactions` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`); each open commits its schema set-up, and a prune its own transaction, beside the append's | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X16 | `E3.statements`, `E3.opens`, `E3.prepares` | E3 | each charge reads every Limit back (`goodfetch-engine/src/ledger/charging.rs:332`); each Slice opens a connection (`ledger.rs:278`, `:680`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X17 | `E4.configuration_reads`, `E4.meminfo_opens`, `E4.static_opens`, `E4.process_reads`, `E4.pool_walks` | E4 | each sample reads both settings files, opens `/proc/meminfo` 3 times, reads `self/cgroup` and `self/mountinfo`, and walks each browser twice (`goodfetch-engine/src/governor.rs:304`, `:319`); each page opened walks its browser again (`goodfetch-page/src/pool.rs:581`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X18 | `C5.fetch_messages_no_rule` | C5 | every page pauses every request for the egress check, the domain policy and the relay's 407 (`goodfetch-page/src/interception.rs:576`, `:1084`); those are security guarantees of ADRs 0014 and 0017 until the relay enforces them | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |

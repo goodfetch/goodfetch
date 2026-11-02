@@ -149,7 +149,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 15] = [
+const ROWS: [Row; 21] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -210,6 +210,49 @@ const ROWS: [Row; 15] = [
         name: "E1.encodes",
         family: "B3",
         unit: "outgoing_messages",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.configuration_reads",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.opens",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.prepares",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // 0 in the default cell, where no `audit.retention` is set.
+    Row {
+        name: "E2.prunes",
+        family: "B3",
+        unit: "audit_entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.transactions",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.syncs",
+        family: "B3",
+        unit: "audit_entries",
         happens: true,
         valgrind: None,
     },
@@ -625,7 +668,7 @@ fn verdict(
                 "{} [{}]: {figure} per {}, limit {limit} ({count} over {units})",
                 row.name,
                 cell.name,
-                row.unit.trim_end_matches('s'),
+                singular(row.unit),
             ));
             let limit_held = if row.valgrind.is_some() {
                 limit.with_valgrind_tolerance()
@@ -638,7 +681,7 @@ fn verdict(
                     row.name,
                     format!(
                         "{figure} per {} in the cell `{}`, over its limit of {limit}",
-                        row.unit.trim_end_matches('s'),
+                        singular(row.unit),
                         cell.name
                     ),
                 ));
@@ -646,4 +689,13 @@ fn verdict(
         }
     }
     Ok(findings)
+}
+
+/// One of `unit`'s units, as a figure is printed per it: `audit_entries`
+/// gives `audit_entry`, `pages` gives `page`.
+fn singular(unit: &str) -> String {
+    unit.strip_suffix("ies").map_or_else(
+        || unit.trim_end_matches('s').to_owned(),
+        |stem| format!("{stem}y"),
+    )
 }

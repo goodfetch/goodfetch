@@ -203,7 +203,13 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.allocations_large` | allocations per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.bytes_allocated` | bytes per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
-     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n";
+     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.opens` | store opens per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prepares` | statement preparations per Audit entry | 0 | 14 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prunes` | prune passes per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.transactions` | transactions per Audit entry | 1 | 2.05 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | 5.2 | B3 | must not grow | `xtask counts` | implementer done |\n";
 
 fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::path::PathBuf {
     workspace.write(name, script.as_bytes());
@@ -213,14 +219,17 @@ fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::pa
 }
 
 /// B3's counted rows each divide by their own outcome: copies by the messages
-/// in, encodes by the messages out.
+/// in, encodes by the messages out, an Audit entry's transactions by its
+/// entries.
 #[rstest]
-#[case::each_within_its_limit(11, 20, 0, &[])]
-#[case::copies_over_per_message_in(12, 20, 1, &["E1.deep_copies"])]
-#[case::encodes_over_per_message_out(11, 21, 1, &["E1.encodes"])]
+#[case::each_within_its_limit(11, 20, 41, 0, &[])]
+#[case::copies_over_per_message_in(12, 20, 41, 1, &["E1.deep_copies"])]
+#[case::encodes_over_per_message_out(11, 21, 41, 1, &["E1.encodes"])]
+#[case::transactions_over_per_audit_entry(11, 20, 42, 1, &["E2.transactions"])]
 fn each_b3_row_divides_by_the_outcome_that_did_its_work(
     #[case] copies: u64,
     #[case] encodes: u64,
+    #[case] transactions: u64,
     #[case] code: i32,
     #[case] over: &[&str],
 ) {
@@ -230,7 +239,7 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
@@ -248,6 +257,13 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         over.iter()
             .map(|row| finding("over-limit", row))
             .collect::<Vec<_>>()
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("E2.opens [default]: 1 per audit_entry, limit 1 (20 over 20)"),
+        "{}",
+        outcome.stdout
     );
 }
 

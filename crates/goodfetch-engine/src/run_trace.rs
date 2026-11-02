@@ -11,16 +11,13 @@
 //! (ADR 0121). Every line passes through the Run's `Mask` as a kept output
 //! (spec #564): no value a Run resolved is written, unless the Run's
 //! `security.redaction` is off.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the log appends to its file through the owner's blocking policy, never on an async worker"
-)]
 
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -39,18 +36,20 @@ pub struct RequestLog {
     file: Arc<Path>,
     owner: TaskOwner,
     mask: Mask,
+    work: CountedWork,
 }
 
 impl RequestLog {
     /// The log of the Run whose folder is `run_folder`, written through
-    /// `owner`'s blocking policy, masked by `mask`, the Run's; its holder
-    /// waits for `owner`.
-    pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask) -> Self {
+    /// `owner`'s blocking policy, masked by `mask`, the Run's, counting on
+    /// `work`; its holder waits for `owner`.
+    pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask, work: CountedWork) -> Self {
         let file: PathBuf = run_folder.join(FILE);
         Self {
             file: file.into(),
             owner,
             mask,
+            work,
         }
     }
 
@@ -104,7 +103,10 @@ impl RequestLog {
         let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');
         let file = Arc::clone(&self.file);
-        self.owner.blocking(move || append(&file, &line)).await
+        let work = self.work.clone();
+        self.owner
+            .blocking(move || append(&file, &line, &work))
+            .await
     }
 }
 
@@ -114,7 +116,7 @@ pub const PROVENANCE: &str = "trace/provenance.jsonl";
 
 /// Appends `entry`, one Provenance entry, as a line of the Provenance log of
 /// the Run whose folder is `run_folder`, masked by `mask`, the Run's, and
-/// written through `owner`'s blocking policy.
+/// written through `owner`'s blocking policy, counting on `work`.
 ///
 /// # Errors
 ///
@@ -127,6 +129,7 @@ pub async fn provenance(
     owner: &TaskOwner,
     run_folder: &Path,
     mask: &Mask,
+    work: &CountedWork,
     entry: &serde_json::Value,
 ) -> io::Result<()> {
     let mut entry = entry.clone();
@@ -134,18 +137,20 @@ pub async fn provenance(
     let mut line = serde_json::to_vec(&entry)?;
     line.push(b'\n');
     let file = run_folder.join(PROVENANCE);
-    owner.blocking(move || append(&file, &line)).await
+    let work = work.clone();
+    owner.blocking(move || append(&file, &line, &work)).await
 }
 
-fn append(file: &Path, line: &[u8]) -> io::Result<()> {
+fn append(file: &Path, line: &[u8], work: &CountedWork) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        std::fs::create_dir_all(folder)?;
+        work.create_dir_all(Row::PageFileOpens, folder)?;
     }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file)?
-        .write_all(line)
+    work.open_file(
+        Row::PageFileOpens,
+        OpenOptions::new().create(true).append(true),
+        file,
+    )?
+    .write_all(line)
 }
 
 #[cfg(test)]

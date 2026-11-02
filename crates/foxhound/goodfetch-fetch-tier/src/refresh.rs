@@ -63,7 +63,9 @@ pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refre
 pub(crate) fn in_markup(url: &Url, body: &[u8], work: &CountedWork) -> Option<Refresh> {
     let document = work.parse_html(Row::PageParses, String::from_utf8_lossy(body).as_ref());
     document
-        .select("meta[http-equiv][content]")
+        .select_matcher(
+            &work.literal_selector(Row::PageSelectorCompilations, "meta[http-equiv][content]"),
+        )
         .nodes()
         .iter()
         .filter(|meta| {

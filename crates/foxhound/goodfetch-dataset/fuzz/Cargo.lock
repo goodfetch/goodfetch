@@ -1184,6 +1184,8 @@ name = "goodfetch-counted-work"
 version = "0.0.0"
 dependencies = [
  "dom_query",
+ "glob",
+ "regex",
 ]
 
 [[package]]

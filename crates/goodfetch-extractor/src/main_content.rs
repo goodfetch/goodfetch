@@ -50,11 +50,14 @@ pub(crate) fn title_and_main_text(html: &str, url: &str, work: &CountedWork) -> 
     let title = collapsed(
         &work
             .parse_html(Row::PageParses, html)
-            .select("head title")
+            .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "head title"))
             .text(),
     );
     let text = has_content_text(html, work)
-        .then(|| dom_smoothie_article(html, url))
+        .then(|| {
+            work.count(Row::PageReadabilityRuns);
+            dom_smoothie_article(html, url)
+        })
         .flatten()
         .map(|article| collapsed(&article.text_content))
         .unwrap_or_default();
@@ -79,6 +82,7 @@ fn read(
     work: &CountedWork,
 ) -> Option<(String, usize)> {
     let remaining = outside_landmarks(html, work)?;
+    work.count(Row::PageReadabilityRuns);
     let found = extractor.main_content(html, url).map(|content| {
         let length = text_length(&content);
         (content, length)
@@ -112,16 +116,23 @@ fn has_content_text(html: &str, work: &CountedWork) -> bool {
 /// person reads; none when no text is left in it.
 fn outside_landmarks(html: &str, work: &CountedWork) -> Option<String> {
     let document = work.parse_html(Row::PageParses, html);
-    document.select(NOT_CONTENT).remove();
-    for landmark in document.select("header, footer").nodes() {
+    document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
+        .remove();
+    for landmark in document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "header, footer"))
+        .nodes()
+    {
+        let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
         if !landmark
             .ancestors_it(None)
-            .any(|ancestor| ancestor.is(SECTIONING))
+            .any(|ancestor| ancestor.is_match(&sectioning))
         {
             landmark.remove_from_parent();
         }
     }
-    let body = document.select("body");
+    let body =
+        document.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"));
     (!visible(&body.text()).is_empty()).then(|| body.inner_html().to_string())
 }
 

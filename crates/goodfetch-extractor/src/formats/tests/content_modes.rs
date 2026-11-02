@@ -182,6 +182,10 @@ fn raw_html_of_a_dom_is_its_light_tree_without_the_shadow_roots_serialized_besid
 struct AdSlots;
 
 impl CleanUp for AdSlots {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn remove(&self, html: &str, _url: &str) -> String {
         let document = dom_query::Document::from(html);
         document.select(".ad-slot").remove();

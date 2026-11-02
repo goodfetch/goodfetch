@@ -30,6 +30,10 @@ impl UrlPattern {
     ///
     /// [`UnsupportedPattern`] for nested or unmatched braces, which
     /// Playwright refuses too.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     pub fn glob(glob: &str) -> Result<Self, UnsupportedPattern> {
         if glob.is_empty() {
             return Ok(Self {
@@ -59,6 +63,10 @@ impl UrlPattern {
     ///
     /// [`UnsupportedPattern`] naming the construct, for look-around, a
     /// back-reference or any other construct outside that syntax.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     pub fn regex(source: &str) -> Result<Self, UnsupportedPattern> {
         let unsupported = |construct, description| UnsupportedPattern {
             pattern: source.to_owned(),

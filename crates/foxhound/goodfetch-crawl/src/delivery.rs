@@ -521,7 +521,7 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers);
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
     drive(
         run,
         context,

@@ -43,6 +43,10 @@ pub enum Writer {
 /// # Errors
 ///
 /// When the OS refuses the lock file.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub fn test_writer(folder: &Path) -> io::Result<Writer> {
     let lock = match OpenOptions::new().read(true).open(folder.join(LOCK_FILE)) {
         Ok(lock) => lock,
@@ -70,6 +74,10 @@ pub(super) enum LockError {
 /// Creates the Run's folder, synced into the folder above it so that the
 /// run file it holds outlasts a power cut (ADR 0002), and takes its
 /// writer's lock (ADR 0031).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(super) fn take_lock(folder: &Path) -> Result<File, LockError> {
     durable::create_folder(folder).map_err(|error| LockError::Io(error.to_string()))?;
     let lock = OpenOptions::new()

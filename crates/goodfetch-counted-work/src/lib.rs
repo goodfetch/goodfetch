@@ -15,6 +15,9 @@
 
 mod sync;
 
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::path::Path;
 use std::sync::Arc;
 
 use sync::Count;
@@ -35,18 +38,45 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `F1.selector_compilations`: a selector, glob or regular expression
+    /// compiled for a fetched page.
+    PageSelectorCompilations,
+    /// `F1.readability_runs`: a run of the main-content step on a fetched page.
+    PageReadabilityRuns,
+    /// `F1.file_opens`: a file opened or a folder created for a fetched page.
+    PageFileOpens,
+    /// `F1.locale_form_builds`: a Value transform's locale forms built.
+    PageLocaleFormBuilds,
+    /// `F1.plugin_serializations`: a page serialized for an Extractor Plugin.
+    PagePluginSerializations,
+    /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
+    PagePluginAnswerParses,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 7] = [
+        Self::PageParses,
+        Self::PageSelectorCompilations,
+        Self::PageReadabilityRuns,
+        Self::PageFileOpens,
+        Self::PageLocaleFormBuilds,
+        Self::PagePluginSerializations,
+        Self::PagePluginAnswerParses,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
     #[must_use]
     pub const fn path(self) -> &'static str {
         match self {
-            Self::PageParses => "page_analysis",
+            Self::PageParses
+            | Self::PageSelectorCompilations
+            | Self::PageReadabilityRuns
+            | Self::PageFileOpens
+            | Self::PageLocaleFormBuilds
+            | Self::PagePluginSerializations
+            | Self::PagePluginAnswerParses => "page_analysis",
         }
     }
 
@@ -55,6 +85,12 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::PageSelectorCompilations => "selector_compilations",
+            Self::PageReadabilityRuns => "readability_runs",
+            Self::PageFileOpens => "file_opens",
+            Self::PageLocaleFormBuilds => "locale_form_builds",
+            Self::PagePluginSerializations => "plugin_serializations",
+            Self::PagePluginAnswerParses => "plugin_answer_parses",
         }
     }
 
@@ -63,6 +99,12 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::PageSelectorCompilations => "F1.selector_compilations",
+            Self::PageReadabilityRuns => "F1.readability_runs",
+            Self::PageFileOpens => "F1.file_opens",
+            Self::PageLocaleFormBuilds => "F1.locale_form_builds",
+            Self::PagePluginSerializations => "F1.plugin_serializations",
+            Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
         }
     }
 
@@ -101,6 +143,94 @@ impl CountedWork {
     pub fn parse_html(&self, row: Row, html: &str) -> ParsedHtml {
         self.count(row);
         dom_query::Document::from(html)
+    }
+
+    /// `selector` compiled, counted on `row`, none when it is no selector: the
+    /// one function a CSS selector compiles through (ADR 0140), which a
+    /// tree reader then matches with `select_matcher`.
+    #[must_use]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a selector's compilation (ADR 0140)"
+    )]
+    pub fn compile_selector(&self, row: Row, selector: &str) -> Option<dom_query::Matcher> {
+        self.count(row);
+        dom_query::Matcher::new(selector).ok()
+    }
+
+    /// [`Self::compile_selector`] of a selector written in the code.
+    ///
+    /// # Panics
+    ///
+    /// When `selector` is no selector, which a test of its code shows.
+    #[must_use]
+    pub fn literal_selector(&self, row: Row, selector: &'static str) -> dom_query::Matcher {
+        self.compile_selector(row, selector)
+            .expect("invariant: a selector written in the code is CSS")
+    }
+
+    /// `pattern` compiled, counted on `row`: the one function a regular
+    /// expression compiles through (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no regular expression.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a regular expression's compilation (ADR 0140)"
+    )]
+    pub fn compile_regex(&self, row: Row, pattern: &str) -> Result<regex::Regex, regex::Error> {
+        self.count(row);
+        regex::Regex::new(pattern)
+    }
+
+    /// `pattern` compiled, counted on `row`: the one function a glob compiles
+    /// through (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no glob.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a glob's compilation (ADR 0140)"
+    )]
+    pub fn compile_glob(
+        &self,
+        row: Row,
+        pattern: &str,
+    ) -> Result<glob::Pattern, glob::PatternError> {
+        self.count(row);
+        glob::Pattern::new(pattern)
+    }
+
+    /// `path` opened as `options` say, counted on `row`: the one function a
+    /// file opens through (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be opened.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a file's opening (ADR 0140); its caller runs it under its blocking policy"
+    )]
+    pub fn open_file(&self, row: Row, options: &OpenOptions, path: &Path) -> io::Result<File> {
+        self.count(row);
+        options.open(path)
+    }
+
+    /// The folder `path` and those above it created, counted on `row`: the
+    /// one function a folder is created through (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// When a folder cannot be created.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a folder's creation (ADR 0140); its caller runs it under its blocking policy"
+    )]
+    pub fn create_dir_all(&self, row: Row, path: &Path) -> io::Result<()> {
+        self.count(row);
+        std::fs::create_dir_all(path)
     }
 }
 

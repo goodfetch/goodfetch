@@ -368,8 +368,14 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             "from": from,
             "revealable": *mark == Mark::Revealable,
         });
-        let written =
-            run_trace::provenance(run.owner(), run.folder(), run.secrets().mask(), &entry).await;
+        let written = run_trace::provenance(
+            run.owner(),
+            run.folder(),
+            run.secrets().mask(),
+            run.metrics().counted_work(),
+            &entry,
+        )
+        .await;
         if let Err(error) = written {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }

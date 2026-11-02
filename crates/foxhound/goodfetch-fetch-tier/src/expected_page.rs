@@ -81,6 +81,10 @@ pub(crate) fn noindex(headers: &BTreeMap<String, String>, html: &str) -> bool {
     clippy::disallowed_types,
     reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
 )]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn robots(html: &str) -> Vec<String> {
     let document = dom_query::Document::from(html);
     document

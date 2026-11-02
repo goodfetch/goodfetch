@@ -242,7 +242,7 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let code_free = CodeFree::of(extraction, &crawls, &tiers);
+            let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
             run.spawn(delivery::drive(
                 run.clone(),
                 context.clone(),

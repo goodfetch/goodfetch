@@ -13,9 +13,10 @@
 //! those counts are not printed, and `xtask counts` says so.
 //!
 //! `--plant <row>` does one extra unit of that row's work per page served,
-//! through its one counted function, in the default cell alone. The crawl
-//! fails here if the work it counts did not happen, or if a feature off did
-//! not take its work away.
+//! through its one counted function, in every cell: a row's limit is its
+//! worst cell's, often not the default's, which a unit more per page in the
+//! default cell alone stays under. The crawl fails here if the work it counts
+//! did not happen, or if a feature off did not take its work away.
 //!
 //! A page's rows of [`FROM_FIRST_PAGE`] leave out what the crawl's start did
 //! before its first page: a selector checked and a locale's forms built once
@@ -50,8 +51,7 @@
 //! beneath its functions in the `--callgrind` run, its opening's left out,
 //! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
 //! counters counted in the cell with Politeness and robots.txt off, over its
-//! attempts. An E6 row's plant runs in every cell, as its limit is its worst
-//! cell's.
+//! attempts.
 //!
 //! `--strace` runs the cells as `xtask counts --strace` watches them, under
 //! `strace`, with nothing beside them: no run under Callgrind, so their
@@ -819,21 +819,16 @@ fn main() {
         return;
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
-    // so a family's rows stay within their minute. A plant or a bypass needs
-    // the default cell alone, the one that proves its counter. An E6 row's
-    // plant runs in every cell: its Today is its worst cell's
-    // (`concurrency_1`), which a unit more per page in the default cell stays
-    // under, and `E6.off_work` is held in its off cell alone.
+    // so a family's rows stay within their minute. A plant runs in every
+    // cell: a row's Today is its worst cell's, often not the default's
+    // (`concurrency_1` for F2 and E6, the run-state cells for `F3.prepares`),
+    // which a unit more per page in the default cell alone stays under, and
+    // `E6.off_work` is held in its off cell alone. A bypass needs the default
+    // cell alone, the one `strace` watches.
     let counted: Vec<Counted> = std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
-            .filter(|cell| {
-                if bypassed {
-                    cell.name == "default"
-                } else {
-                    planted.is_none_or(|row| cell.name == "default" || row.starts_with("E6."))
-                }
-            })
+            .filter(|cell| !bypassed || cell.name == "default")
             .map(|cell| scope.spawn(move || run(&cell, planted, watched)))
             .collect();
         cells

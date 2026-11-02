@@ -35,11 +35,33 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `F5.messages_no_hook`: a message or its formatting for a stage with no
+    /// Hook on it.
+    HookMessagesNoHook,
+    /// `F5.calls`: a request out to a Hook called.
+    HookCalls,
+    /// `F5.builds`: a Hook chain's build or compilation at a stage.
+    HookBuilds,
+    /// `F6.opens`: a store open or statement preparation for a delivered batch.
+    SinkOpens,
+    /// `F6.transactions`: a transaction for a delivered batch.
+    SinkTransactions,
+    /// `F6.writer_reads`: a read through the run file's writer for a delivered
+    /// batch.
+    SinkWriterReads,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 7] = [
+        Self::PageParses,
+        Self::HookMessagesNoHook,
+        Self::HookCalls,
+        Self::HookBuilds,
+        Self::SinkOpens,
+        Self::SinkTransactions,
+        Self::SinkWriterReads,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +69,8 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
+            Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
         }
     }
 
@@ -55,6 +79,12 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::HookMessagesNoHook => "messages_no_hook",
+            Self::HookCalls => "calls",
+            Self::HookBuilds => "builds",
+            Self::SinkOpens => "opens",
+            Self::SinkTransactions => "transactions",
+            Self::SinkWriterReads => "writer_reads",
         }
     }
 
@@ -63,6 +93,12 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::HookMessagesNoHook => "F5.messages_no_hook",
+            Self::HookCalls => "F5.calls",
+            Self::HookBuilds => "F5.builds",
+            Self::SinkOpens => "F6.opens",
+            Self::SinkTransactions => "F6.transactions",
+            Self::SinkWriterReads => "F6.writer_reads",
         }
     }
 

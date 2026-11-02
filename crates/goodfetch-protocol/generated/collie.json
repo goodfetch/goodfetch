@@ -10814,13 +10814,21 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "hook_stage",
+            "page_analysis",
+            "sink_delivery"
           ]
         },
         {
           "name": "work",
           "values": [
-            "parses"
+            "builds",
+            "calls",
+            "messages_no_hook",
+            "opens",
+            "parses",
+            "transactions",
+            "writer_reads"
           ]
         }
       ],

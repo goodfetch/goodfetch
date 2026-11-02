@@ -161,10 +161,12 @@ pub(crate) fn findings(check: &Check<'_>) -> Vec<Finding> {
         .filter_map(|held| {
             let reference = held.reference?;
             let value = |value| table::value(held.figure, value);
-            let head = value(held.head);
+            let figure = value(held.head);
             let measured = match multiple(reference, held.head) {
-                Some(times) => format!("{head} is {times} times its reference's {}", value(reference)),
-                None => format!("{head} where its reference measured 0"),
+                Some(times) => {
+                    format!("{figure} is {times} times its reference's {}", value(reference))
+                }
+                None => format!("{figure} where its reference measured 0"),
             };
             Some(Finding::new(
                 "drift-reference",

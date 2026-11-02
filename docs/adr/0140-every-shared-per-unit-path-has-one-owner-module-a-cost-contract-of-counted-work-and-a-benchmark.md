@@ -132,6 +132,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **A row's limit is its Today figure, else its Contract.** `F1.parses` starts at the 8 it measures, under Exception X1, because its contract of 1 would fail its first gate, against "Retroactive adoption" above.
 > - **The metric's labels are `shared_path` and `work`,** not `path` and `work`: the protocol's metric test refuses a label named `path`, which elsewhere holds a URL's, and every label's value is a lowercase word, so `shared_path` takes the path's name, `page_analysis`, and not `F1`.
 > - **Which parses count:** the eight sites B1 reaches. Every other raw parse carries an `#[expect]` naming this ADR, so it counts once the Shared paths audit, or a ticket extending B1 to its outcome, moves it onto the counted function. A row's figure sees only what its fixture reaches.
+>
+> Note (agent decisions of #1853, pending owner review), 2026-11-02, on F4's rows:
+> - **A Record's validator build has its counted function in `goodfetch-dataset`, `counted_validator`,** not in `goodfetch-counted-work`: that crate sits beneath the engine, so holding it there would link `jsonschema` into Collie and every linked engine, which build no validator.
+> - **A row counts the Record's path, not every use of its primitive.** `Datasets::read_for_records` counts `F4.declaration_reads`; a reader of a Dataset uses plain `Datasets::read`, whose unit is no Record. `Datasets::declare`'s one build per Run is not counted, being what the contract allows.
+> - **`F4.constant_lookups` counts two lookups:** the schema hash's subquery per insert, and the Clean-up rules' digest read per commit. Exception X8 takes the row, as the first measure found it.
+> - **`F4.transactions` counts `crawl_request.push`'s own write,** which a commit hook could not tell from the attempt's commit. The code-free crawl pushes nothing, so B1 reads 0 until a ticket gives its fixture a handler.
+> - **B1's fixture needs no change for this row:** the code-free crawl's `pages` Dataset already has a schema. A Dataset's schema cannot be switched off there, as a crawl with `extraction` declares its own; the rows run in B1's other cells.
 
 ## Considered Options
 

@@ -31,6 +31,7 @@ mod environment;
 mod evict_caches;
 mod features;
 mod fixture_size;
+mod floor_guard;
 mod foxhound_side;
 mod gate;
 mod github;
@@ -126,6 +127,17 @@ enum Command {
     /// `goodfetch-cli` generates, the cargo-deny `wrappers` list and each
     /// SDK package's `generated/` layer (ADR 0038).
     Codegen(codegen::Arguments),
+    /// The floor guard (ADR 0140): fails on what the change from the merge base
+    /// of `--base` and `--head` to `--head` does to the Quality register's Floor,
+    /// unless a `Quality-change:` trailer names it.
+    FloorGuard {
+        /// The branch the change merges into.
+        #[arg(long)]
+        base: String,
+        /// The change's head commit.
+        #[arg(long)]
+        head: String,
+    },
     /// Fails on a commit from `--base` to `--head`, merges and the ancestors
     /// of `--since` aside, whose subject is not a Conventional Commit
     /// (CONTRIBUTING.md).
@@ -473,6 +485,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
         )),
+        Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
         Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),

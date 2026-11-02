@@ -39,6 +39,7 @@ mod feature_generators;
 mod features;
 mod features_report;
 mod fixture_size;
+mod floor_guard;
 mod gate;
 mod gate_backstop;
 mod head_order;

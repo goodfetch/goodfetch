@@ -120,9 +120,10 @@ fn reruns(plan: &[Planned]) -> (Vec<&'static str>, BTreeMap<&'static str, Vec<St
 }
 
 /// The checks every run reruns, whatever the change.
-const ALWAYS: [&str; 11] = [
+const ALWAYS: [&str; 12] = [
     "dco",
     "commit-messages",
+    "floor-guard",
     "lint",
     "feature-combinations",
     "audit",

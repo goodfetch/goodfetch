@@ -15,10 +15,11 @@ use crate::workspace::Workspace;
 /// Every step of `just pre-merge all`: the host's in the order it runs them,
 /// Collie's Console build first, which the steps beside find in the
 /// workspace they mount, then those beside them.
-const STEPS: [&str; 22] = [
+const STEPS: [&str; 23] = [
     "console-build",
     "dco",
     "commit-messages",
+    "floor-guard",
     "lint",
     "feature-combinations",
     "audit",
@@ -250,9 +251,10 @@ fn without_all_the_suites_run_over_what_changed() {
 
 /// The quick form's steps, in order: those that judge every change, never a
 /// test of the Pre-merge suite or a step beside the host's.
-const QUICK_STEPS: [&str; 8] = [
+const QUICK_STEPS: [&str; 9] = [
     "dco",
     "commit-messages",
+    "floor-guard",
     "lint",
     "audit",
     "commit-leaks",
@@ -335,8 +337,8 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
 #[case::all(
     "all",
     &[
-        "console-build", "perf", "linux", "visual", "dco", "commit-messages", "lint",
-        "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
+        "console-build", "perf", "linux", "visual", "dco", "commit-messages", "floor-guard",
+        "lint", "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
         "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "msrv", "miri",
         "notices",
     ],
@@ -344,8 +346,8 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
 #[case::quick(
     "quick",
     &[
-        "dco", "commit-messages", "lint", "audit", "commit-leaks", "quick", "journeys-tasks",
-        "notices",
+        "dco", "commit-messages", "floor-guard", "lint", "audit", "commit-leaks", "quick",
+        "journeys-tasks", "notices",
     ],
 )]
 fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &[&str]) {
@@ -582,6 +584,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     let mut expected: Vec<String> = [
         "dco",
         "commit-messages",
+        "floor-guard",
         "lint",
         "feature-combinations",
         "audit",

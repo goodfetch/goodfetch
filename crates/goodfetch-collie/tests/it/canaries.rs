@@ -150,7 +150,10 @@ fn every_kind_registered_as_planted_is_planted_by_its_test() {
 enum Provider {
     Env,
     SecretFile,
+    /// The vendor CLIs' stand-ins are shell scripts, so these two run on Unix.
+    #[cfg(unix)]
     OnePassword,
+    #[cfg(unix)]
     Bitwarden,
     Vault,
     AwsSecretsManager,
@@ -187,6 +190,7 @@ impl Provider {
                 crate::secrets::encrypt(env, "run-key", key, &identity);
                 ("secretfile:run-key", String::new(), Vec::new())
             }
+            #[cfg(unix)]
             Self::OnePassword | Self::Bitwarden => {
                 return vendor(self, env, canaries, id, key);
             }
@@ -267,11 +271,6 @@ fn vendor(
         ),
         variables: vec![(vendor.sign_in().to_owned(), SIGN_IN.to_owned())],
     }
-}
-
-#[cfg(not(unix))]
-fn vendor(_: Provider, _: &TestEnv, _: &mut Canaries, _: &str, _: &str) -> Configured {
-    unreachable!("the vendor CLIs' stand-ins are shell scripts, whose cases run on Unix alone")
 }
 
 /// The stand-in server of the HTTP providers on loopback, on a thread of
@@ -386,10 +385,8 @@ fn answer(target: &str, headers: &BTreeMap<String, String>, value: &str) -> (&'s
 #[rstest]
 #[case::env(Provider::Env)]
 #[case::secretfile(Provider::SecretFile)]
-#[case::one_password(Provider::OnePassword)]
-#[cfg_attr(not(unix), ignore = "the vendor CLI's stand-in is a shell script")]
-#[case::bitwarden(Provider::Bitwarden)]
-#[cfg_attr(not(unix), ignore = "the vendor CLI's stand-in is a shell script")]
+#[cfg_attr(unix, case::one_password(Provider::OnePassword))]
+#[cfg_attr(unix, case::bitwarden(Provider::Bitwarden))]
 #[case::vault(Provider::Vault)]
 #[case::aws_secrets_manager(Provider::AwsSecretsManager)]
 #[case::gcp_secret_manager(Provider::GcpSecretManager)]

@@ -774,10 +774,10 @@ fn calls_to_prepare(dump: &str) -> u64 {
     calls
 }
 
-fn main() {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let (pages, cell, planted, watched) = match arguments.as_slice() {
+/// What `arguments` ask for: the pages a crawl serves, the one cell a child
+/// run crawls, the row planted and how the cells are watched.
+fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>, Watched<'a>) {
+    match arguments {
         [] => (Pages::Whole, None, None, Watched::Counted),
         ["--plant", row] => (Pages::Whole, None, Some(*row), Watched::Counted),
         ["--strace"] => (Pages::Whole, None, None, Watched::Traced { bypass: None }),
@@ -800,7 +800,13 @@ fn main() {
         other => panic!(
             "usage: counts [--small-cell <cell> | --callgrind <cell>] [--plant <row>] | --strace [--bypass <work>], not {other:?}"
         ),
-    };
+    }
+}
+
+fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let (pages, cell, planted, watched) = asked(&arguments);
     let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
     if let Some(name) = cell {
         let cell = cells()

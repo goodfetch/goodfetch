@@ -881,6 +881,26 @@ async fn quiet(units: &Units, work: &CountedWork) {
     }
 }
 
+/// The Collie engine the scenario drives, counting on `metrics`, its pages
+/// judged by [`ReadsMarkers`].
+fn engine(metrics: Metrics) -> Engine {
+    let identity = Identity {
+        product: Product::Collie,
+        product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
+        channel: Channel::CratesIo,
+    };
+    let composition = Composition::default()
+        .with(goodfetch_engine::contribution())
+        .with(goodfetch_page::contribution_with(
+            Vec::new(),
+            ProgramPages,
+            Arc::new(ReadsMarkers),
+        ));
+    Engine::new(identity, &composition)
+        .expect("invariant: one handler each")
+        .with_metrics(metrics)
+}
+
 /// Runs the scenario in the home `home`, with `settings` on its Run, doing
 /// `plant` once per command the browser reads, and answers what it counted.
 ///
@@ -900,21 +920,7 @@ pub(crate) fn counted(
         json!({ "private_ranges": [PAGES_RANGE] }),
     );
     let work = metrics.counted_work().clone();
-    let identity = Identity {
-        product: Product::Collie,
-        product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
-        channel: Channel::CratesIo,
-    };
-    let composition = Composition::default()
-        .with(goodfetch_engine::contribution())
-        .with(goodfetch_page::contribution_with(
-            Vec::new(),
-            ProgramPages,
-            Arc::new(ReadsMarkers),
-        ));
-    let engine = Engine::new(identity, &composition)
-        .expect("invariant: one handler each")
-        .with_metrics(metrics);
+    let engine = engine(metrics);
     let heard = Heard::default();
     let mut during_reads = BTreeMap::new();
     let runtime = tokio::runtime::Builder::new_current_thread()

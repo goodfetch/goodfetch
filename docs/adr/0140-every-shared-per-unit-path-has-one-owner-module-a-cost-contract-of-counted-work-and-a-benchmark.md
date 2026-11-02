@@ -173,6 +173,10 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`C1.file_opens`' Today of 2 is a bound, not a figure.** The command log's writer does 2 opens per batch, and a batch holds at least one command, so 2 per command is the most it can cost. The printed figure follows the socket's timing (48 or 50 over 35 commands in 66 runs, and 40 over 21 with the Filter lists off), so holding it to a measured figure would fail at random. The other three rows repeat exactly. #1881 keeps the 2, and #1891 and #1890 replace the writer it describes.
 > - **`C1.log_sends_off` counts in every cell** until #1891 gives the log an off, as the log has none: its Today of 1 is X9's gap, and #1891 adds the off cell the row names.
 
+> Note (agent decisions of #2036, pending owner review), 2026-11-02, on C6's rows before the Live view exists:
+> - **C6's five rows start at this ADR's values and say they have not run,** as F5's and F6's do: `xtask counts --path C6` prints each limit and "not run yet, until #959 builds its path", and fails, naming the row, once B2 counts any of its work. Their counters exist now, on the `live_view_frame` path label, so #959 counts at its seams and moves the rows to `xtask counts`' counted rows with their plants.
+> - **B2's viewer-off cell is `no_viewer`, and its default cell is the viewer-on one.** Today neither has a viewer, as no Live view exists, so the two run the same Session; `no_viewer` already checks that a Session with no viewer counts none of C6's work ("with no viewer, 0 work"), a check that holds whatever #959 builds. #959 gives the default cell its viewer, and its frames are the unit C6's rows divide by.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

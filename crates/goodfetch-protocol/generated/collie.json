@@ -10814,7 +10814,8 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "run_state"
           ]
         },
         {
@@ -10826,7 +10827,12 @@
             "file_opens",
             "locale_form_builds",
             "plugin_serializations",
-            "plugin_answer_parses"
+            "plugin_answer_parses",
+            "transactions",
+            "writer_reads",
+            "configuration_reads",
+            "prunes",
+            "effect_syncs"
           ]
         }
       ],

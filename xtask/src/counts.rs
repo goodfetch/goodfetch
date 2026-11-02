@@ -67,7 +67,7 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 7] = [
+const ROWS: [Row; 14] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -108,6 +108,50 @@ const ROWS: [Row; 7] = [
         name: "F1.plugin_answer_parses",
         family: "B1",
         unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F2.transactions",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
+    },
+    Row {
+        name: "F2.syncs",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
+    },
+    Row {
+        name: "F2.prepares",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F2.writer_reads",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F2.configuration_reads",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+    },
+    Row {
+        name: "F2.prunes",
+        family: "B1",
+        unit: "attempts",
+        happens: false,
+    },
+    // Its unit is the Effects its benchmark meets: none until the Effect
+    // journal lands (#1550), so 0 passes and a planted one fails.
+    Row {
+        name: "F2.effect_syncs",
+        family: "B1",
+        unit: "effects",
         happens: false,
     },
 ];
@@ -326,6 +370,24 @@ fn verdict(
                 ));
                 continue;
             };
+            if *units == 0 && !row.happens {
+                if *count == 0 {
+                    output::line(&format!(
+                        "{} [{}]: no {} in this cell",
+                        row.name, cell.name, row.unit
+                    ));
+                } else {
+                    findings.push(Finding::new(
+                        "over-limit",
+                        row.name,
+                        format!(
+                            "{count} with no {} in the cell `{}`, over its limit of {limit}",
+                            row.unit, cell.name
+                        ),
+                    ));
+                }
+                continue;
+            }
             if *units == 0 || (row.happens && *count == 0 && cell.name == DEFAULT_CELL) {
                 findings.push(Finding::new(
                     "work-not-done",

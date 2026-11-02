@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 26] = [
+const ROWS: [Row; 33] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -328,6 +328,55 @@ const ROWS: [Row; 26] = [
         happens: false,
         valgrind: None,
     },
+    Row {
+        name: "C5.fetch_messages_no_rule",
+        family: "B2",
+        unit: "requests",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.spawns",
+        family: "B2",
+        unit: "refusals",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.file_opens",
+        family: "B2",
+        unit: "refusals",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.matches",
+        family: "B2",
+        unit: "pauses",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.answers",
+        family: "B2",
+        unit: "pauses",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.compilations",
+        family: "B2",
+        unit: "pauses",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.entries",
+        family: "B2",
+        unit: "refusals",
+        happens: true,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -342,7 +391,7 @@ struct NotRunYet {
     builder: &'static str,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const NOT_RUN_YET: [NotRunYet; 10] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -373,6 +422,26 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
         family: "B1",
         builder: "#1121",
     },
+    NotRunYet {
+        name: "C5.cache_lookups",
+        family: "B2",
+        builder: "#793",
+    },
+    NotRunYet {
+        name: "C5.cache_file_opens",
+        family: "B2",
+        builder: "#793",
+    },
+    NotRunYet {
+        name: "C5.body_reads",
+        family: "B2",
+        builder: "#1291",
+    },
+    NotRunYet {
+        name: "C5.charset_refetches",
+        family: "B2",
+        builder: "#1783",
+    },
 ];
 
 #[derive(clap::Args)]
@@ -380,7 +449,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, E1, F4, C1).
+    /// Only this path's rows (F1, E1, F4, C1, C5).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -437,6 +506,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
         .iter()
         .filter(|_| !arguments.valgrind)
+        .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
     if rows.is_empty() && not_run_yet.is_empty() {

@@ -74,6 +74,51 @@ const ROWS: [Row; 1] = [Row {
     happens: true,
 }];
 
+/// A row of a Shared path whose code does not exist yet: it holds its limit
+/// and says it has not run, until the ticket that builds the path counts its
+/// work and moves it to [`ROWS`].
+struct NotRunYet {
+    /// Its name in the register, and the name its benchmark prints it under.
+    name: &'static str,
+    /// The family that will count it.
+    family: &'static str,
+    /// The ticket that builds its path.
+    builder: &'static str,
+}
+
+const NOT_RUN_YET: [NotRunYet; 6] = [
+    NotRunYet {
+        name: "F5.messages_no_hook",
+        family: "B1",
+        builder: "#1481",
+    },
+    NotRunYet {
+        name: "F5.calls",
+        family: "B1",
+        builder: "#1481",
+    },
+    NotRunYet {
+        name: "F5.builds",
+        family: "B1",
+        builder: "#1481",
+    },
+    NotRunYet {
+        name: "F6.opens",
+        family: "B1",
+        builder: "#1121",
+    },
+    NotRunYet {
+        name: "F6.transactions",
+        family: "B1",
+        builder: "#1121",
+    },
+    NotRunYet {
+        name: "F6.writer_reads",
+        family: "B1",
+        builder: "#1121",
+    },
+];
+
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
     /// Only this family's rows (B1).
@@ -116,26 +161,31 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let limits = register::limits(root)?;
     let rows: Vec<&Row> = ROWS
         .iter()
-        .filter(|row| {
-            arguments
-                .family
-                .as_deref()
-                .is_none_or(|family| family == row.family)
-        })
-        .filter(|row| {
-            arguments
-                .path
-                .as_deref()
-                .is_none_or(|path| row.name.split('.').next() == Some(path))
-        })
+        .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
-    if rows.is_empty() {
+    let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
+        .iter()
+        .filter(|row| arguments.asks_for(row.family, row.name))
+        .collect();
+    if rows.is_empty() && not_run_yet.is_empty() {
         bail!("no counted row matches the family and path asked for");
     }
     if let Some(planted) = &arguments.plant
         && !rows.iter().any(|row| row.name == planted)
     {
+        if let Some(row) = not_run_yet.iter().find(|row| row.name == planted) {
+            bail!("{planted} has not run yet: {} builds its path", row.builder);
+        }
         bail!("{planted} is no counted row of what runs");
+    }
+    for row in &not_run_yet {
+        let limit = limits
+            .get(row.name)
+            .with_context(|| format!("the Quality register has no row {}", row.name))?;
+        output::line(&format!(
+            "{}: not run yet, limit {limit}, until {} builds its path",
+            row.name, row.builder
+        ));
     }
     let executables = executables(arguments, environment, &rows)?;
     if arguments.prove {
@@ -171,8 +221,42 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             .filter(|row| row.family == family)
             .collect();
         findings.extend(verdict(&of_family, &cells, &limits)?);
+        findings.extend(
+            not_run_yet
+                .iter()
+                .filter(|row| row.family == family)
+                .filter_map(|row| done_though_not_run(row, &cells)),
+        );
     }
     Ok(check::report(&findings))
+}
+
+impl Arguments {
+    /// Whether the family and path asked for hold the row `name` of `family`.
+    fn asks_for(&self, family: &str, name: &str) -> bool {
+        self.family.as_deref().is_none_or(|asked| asked == family)
+            && self
+                .path
+                .as_deref()
+                .is_none_or(|path| name.split('.').next() == Some(path))
+    }
+}
+
+/// A finding when a cell did the work of `row`, which says it has not run: the
+/// ticket that builds its path gives it its limit's verdict by moving it.
+fn done_though_not_run(row: &NotRunYet, cells: &[Cell]) -> Option<Finding> {
+    let (cell, count) = cells.iter().find_map(|cell| {
+        let count = *cell.counts.get(row.name)?;
+        (count > 0).then_some((cell, count))
+    })?;
+    Some(Finding::new(
+        "row-listed-as-not-run",
+        row.name,
+        format!(
+            "the cell `{}` counted {count} of its work: move it to `ROWS` in `xtask counts`",
+            cell.name
+        ),
+    ))
 }
 
 /// Each family's executable: the one `--executable` names, else its built

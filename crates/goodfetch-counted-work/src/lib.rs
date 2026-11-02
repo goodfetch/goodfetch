@@ -94,11 +94,23 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C6.file_opens`: a file opened or a folder created for a Live view
+    /// frame.
+    LiveViewFileOpens,
+    /// `C6.compilations`: a selector, glob or regular expression compiled for
+    /// a Live view frame.
+    LiveViewCompilations,
+    /// `C6.spawns`: a task spawned for a Live view frame.
+    LiveViewSpawns,
+    /// `C6.acknowledgements`: a Live view frame's acknowledgement command.
+    LiveViewAcknowledgements,
+    /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
+    LiveViewSeals,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 31] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -125,6 +137,11 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::LiveViewFileOpens,
+        Self::LiveViewCompilations,
+        Self::LiveViewSpawns,
+        Self::LiveViewAcknowledgements,
+        Self::LiveViewSeals,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -152,6 +169,11 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::LiveViewFileOpens
+            | Self::LiveViewCompilations
+            | Self::LiveViewSpawns
+            | Self::LiveViewAcknowledgements
+            | Self::LiveViewSeals => "live_view_frame",
         }
     }
 
@@ -162,7 +184,7 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
+            Self::PageFileOpens | Self::CdpFileOpens | Self::LiveViewFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
@@ -181,6 +203,10 @@ impl Row {
             Self::SinkTransactions | Self::RecordTransactions => "transactions",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::LiveViewCompilations => "compilations",
+            Self::LiveViewSpawns => "spawns",
+            Self::LiveViewAcknowledgements => "acknowledgements",
+            Self::LiveViewSeals => "seals",
         }
     }
 
@@ -214,6 +240,11 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::LiveViewFileOpens => "C6.file_opens",
+            Self::LiveViewCompilations => "C6.compilations",
+            Self::LiveViewSpawns => "C6.spawns",
+            Self::LiveViewAcknowledgements => "C6.acknowledgements",
+            Self::LiveViewSeals => "C6.seals",
         }
     }
 

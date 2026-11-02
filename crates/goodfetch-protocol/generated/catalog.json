@@ -1756,6 +1756,7 @@
             "cdp_command",
             "hook_stage",
             "json_rpc_message",
+            "live_view_frame",
             "page_analysis",
             "record",
             "sink_delivery"
@@ -1785,7 +1786,11 @@
             "serializations",
             "constant_lookups",
             "sends",
-            "log_sends_off"
+            "log_sends_off",
+            "compilations",
+            "spawns",
+            "acknowledgements",
+            "seals"
           ]
         }
       ],

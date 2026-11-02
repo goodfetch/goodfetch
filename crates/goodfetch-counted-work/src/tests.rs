@@ -94,6 +94,11 @@ fn each_row_counts_on_its_own() {
             ("C1.sends", 0),
             ("C1.file_opens", 0),
             ("C1.log_sends_off", 0),
+            ("C6.file_opens", 0),
+            ("C6.compilations", 0),
+            ("C6.spawns", 0),
+            ("C6.acknowledgements", 0),
+            ("C6.seals", 0),
         ]
     );
 }

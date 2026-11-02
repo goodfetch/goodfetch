@@ -114,6 +114,14 @@ Adopted from recommendations R3, R4 and R9 of the 2026-10-31 research, as amendm
 - **No gate is informational without an owner and an expiry (R4).** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends. `GATING` being `Informational` is such a waiver: it is an Exception of the register, on ADR 0071's comparison and the ceilings, ending at #1577's merge or on 2027-01-30, whichever comes first. Meanwhile the rows of this ADR gate from their pull request.
 - **The instruction ratio against Spider is counted, and blocks once tuned (R9).** Foxhound's instructions per page against Spider's, both under Callgrind on scenario 1 of ADR 0138's matrix, is a Measured row; it was 32 times on the 2026-10-30 profile. Its ceiling is set from #1577's tuned figure, and it gates from that pull request. The matrix's wall-time cells stay Performance targets.
 
+  > Note (agent decisions of #1877, pending owner review), 2026-11-02:
+  >
+  > - The pin is a file, `ci/perf-reference.toml`, holding the revision; none pinned reports "not run yet", and a missing file fails `xtask perf build`, so losing it cannot stop the gate quietly. Moving it selects every bench target.
+  > - The reference measures the head's selected targets it has, so a figure the head no longer measures is not compared; the ceilings keep their own check on a lost benchmark.
+  > - The drift gate fails whatever `GATING` says, as this section says of this ADR's rows, and no "Performance change" section passes it.
+  > - Scenario 1's `run_state.durability: off` and `frontier.learning: false` (ADR 0138) do not exist yet. Until #1577 adds them, the ratio's Foxhound runs use `fast`, the setting the 2026-10-30 profile ran in, and the default learning; #1577's pull request adds both to the cell, in `xtask/src/rss/crawl.rs`'s `Settings::Raw`, before it sets the ceiling.
+  > - The cell counts each whole process under Callgrind, its start and exit included, and takes the median of 3 runs of each tool.
+
 ### Open questions
 
 These are recorded here, and each blocks only the tickets that would extend its path:
@@ -132,6 +140,16 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **A row's limit is its Today figure, else its Contract.** `F1.parses` starts at the 8 it measures, under Exception X1, because its contract of 1 would fail its first gate, against "Retroactive adoption" above.
 > - **The metric's labels are `shared_path` and `work`,** not `path` and `work`: the protocol's metric test refuses a label named `path`, which elsewhere holds a URL's, and every label's value is a lowercase word, so `shared_path` takes the path's name, `page_analysis`, and not `F1`.
 > - **Which parses count:** the eight sites B1 reaches. Every other raw parse carries an `#[expect]` naming this ADR, so it counts once the Shared paths audit, or a ticket extending B1 to its outcome, moves it onto the counted function. A row's figure sees only what its fixture reaches.
+>
+> Note (agent decisions of #1870, pending owner review), 2026-11-02, on B3's first rows:
+> - **B3's first scenario is `goodfetch-engine`'s `benches/messages.rs`,** which `examples/counts.rs`, the Callgrind and DHAT targets and a test share. "A `crawl.request_handled` Record" reads as `crawl_request.handle`'s reply with a large Record, as no message has that name. "A Plugin's messages" reads as a Code Plugin's: a call that sends the program a handler request and reads its reply; the process Plugins' handshake (#810) isn't built.
+> - **`route.fulfill` and the Plugin's call are stand-in handlers** on the engine's real dispatch: the engine depends on neither `goodfetch-page` nor Foxhound, and a browser would measure more than E1.
+> - **E1's counts sit at the seams, with no counted function:** `work.count` beside each `Value` clone and encode, since `Value::clone` and `to_vec` cannot be listed in `clippy.toml` usefully. The last encode into bytes counts where every line passes, the Connection's writer. A rewrite of a line the Mask changed is not counted: no message in the fixture holds a resolved value.
+> - **The one feature on the path that can be switched off is the Connection's log level:** `log_off` removes the `$/log` lines' encodes. `Redaction` changes no count.
+> - **Each row's small and large params are two rows,** as one limit cannot hold both, and bytes allocated got their own: `E1.instructions` and `E1.allocations` hold the small params, `E1.bytes_allocated` joins them, each with a `_large` row. Adding a row is a tightening.
+> - **The Valgrind rows' limit is their Today figure from this ticket,** ahead of the first-figures ticket: their Contract has no number until #1577, and a row with no limit could fail nothing. `E1.deep_copies` and `E1.encodes` start at what they measure, under X14.
+> - **A figure under Valgrind is a scenario less the benchmark's empty run,** so the engine's start-up neither hides a change nor passes as a message's cost. The `xtask counts` command reads it with `--valgrind`, in the merge gate's `perf` step, since these rows' "Runs at" is the merge gate.
+> - **`E1.decodes` has no counter:** no ticket of this spec names it.
 
 > Note (agent decisions of #1846, pending owner review), 2026-11-02, on the Page analysis's other rows:
 > - **A page's rows count from its first page.** B1's cell leaves out what `F1.selector_compilations`, `F1.readability_runs`, `F1.file_opens`, `F1.locale_form_builds` and the two Plugin rows counted before the crawl asked for its first page: a selector checked, a `match` pattern compiled and a locale's forms built once per crawl are no page's work (ADR 0138), so a contract of 0 holds them, and the same build moved onto each page counts at once. The cell checks that those forms were built, once.
@@ -155,6 +173,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`E6.robots_parses` and `E6.robots_reads` count in `goodfetch-frontier`'s shared copy,** which a crawl's Run reads: a read is each read of the copy from the file, and a parse is each file the copy or an answer gives, the only place `Fetched::File` is made on that path. A Run's own copies (`RunCopies`, Collie's) are not counted yet: B2's ticket counts them where a Session reads them.
 > - **`E6.script_sends` has no production site:** no Politeness store exists, so its counter is the count alone and its plant counts it, as `F2.effect_syncs`'.
 > - **`E6.off_work` is the sum of E6's counters in the cell `politeness_and_robots_txt_off`** (delay 0, no per-domain limit, `site_preferences.respect_robots_txt` false), over its attempts; no other cell has its unit. Politeness and robots.txt off cost the same as on today, so X19 waives it with the other rows, and neither off cell removes a row until the Shared paths spec makes off cost nothing (ADR 0138).
+
+> Note (agent decisions of #1853, pending owner review), 2026-11-02, on F4's rows:
+> - **A Record's validator build has its counted function in `goodfetch-dataset`, `counted_validator`,** not in `goodfetch-counted-work`: that crate sits beneath the engine, so holding it there would link `jsonschema` into Collie and every linked engine, which build no validator.
+> - **A row counts the Record's path, not every use of its primitive.** `Datasets::read_for_records` counts `F4.declaration_reads`; a reader of a Dataset uses plain `Datasets::read`, whose unit is no Record. `Datasets::declare`'s one build per Run is not counted, being what the contract allows.
+> - **`F4.constant_lookups` counts two lookups:** the schema hash's subquery per insert, and the Clean-up rules' digest read per commit. Exception X8 takes the row, as the first measure found it.
+> - **`F4.transactions` counts `crawl_request.push`'s own write,** which a commit hook could not tell from the attempt's commit. The code-free crawl pushes nothing, so B1 reads 0 until a ticket gives its fixture a handler.
+> - **B1's fixture needs no change for this row:** the code-free crawl's `pages` Dataset already has a schema. A Dataset's schema cannot be switched off there, as a crawl with `extraction` declares its own; the rows run in B1's other cells.
 
 ## Considered Options
 

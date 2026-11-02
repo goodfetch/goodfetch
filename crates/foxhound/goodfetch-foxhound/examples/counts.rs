@@ -66,6 +66,15 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
         }),
         other if other.starts_with("F2.") => run_state_plant(other, &PlantOn { work, vfs }),
         other if other.starts_with("E6.") => politeness_plant(other, work),
+        "F4.validator_builds" => Arc::new(move |_: &str| {
+            let _ = goodfetch_dataset::counted_validator(&counted, &json!({}));
+        }),
+        "F4.declaration_reads" => counting(counted, Row::RecordDeclarationReads),
+        "F4.validations" => counting(counted, Row::RecordValidations),
+        "F4.serializations" => counting(counted, Row::RecordSerializations),
+        "F4.deep_copies" => counting(counted, Row::RecordDeepCopies),
+        "F4.constant_lookups" => counting(counted, Row::RecordConstantLookups),
+        "F4.transactions" => counting(counted, Row::RecordTransactions),
         other => Row::ALL
             .into_iter()
             .find(|row| row.name() == other)
@@ -139,6 +148,11 @@ const EFFECTS: u64 = 0;
 /// The paragraphs of the fixture's smallest page, about 1 kB: all a
 /// `--callgrind` run serves a page.
 const CALLGRIND_PAGE: usize = PAGES[0];
+
+/// The plant of a row counted at its seam, which no function wraps.
+fn counting(work: CountedWork, row: Row) -> Plant {
+    Arc::new(move |_: &str| work.count(row))
+}
 
 /// One cell: a name, the settings it runs with beside the fixture's, and the
 /// rows it must count fewer of than the default cell: a feature's work goes
@@ -446,6 +460,7 @@ fn main() {
         let units = json!({
             "pages": cell.pages, "attempts": cell.attempts, "runs": RUNS, "effects": EFFECTS,
             "permits": cell.requests, "requests": cell.requests, "origins": ORIGINS,
+            "records": cell.pages,
             "off_attempts": if off { cell.attempts } else { 0 },
         });
         println!(

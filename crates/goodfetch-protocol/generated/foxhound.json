@@ -15581,14 +15581,20 @@
         {
           "name": "shared_path",
           "values": [
+            "hook_stage",
+            "json_rpc_message",
             "page_analysis",
+            "politeness_permit",
+            "record",
             "run_state",
-            "politeness_permit"
+            "sink_delivery"
           ]
         },
         {
           "name": "work",
           "values": [
+            "deep_copies",
+            "encodes",
             "parses",
             "selector_compilations",
             "readability_runs",
@@ -15604,7 +15610,15 @@
             "opens",
             "script_sends",
             "robots_parses",
-            "robots_reads"
+            "robots_reads",
+            "builds",
+            "calls",
+            "messages_no_hook",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "constant_lookups"
           ]
         }
       ],

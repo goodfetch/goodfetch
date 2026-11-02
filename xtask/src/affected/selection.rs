@@ -453,6 +453,10 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
     } else {
         BTreeSet::new()
     };
+    // A newly pinned reference build is compared at once, on every benchmark.
+    let reference_moved = paths
+        .iter()
+        .any(|path| path.as_str() == perf::REFERENCE_FILE);
     let bench_targets: BTreeSet<String> = reached
         .iter()
         .copied()
@@ -460,7 +464,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
             members
                 .iter()
                 .copied()
-                .filter(|krate| ceilinged.contains(krate.name.as_str())),
+                .filter(|krate| reference_moved || ceilinged.contains(krate.name.as_str())),
         )
         .flat_map(|krate| {
             krate

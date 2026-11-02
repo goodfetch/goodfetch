@@ -7,6 +7,10 @@ use super::{
     FormatsRequest, HtmlFormat, HtmlKind, MarkdownContent, MarkdownFormat, page_formats_schema,
 };
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's own validator, on no Shared path (ADR 0140)"
+)]
 fn valid(schema: &Value, instance: &Value) -> bool {
     jsonschema::validator_for(schema)
         .expect("the result's schema is a JSON Schema")

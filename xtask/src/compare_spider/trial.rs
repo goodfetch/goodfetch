@@ -3,6 +3,8 @@
 //! of its waited-for children is the tool's alone (the resident-memory
 //! check's peak reader), drives it through one crawl of the site, and
 //! prints `seconds=<s> peak-bytes=<n>`, from the tool's start to its exit.
+//! A trial of the Callgrind cell runs the tool under Callgrind on ADR 0138's
+//! scenario 1; the instructions it counted are in the file it was given.
 use std::ffi::OsString;
 use std::io::Read as _;
 use std::path::Path;
@@ -11,7 +13,7 @@ use std::time::Instant;
 
 use anyhow::{Context as _, Result, bail};
 
-use crate::rss::crawl::{self, HOST, Site};
+use crate::rss::crawl::{self, HOST, Settings, Site};
 use crate::rss::peak;
 
 use super::trials::Tool;
@@ -19,7 +21,8 @@ use super::trials::Tool;
 /// Runs `tool`'s `executable` through one crawl of `site` and returns its
 /// seconds from start to exit and its peak resident memory in bytes.
 /// `goodfetch_variables` are this process's Goodfetch variables, which the
-/// tool runs without.
+/// tool runs without. With `callgrind`, the tool runs under Callgrind, which
+/// writes its output there.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial starts the tool as a blocking child process (STYLE.md)"
@@ -29,9 +32,24 @@ pub(crate) fn run(
     executable: &Path,
     site: &Site<'_>,
     goodfetch_variables: &[OsString],
+    callgrind: Option<&Path>,
 ) -> Result<(f64, u64)> {
     let home = tempfile::tempdir().context("creating the tool's data folder")?;
-    let mut command = Command::new(executable);
+    let mut command = match callgrind {
+        Some(output) => {
+            let mut valgrind = Command::new(VALGRIND);
+            valgrind
+                .args(["--tool=callgrind", "--quiet"])
+                .arg(format!("--callgrind-out-file={}", output.display()))
+                .arg(executable);
+            valgrind
+        }
+        None => Command::new(executable),
+    };
+    let settings = match callgrind {
+        Some(_) => Settings::Raw,
+        None => Settings::CodeFree,
+    };
     command.stdout(Stdio::piped()).stderr(Stdio::inherit());
     // Neither tool reads Goodfetch's variables a shell may hold, such as
     // a test's: Foxhound refuses one it does not deploy with.
@@ -64,12 +82,42 @@ pub(crate) fn run(
         match tool {
             Tool::Foxhound => {
                 let stdin = child.stdin.take().context("the engine's stdin is piped")?;
-                crawl::crawl(stdin, stdout, site)
+                crawl::crawl(stdin, stdout, site, settings)
             }
             Tool::Spider => read_spider(stdout),
         }
     })?;
     Ok((started.elapsed().as_secs_f64(), peak))
+}
+
+/// Valgrind's program name.
+const VALGRIND: &str = "valgrind";
+
+/// Why this host cannot run the Callgrind cell, when it cannot.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: it asks Valgrind for its version with a blocking child process (STYLE.md)"
+)]
+pub(crate) fn callgrind_missing() -> Option<String> {
+    let installed = Command::new(VALGRIND)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    (!installed).then(|| "Valgrind is not installed on this host".to_owned())
+}
+
+/// The instructions a Callgrind output file totals: its `totals:` line, of
+/// the one event it counted.
+pub(crate) fn instructions_of(output: &str) -> Result<u64> {
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix("totals:"))
+        .context("Callgrind's output holds no `totals:` line")?
+        .trim()
+        .parse()
+        .context("parsing Callgrind's total")
 }
 
 /// The moment a trial's timing starts from.
@@ -92,3 +140,6 @@ fn read_spider(mut stdout: ChildStdout) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

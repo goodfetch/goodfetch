@@ -12,6 +12,7 @@
 //! [`Query`] takes, in number order: the one query a reader, an Export and
 //! a Sink share.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetRecord;
@@ -77,6 +78,8 @@ pub struct Committing<'a> {
     pub provenance: &'a RecordProvenance,
     /// The engine's masks, which hold the values the Run resolved.
     pub masks: &'a Masks,
+    /// Where each Record's work is counted (F4, ADR 0140).
+    pub work: &'a CountedWork,
 }
 
 /// Commits `records`, which the attempt `committing` names staged, in
@@ -105,7 +108,13 @@ pub fn commit(
         serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
     );
     let mut counted: Vec<DatasetRecords> = Vec::new();
+    let work = committing.work;
     for record in records.records() {
+        // What the row below does per Record: the masked copy of its data,
+        // its JSON text, and the subquery on its Run's constant schema hash.
+        work.count(Row::RecordDeepCopies);
+        work.count(Row::RecordSerializations);
+        work.count(Row::RecordConstantLookups);
         insert.execute((
             &record.dataset,
             committing.request_id,

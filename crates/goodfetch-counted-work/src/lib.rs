@@ -78,11 +78,44 @@ pub enum Row {
     RobotsParses,
     /// `E6.robots_reads`: a read of that copy from the Politeness file.
     RobotsReads,
+    /// `E1.deep_copies`: a whole copy of what a Client's message carries.
+    MessageDeepCopies,
+    /// `E1.encodes`: an encode of what the engine sends, into bytes or into
+    /// a `Value` that is encoded again.
+    MessageEncodes,
+    /// `F5.messages_no_hook`: a message or its formatting for a stage with no
+    /// Hook on it.
+    HookMessagesNoHook,
+    /// `F5.calls`: a request out to a Hook called.
+    HookCalls,
+    /// `F5.builds`: a Hook chain's build or compilation at a stage.
+    HookBuilds,
+    /// `F6.opens`: a store open or statement preparation for a delivered batch.
+    SinkOpens,
+    /// `F6.transactions`: a transaction for a delivered batch.
+    SinkTransactions,
+    /// `F6.writer_reads`: a read through the run file's writer for a delivered
+    /// batch.
+    SinkWriterReads,
+    /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
+    RecordDeclarationReads,
+    /// `F4.validator_builds`: a validator built to check a Record.
+    RecordValidatorBuilds,
+    /// `F4.validations`: a validation of a Record against its Dataset's schema.
+    RecordValidations,
+    /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
+    RecordSerializations,
+    /// `F4.deep_copies`: a deep copy of a Record's data.
+    RecordDeepCopies,
+    /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
+    RecordConstantLookups,
+    /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
+    RecordTransactions,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 32] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -100,6 +133,21 @@ impl Row {
         Self::PolitenessScriptSends,
         Self::RobotsParses,
         Self::RobotsReads,
+        Self::MessageDeepCopies,
+        Self::MessageEncodes,
+        Self::HookMessagesNoHook,
+        Self::HookCalls,
+        Self::HookBuilds,
+        Self::SinkOpens,
+        Self::SinkTransactions,
+        Self::SinkWriterReads,
+        Self::RecordDeclarationReads,
+        Self::RecordValidatorBuilds,
+        Self::RecordValidations,
+        Self::RecordSerializations,
+        Self::RecordDeepCopies,
+        Self::RecordConstantLookups,
+        Self::RecordTransactions,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -124,6 +172,16 @@ impl Row {
             | Self::PolitenessScriptSends
             | Self::RobotsParses
             | Self::RobotsReads => "politeness_permit",
+            Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
+            Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
+            Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
+            Self::RecordDeclarationReads
+            | Self::RecordValidatorBuilds
+            | Self::RecordValidations
+            | Self::RecordSerializations
+            | Self::RecordDeepCopies
+            | Self::RecordConstantLookups
+            | Self::RecordTransactions => "record",
         }
     }
 
@@ -138,15 +196,28 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::RunTransactions | Self::PolitenessTransactions => "transactions",
-            Self::WriterReads => "writer_reads",
             Self::ConfigurationReads => "configuration_reads",
             Self::Prunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
-            Self::PolitenessOpens => "opens",
             Self::PolitenessScriptSends => "script_sends",
             Self::RobotsParses => "robots_parses",
             Self::RobotsReads => "robots_reads",
+            Self::MessageEncodes => "encodes",
+            Self::HookMessagesNoHook => "messages_no_hook",
+            Self::HookCalls => "calls",
+            Self::HookBuilds => "builds",
+            Self::PolitenessOpens | Self::SinkOpens => "opens",
+            Self::WriterReads | Self::SinkWriterReads => "writer_reads",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations => "validations",
+            Self::RecordSerializations => "serializations",
+            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::RunTransactions
+            | Self::PolitenessTransactions
+            | Self::SinkTransactions
+            | Self::RecordTransactions => "transactions",
         }
     }
 
@@ -171,6 +242,21 @@ impl Row {
             Self::PolitenessScriptSends => "E6.script_sends",
             Self::RobotsParses => "E6.robots_parses",
             Self::RobotsReads => "E6.robots_reads",
+            Self::MessageDeepCopies => "E1.deep_copies",
+            Self::MessageEncodes => "E1.encodes",
+            Self::HookMessagesNoHook => "F5.messages_no_hook",
+            Self::HookCalls => "F5.calls",
+            Self::HookBuilds => "F5.builds",
+            Self::SinkOpens => "F6.opens",
+            Self::SinkTransactions => "F6.transactions",
+            Self::SinkWriterReads => "F6.writer_reads",
+            Self::RecordDeclarationReads => "F4.declaration_reads",
+            Self::RecordValidatorBuilds => "F4.validator_builds",
+            Self::RecordValidations => "F4.validations",
+            Self::RecordSerializations => "F4.serializations",
+            Self::RecordDeepCopies => "F4.deep_copies",
+            Self::RecordConstantLookups => "F4.constant_lookups",
+            Self::RecordTransactions => "F4.transactions",
         }
     }
 

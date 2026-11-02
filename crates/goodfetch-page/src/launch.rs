@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_cdp::Connection;
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
     BrowserCache, BrowserChoice, BrowserSource, BuildPlatform, CacheLocation, HeldArtifact, Pins,
@@ -252,8 +253,8 @@ pub(crate) async fn launch(
     if browsers != temporary {
         command.env("TMPDIR", browsers);
     }
-    let (connection, driver, mut child) =
-        start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
+    let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone())
+        .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
     // says whether its sandbox can start: one the restriction holds is
@@ -393,14 +394,17 @@ pub(crate) struct Process {
 /// Starts `command` with its debugging pipe: the browser's connection,
 /// its driver, and its process.
 #[cfg(unix)]
-fn start(mut command: Command) -> std::io::Result<(Connection, Driving, Process)> {
+fn start(
+    mut command: Command,
+    work: CountedWork,
+) -> std::io::Result<(Connection, Driving, Process)> {
     let (engine, browser) = pipe::attach(&mut command)?;
     let mut group = Children::new()?;
     let child = group.spawn(command)?;
     // The parent's copies of the browser's ends close now, so its end of the
     // pipe closes when it exits.
     drop(browser);
-    let (connection, driver) = Connection::new(engine.reader, engine.writer);
+    let (connection, driver) = Connection::new(engine.reader, engine.writer, work);
     Ok((
         connection,
         Box::pin(driver.run()),
@@ -412,7 +416,7 @@ fn start(mut command: Command) -> std::io::Result<(Connection, Driving, Process)
 }
 
 #[cfg(not(unix))]
-fn start(_command: Command) -> std::io::Result<(Connection, Driving, Process)> {
+fn start(_command: Command, _work: CountedWork) -> std::io::Result<(Connection, Driving, Process)> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "the debugging pipe is not built on this OS yet",

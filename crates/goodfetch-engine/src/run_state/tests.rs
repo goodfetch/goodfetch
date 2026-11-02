@@ -11,7 +11,8 @@ mod model;
 
 use std::time::Duration;
 
-use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
+use goodfetch_counted_work::Row;
+use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
 use super::{
@@ -481,4 +482,77 @@ fn acknowledged_writes_are_there_after_the_file_opens_again() {
     let reopened = with_writer(&env, 1, async |state| state.read(items).await.unwrap());
 
     assert_eq!(reopened, vec![5, 6]);
+}
+
+/// What a run file's transactions and its writer's reads count, beyond its
+/// opening, once `test` ran on its writer.
+fn counted(test: impl AsyncFnOnce(&RunState)) -> (u64, u64) {
+    let env = TestEnv::new();
+    let options = RunStateOptions::default();
+    let work = options.work.clone();
+    let opening = with_writer_options(&env, &options, async |state| {
+        let opening = work.read(Row::RunTransactions);
+        test(state).await;
+        opening
+    });
+    (
+        work.read(Row::RunTransactions) - opening,
+        work.read(Row::WriterReads),
+    )
+}
+
+/// ADR 0138's note: a transaction is one job on the writer, whatever group it
+/// commits in, so three jobs count three whether they commit in one group or
+/// in three.
+#[test]
+fn a_writers_transactions_count_its_jobs_whatever_group_they_commit_in() {
+    let apart = counted(async |state| {
+        for _ in 0..3 {
+            state.write(|_| Ok(())).await.unwrap();
+        }
+    });
+    let grouped = counted(async |state| {
+        let (first, second, third) = tokio::join!(
+            state.write(|_| Ok(())),
+            state.write(|_| Ok(())),
+            state.write(|_| Ok(()))
+        );
+        first.unwrap();
+        second.unwrap();
+        third.unwrap();
+    });
+
+    assert_eq!((apart.0, grouped.0), (3, 3));
+}
+
+/// A read through the writer counts as a read, and as the job it is.
+#[test]
+fn a_read_through_the_writer_counts_one_read_and_one_transaction() {
+    let counts = counted(async |state| {
+        state.read(|_| Ok(())).await.unwrap();
+    });
+
+    assert_eq!(counts, (1, 1));
+}
+
+/// A group that does not commit counts no transaction.
+#[test]
+fn a_group_the_file_refuses_counts_no_transaction() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register("counted-refused-group", 7).unwrap();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        ..RunStateOptions::default()
+    };
+    let work = options.work.clone();
+
+    let (before, refused) = with_writer_options(&env, &options, async |state| {
+        let before = work.read(Row::RunTransactions);
+        vfs.crash(CrashKind::Process);
+        let (first, second) = tokio::join!(state.write(|_| Ok(())), state.write(|_| Ok(())));
+        (before, first.is_err() && second.is_err())
+    });
+
+    assert!(refused);
+    assert_eq!(work.read(Row::RunTransactions), before);
 }

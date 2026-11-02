@@ -6,6 +6,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 
 use rstest::rstest;
@@ -32,21 +33,24 @@ fn isbn() -> Value {
 /// The code of what `rules` answers `payload` enqueued under `label`, and
 /// the paths of its issues.
 fn checked(rules: &PayloadRules, label: &str, payload: Option<&Value>) -> Option<(String, Value)> {
-    rules.check(label, payload).err().map(|error| {
-        let details = error.details().unwrap();
-        (
-            error.code().to_owned(),
-            json!({
-                "limit": details.get("limit"),
-                "paths": details.get("issues").map(|issues| issues
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|issue| issue["path"].clone())
-                    .collect::<Vec<_>>()),
-            }),
-        )
-    })
+    rules
+        .check(label, payload, &CountedWork::default())
+        .err()
+        .map(|error| {
+            let details = error.details().unwrap();
+            (
+                error.code().to_owned(),
+                json!({
+                    "limit": details.get("limit"),
+                    "paths": details.get("issues").map(|issues| issues
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|issue| issue["path"].clone())
+                        .collect::<Vec<_>>()),
+                }),
+            )
+        })
 }
 
 fn too_long() -> Option<(String, Value)> {
@@ -110,7 +114,7 @@ fn run_file(recorded: &PayloadRules, payloads: &[(&str, Value)]) -> Connection {
     }
     recorded.record(&connection).unwrap();
     for (request, payload) in payloads {
-        store(&connection, request, Some(payload)).unwrap();
+        store(&connection, request, Some(payload), &CountedWork::default()).unwrap();
     }
     connection
 }

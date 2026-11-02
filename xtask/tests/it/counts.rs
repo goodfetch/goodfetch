@@ -1,5 +1,6 @@
 //! `xtask counts` (ADR 0140): each row's figure against the limit the Quality
-//! register holds, over a stand-in benchmark that prints what a real one does.
+//! register holds, over a stand-in benchmark that prints what a real one does,
+//! run as the family B1 so that no other family's benchmark is built.
 //! The real benchmark's run is `just counts`, and its own tests are
 //! `goodfetch-foxhound`'s `in_memory_crawl`.
 
@@ -250,8 +251,8 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
 
     let outcome = workspace.xtask(&[
         "counts",
-        "--family",
-        "B3",
+        "--path",
+        "E1",
         "--executable",
         &format!("B3={}", path.display()),
     ]);
@@ -469,16 +470,40 @@ const OTHER_B1_ROWS: &str = "\
 | `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.transactions` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.syncs` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prepares` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.writer_reads` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.configuration_reads` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prunes` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.effect_syncs` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.payload` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.payload_serializations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.validations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
-/// benchmark prints over 13 pages, their 13 Records and 13 Run-trace entries
-/// `parses` parses, one readability run a page, one validation and one
-/// serialization a Record, none of the other rows' work, then `extra` as it is, and 13 more of the row
-/// it is told to plant.
+/// benchmark prints over 13 pages and their 13 Records `parses` parses, one
+/// readability run a page, one validation and one serialization a Record, one
+/// Payload serialized and validated over one links batch, one transaction,
+/// sync and configuration read over one attempt and one Run, over 13
+/// Run-trace entries none of their rows' work, none of the other rows' work,
+/// then `extra` as it is, and 13 more of the row it is told to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -500,6 +525,28 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F4.deep_copies", 0),
         ("F4.constant_lookups", 0),
         ("F4.transactions", 0),
+        ("F2.transactions", 1),
+        ("F2.syncs", 1),
+        ("F2.prepares", 0),
+        ("F2.writer_reads", 0),
+        ("F2.configuration_reads", 1),
+        ("F2.prunes", 0),
+        ("F2.effect_syncs", 0),
+        ("F3.invariant_reads", 0),
+        ("F3.invariant_reads.hop", 0),
+        ("F3.invariant_reads.sitemap", 0),
+        ("F3.compilations", 0),
+        ("F3.compilations.hop", 0),
+        ("F3.compilations.sitemap", 0),
+        ("F3.compilations.payload", 0),
+        ("F3.prepares", 0),
+        ("F3.prepares.hop", 0),
+        ("F3.prepares.sitemap", 0),
+        ("F3.transactions", 0),
+        ("F3.transactions.hop", 0),
+        ("F3.transactions.sitemap", 0),
+        ("F3.payload_serializations", 1),
+        ("F3.validations", 1),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
         ("E5.formatting_off", 0),
@@ -509,7 +556,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"entries\":13}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0,\"entries\":13}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -582,6 +629,247 @@ fn proving_leaves_a_row_not_run_yet_out() {
     );
     assert!(
         outcome.stdout.contains("F5.calls: not run yet"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// Every F3 row, in what a benchmark prints and the register holds.
+const FRONTIER_ROWS: [&str; 15] = [
+    "F3.invariant_reads",
+    "F3.invariant_reads.hop",
+    "F3.invariant_reads.sitemap",
+    "F3.compilations",
+    "F3.compilations.hop",
+    "F3.compilations.sitemap",
+    "F3.compilations.payload",
+    "F3.prepares",
+    "F3.prepares.hop",
+    "F3.prepares.sitemap",
+    "F3.transactions",
+    "F3.transactions.hop",
+    "F3.transactions.sitemap",
+    "F3.payload_serializations",
+    "F3.validations",
+];
+
+/// The register's F3 rows, each with the limit 1.
+fn frontier_register() -> String {
+    let rows = FRONTIER_ROWS
+        .map(|row| {
+            format!(
+                "| `{row}` | its work | 99 | 1 | B1 | must not grow | `xtask counts` | implementer done |"
+            )
+        })
+        .join("\n");
+    format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    )
+}
+
+/// A benchmark that prints every F3 count, each outcome one unit and each
+/// count 1, except `counted`, whose count is 5.
+fn frontier_benchmark(counted: &str) -> String {
+    let counts: Vec<String> = FRONTIER_ROWS
+        .iter()
+        .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
+        .collect();
+    format!(
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}}}}}'\n",
+        counts.join(",")
+    )
+}
+
+/// A hop's work is its own row: over its limit it fails, divided by its hops
+/// and not by the batches.
+#[test]
+fn a_hops_work_fails_its_own_row_divided_by_its_hops() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("F3.compilations.hop"));
+    workspace.write("TESTING.md", frontier_register().as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("over-limit", "F3.compilations.hop")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F3.compilations.hop [default]: 5 per hop, limit 1 (5 over 1)"),
+        "{}",
+        outcome.stdout
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("5 per hop in the cell `default`, over its limit of 1"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// Every outcome at its limit passes, and each of the six rows is printed.
+#[test]
+fn the_frontiers_rows_pass_at_their_limit_and_each_is_printed() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("none"));
+    workspace.write("TESTING.md", frontier_register().as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    for row in [
+        "F3.invariant_reads [default]: 1 per links batch",
+        "F3.compilations [default]",
+        "F3.prepares [default]",
+        "F3.transactions [default]",
+        "F3.payload_serializations [default]",
+        "F3.validations [default]",
+    ] {
+        assert!(outcome.stdout.contains(row), "{row}: {}", outcome.stdout);
+    }
+}
+
+/// A plant reaches only its own row's family: B1's benchmark knows no plant of
+/// B2's row, and fails when asked for one.
+#[test]
+fn a_plant_goes_to_the_family_of_its_row_alone() {
+    let register = register("8")
+        + "| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |\n";
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", register.as_bytes());
+    let b1 = "#!/bin/sh\n[ -n \"$1\" ] && exit 3\necho '{\"cell\":\"default\",\"units\":{\"pages\":13},\"counts\":{\"F1.parses\":104}}'\n";
+    let b2 = "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n";
+    let mut executables = Vec::new();
+    for (family, script) in [("B1", b1), ("B2", b2)] {
+        let file = format!("{family}.sh");
+        workspace.write(&file, script.as_bytes());
+        let path = workspace.path().join(&file);
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        executables.push(format!("{family}={}", path.display()));
+    }
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--executable",
+        &executables[0],
+        "--executable",
+        &executables[1],
+        "--plant",
+        "C1.sends",
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// A register of F2's rows, each of contract 1, and a benchmark printing them
+/// with no Effect, whose plant of `F2.effect_syncs` counts one each page.
+fn effectless() -> (Workspace, String) {
+    let rows = [
+        "transactions",
+        "syncs",
+        "prepares",
+        "writer_reads",
+        "configuration_reads",
+        "prunes",
+        "effect_syncs",
+    ]
+    .iter()
+    .map(|work| format!("| `F2.{work}` | it, per unit | 1 | after #1583 | B1 | must not grow | `xtask counts` | implementer done |"))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let register = format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    );
+    let line = "{\"cell\":\"default\",\"units\":{\"pages\":13,\"attempts\":13,\"runs\":1,\"effects\":0},\"counts\":{\"F2.transactions\":13,\"F2.syncs\":13,\"F2.prepares\":0,\"F2.writer_reads\":0,\"F2.configuration_reads\":1,\"F2.prunes\":0,\"F2.effect_syncs\":'$extra'}}";
+    let script =
+        format!("#!/bin/sh\nextra=0\n[ \"$2\" = F2.effect_syncs ] && extra=13\necho '{line}'\n");
+    let (workspace, executable) = workspace("8", &script);
+    workspace.write("TESTING.md", register.as_bytes());
+    (workspace, executable)
+}
+
+/// A row whose unit the fixture has none of, such as an Effect's until the
+/// Effect journal lands: nothing done passes and says so, and a planted unit
+/// still fails, naming the row.
+#[test]
+fn a_row_with_no_units_passes_at_zero_and_fails_when_planted() {
+    let (workspace, executable) = effectless();
+
+    let clean = workspace.xtask(&["counts", "--path", "F2", "--executable", &executable]);
+    let planted = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F2",
+        "--plant",
+        "F2.effect_syncs",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(
+        (clean.code, clean.findings()),
+        (0, vec![]),
+        "{}",
+        clean.stderr
+    );
+    assert!(
+        clean
+            .stdout
+            .contains("F2.effect_syncs [default]: no effects in this cell"),
+        "{}",
+        clean.stdout
+    );
+    assert_eq!(planted.code, 1, "{}", planted.stderr);
+    assert_eq!(
+        planted.findings(),
+        vec![finding("over-limit", "F2.effect_syncs")]
+    );
+    assert!(
+        planted
+            .stdout
+            .contains("13 with no effects in the cell `default`, over its limit of 1"),
+        "{}",
+        planted.stdout
+    );
+}
+
+/// A feature off may take a row's whole outcome away: it has no figure then,
+/// and fails nothing.
+#[test]
+fn a_feature_off_that_removes_the_outcome_has_no_figure() {
+    let script = "#!/bin/sh\n\
+         echo '{\"cell\":\"default\",\"units\":{\"pages\":13},\"counts\":{\"F1.parses\":104}}'\n\
+         echo '{\"cell\":\"a_feature_off\",\"units\":{\"pages\":0},\"counts\":{\"F1.parses\":0}}'\n";
+    let (workspace, executable) = workspace("8", script);
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F1.parses [a_feature_off]: no pages"),
         "{}",
         outcome.stdout
     );

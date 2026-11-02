@@ -80,6 +80,8 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
 proptest.workspace = true
+# The counts cell's Goodfetch home.
+tempfile.workspace = true
 rstest.workspace = true
 # The verifier that proves the relay's authority name-constrained.
 rustls = { workspace = true, features = ["ring", "std"] }

@@ -17,7 +17,12 @@ pub(crate) struct Count(AtomicU64);
 impl Count {
     /// Adds one.
     pub(crate) fn add_one(&self) {
-        self.0.fetch_add(1, Ordering::Relaxed);
+        self.add(1);
+    }
+
+    /// Adds `units`.
+    pub(crate) fn add(&self, units: u64) {
+        self.0.fetch_add(units, Ordering::Relaxed);
     }
 
     /// What it holds: some count that was true.

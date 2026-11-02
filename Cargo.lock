@@ -2292,6 +2292,7 @@ name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "goodfetch-counted-work",
  "goodfetch-test-support",
  "rstest",
  "serde",
@@ -2672,6 +2673,7 @@ dependencies = [
  "goodfetch-test-support",
  "gungraun",
  "insta",
+ "jiff",
  "mimalloc",
  "parquet",
  "pulldown-cmark",
@@ -2697,6 +2699,7 @@ dependencies = [
  "data-encoding",
  "encoding_rs",
  "flate2",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -2754,6 +2757,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-btls",

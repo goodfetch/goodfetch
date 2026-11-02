@@ -1452,6 +1452,7 @@ name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "goodfetch-counted-work",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1626,6 +1627,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "encoding_rs",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

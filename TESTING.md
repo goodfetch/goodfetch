@@ -1329,10 +1329,10 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow | none yet | none yet |
-| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C4.provenance_entries` | Provenance entries per navigation | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.provenance_entries` | Provenance entries per navigation | 1 | 1.334 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow | none yet | none yet |
@@ -1444,7 +1444,7 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 | X9 | `C1.file_opens`, `C1.log_sends_off` | C1 | the CDP command log is always on and its writer creates its folder and opens its file per batch (`goodfetch-page/src/driver.rs:312`, `goodfetch-page/src/trace.rs:93`, `:100`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X10 | `C2.commands`, `C2.world_creations`, `C2.document_worlds` | C2 | every read creates its isolated world (`goodfetch-page/src/driver.rs:1439`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X11 | `C3.script_sends`, `C3.check_commands` | C3 | every check sends `check.js`'s 9,631 bytes (`goodfetch-page/src/guard.rs:205`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X12 | `C4.detection_reads`, `C4.compilations` | C4 | up to 3 detection reads per navigation (`goodfetch-page/src/pages/blocked.rs:70`, `recovery.rs:257`, `consent.rs:212`); the Page check compiles its globs per judgment (`recovery.rs:179`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X12 | `C4.detection_reads`, `C4.compilations`, `C4.provenance_entries` | C4 | 4 detection reads per navigation on B2's first measure: the Block markers' (`goodfetch-page/src/pages/blocked.rs:72`), the Page check's or the built-in detector's (`recovery.rs:266`), the Consent prompt runner's first pass (`consent.rs:212`) and its start in each document (`consent.rs:412`), which cannot join the others (ADR 0140, open question 3); the Page check compiles its globs per judgment (`recovery.rs:182`); a Consent prompt's outcome writes a Provenance entry of its own beside the built-in detector's (`consent.rs:534`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X13 | `C5.spawns`, `C5.file_opens` | C5 | each refused request spawns a task that appends to the request log (`goodfetch-page/src/interception/pipeline.rs:1731`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X14 | `E1.deep_copies`, `E1.encodes` | E1 | each message is copied whole and walked about 5 times; each answer and event is encoded twice (`goodfetch-engine/src/rpc/framing.rs:179`, `composition.rs:438`, `rpc.rs:140`, `events.rs:202`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |

@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 26] = [
+const ROWS: [Row; 30] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -328,6 +328,34 @@ const ROWS: [Row; 26] = [
         happens: false,
         valgrind: None,
     },
+    Row {
+        name: "C4.detection_reads",
+        family: "B2",
+        unit: "navigations",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C4.compilations",
+        family: "B2",
+        unit: "navigations",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C4.script_compilations",
+        family: "B2",
+        unit: "navigations",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C4.provenance_entries",
+        family: "B2",
+        unit: "navigations",
+        happens: true,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -380,7 +408,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, C1, E1).
+    /// Only this path's rows (F1, C1, C4, E1).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).

@@ -67,7 +67,7 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 7] = [
+const ROWS: [Row; 10] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -108,6 +108,24 @@ const ROWS: [Row; 7] = [
         name: "F1.plugin_answer_parses",
         family: "B1",
         unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "E5.file_opens",
+        family: "B1",
+        unit: "entries",
+        happens: false,
+    },
+    Row {
+        name: "E5.spawns",
+        family: "B1",
+        unit: "entries",
+        happens: false,
+    },
+    Row {
+        name: "E5.formatting_off",
+        family: "B1",
+        unit: "entries",
         happens: false,
     },
 ];
@@ -342,7 +360,7 @@ fn verdict(
                 "{} [{}]: {figure} per {}, limit {limit} ({count} over {units})",
                 row.name,
                 cell.name,
-                row.unit.trim_end_matches('s'),
+                one(row.unit),
             ));
             if limit.exceeded_by(*count, *units) {
                 findings.push(Finding::new(
@@ -350,7 +368,7 @@ fn verdict(
                     row.name,
                     format!(
                         "{figure} per {} in the cell `{}`, over its limit of {limit}",
-                        row.unit.trim_end_matches('s'),
+                        one(row.unit),
                         cell.name
                     ),
                 ));
@@ -358,4 +376,13 @@ fn verdict(
         }
     }
     Ok(findings)
+}
+
+/// One of `units`, as a figure is read: `page` of `pages`, `entry` of
+/// `entries`.
+fn one(units: &str) -> &str {
+    match units {
+        "entries" => "entry",
+        other => other.strip_suffix('s').unwrap_or(other),
+    }
 }

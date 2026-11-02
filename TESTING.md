@@ -1285,7 +1285,7 @@ Limits that fail the merge gate. Every row has a number and a command.
 
 #### Counted work
 
-The rows of counted work, and those read under Valgrind, promoted from the Measured table by their first measure (#1881, 2026-11-02). Each row's "Today" is its figure on its benchmark, the worst of its cells, from `just counts` and, for the rows read under Valgrind, `just counts --valgrind`; each fails the merge gate one count over its limit (its Today, else its Contract; a Valgrind row 0.5 % over it), and `just counts --prove` plants one unit of each row's work and fails a counter that does not see it. `C1.file_opens`' 2 is a bound, not its figure, which moves with socket timing (#1861). A row whose path is not built yet stays in the Measured table, "not run yet", until the ticket that builds the path measures it and moves it here.
+The rows of counted work, and those read under Valgrind, promoted from the Measured table by their first measure (#1881, 2026-11-02). Each row's "Today" is its figure on its benchmark, the worst of its cells, from `just counts` and, for the rows read under Valgrind, `just counts --valgrind`; each fails the merge gate one count over its limit (its Today, else its Contract; a Valgrind row 0.5 % over it), and `just counts --prove` plants one unit of each row's work and fails a counter that does not see it. `C1.file_opens`' 2 is a bound, not its figure, which moves with socket timing (#1861). A row whose path is not built yet stays in the Measured table, "not run yet", until the ticket that builds the path measures it and moves it here. So do two rows whose benchmark does none of their work yet, though `just counts` counts them and `--prove` proves their counters: `F2.effect_syncs`, as B1 records no Effect until the Effect journal lands (#1550), and `E4.pool_walks`, as B2's Borrowed browser skips the pool's walk (X17).
 
 | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |
 |---|---|---|---|---|---|---|---|
@@ -1302,7 +1302,6 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F2.writer_reads` | reads through the writer per page | 0 | 1.847 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.configuration_reads` | configuration reads per Run | 1 | 41 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prunes` | prune passes per attempt | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
-| `F2.effect_syncs` | synced journal commits per Effect | 1 | no Effect yet (#1550) | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | 6 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.invariant_reads.hop` | reads of the Scope, Payload rules or Fragments per redirect hop | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.invariant_reads.sitemap` | reads of the Scope, Payload rules or Fragments per sitemap read | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
@@ -1368,7 +1367,6 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | 3 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | 2 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E4.process_reads` | memory reads per process per sample | 1 | 1.5 | B3 | must not grow | `just counts` | implementer done, merge gate |
-| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | 0 (a Borrowed browser skips the walk, #1874) | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | 2 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E5.spawns` | tasks spawned per Run-trace entry | 0 | 1 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | 0 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
@@ -1394,6 +1392,8 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | not run yet (#1783) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
 | `E1.decodes` | decodes per request, straight into typed params | 1 | no counter yet (B3 counts no decode) | B3 | must not grow | none yet | none yet |
 | `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | not run yet (#1306) | B3 | must not grow | `just counts --path E4` | implementer done, merge gate |
+| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | not reached on B2 (X17) | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | not run yet (#1550) | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |
 | `F5.calls` | requests out and typed decodes per Hook called | 1 each | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |
 | `F5.builds` | chain builds and compilations per stage | 0 | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |

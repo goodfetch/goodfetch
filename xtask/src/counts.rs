@@ -67,12 +67,56 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 1] = [Row {
-    name: "F1.parses",
-    family: "B1",
-    unit: "pages",
-    happens: true,
-}];
+const ROWS: [Row; 8] = [
+    Row {
+        name: "F1.parses",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+    },
+    Row {
+        name: "F4.declaration_reads",
+        family: "B1",
+        unit: "records",
+        happens: false,
+    },
+    Row {
+        name: "F4.validator_builds",
+        family: "B1",
+        unit: "records",
+        happens: false,
+    },
+    Row {
+        name: "F4.validations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+    },
+    Row {
+        name: "F4.serializations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+    },
+    Row {
+        name: "F4.deep_copies",
+        family: "B1",
+        unit: "records",
+        happens: false,
+    },
+    Row {
+        name: "F4.constant_lookups",
+        family: "B1",
+        unit: "records",
+        happens: false,
+    },
+    Row {
+        name: "F4.transactions",
+        family: "B1",
+        unit: "records",
+        happens: false,
+    },
+];
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {

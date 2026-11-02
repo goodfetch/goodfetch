@@ -36,8 +36,22 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
         "F1.parses" => Arc::new(move |head: &str| {
             let _ = work.parse_html(Row::PageParses, head);
         }),
+        "F4.validator_builds" => Arc::new(move |_: &str| {
+            let _ = goodfetch_dataset::counted_validator(&work, &json!({}));
+        }),
+        "F4.declaration_reads" => counting(work, Row::RecordDeclarationReads),
+        "F4.validations" => counting(work, Row::RecordValidations),
+        "F4.serializations" => counting(work, Row::RecordSerializations),
+        "F4.deep_copies" => counting(work, Row::RecordDeepCopies),
+        "F4.constant_lookups" => counting(work, Row::RecordConstantLookups),
+        "F4.transactions" => counting(work, Row::RecordTransactions),
         other => panic!("no plant for the row {other}"),
     }
+}
+
+/// The plant of a row counted at its seam, which no function wraps.
+fn counting(work: CountedWork, row: Row) -> Plant {
+    Arc::new(move |_: &str| work.count(row))
 }
 
 /// One cell: a name, the settings it runs with beside the fixture's, and the
@@ -146,7 +160,11 @@ fn main() {
             .collect();
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "pages": cell.pages }, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": { "pages": cell.pages, "records": cell.pages },
+                "counts": counts,
+            })
         );
     }
 }

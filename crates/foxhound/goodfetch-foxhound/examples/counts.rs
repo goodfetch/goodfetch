@@ -9,6 +9,11 @@
 //! `--plant <row>` does one extra unit of that row's work per page served,
 //! through its one counted function. The crawl fails here if the work it
 //! counts did not happen, or if a feature off did not take its work away.
+//!
+//! A page's rows of [`FROM_FIRST_PAGE`] leave out what the crawl's start did
+//! before its first page: a selector checked and a locale's forms built once
+//! per crawl are no page's work (ADRs 0138 and 0140), and a build moved onto
+//! each page counts at once.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stdout,
@@ -22,11 +27,11 @@
 )]
 mod scenarios;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
-use scenarios::{Options, PAGES, Plant, body_bytes, crawl_with};
+use scenarios::{Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
 use serde_json::{Map, Value, json};
 
 /// The plant of the row named `name`.
@@ -36,8 +41,33 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
         "F1.parses" => Arc::new(move |head: &str| {
             let _ = work.parse_html(Row::PageParses, head);
         }),
-        other => panic!("no plant for the row {other}"),
+        other => Row::ALL
+            .into_iter()
+            .find(|row| row.name() == other)
+            .and_then(|row| page_analysis_plant(row, &work))
+            .unwrap_or_else(|| panic!("no plant for the row {other}")),
     }
+}
+
+/// The rows counted from the crawl's first page on, not from its start.
+const FROM_FIRST_PAGE: [Row; 6] = [
+    Row::PageSelectorCompilations,
+    Row::PageReadabilityRuns,
+    Row::PageFileOpens,
+    Row::PageLocaleFormBuilds,
+    Row::PagePluginSerializations,
+    Row::PagePluginAnswerParses,
+];
+
+/// The field whose Value transform has the crawl build a locale's forms:
+/// the `h1`'s number, under `de-DE`, which only the pages holding one have.
+fn number_field() -> Map<String, Value> {
+    let field = json!({
+        "locator": { "kind": "css", "selector": "h1" },
+        "match": { "pattern": "[0-9]+", "group": 0 },
+        "transform": { "kind": "number", "locale": "de-DE" },
+    });
+    Map::from_iter([("number".to_owned(), field)])
 }
 
 /// One cell: a name, the settings it runs with beside the fixture's, and the
@@ -47,21 +77,30 @@ struct Cell {
     name: &'static str,
     settings: Value,
     removes: &'static [Row],
+    handler: bool,
 }
 
-fn cells() -> [Cell; 2] {
+fn cells() -> [Cell; 3] {
     [
         Cell {
             name: "default",
             settings: json!({}),
             removes: &[],
+            handler: false,
         },
         Cell {
             name: "filter_lists_off",
             settings: json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
-            removes: &[Row::PageParses],
+            removes: &[Row::PageParses, Row::PageSelectorCompilations],
+            handler: false,
+        },
+        Cell {
+            name: "document_tier_handler",
+            settings: json!({}),
+            removes: &[],
+            handler: true,
         },
     ]
 }
@@ -71,7 +110,20 @@ struct Counted {
     name: &'static str,
     pages: u64,
     work: CountedWork,
+    /// What [`FROM_FIRST_PAGE`] held when the first page was asked for.
+    started: Arc<OnceLock<Vec<u64>>>,
     removes: &'static [Row],
+}
+
+impl Counted {
+    /// What this cell counted on `row`.
+    fn count(&self, row: Row) -> u64 {
+        let before = FROM_FIRST_PAGE
+            .iter()
+            .position(|counted| *counted == row)
+            .map_or(0, |at| self.started.get().map_or(0, |started| started[at]));
+        self.work.read(row) - before
+    }
 }
 
 /// Runs `cell`, on an engine and in a home of its own.
@@ -83,6 +135,17 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
         Value::Object(settings) => settings,
         other => panic!("a cell's settings are an object, not {other}"),
     };
+    let planted = planted.map(|name| plant(name, &work));
+    let started = Arc::new(OnceLock::new());
+    let first_page: Plant = {
+        let (work, started) = (work.clone(), Arc::clone(&started));
+        Arc::new(move |head: &str| {
+            started.get_or_init(|| FROM_FIRST_PAGE.map(|row| work.read(row)).to_vec());
+            if let Some(planted) = &planted {
+                planted(head);
+            }
+        })
+    };
     let crawled = crawl_with(
         home.path(),
         std::time::UNIX_EPOCH,
@@ -90,7 +153,13 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
         Options {
             metrics,
             settings,
-            plant: planted.map(|name| plant(name, &work)),
+            plant: Some(first_page),
+            fields: if cell.handler {
+                Map::new()
+            } else {
+                number_field()
+            },
+            handler: cell.handler,
         },
     );
     assert_eq!(
@@ -98,15 +167,42 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
         body_bytes(),
         "the site sends each body once"
     );
-    assert_eq!(
-        crawled.records.len(),
-        PAGES.len() + 1,
-        "the crawl extracts each page once"
-    );
+    let pages = PAGES.len() + 1;
+    if cell.handler {
+        assert_eq!(
+            crawled.handled,
+            u64::try_from(pages).expect("invariant: a dozen pages"),
+            "the handler handles each page once"
+        );
+    } else {
+        assert_eq!(
+            crawled.records.len(),
+            pages,
+            "the crawl extracts each page once"
+        );
+        assert!(
+            crawled
+                .records
+                .iter()
+                .any(|record| record["title"] == "Page 3" && record["number"] == 3),
+            "the field's Value transform read no number: {:?}",
+            crawled.records
+        );
+        let forms = FROM_FIRST_PAGE
+            .iter()
+            .position(|row| *row == Row::PageLocaleFormBuilds);
+        let built = forms.and_then(|at| started.get().map(|started| started[at]));
+        assert_eq!(
+            built,
+            Some(1),
+            "the crawl builds its field's forms once, as it starts"
+        );
+    }
     Counted {
         name: cell.name,
-        pages: u64::try_from(crawled.records.len()).expect("invariant: a dozen pages"),
+        pages: u64::try_from(pages).expect("invariant: a dozen pages"),
         work,
+        started,
         removes: cell.removes,
     }
 }
@@ -134,7 +230,7 @@ fn main() {
     for cell in &counted {
         for row in cell.removes {
             assert!(
-                cell.work.read(*row) < default.work.read(*row),
+                cell.count(*row) < default.count(*row),
                 "the cell {} leaves {} as it is",
                 cell.name,
                 row.name()
@@ -142,7 +238,7 @@ fn main() {
         }
         let counts: Map<String, Value> = Row::ALL
             .iter()
-            .map(|row| (row.name().to_owned(), json!(cell.work.read(*row))))
+            .map(|row| (row.name().to_owned(), json!(cell.count(*row))))
             .collect();
         println!(
             "{}",

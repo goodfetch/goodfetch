@@ -280,11 +280,19 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
 #[test]
 fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let workspace = Workspace::from_fixture("empty");
-    workspace.write("TESTING.md", B3_REGISTER.as_bytes());
+    // The whole family runs, so the register holds B3's Usage charge rows too.
+    let register = format!(
+        "{B3_REGISTER}\
+         | `E3.statements` | SQL statements per charge the held Slices cover | 0 | 1 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | 2.25 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.opens` | store opens per charge or Slice | 0 | 0.125 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.prepares` | statement preparations per Slice taken | 0 | 19.75 | B3 | must not grow | `just counts` | implementer done |\n"
+    );
+    workspace.write("TESTING.md", register.as_bytes());
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[

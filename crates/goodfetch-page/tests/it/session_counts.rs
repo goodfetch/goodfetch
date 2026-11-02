@@ -12,15 +12,30 @@ use std::collections::BTreeMap;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::metrics::Metrics;
 use rstest::rstest;
-use serde_json::Map;
+use serde_json::{Map, Value};
 
-use session::{Counted, READ_ROWS, counted, counting};
+use session::{Counted, READ_ROWS, counted, counting, page_check};
 
 fn run(planted: Option<Row>) -> Counted {
+    run_with(Map::new(), planted)
+}
+
+fn run_with(settings: Map<String, Value>, planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(home.path(), metrics, Map::new(), plant)
+    counted(home.path(), metrics, settings, plant)
+}
+
+/// The rows of a navigation's judgement (C4), each one's count.
+fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
+    [
+        Row::NavigationDetectionReads,
+        Row::NavigationCompilations,
+        Row::NavigationScriptCompilations,
+        Row::NavigationProvenanceEntries,
+    ]
+    .map(|row| work.read(row))
 }
 
 /// Every command costs one encode, one send and one send to the command log's
@@ -110,12 +125,12 @@ fn a_planted_file_open_takes_the_row_past_two_a_command() {
 /// Each engine read in a frame sends two commands, its isolated world's
 /// creation and its call, and makes its world again even in a document it
 /// read before (X10): every command sent while the program read is a read's,
-/// and two reads ran in each of the two documents.
+/// and two reads ran in each of the three documents.
 #[test]
 fn each_read_counts_its_commands_and_its_world() {
     let counted = run(None);
 
-    assert_eq!((counted.reads, counted.documents), (4, 2));
+    assert_eq!((counted.reads, counted.documents), (6, 3));
     assert_eq!(
         READ_ROWS.map(|row| counted.count(row)),
         [2 * counted.reads, counted.reads, counted.reads]
@@ -216,6 +231,54 @@ fn a_session_counts_each_intercepted_requests_work() {
 #[case::compilations(Row::InterceptedCompilations)]
 #[case::entries(Row::InterceptedEntries)]
 fn a_planted_unit_adds_one_to_an_intercepted_requests_row_a_command(#[case] row: Row) {
+    let unplanted = run(None).work.read(row);
+
+    let Counted { commands, work, .. } = run(Some(row));
+
+    assert_eq!(work.read(row), unplanted + commands, "{}", row.name());
+}
+
+/// With no Page check, each navigation's document is read once for its Block
+/// markers, once by the built-in detector for a password field (a Borrowed
+/// browser's Session may hold a login) and once for the Consent prompt
+/// runner's first pass, after the runner started in it: four detection
+/// reads. It compiles nothing, and the built-in detector writes one
+/// Provenance entry; the Consent page's prompt writes one more.
+#[test]
+fn each_navigation_counts_its_judgements_reads_and_entries() {
+    let Counted {
+        navigations, work, ..
+    } = run(None);
+
+    assert_eq!(navigations, 3);
+    assert_eq!(judged(&work), [4 * navigations, 0, 0, navigations + 1]);
+}
+
+/// A Page check reads the document for its expected page's element in place
+/// of the built-in detector's read, and compiles its login page's glob at each
+/// judgement; the built-in detector writes no entry then, so only the
+/// prompt's is left.
+#[test]
+fn a_page_check_reads_in_the_detectors_place_and_compiles_its_glob_at_each_navigation() {
+    let settings = match page_check() {
+        Value::Object(settings) => settings,
+        other => panic!("settings are an object, not {other}"),
+    };
+
+    let Counted {
+        navigations, work, ..
+    } = run_with(settings, None);
+
+    assert_eq!(judged(&work), [4 * navigations, navigations, 0, 1]);
+}
+
+/// A plant adds one unit of its navigation row per command the browser reads.
+#[rstest]
+#[case::detection_reads(Row::NavigationDetectionReads)]
+#[case::compilations(Row::NavigationCompilations)]
+#[case::script_compilations(Row::NavigationScriptCompilations)]
+#[case::provenance_entries(Row::NavigationProvenanceEntries)]
+fn a_planted_unit_adds_one_to_a_navigation_row_a_command(#[case] row: Row) {
     let unplanted = run(None).work.read(row);
 
     let Counted { commands, work, .. } = run(Some(row));

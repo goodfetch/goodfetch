@@ -149,6 +149,17 @@ pub enum Row {
     ChargeTransactions,
     /// `E3.opens`: a connection opened to the ledger for a charge.
     ChargeOpens,
+    /// `C4.detection_reads`: a detector's read of a navigation's document,
+    /// or the Consent prompt runner's start in it.
+    NavigationDetectionReads,
+    /// `C4.compilations`: a glob or a regular expression compiled to judge a
+    /// navigation.
+    NavigationCompilations,
+    /// `C4.script_compilations`: a script compiled for a navigation.
+    NavigationScriptCompilations,
+    /// `C4.provenance_entries`: a Provenance entry a navigation's judgement
+    /// writes.
+    NavigationProvenanceEntries,
     /// `E7.merge_round_trips`: a round trip to the Merge host for a
     /// Working-copy update.
     WorkingCopyMergeRoundTrips,
@@ -260,7 +271,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 93] = [
+    pub const ALL: [Self; 97] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -312,6 +323,10 @@ impl Row {
         Self::ChargeStatements,
         Self::ChargeTransactions,
         Self::ChargeOpens,
+        Self::NavigationDetectionReads,
+        Self::NavigationCompilations,
+        Self::NavigationScriptCompilations,
+        Self::NavigationProvenanceEntries,
         Self::WorkingCopyMergeRoundTrips,
         Self::WorkingCopyDocumentLoads,
         Self::WorkingCopyDocumentEncodes,
@@ -405,6 +420,10 @@ impl Row {
             | Self::Prunes
             | Self::EffectSyncs => "run_state",
             Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
+            Self::NavigationDetectionReads
+            | Self::NavigationCompilations
+            | Self::NavigationScriptCompilations
+            | Self::NavigationProvenanceEntries => "navigation",
             Self::WorkingCopyMergeRoundTrips
             | Self::WorkingCopyDocumentLoads
             | Self::WorkingCopyDocumentEncodes
@@ -518,8 +537,12 @@ impl Row {
             | Self::HopCompilations
             | Self::SitemapCompilations
             | Self::PayloadCompilations
+            | Self::NavigationCompilations
             | Self::LiveViewCompilations
             | Self::InterceptedCompilations => "compilations",
+            Self::NavigationDetectionReads => "detection_reads",
+            Self::NavigationScriptCompilations => "script_compilations",
+            Self::NavigationProvenanceEntries => "provenance_entries",
             Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
             Self::WorkingCopyDocumentLoads => "document_loads",
             Self::WorkingCopyDocumentEncodes => "document_encodes",
@@ -597,6 +620,10 @@ impl Row {
             Self::ChargeStatements => "E3.statements",
             Self::ChargeTransactions => "E3.slice_transactions",
             Self::ChargeOpens => "E3.opens",
+            Self::NavigationDetectionReads => "C4.detection_reads",
+            Self::NavigationCompilations => "C4.compilations",
+            Self::NavigationScriptCompilations => "C4.script_compilations",
+            Self::NavigationProvenanceEntries => "C4.provenance_entries",
             Self::WorkingCopyMergeRoundTrips => "E7.merge_round_trips",
             Self::WorkingCopyDocumentLoads => "E7.document_loads",
             Self::WorkingCopyDocumentEncodes => "E7.document_encodes",

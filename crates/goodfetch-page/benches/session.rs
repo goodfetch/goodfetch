@@ -35,6 +35,14 @@
 //! of a C5 row. A document answers `304`, a status the Collie page's
 //! robots.txt reading leaves alone: that reading fetches through a page of
 //! its own, which this browser does not play.
+//!
+//! Each navigation reaches its document with a 200 response, in its `Network`
+//! events (its interception's response pause keeps its `304`), so the Session
+//! judges it as it judges a real one (C4): its Block markers, its Page check
+//! when the Run declares one, and the Consent prompt runner, which the last
+//! page shows a prompt to. The browser plays the runner's bundle in the guard's world:
+//! started in that page's document, it reports the prompt found, hidden and
+//! its first pass settled, as the bundle reports through its binding.
 #![expect(
     clippy::disallowed_types,
     reason = "a benchmark's browser end listens on its own socket, and counts its commands on an atomic no behaviour reads (ADR 0071)"
@@ -56,8 +64,11 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_page::blocks::{Block, BlockClassifier};
+use goodfetch_page::page_value::ProgramPages;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::page::PageResponse;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -92,8 +103,29 @@ const FRAME: &str = TARGET;
 const QUIET: Duration = Duration::from_millis(100);
 
 /// The pages the scenario navigates to, a navigation in the middle of a
-/// Session's life. Literal addresses with no network: the browser answers.
-const PAGES: [&str; 2] = ["http://192.0.2.1/first", "http://192.0.2.1/second"];
+/// Session's life, the last one showing a Consent prompt. Literal addresses
+/// with no network: the browser answers.
+const PAGES: [&str; 3] = [
+    "http://192.0.2.1/first",
+    "http://192.0.2.1/second",
+    CONSENT_PAGE,
+];
+
+/// The page whose document shows a Consent prompt the runner hides.
+const CONSENT_PAGE: &str = "http://192.0.2.1/consent";
+
+/// The binding the Consent prompt runner reports through (`consent/messages.rs`).
+const CONSENT_BINDING: &str = "__goodfetch_consent__";
+
+/// The Run's settings of a Session with a Page check: its login page by a
+/// glob on the URL, which no page matches, and its expected page by an
+/// element, which every page shows.
+pub(crate) fn page_check() -> Value {
+    json!({ "session": { "page_check": {
+        "login_page": { "kind": "glob", "pattern": "**/login" },
+        "expected_page": { "kind": "css", "selector": "main" },
+    } } })
+}
 
 /// The reads the program makes in each document: more than one, so a
 /// document's later reads are seen apart from its first.
@@ -134,6 +166,8 @@ const ACTIONS: [(&str, &str); 3] = [
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
     pub(crate) commands: u64,
+    /// The navigations the browser was asked for, each once.
+    pub(crate) navigations: u64,
     /// The guard's checks the browser was asked for, each once.
     pub(crate) checks: u64,
     /// The guarded actions the engine answered, by kind.
@@ -335,10 +369,14 @@ impl Requests {
             }
             "Fetch.continueResponse" if request.kind == "Document" => {
                 let url = request.url.clone();
-                let mut events = navigated(&url);
+                let mut events = navigated(&url, &request.network_id);
                 // The page's image, before its `load`.
                 let image = self.pause(REFUSED, "Image", &url, units);
-                let load = events.split_off(4);
+                let at = events
+                    .iter()
+                    .position(|event| event["params"]["name"] == "load")
+                    .expect("invariant: a navigation loads");
+                let load = events.split_off(at);
                 events.extend(image);
                 events.extend(load);
                 events
@@ -359,6 +397,21 @@ impl Requests {
             }
             _ => Vec::new(),
         }
+    }
+}
+
+/// A Block classification whose rules read a 200's document for a marker, as
+/// one of Collie's does (its `block_detection` rules): every navigation's
+/// document is then read for its Block markers. It finds no Block cause.
+struct ReadsMarkers;
+
+impl BlockClassifier for ReadsMarkers {
+    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+        None
+    }
+
+    fn markers(&self, _status: u16) -> Vec<&'static str> {
+        vec!["captcha-delivery"]
     }
 }
 
@@ -413,7 +466,7 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
                     json!({ "code": -32000, "message": "Cannot find context with specified id" }),
                 );
             }
-            (called(params), Vec::new())
+            called(params, &page.loader)
         }
         "Runtime.evaluate" => (json!({ "result": { "type": "undefined" } }), Vec::new()),
         "Page.navigate" => {
@@ -425,29 +478,76 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
     })
 }
 
-/// The answer to a call in an isolated world: the guard's check finds its
-/// target ready at once, its disarm says the gesture landed, a locator wait
-/// finds its state at once, and any other function returns nothing.
-fn called(params: &Value) -> Value {
-    let declaration = params["functionDeclaration"].as_str().unwrap_or_default();
-    let value = if declaration == CHECK {
-        match params["arguments"][0]["value"]["action"].as_str() {
+/// What a function called in an isolated world of `document` answers, and
+/// the events it sends: the guard's check finds its target ready at once, its
+/// disarm says the gesture landed, a locator wait finds its state at once, the
+/// Page check's read finds each match, the Consent prompt runner's bundle
+/// starts and, on the Consent page, reports its prompt hidden (left while it
+/// does not answer) and its first pass settled, and every other function
+/// answers nothing.
+fn called(params: &Value, document: &str) -> (Value, Vec<Value>) {
+    let function = params["functionDeclaration"].as_str().unwrap_or_default();
+    let argument = &params["arguments"][0]["value"];
+    let value = |value: Value| json!({ "result": { "type": "object", "value": value } });
+    if function == CHECK {
+        let state = match argument["action"].as_str() {
             Some("pointer") => json!({ "state": "armed", "x": 10.0, "y": 10.0 }),
             Some("fill" | "text") => json!({ "state": "focused" }),
             _ => json!({ "state": "ready" }),
-        }
-    } else if declaration == DISARM {
-        json!({ "state": "landed" })
-    } else if WAITED.contains(
-        &params["arguments"][0]["value"]["action"]
-            .as_str()
-            .unwrap_or_default(),
-    ) {
-        json!({ "state": "ready" })
-    } else {
-        return json!({ "result": { "type": "undefined" } });
-    };
-    json!({ "result": { "type": "object", "value": value } })
+        };
+        return (value(state), Vec::new());
+    }
+    if function == DISARM {
+        return (value(json!({ "state": "landed" })), Vec::new());
+    }
+    if WAITED.contains(&argument["action"].as_str().unwrap_or_default()) {
+        return (value(json!({ "state": "ready" })), Vec::new());
+    }
+    if function.contains("function pageCheck(") {
+        let matches = argument["matches"].as_array().map_or(0, Vec::len);
+        let found = vec![true; matches];
+        return (
+            value(json!({ "found": found, "password": false, "robots": [] })),
+            Vec::new(),
+        );
+    }
+    let consent = document == CONSENT_PAGE;
+    if function.starts_with("function detecting(") {
+        let stands = if consent { "settled" } else { "none" };
+        return (value(json!(stands)), Vec::new());
+    }
+    if function.starts_with("function start(") {
+        let context = params["executionContextId"].clone();
+        let reports = if consent {
+            let action = if argument["answering"] == json!(false) {
+                "left"
+            } else {
+                "hidden"
+            };
+            [
+                json!({ "kind": "detected" }),
+                json!({ "kind": "outcome", "url": document, "action": action, "rule": "scripted" }),
+                json!({ "kind": "settled" }),
+            ]
+            .iter()
+            .map(|report| {
+                json!({
+                    "method": "Runtime.bindingCalled",
+                    "sessionId": SESSION,
+                    "params": {
+                        "name": CONSENT_BINDING,
+                        "payload": report.to_string(),
+                        "executionContextId": context,
+                    },
+                })
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
+        return (value(json!("started")), reports);
+    }
+    (json!({ "result": { "type": "undefined" } }), Vec::new())
 }
 
 /// The events the browser sends once it answered `method` with `params`,
@@ -464,8 +564,9 @@ fn moved_on(method: &str, params: &Value, requests: &mut Requests, units: &Units
     }
 }
 
-/// The events of a navigation to `url` that committed and loaded.
-fn navigated(url: &str) -> Vec<Value> {
+/// The events of a navigation to `url`, its document's request `request`, that
+/// the network answered with a 200, and that committed and loaded.
+fn navigated(url: &str, request: &str) -> Vec<Value> {
     let frame = json!({
         "id": FRAME,
         "loaderId": url,
@@ -487,6 +588,52 @@ fn navigated(url: &str) -> Vec<Value> {
     };
     vec![
         lifecycle("init"),
+        json!({
+            "method": "Network.requestWillBeSent",
+            "sessionId": SESSION,
+            "params": {
+                "requestId": request,
+                "loaderId": url,
+                "documentURL": url,
+                "request": {
+                    "url": url,
+                    "method": "GET",
+                    "headers": {},
+                    "initialPriority": "VeryHigh",
+                    "referrerPolicy": "strict-origin-when-cross-origin",
+                },
+                "timestamp": 0.0,
+                "wallTime": 0.0,
+                "initiator": { "type": "other" },
+                "redirectHasExtraInfo": false,
+                "type": "Document",
+                "frameId": FRAME,
+            },
+        }),
+        json!({
+            "method": "Network.responseReceived",
+            "sessionId": SESSION,
+            "params": {
+                "requestId": request,
+                "loaderId": url,
+                "timestamp": 0.0,
+                "type": "Document",
+                "response": {
+                    "url": url,
+                    "status": 200,
+                    "statusText": "OK",
+                    "headers": { "Content-Type": "text/html" },
+                    "mimeType": "text/html",
+                    "charset": "utf-8",
+                    "connectionReused": false,
+                    "connectionId": 1.0,
+                    "encodedDataLength": 100.0,
+                    "securityState": "neutral",
+                },
+                "hasExtraInfo": false,
+                "frameId": FRAME,
+            },
+        }),
         json!({
             "method": "Page.frameNavigated",
             "sessionId": SESSION,
@@ -511,6 +658,8 @@ struct Heard {
     units: Arc<Units>,
     /// The pages it opened, each once.
     pages: Arc<AtomicU64>,
+    /// The navigations it was asked for, each once.
+    navigations: Arc<AtomicU64>,
     /// Each call of the guard's check, by its command's ID.
     checks: Arc<AtomicU64>,
     reading: Arc<Reading>,
@@ -543,6 +692,9 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
             counts.units.commands.fetch_add(1, Ordering::Relaxed);
             if method == "Target.createTarget" {
                 counts.pages.fetch_add(1, Ordering::Relaxed);
+            }
+            if method == "Page.navigate" {
+                counts.navigations.fetch_add(1, Ordering::Relaxed);
             }
             if method == "Runtime.callFunctionOn"
                 && command["params"]["functionDeclaration"].as_str() == Some(CHECK)
@@ -755,7 +907,11 @@ pub(crate) fn counted(
     };
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
-        .with(goodfetch_page::contribution(Vec::new()));
+        .with(goodfetch_page::contribution_with(
+            Vec::new(),
+            ProgramPages,
+            Arc::new(ReadsMarkers),
+        ));
     let engine = Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics);
@@ -828,6 +984,7 @@ pub(crate) fn counted(
     let [commands, requests, paused, refused] = heard.units.reading();
     Counted {
         commands,
+        navigations: heard.navigations.load(Ordering::Relaxed),
         checks: heard.checks.load(Ordering::Relaxed),
         attempts,
         reads: reading.calls.load(Ordering::Relaxed),

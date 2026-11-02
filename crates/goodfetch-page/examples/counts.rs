@@ -1,11 +1,11 @@
 //! B2's counts cell (ADR 0140): runs `benches/session.rs`' Session once with
-//! its default features on and once per feature on its paths that can be
-//! switched off, and once with no Live view viewer (C6 in ADR 0140: the
-//! default cell is the one with a viewer, which #959 gives it), and prints
-//! what each counted as one JSON line, which `xtask counts` divides and holds
-//! to the Quality register's limits. An example and not a `[[bench]]`, as
-//! `xtask perf` runs every bench target under gungraun: counts need no
-//! Valgrind and no optimized build.
+//! its default features on, once per feature on its paths that can be
+//! switched off, once with no Live view viewer (C6 in ADR 0140: the default
+//! cell is the one with a viewer, which #959 gives it) and once with a Page
+//! check, and prints what each counted as one JSON line, which `xtask counts`
+//! divides and holds to the Quality register's limits. An example and not a
+//! `[[bench]]`, as `xtask perf` runs every bench target under gungraun: counts
+//! need no Valgrind and no optimized build.
 //!
 //! Its units are the commands the browser read, the engine reads in a frame
 //! the program made, and the documents and frames those reads ran in. C2's
@@ -53,7 +53,7 @@ const LIVE_VIEW_FRAME: &[Row] = &[
     Row::LiveViewSeals,
 ];
 
-fn cells() -> [Cell; 3] {
+fn cells() -> [Cell; 5] {
     [
         // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
@@ -75,6 +75,22 @@ fn cells() -> [Cell; 3] {
             settings: json!({}),
             removes: &[],
             counts_none_of: LIVE_VIEW_FRAME,
+        },
+        // The Consent prompt runner still starts and looks with its handling
+        // off (ADR 0048), so its reads and its entry stay.
+        Cell {
+            name: "consent_handling_off",
+            settings: json!({ "consent": { "handling": false } }),
+            removes: &[],
+            counts_none_of: &[],
+        },
+        // Navigations with a Page check: it compiles its glob and reads its
+        // element, and the built-in detector's entry goes.
+        Cell {
+            name: "page_check",
+            settings: session::page_check(),
+            removes: &[Row::NavigationProvenanceEntries],
+            counts_none_of: &[],
         },
     ]
 }
@@ -157,6 +173,11 @@ fn main() {
             session.requests,
             session.refused
         );
+        assert!(
+            session.navigations > 0,
+            "the cell {} navigated nowhere",
+            cell.name
+        );
         for row in cell.removes {
             assert!(
                 session.count(*row) < default.count(*row),
@@ -187,6 +208,7 @@ fn main() {
             ("pauses".to_owned(), json!(session.paused)),
             ("refusals".to_owned(), json!(session.refused)),
             ("checks".to_owned(), json!(session.checks)),
+            ("navigations".to_owned(), json!(session.navigations)),
         ]);
         units.extend(
             session

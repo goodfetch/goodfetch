@@ -53,6 +53,7 @@ use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{dom, page, runtime, target};
 use goodfetch_clean_up_rules::consent::{self as bundle, Runner, World};
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
@@ -205,8 +206,10 @@ impl Consent {
 /// Whether the runner's first pass on the main document of the page `driver`
 /// drives found a prompt, ended or not, as the runner answers in its world:
 /// a vendor's, a pre-hide rule's or one the heuristics know, or one the page
-/// shows now that its pass would find.
-pub(crate) async fn first_pass_found(driver: &PageDriver) -> bool {
+/// shows now that its pass would find. The read is one of its navigation's
+/// detection reads, counted on `work` (ADR 0140's C4).
+pub(crate) async fn first_pass_found(driver: &PageDriver, work: &CountedWork) -> bool {
+    work.count(Row::NavigationDetectionReads);
     matches!(
         driver
             .read_in_frame(driver.main_frame(), DETECTING, Value::Null)
@@ -399,6 +402,14 @@ async fn begin(
         return;
     }
     let options = json!({ "binding": BINDING, "answering": shared.answering });
+    // The runner's start detects in the document from its first script on,
+    // apart from the read that judges it once its navigation ended (ADR
+    // 0140, open question 3).
+    shared
+        .run
+        .metrics()
+        .counted_work()
+        .count(Row::NavigationDetectionReads);
     if let Ok(Value::String(started)) = driver.call_in(session, context, START, options).await
         && started == "absent"
     {
@@ -520,7 +531,7 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         }
         Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}
     }
-    trace::provenance(&shared.run, &entry).await;
+    trace::counted_provenance(&shared.run, Row::NavigationProvenanceEntries, &entry).await;
 }
 
 /// Whether `frame` is the page's main frame.

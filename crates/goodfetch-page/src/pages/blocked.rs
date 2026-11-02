@@ -16,6 +16,7 @@
 
 use std::time::SystemTime;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_protocol::block::BlockCause;
@@ -40,13 +41,15 @@ const NEXT_CALL: &str = "page";
 /// `driver` drives, as `blocks` classifies it; none when no rule decides
 /// one. A failure to read the document raises the code of the operation
 /// `operation` that waited for its navigation; with none, for the page's
-/// next call, it reads as a document holding no marker.
+/// next call, it reads as a document holding no marker. A read is one of its
+/// navigation's detection reads, counted on `work` (ADR 0140's C4).
 ///
 /// # Cancel safety
 ///
 /// Cancel safe: it only reads the page.
 pub(super) async fn block_of(
     driver: &PageDriver,
+    work: &CountedWork,
     blocks: &dyn BlockClassifier,
     response: &PageResponse,
     operation: Option<&'static str>,
@@ -66,6 +69,7 @@ pub(super) async fn block_of(
     let holding: Vec<String> = if markers.is_empty() {
         Vec::new()
     } else {
+        work.count(Row::NavigationDetectionReads);
         let read = driver
             .read_in_page(
                 READ,

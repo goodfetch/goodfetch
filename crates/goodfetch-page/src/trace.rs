@@ -50,6 +50,17 @@ pub async fn provenance(run: &Run, entry: &serde_json::Value) {
     }
 }
 
+/// Records `entry` as [`provenance`] does, counted on `row`: an entry a
+/// Shared path's unit writes, such as a navigation's judgement (ADR 0140).
+///
+/// # Cancel safety
+///
+/// As [`provenance`]'s.
+pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: &serde_json::Value) {
+    run.metrics().counted_work().count(row);
+    provenance(run, entry).await;
+}
+
 /// How many methods wait for the writer before a sender waits.
 const QUEUE: usize = 1024;
 

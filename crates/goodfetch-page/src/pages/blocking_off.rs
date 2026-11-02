@@ -11,6 +11,7 @@
 //! judged the same way, so no document is read twice for it. A page later
 //! loaded on a domain blocking was learned off for is recorded too.
 
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::events::Events;
 use goodfetch_protocol::page::PageResponse;
@@ -86,7 +87,12 @@ impl Pages {
             }
             Lists::LearnedOff => {
                 let domain = interception::domain_key(&response.url);
-                trace::provenance(&page.run, &loaded(domain.as_deref()).learned()).await;
+                trace::counted_provenance(
+                    &page.run,
+                    Row::NavigationProvenanceEntries,
+                    &loaded(domain.as_deref()).learned(),
+                )
+                .await;
             }
             Lists::Off => {}
         }
@@ -177,6 +183,7 @@ impl Pages {
         self.events.get(page_id)?.judged(&response.request_id);
         let block = block_of(
             &page.driver,
+            page.run.metrics().counted_work(),
             self.blocks.as_ref(),
             &response,
             Some(again.operation()),
@@ -208,7 +215,12 @@ impl Pages {
             url,
             domain: domain.as_deref(),
         };
-        trace::provenance(&page.run, &loaded.retried(reason, passed)).await;
+        trace::counted_provenance(
+            &page.run,
+            Row::NavigationProvenanceEntries,
+            &loaded.retried(reason, passed),
+        )
+        .await;
     }
 }
 

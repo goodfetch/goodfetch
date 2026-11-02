@@ -76,10 +76,11 @@ fn a_planted_file_open_takes_the_row_past_two_a_command() {
 }
 
 /// With no Page check, each navigation's document is read once for its Block
-/// markers and once for the Consent prompt runner's first pass, after the
-/// runner started in it: three detection reads. It compiles nothing, and the
-/// built-in detector writes one Provenance entry; the Consent page's prompt
-/// writes one more.
+/// markers, once by the built-in detector for a password field (a Borrowed
+/// browser's Session may hold a login) and once for the Consent prompt
+/// runner's first pass, after the runner started in it: four detection
+/// reads. It compiles nothing, and the built-in detector writes one
+/// Provenance entry; the Consent page's prompt writes one more.
 #[test]
 fn each_navigation_counts_its_judgements_reads_and_entries() {
     let Counted {
@@ -87,14 +88,15 @@ fn each_navigation_counts_its_judgements_reads_and_entries() {
     } = run(None);
 
     assert_eq!(navigations, 3);
-    assert_eq!(judged(&work), [3 * navigations, 0, 0, navigations + 1]);
+    assert_eq!(judged(&work), [4 * navigations, 0, 0, navigations + 1]);
 }
 
-/// A Page check reads the document once more, for its expected page's
-/// element, and compiles its login page's glob at each judgement; the
-/// built-in detector writes no entry then, so only the prompt's is left.
+/// A Page check reads the document for its expected page's element in place
+/// of the built-in detector's read, and compiles its login page's glob at each
+/// judgement; the built-in detector writes no entry then, so only the
+/// prompt's is left.
 #[test]
-fn a_page_check_reads_once_more_and_compiles_its_glob_at_each_navigation() {
+fn a_page_check_reads_in_the_detectors_place_and_compiles_its_glob_at_each_navigation() {
     let settings = match page_check() {
         Value::Object(settings) => settings,
         other => panic!("settings are an object, not {other}"),

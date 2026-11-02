@@ -1,0 +1,28 @@
+# THROWAWAY SPIKE for goodfetch/goodfetch#1915. Not Kennel code: it answers
+# questions on the owner's Mac and is then deleted.
+[package]
+name = "kennel-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# A workspace of its own, so it never joins another one.
+[workspace]
+
+[dependencies]
+tray-icon = "=0.26.1"
+winit = "=0.30.13"
+eframe = { version = "=0.37.0", default-features = false, features = ["glow", "wgpu", "default_fonts", "accesskit"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-user-notifications = "0.3.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,3 @@
+# eframe 0.37 needs rustc 1.95; 1.99.0 is already installed on the owner's Mac.
+[toolchain]
+channel = "1.99.0"

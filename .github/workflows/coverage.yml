@@ -9,6 +9,10 @@
 # They are attached to the run as `coverage-report`. Nothing gates on them:
 # no threshold, no `--fail-under-*`, no badge and no coverage service.
 #
+# `compare` compares the project's line coverage with the `coverage.project`
+# row of TESTING.md's Quality register and keeps one issue when it falls,
+# past 0.5 % (`xtask register coverage`). No merge fails on it.
+#
 # Its tests' verdicts come from no instrumented build: the step is no test
 # step, and its JUnit files carry the runtime `instrumented`, a configuration
 # of their own in the results store, so they decide no Feature's status and
@@ -129,3 +133,37 @@ jobs:
           URL: ${{ steps.report.outputs.artifact-url }}
         run: |
           echo "Coverage reports: $URL" >>"$GITHUB_STEP_SUMMARY"
+
+  # Apart from the tests, so the job that runs the product holds no write
+  # token and stays under the deny (ADRs 0043 and 0067).
+  compare:
+    name: compare
+    needs: coverage
+    if: "!cancelled() && needs.coverage.result != 'skipped'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The coverage report.
+      actions: read
+      # The fall's issue, and the first figure's.
+      issues: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Download the coverage reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
+          --name coverage-report --dir target/coverage
+      - name: Compare with the register's coverage row
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          cargo run --quiet --locked -p xtask -- register coverage
+          --reports target/coverage --repository "$GITHUB_REPOSITORY"

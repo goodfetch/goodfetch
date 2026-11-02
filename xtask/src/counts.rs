@@ -253,7 +253,20 @@ struct NotRunYet {
     builder: &'static str,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYet {
+    NotRunYet {
+        name,
+        family: "B3",
+        builder,
+    }
+}
+
+/// The ticket that builds the Working-copy update (E7) and the one that moves
+/// its merge into the Merge host.
+const WORKING_COPY: &str = "#1689";
+const MERGE_HOST: &str = "#1998";
+
+const NOT_RUN_YET: [NotRunYet; 14] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -284,6 +297,14 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
         family: "B1",
         builder: "#1121",
     },
+    working_copy_row("E7.merge_round_trips", MERGE_HOST),
+    working_copy_row("E7.document_loads", WORKING_COPY),
+    working_copy_row("E7.document_encodes", WORKING_COPY),
+    working_copy_row("E7.opens", WORKING_COPY),
+    working_copy_row("E7.prepares", WORKING_COPY),
+    working_copy_row("E7.transactions", WORKING_COPY),
+    working_copy_row("E7.syncs", WORKING_COPY),
+    working_copy_row("E7.encodes", WORKING_COPY),
 ];
 
 #[derive(clap::Args)]
@@ -291,7 +312,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1).
+    /// Only this path's rows (F1, E7).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).

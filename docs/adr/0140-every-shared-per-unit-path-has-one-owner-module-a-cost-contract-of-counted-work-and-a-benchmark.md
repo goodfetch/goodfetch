@@ -151,6 +151,11 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Two features have no off cell yet.** `frontier.learning`, which ADR 0138 adds to switch off the Page signature's readability, is #1577's, and Provenance has no setting; the one switchable feature the fixture reaches stays the Filter lists.
 > - **`dom_query`'s methods taking a selector string are refused,** since each compiles on each call. Raw file opens and folder creations stay under the blocking ban's existing module-level `#[expect]`s, whose reasons do not name this ADR: the Shared paths audit moves those on a path onto the counted functions.
 
+> Note (agent decisions of #2037, pending owner review), 2026-11-02, on the Working-copy update's rows:
+> - **E7's eight rows start at their contract, not run yet,** as F5's and F6's do: `just counts --path E7` prints each limit and passes, building nothing, and B3's run fails `row-listed-as-not-run` once a cell counts any of their work. `E7.merge_round_trips` waits on the Merge host (#1998), the other seven on the Working copy's first code (#1689).
+> - **Their counters exist now:** a `Row` each on the Shared path `working_copy_update`, and the metric's label values, so the path's tickets only count at their seams.
+> - **The B3 scenario with several Connections following comes with the path's code,** not here: nothing yet updates a Working copy or follows one, and a stand-in would fix a follow mechanism #1689 and #1998 have not chosen. The ticket that first counts an E7 row adds it, with its plants.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

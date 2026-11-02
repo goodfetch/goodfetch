@@ -6,6 +6,10 @@
 //! matter and a lost or extra paragraph, cell or list item does. Its head,
 //! scripts, styles and templates hold no text a person reads. The same
 //! reading judges a text value, white space aside.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: the Proving ground, on no Shared path, depends on no Goodfetch crate, so its parses go uncounted (ADR 0032)"
+)]
 
 use dom_query::{Document, NodeRef};
 

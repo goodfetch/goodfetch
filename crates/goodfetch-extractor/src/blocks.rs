@@ -6,7 +6,7 @@
 //! resolved against the document's base URL. Lengths are counted in
 //! characters, white space aside.
 
-use dom_query::{Document, NodeRef};
+use dom_query::NodeRef;
 use url::{Position, Url};
 
 /// The elements that hold no text a person reads: `noscript`, and those
@@ -91,15 +91,23 @@ const LIST: &str = "ul, ol, menu";
 
 /// The HTML of `html`'s body, without its head: the whole page a person
 /// reads.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn body(html: &str) -> String {
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     document.select("body").inner_html().to_string()
 }
 
 /// The text of `html`, each block's text a paragraph, its white space made
 /// one space, the paragraphs one blank line apart.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn text(html: &str) -> String {
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     let mut blocks = Blocks::default();
     for node in document.select("html").nodes() {
         blocks.read(node);
@@ -160,9 +168,13 @@ impl Blocks {
 /// `main`, the main content's HTML, without its link-dense blocks, its
 /// image-only blocks and the lists whose links another list of `document`
 /// (the whole page, whose base URL is `base_url`) repeats, in order.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
     let base = Url::parse(base_url).ok();
-    let page = Document::from(document);
+    let page = dom_query::Document::from(document);
     let page_lists: Vec<Vec<String>> = page
         .select(LIST)
         .nodes()
@@ -174,7 +186,7 @@ pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
         base: base.as_ref(),
         targets: &page_lists,
     };
-    let content = Document::from(main);
+    let content = dom_query::Document::from(main);
     let root = content.select("body");
     for node in root.nodes() {
         prune(node, &lists);

@@ -1,0 +1,15 @@
+[package]
+name = "goodfetch-counted-work"
+description = "Counted work (ADR 0140): the counts of a Shared path's work, and the one counted function of each primitive, beneath every owner module."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+dom_query.workspace = true
+
+[lints]
+workspace = true

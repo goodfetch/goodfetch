@@ -105,7 +105,8 @@ pub(super) async fn navigate(
     // The transport's refusal of a hop at its connection, which the chain
     // turns into a crawl request's skip: the call answers it as it is.
     let refused_at_connection = OnceLock::new();
-    let fetched = follow(first, &following, &gate, (&clock, run.owner()), |hop| {
+    let on = (&clock, run.owner(), run.metrics().counted_work());
+    let fetched = follow(first, &following, &gate, on, |hop| {
         // The first hop's permit is released once its answer arrived; a
         // later hop's, by the chain (ADR 0118).
         let held = permit.take();

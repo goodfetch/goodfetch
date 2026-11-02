@@ -3,6 +3,10 @@
 //! link-dense blocks, image-only blocks and repeated navigation lists; the
 //! HTML as it stands, after the Clean-up rules, or of the main content; and
 //! the main content's text.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};
 use proptest::prelude::*;

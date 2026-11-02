@@ -12,6 +12,7 @@ autobenches = false
 
 [dependencies]
 dom_query.workspace = true
+goodfetch-counted-work.workspace = true
 dom_smoothie.workspace = true
 ego-tree.workspace = true
 goodfetch-protocol.workspace = true

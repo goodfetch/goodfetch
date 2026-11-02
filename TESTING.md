@@ -567,6 +567,7 @@ Each suite runs everything the suite before it runs.
 - **`just stress [base]`** runs the stress run of [Before merge](#before-merge) against `base`, the merge base with `origin/main` by default. The incremental local gate narrows it, `just stress "" <since> <workspace member>…`: only the new and changed tests of the workspace members the change since an earlier gate run's head reaches, plus each test whose file that change changed; Vitest, Playwright and pytest keep every one of their new and changed tests, so they run in the head's order as in a full run ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)).
 - **`just gate-backstop [ref]`** is the incremental gate's backstop ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)), daily from the gate host's cron on `main`'s head (the milestone branch's during M1), from the main checkout: `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`) in a gate worktree of its own, then each result an incremental run of `just merge` on the same tree reused and the full run found red, a selection miss, listed in `~/gate-backstop/misses.txt` and failing the backstop; a suspect crate of a red per-member step reruns alone to confirm it. Fix each miss in the gate's selection or evidence, with a test that plants it.
 - **`just linux` and `just visual` run, on a host that is not Linux, what only the Pre-merge suite's Linux job checks:** the tests only Linux decides (`tc netem`, the Secret Service, the IPv6 Happy Eyeballs check, the extra loopback addresses) in the CI image with every Linux OS service, and the visual projects in the pinned Playwright image, each through Docker or Podman. Without either, `just linux` is listed as skipped and `just visual` fails, as ADR 0073 has it; `just screenshots-update` writes Reference screenshots in that image while GitHub Actions is off. `just pre-merge` runs them beside its host steps, with `just perf`, and runs `just stress` after its tests. A test that only Linux decides joins `ci/linux.sh`'s selection.
+- **`just counts`** prints each counted row's figure and fails over its limit ([Quality register](#quality-register)).
 - **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
 - **What changed comes from `xtask affected`**, in CI and locally; `just quick all` and `just pre-merge all` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too. A crate whose tests run another crate's executable through the test tool manifest names that crate in `[package.metadata.goodfetch] runs`, and a pnpm or uv package names it in its `package.json`'s `goodfetch.runs` or its `pyproject.toml`'s `[tool.goodfetch] runs`. A change to that crate, or to a crate its build depends on (a normal or build dependency, not a dev-dependency), reaches them as a dependency's would: `goodfetch-conformance` names the Proving ground and both Products, so a change to the Proving ground or to the engine runs the self-test suite, and the test-support packages name them too, so the same change runs their tests and their dependants', the Console's and the SDKs'. The Quick suite runs in-process tests only (nextest's `quick` profile: no `tests/` binary), so it runs no test that starts an executable, whatever `xtask affected` selects.
 - **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
@@ -1228,7 +1229,9 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
 
-Until the gate's spec builds them, one thing this section names doesn't exist yet: the counters of counted work. Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
+Until the gate's spec builds them, one thing this section names doesn't exist in full yet: the counters of counted work (`F1.parses` has its own; a row whose "Checked by" says none yet has none). Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
+
+**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1` or `--path F1` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives.
 
 ### Floor
 
@@ -1276,120 +1279,120 @@ Limits that fail the merge gate. Every row has a number and a command.
 
 The ratchet. A figure is compared with its "Today" value, never with the previous commit. Counted work has zero tolerance: one more count per unit is a regression. The gate's spec builds each row's command, which promotes it to Enforced (a tightening). Each row's Contract is ADR 0140's cap: no row may allow more, and a gap below it is an Exception. "After #1583" means the row's first figure is taken on its benchmark once the gate's spec builds it, after [#1583](https://github.com/goodfetch/goodfetch/pull/1583) merges.
 
-| Row | Metric, per unit | Contract | Today | Benchmark | Direction |
-|---|---|---|---|---|---|
-| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | after #1583 | B1 | must not grow |
-| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow |
-| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow |
-| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow |
-| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow |
-| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow |
-| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow |
-| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow |
-| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow |
-| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow |
-| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow |
-| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow |
-| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.compilations` | glob and regex compilations and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow |
-| `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow |
-| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow |
-| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow |
-| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow |
-| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow |
-| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow |
-| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow |
-| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
-| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow |
-| `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow |
-| `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | after #1583 | B2 | must not grow |
-| `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow |
-| `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow |
-| `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow |
-| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow |
-| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow |
-| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow |
-| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow |
-| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow |
-| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow |
-| `C4.provenance_entries` | Provenance entries per navigation | 1 | after #1583 | B2 | must not grow |
-| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | after #1583 | B2 | must not grow |
-| `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow |
-| `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow |
-| `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow |
-| `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | after #1583 | B2 | must not grow |
-| `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow |
-| `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | after #1583 | B2 | must not grow |
-| `C5.cache_lookups` | Response cache lookups per request, `cache.mode` not `off` (0 when off) | 1 | after #1583 | B2 | must not grow |
-| `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | after #1583 | B2 | must not grow |
-| `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | after #1583 | B2 | must not grow |
-| `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | after #1583 | B2 | must not grow |
-| `E1.decodes` | decodes per request, straight into typed params | 1 | after #1583 | B3 | must not grow |
-| `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow |
-| `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow |
-| `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
-| `E1.allocations` | allocations and bytes allocated per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
-| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow |
-| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow |
-| `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow |
-| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow |
-| `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow |
-| `E3.prepares` | statement preparations per Slice taken | 0 | after #1583 | B3 | must not grow |
-| `E4.configuration_reads` | configuration reads per governor sample | 0 | after #1583 | B3 | must not grow |
-| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | after #1583 | B3 | must not grow |
-| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | after #1583 | B3 | must not grow |
-| `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | after #1583 | B3 | must not grow |
-| `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow |
-| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow |
-| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
-| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
-| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow |
-| `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | after #1583 | B1, B2 | must not grow |
-| `E6.opens` | opens and statement preparations per permit | 0 | after #1583 | B1, B2 | must not grow |
-| `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | after #1583 | B1 | must not grow |
-| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | after #1583 | B1 | must not grow |
-| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | after #1583 | B1 | must not grow |
-| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | after #1583 | B1 | must not grow |
-| `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | after #1583 | B1 | must not grow |
-| `F5.calls` | requests out and typed decodes per Hook called | 1 each | after #1583 | B1 | must not grow |
-| `F5.builds` | chain builds and compilations per stage | 0 | after #1583 | B1 | must not grow |
-| `F6.opens` | store opens and statement preparations per delivered batch | 0 | after #1583 | B1 | must not grow |
-| `F6.transactions` | transactions per delivered batch | 1 | after #1583 | B1 | must not grow |
-| `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | after #1583 | B1 | must not grow |
-| `C6.file_opens` | files opened per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.compilations` | compilations per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.spawns` | tasks spawned per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | after #1583 | B2 | must not grow |
-| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | after #1583 | B2 | must not grow |
-| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | after #1583 | B3 | must not grow |
-| `E7.document_loads` | whole-document loads per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.opens` | store opens per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.prepares` | statement preparations per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.transactions` | transactions per Working-copy update | 1 | after #1583 | B3 | must not grow |
-| `E7.syncs` | syncs per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | after #1583 | B3 | must not grow |
-| `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow |
-| `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow |
-| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
-| `console.collie_brotli` | Collie's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/collie-console` | must not grow |
-| `console.collie_initial_route_brotli` | Collie's Console's initial route, bytes brotli | ≤ 139,779 (ADR 0071) | after #1583 | `size-limit/collie-console-initial-route` | must not grow |
-| `console.foxhound_brotli` | Foxhound's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console` | must not grow |
-| `console.foxhound_initial_route_brotli` | Foxhound's Console's initial route, bytes brotli | ≤ 161,174 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console-initial-route` | must not grow |
-| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) |
+| Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |
+|---|---|---|---|---|---|---|---|
+| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow | `xtask perf` | merge gate |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.compilations` | glob and regex compilations and validator builds per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow | none yet | none yet |
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow | none yet | none yet |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C4.provenance_entries` | Provenance entries per navigation | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.cache_lookups` | Response cache lookups per request, `cache.mode` not `off` (0 when off) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `E1.decodes` | decodes per request, straight into typed params | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) | none yet | none yet |
+| `E1.allocations` | allocations and bytes allocated per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) | none yet | none yet |
+| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow | none yet | none yet |
+| `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E3.prepares` | statement preparations per Slice taken | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.configuration_reads` | configuration reads per governor sample | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E6.opens` | opens and statement preparations per permit | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F5.calls` | requests out and typed decodes per Hook called | 1 each | after #1583 | B1 | must not grow | none yet | none yet |
+| `F5.builds` | chain builds and compilations per stage | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F6.opens` | store opens and statement preparations per delivered batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F6.transactions` | transactions per delivered batch | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `C6.file_opens` | files opened per Live view frame | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C6.compilations` | compilations per Live view frame | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | after #1583 | B2 | must not grow | none yet | none yet |
+| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.document_loads` | whole-document loads per Working-copy update | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.opens` | store opens per Working-copy update | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.prepares` | statement preparations per Working-copy update | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.transactions` | transactions per Working-copy update | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.syncs` | syncs per Working-copy update | 0 | after #1583 | B3 | must not grow | none yet | none yet |
+| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | after #1583 | B3 | must not grow | none yet | none yet |
+| `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow | none yet | none yet |
+| `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow | none yet | none yet |
+| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow | `xtask perf` | merge gate |
+| `console.collie_brotli` | Collie's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/collie-console` | must not grow | `xtask perf` | merge gate |
+| `console.collie_initial_route_brotli` | Collie's Console's initial route, bytes brotli | ≤ 139,779 (ADR 0071) | after #1583 | `size-limit/collie-console-initial-route` | must not grow | `xtask perf` | merge gate |
+| `console.foxhound_brotli` | Foxhound's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console` | must not grow | `xtask perf` | merge gate |
+| `console.foxhound_initial_route_brotli` | Foxhound's Console's initial route, bytes brotli | ≤ 161,174 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console-initial-route` | must not grow | `xtask perf` | merge gate |
+| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) | none yet | none yet |
 
 Some tickets name a row by what it counts: Hook stages are `F5.*`, the Politeness path `E6.*`, Sink delivery `F6.*`, an Extractor Plugin `F1.plugin_*`, Live view reads `C2.live_view_commands`, closed shadow roots `C2.closed_root_commands`, cache hits `C5.cache_lookups` and `C5.cache_file_opens`, record mode `C5.body_reads`, the second GET `C5.charset_refetches`, and validations and serializations `F4.validations` and `F4.serializations`.
 

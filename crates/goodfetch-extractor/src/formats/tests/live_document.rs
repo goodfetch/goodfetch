@@ -4,6 +4,10 @@
 //! host's own children; and the Clean-up rules' cosmetic matcher, which the
 //! call's `Context` carries (ADR 0047), applied before the main-content
 //! step and the Markdown converter.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use std::cell::RefCell;
 

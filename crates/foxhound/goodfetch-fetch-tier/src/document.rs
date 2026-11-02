@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use serde_json::Value;
@@ -61,9 +62,13 @@ pub struct SelectorInvalid(pub String);
 /// # Errors
 ///
 /// When `selector` is no CSS selector.
-pub(crate) fn matched(html: &str, selector: &str) -> Result<Vec<Matched>, SelectorInvalid> {
+pub(crate) fn matched(
+    html: &str,
+    selector: &str,
+    work: &CountedWork,
+) -> Result<Vec<Matched>, SelectorInvalid> {
     let matcher = matcher(selector)?;
-    let document = dom_query::Document::from(html);
+    let document = work.parse_html(Row::PageParses, html);
     // The ids an element names in `aria-controls`: what a button or a tab
     // shows and hides.
     let controlled: HashSet<String> = document
@@ -215,8 +220,9 @@ pub(crate) enum LocatorInvalid {
 pub(crate) fn first_elements(
     html: &str,
     locators: &[FieldLocator],
+    work: &CountedWork,
 ) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
-    let document = dom_query::Document::from(html);
+    let document = work.parse_html(Row::PageParses, html);
     // Built once, at the first `XPath` locator.
     let mut held: Option<xpath::Document> = None;
     locators

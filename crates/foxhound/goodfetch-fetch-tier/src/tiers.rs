@@ -35,6 +35,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use encoding_rs::Encoding;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::home::Home;
@@ -315,8 +316,11 @@ impl Opened {
                 encoding_rs::UTF_8,
             ),
         };
-        let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
-            .map_or_else(|| url.clone(), |base| base.to_string());
+        let base_url = goodfetch_frontier::document_base(
+            &url,
+            base_href(&html, run.metrics().counted_work()).as_deref(),
+        )
+        .map_or_else(|| url.clone(), |base| base.to_string());
         let markup = if not_document.is_none() {
             html.as_str()
         } else {
@@ -775,7 +779,8 @@ impl FetchTiers {
         };
         let clock = run.clock();
         let mut first = true;
-        let fetched = follow(hop, &tier.following, &gate, (&clock, run.owner()), |hop| {
+        let on = (&clock, run.owner(), run.metrics().counted_work());
+        let fetched = follow(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
             let (accepts, clock) = (&accepts, &clock);
             async move {
@@ -1073,18 +1078,21 @@ impl FetchTiers {
             .cloned()
             .unwrap_or_default();
         let run = served.run.clone();
+        let work = run.metrics().counted_work().clone();
         let signed = run
             .owner()
             .blocking(move || {
-                let signature =
-                    goodfetch_extractor::page_signature(&goodfetch_extractor::Document {
+                let signature = goodfetch_extractor::page_signature(
+                    &goodfetch_extractor::Document {
                         html: &served.html,
                         url: &served.url,
                         base_url: &served.base_url,
                         serialization: goodfetch_extractor::Serialization::Served,
-                    });
+                    },
+                    &work,
+                );
                 let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
-                    (Ok(base), Ok(url)) => canonical(&served.html, &links, &base, &url),
+                    (Ok(base), Ok(url)) => canonical(&served.html, &links, &base, &url, &work),
                     _ => None,
                 };
                 Signed {
@@ -1133,10 +1141,11 @@ impl FetchTiers {
         };
         let selector = selector.to_owned();
         let run = served.run.clone();
+        let work = run.metrics().counted_work().clone();
         let read = run
             .owner()
             .blocking(move || {
-                matched(&served.html, &selector).map(|elements| ServedLinks {
+                matched(&served.html, &selector, &work).map(|elements| ServedLinks {
                     url: served.url.clone(),
                     base_url: served.base_url.clone(),
                     encoding,
@@ -1178,12 +1187,15 @@ impl FetchTiers {
         };
         let locators = locators.to_vec();
         let run = served.run.clone();
+        let work = run.metrics().counted_work().clone();
         let read = run
             .owner()
             .blocking(move || {
-                document::first_elements(&served.html, &locators).map(|elements| FieldElements {
-                    base_url: served.base_url.clone(),
-                    elements,
+                document::first_elements(&served.html, &locators, &work).map(|elements| {
+                    FieldElements {
+                        base_url: served.base_url.clone(),
+                        elements,
+                    }
                 })
             })
             .await;
@@ -1299,10 +1311,11 @@ impl FetchTiers {
         let headers = own
             .map(|(response, _)| response.headers)
             .unwrap_or_default();
+        let work = run.metrics().counted_work().clone();
         let (verdict, noindex) = run
             .owner()
             .blocking(move || {
-                let verdict = expected_page::judge(&check, &document.url, &document.html);
+                let verdict = expected_page::judge(&check, &document.url, &document.html, &work);
                 let noindex = verdict == Verdict::NotExpected
                     && expected_page::noindex(&headers, &document.html);
                 (verdict, noindex)
@@ -2159,8 +2172,8 @@ fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
 }
 
 /// The `href` of the document's first `<base>` element that has one.
-fn base_href(html: &str) -> Option<String> {
-    let document = dom_query::Document::from(html);
+fn base_href(html: &str, work: &CountedWork) -> Option<String> {
+    let document = work.parse_html(Row::PageParses, html);
     let base = document.select("base[href]");
     base.attr("href").map(|href| href.to_string())
 }

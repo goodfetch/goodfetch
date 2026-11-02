@@ -29,6 +29,7 @@ flate2.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
 getrandom.workspace = true
+goodfetch-counted-work.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 # Derives the wrap of each Run's data key from its key-encryption key.

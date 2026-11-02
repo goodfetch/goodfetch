@@ -26,6 +26,8 @@ mod compare_spider;
 mod compat;
 mod console;
 mod containment;
+#[cfg(unix)]
+mod counts;
 mod dco;
 mod dependency_direction;
 mod diagnostic;

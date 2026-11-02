@@ -24,6 +24,7 @@ mod compare_spider;
 mod compat;
 mod console;
 mod containment;
+mod counts;
 mod dco;
 mod dependency_direction;
 mod egress;
@@ -172,6 +173,9 @@ enum Command {
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
     Containment,
+    /// The Counted work of each row of the Quality register, on its
+    /// benchmark, against its limit (ADR 0140).
+    Counts(counts::Arguments),
     /// Fails on a commit from `--base` to `--head`, merges aside, without a
     /// Developer Certificate of Origin sign-off by its author (ADR 0018).
     Dco {
@@ -489,6 +493,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Compat { command } => compat::run(command, environment),
         Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
+        Command::Counts(arguments) => counts::run(&arguments, environment),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))

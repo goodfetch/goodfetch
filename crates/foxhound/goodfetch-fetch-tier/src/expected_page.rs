@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::{
@@ -40,8 +41,8 @@ pub(crate) enum Verdict {
 
 /// The verdict of `check` on the document `html` reached at `url`: its
 /// login page first, then its expected page.
-pub(crate) fn judge(check: &PageCheck, url: &str, html: &str) -> Verdict {
-    let found = |matcher: &PageMatch| found(matcher, url, html);
+pub(crate) fn judge(check: &PageCheck, url: &str, html: &str, work: &CountedWork) -> Verdict {
+    let found = |matcher: &PageMatch| found(matcher, url, html, work);
     match check.login_page.as_ref().map(found) {
         Some(None) => return Verdict::Unjudged,
         Some(Some(true)) => return Verdict::LoginPage,
@@ -56,13 +57,13 @@ pub(crate) fn judge(check: &PageCheck, url: &str, html: &str) -> Verdict {
 
 /// Whether `matcher` finds the document `html` reached at `url`; `None`
 /// when its markup cannot decide.
-fn found(matcher: &PageMatch, url: &str, html: &str) -> Option<bool> {
+fn found(matcher: &PageMatch, url: &str, html: &str, work: &CountedWork) -> Option<bool> {
     match matcher {
         PageMatch::Glob { pattern } => UrlPattern::glob(pattern).ok().map(|glob| glob.matches(url)),
         PageMatch::Regex { pattern } => UrlPattern::regex(pattern)
             .ok()
             .map(|regex| regex.matches(url)),
-        PageMatch::Css { selector } => matched(html, selector)
+        PageMatch::Css { selector } => matched(html, selector, work)
             .ok()
             .map(|elements| !elements.is_empty()),
         PageMatch::Xpath { .. } | PageMatch::Text { .. } => None,
@@ -76,6 +77,10 @@ pub(crate) fn noindex(headers: &BTreeMap<String, String>, html: &str) -> bool {
 }
 
 /// The `content` of each robots `meta` element of `html`.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 fn robots(html: &str) -> Vec<String> {
     let document = dom_query::Document::from(html);
     document

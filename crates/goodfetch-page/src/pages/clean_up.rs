@@ -11,6 +11,7 @@
 use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_extractor::{
     BuiltIn, CleanUp, Context, Document, Extractor, Measured, Serialization,
@@ -128,6 +129,7 @@ pub(super) fn read(
     request: FormatsRequest,
     extractor: &dyn Extractor,
     (cosmetic, hidden): (Option<&Cosmetic>, &[String]),
+    work: &CountedWork,
 ) -> (PageFormats, FormatsRead) {
     let of = |html| Document {
         html,
@@ -143,6 +145,7 @@ pub(super) fn read(
     let context = Context {
         clean_up: (cosmetic.is_some() || !hidden.is_empty()).then_some(&matcher as &dyn CleanUp),
         extractor,
+        work: work.clone(),
     };
     let Measured {
         formats,
@@ -156,7 +159,7 @@ pub(super) fn read(
             // no main content measures no share (story 8).
             let share = main_content_length.map(|after| {
                 Share::of(
-                    goodfetch_extractor::main_content_length(&of(&document.html), extractor),
+                    goodfetch_extractor::main_content_length(&of(&document.html), extractor, work),
                     after,
                 )
             });

@@ -2,6 +2,14 @@
 //! resolved against the document's base URL by the WHATWG URL Standard, a
 //! value that does not parse kept as written with no URL, read from the
 //! document as it stands.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use goodfetch_protocol::page::{Image, Link, Media, MediaKind, PageFormats};
 use proptest::prelude::*;

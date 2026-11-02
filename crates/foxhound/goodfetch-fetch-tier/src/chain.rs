@@ -38,6 +38,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::retry_after::{self, RetryAfter};
@@ -172,7 +173,7 @@ pub async fn follow<F, Fut>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
-    (clock, owner): (&Clock, &TaskOwner),
+    (clock, owner, work): (&Clock, &TaskOwner, &CountedWork),
     mut fetch: F,
 ) -> Result<Fetched, Stop>
 where
@@ -207,7 +208,7 @@ where
         gate.answered(&hop, clock.now().duration_since(sent)).await;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
-        let Some(next) = next_hop(&hop, &fetched, following, owner).await? else {
+        let Some(next) = next_hop(&hop, &fetched, following, (owner, work)).await? else {
             if !hops.is_empty() {
                 gate.reached(&hop).await?;
             }
@@ -237,7 +238,7 @@ async fn next_hop(
     hop: &Hop,
     fetched: &Fetched,
     following: &Following,
-    owner: &TaskOwner,
+    (owner, work): (&TaskOwner, &CountedWork),
 ) -> Result<Option<Hop>, Stop> {
     // A response its Label does not take is the chain's end, unread.
     if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {
@@ -265,8 +266,9 @@ async fn next_hop(
         Some(refresh) => Some(refresh),
         None if html => {
             let (url, body) = (fetched.url.clone(), fetched.body.clone());
+            let work = work.clone();
             owner
-                .blocking(move || refresh::in_markup(&url, &body))
+                .blocking(move || refresh::in_markup(&url, &body, &work))
                 .await
         }
         None => None,

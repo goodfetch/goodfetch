@@ -75,6 +75,8 @@ const PAGES: [&str; 2] = ["http://192.0.2.1/first", "http://192.0.2.1/second"];
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
     pub(crate) commands: u64,
+    /// The pages the browser opened (`Target.createTarget`), each once.
+    pub(crate) pages_opened: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
 }
@@ -167,9 +169,18 @@ fn navigated(url: &str) -> Vec<Value> {
     ]
 }
 
+/// What the browser counts, from outside the connection.
+#[derive(Clone, Default)]
+struct Heard {
+    /// The commands it read, each once.
+    commands: Arc<AtomicU64>,
+    /// The pages it opened, each once.
+    pages: Arc<AtomicU64>,
+}
+
 /// The browser: reads each command of its one connection, does `plant`,
 /// answers at once, until the engine closes it.
-async fn browser(stream: TcpStream, commands: Arc<AtomicU64>, plant: Option<Plant>) {
+async fn browser(stream: TcpStream, heard: Heard, plant: Option<Plant>) {
     let mut socket = tokio_tungstenite::accept_async(stream)
         .await
         .expect("invariant: the engine speaks WebSocket");
@@ -183,13 +194,16 @@ async fn browser(stream: TcpStream, commands: Arc<AtomicU64>, plant: Option<Plan
         let id = command["id"]
             .as_u64()
             .expect("invariant: a command has an ID");
+        let method = command["method"].as_str().unwrap_or_default();
         if seen.insert(id) {
-            commands.fetch_add(1, Ordering::Relaxed);
+            heard.commands.fetch_add(1, Ordering::Relaxed);
+            if method == "Target.createTarget" {
+                heard.pages.fetch_add(1, Ordering::Relaxed);
+            }
         }
         if let Some(plant) = &plant {
             plant();
         }
-        let method = command["method"].as_str().unwrap_or_default();
         let (result, events) = answered(method, &command["params"]);
         let mut answer = json!({ "id": id, "result": result });
         if let Some(session) = command.get("sessionId") {
@@ -327,7 +341,7 @@ pub(crate) fn counted(
     let engine = Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics);
-    let commands = Arc::new(AtomicU64::new(0));
+    let heard = Heard::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -339,7 +353,7 @@ pub(crate) fn counted(
         let address = listener.local_addr().expect("invariant: it is bound");
         let cdp_url = format!("ws://{address}/devtools/browser/scripted");
         let (network, dialer) = transport::in_memory();
-        let served = browser_end(listener, Arc::clone(&commands), plant);
+        let served = browser_end(listener, heard.clone(), plant);
         let client = async {
             let (reader, writer) = dialer
                 .connect()
@@ -352,7 +366,7 @@ pub(crate) fn counted(
                 next_id: 0,
             };
             program(&mut client, &cdp_url, settings).await;
-            quiet(&commands, &work).await;
+            quiet(&heard.commands, &work).await;
             client
                 .writer
                 .shutdown()
@@ -379,16 +393,17 @@ pub(crate) fn counted(
         engine_ended.expect("invariant: the engine got its Connection");
     });
     Counted {
-        commands: commands.load(Ordering::Relaxed),
+        commands: heard.commands.load(Ordering::Relaxed),
+        pages_opened: heard.pages.load(Ordering::Relaxed),
         work,
     }
 }
 
 /// Accepts the engine's one connection and plays the browser on it.
-async fn browser_end(listener: TcpListener, commands: Arc<AtomicU64>, plant: Option<Plant>) {
+async fn browser_end(listener: TcpListener, heard: Heard, plant: Option<Plant>) {
     let (stream, _) = listener
         .accept()
         .await
         .expect("invariant: the engine connects");
-    browser(stream, commands, plant).await;
+    browser(stream, heard, plant).await;
 }

@@ -98,8 +98,13 @@ fn main() {
     });
     let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.session;
+        let session::Counted {
+            commands,
+            pages_opened,
+            work,
+        } = &cell.session;
         assert!(*commands > 0, "the cell {} sent no command", cell.name);
+        assert!(*pages_opened > 0, "the cell {} opened no page", cell.name);
         for row in cell.removes {
             assert!(
                 work.read(*row) < default.work.read(*row),
@@ -114,7 +119,11 @@ fn main() {
             .collect();
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "commands": commands }, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": { "commands": commands, "pages_opened": pages_opened },
+                "counts": counts,
+            })
         );
     }
 }

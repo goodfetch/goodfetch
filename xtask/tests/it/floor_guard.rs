@@ -542,6 +542,79 @@ fn a_promoted_row_is_silent() {
     assert_clean(&guard(&workspace, &base, "docs: promote a row"));
 }
 
+/// The register with `F1.parses` promoted to the Enforced section's table of
+/// counted work, its Today `today`.
+fn with_counted_work(register: &str, today: &str) -> String {
+    register
+        .replace(
+            "| `F1.parses` | parses per page | ≤ 1 (0 streaming) | 3 | B1 | must not grow |\n",
+            "",
+        )
+        .replace(
+            "\n### Measured, not yet enforced",
+            &format!(
+                "\n#### Counted work\n\n\
+                 | Row | Metric, per unit | Contract | Today | Benchmark | Direction |\n\
+                 |---|---|---|---|---|---|\n\
+                 | `F1.parses` | parses per page | ≤ 1 (0 streaming) | {today} | B1 | must not grow |\n\n\
+                 ### Measured, not yet enforced"
+            ),
+        )
+}
+
+/// A measured row moved to the Enforced section's table of counted work keeps
+/// its Contract and Today there: moving it is silent, and so is lowering its
+/// figure, while raising it is loud.
+#[rstest]
+#[case::promoted_at_its_figure("3", &[])]
+#[case::promoted_with_a_lower_figure("2", &[])]
+#[case::promoted_with_a_higher_figure("4", &[("row-weakened", "F1.parses")])]
+fn a_row_promoted_to_the_counted_work_keeps_its_ratchet(
+    #[case] today: &str,
+    #[case] expected: &[(&str, &str)],
+) {
+    let (workspace, base) = repository(&[]);
+    workspace.write(TESTING, with_counted_work(REGISTER, today).as_bytes());
+
+    let outcome = guard(&workspace, &base, "docs: promote a row");
+
+    let expected: Vec<_> = expected
+        .iter()
+        .map(|(kind, subject)| finding(kind, subject))
+        .collect();
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+}
+
+/// An enforced row of counted work that is removed, demoted or raised is loud.
+#[rstest]
+#[case::removed(
+    "| `F1.parses` | parses per page | ≤ 1 (0 streaming) | 3 | B1 | must not grow |\n",
+    ""
+)]
+#[case::demoted(
+    "| `F1.parses` | parses per page | ≤ 1 (0 streaming) | 3 | B1 | must not grow |\n\n### Measured, not yet enforced\n\nThe ratchet.\n\n| Row | Metric, per unit | Contract | Today | Benchmark | Direction |\n|---|---|---|---|---|---|\n",
+    "\n### Measured, not yet enforced\n\nThe ratchet.\n\n| Row | Metric, per unit | Contract | Today | Benchmark | Direction |\n|---|---|---|---|---|---|\n| `F1.parses` | parses per page | ≤ 1 (0 streaming) | 3 | B1 | must not grow |\n"
+)]
+#[case::raised("| ≤ 1 (0 streaming) | 3 |", "| ≤ 1 (0 streaming) | 4 |")]
+fn an_enforced_row_of_counted_work_weakened_is_flagged(#[case] from: &str, #[case] to: &str) {
+    let base_register = with_counted_work(REGISTER, "3");
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(TESTING, base_register.as_bytes());
+    let base = workspace.commit_all();
+    workspace.edit(TESTING, from, to);
+
+    let outcome = guard(&workspace, &base, "docs: change the register");
+
+    assert!(
+        outcome
+            .findings()
+            .contains(&finding("row-weakened", "F1.parses")),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[rstest]
 #[case::the_guard("gate/guard.rs", Some("fn loosened() {}\n"))]
 #[case::a_benchmark("gate/benches/b1.rs", Some("fn smaller() {}\n"))]

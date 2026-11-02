@@ -256,8 +256,9 @@ fn contracts(register: &Register, paths: &[SharedPath]) -> Vec<Finding> {
     findings
 }
 
-/// Each measured row whose Today figure is over its own Contract with no
-/// Exception naming it: a gap below the contract is an Exception (ADR 0140).
+/// Each counted row, measured or enforced, whose Today figure is over its own
+/// Contract with no Exception naming it: a gap below the contract is an
+/// Exception (ADR 0140).
 fn figures_above_contract(register: &Register) -> BTreeMap<&str, String> {
     let waived: BTreeSet<&str> = register
         .exceptions
@@ -265,8 +266,8 @@ fn figures_above_contract(register: &Register) -> BTreeMap<&str, String> {
         .flat_map(|row| document::code_spans(row.cell("Rule")))
         .collect();
     register
-        .measured
-        .iter()
+        .rows()
+        .into_iter()
         .filter_map(|row| {
             let counter = row.counter()?;
             let cap = document::cap(row.limit())?;

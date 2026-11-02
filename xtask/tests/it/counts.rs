@@ -202,6 +202,62 @@ fn proving_fails_a_counter_blind_to_its_plant() {
     );
 }
 
+/// A register whose `F1.parses` was promoted to the Enforced section's table
+/// of counted work, with `today` as its figure.
+fn promoted_register(today: &str) -> String {
+    format!(
+        "# Testing\n\n## Quality register\n\n### Enforced\n\n\
+         | Dimension | Rule | Checked by | Runs at |\n\
+         |---|---|---|---|\n\
+         | Rust lints | 0 warnings | `just lint` | merge gate |\n\n\
+         #### Counted work\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n\
+         | `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | {today} | B1 | must not grow | `just counts` | implementer done, merge gate |\n\n\
+         ### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n\
+         {NOT_RUN_YET}"
+    )
+}
+
+/// A row the first measure promoted to Enforced keeps its figure as its limit.
+#[rstest]
+#[case::at_its_figure(104, 0)]
+#[case::one_parse_over(105, 1)]
+fn a_row_promoted_to_enforced_is_held_to_its_figure(#[case] count: u64, #[case] code: i32) {
+    let (workspace, executable) = workspace("8", &benchmark(&[("default", count)], false));
+    workspace.write("TESTING.md", promoted_register("8").as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome.stdout.contains("limit 8 ("),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
+/// The rows left in the Measured table are read beside the promoted ones.
+#[test]
+fn a_row_left_in_the_measured_table_is_read_beside_the_promoted_ones() {
+    let (workspace, _) = workspace("8", &benchmark(&[("default", 104)], false));
+    workspace.write("TESTING.md", promoted_register("8").as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F5"]);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome
+            .stdout
+            .contains("F5.calls: not run yet, limit 1, until #1481 builds its path"),
+        "{}",
+        outcome.stdout
+    );
+}
+
 #[test]
 fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));

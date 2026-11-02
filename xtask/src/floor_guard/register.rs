@@ -15,6 +15,9 @@ const HEADING: &str = "## Quality register";
 /// The sections whose every line is a rule of the Floor's, compared as text.
 const TEXT_SECTIONS: [&str; 3] = ["Floor", "Recorded changes", "Rules"];
 const GATE_FILES_BULLET: &str = "- **No edit to the gate's own files**";
+/// The heading, inside the Enforced section, of the counted rows promoted
+/// there.
+const COUNTED_WORK: &str = "#### Counted work";
 
 /// A table's rows by their first cell, each row's cells by its column's name.
 type Rows = BTreeMap<String, BTreeMap<String, String>>;
@@ -23,6 +26,9 @@ pub(super) struct Register {
     /// Each text section's lines, with how often each stands there.
     text: BTreeMap<&'static str, BTreeMap<String, usize>>,
     enforced: Rows,
+    /// The Enforced section's counted work: rows of the Measured table's
+    /// shape, promoted.
+    counted: Rows,
     measured: Rows,
     exceptions: Rows,
     gate_files: Vec<String>,
@@ -59,6 +65,28 @@ fn table(sections: &BTreeMap<&str, Vec<&str>>, section: &str, columns: &[&str]) 
     let lines = sections
         .get(section)
         .ok_or_else(|| anyhow!("the register has no `### {section}` section"))?;
+    first_table(lines, section, columns)
+}
+
+/// The table under the `heading` line inside `section`, which must hold
+/// `columns`; none when the section has no such heading.
+fn subtable(
+    sections: &BTreeMap<&str, Vec<&str>>,
+    section: &str,
+    heading: &str,
+    columns: &[&str],
+) -> Result<Rows> {
+    let Some(lines) = sections.get(section) else {
+        return Ok(Rows::new());
+    };
+    let Some(start) = lines.iter().position(|line| line.trim() == heading) else {
+        return Ok(Rows::new());
+    };
+    first_table(&lines[start + 1..], section, columns)
+}
+
+/// The first table of `lines`, of the section `section`.
+fn first_table(lines: &[&str], section: &str, columns: &[&str]) -> Result<Rows> {
     let mut rows = lines
         .iter()
         .skip_while(|line| !line.trim_start().starts_with('|'))
@@ -131,6 +159,13 @@ pub(super) fn read(testing: &str) -> Result<Option<Register>> {
         text,
         enforced: table(&sections, "Enforced", &["Rule", "Checked by", "Runs at"])
             .context("reading the Enforced table")?,
+        counted: subtable(
+            &sections,
+            "Enforced",
+            COUNTED_WORK,
+            &["Contract", "Today", "Direction"],
+        )
+        .context("reading the Enforced section's counted work")?,
         measured: table(
             &sections,
             "Measured, not yet enforced",
@@ -250,40 +285,60 @@ fn enforced(base: &Register, head: &Register, findings: &mut Vec<Finding>) {
     }
 }
 
+/// The measured rows, and the counted ones the Enforced section holds, each
+/// held to its ratchet wherever it stands at the head.
 fn measured(base: &Register, head: &Register, findings: &mut Vec<Finding>) {
     for (name, was) in &base.measured {
-        let Some(now) = head.measured.get(name) else {
-            // Promotion tightens: an enforced row names it.
+        // Promotion tightens: an enforced row names it, or the counted work
+        // holds it with its figures.
+        let Some(now) = head.measured.get(name).or_else(|| head.counted.get(name)) else {
             if !head.enforced.keys().any(|row| row == name) {
                 findings.push(weakened(name, "a measured row was removed"));
             }
             continue;
         };
-        let direction = if Register::cell(was, "Direction").contains("fall") {
-            Direction::MustNotFall
-        } else {
-            Direction::MustNotGrow
+        ratchet(name, was, now, findings);
+    }
+    for (name, was) in &base.counted {
+        let Some(now) = head.counted.get(name) else {
+            findings.push(weakened(name, "an enforced row was removed or demoted"));
+            continue;
         };
-        if loosened(
-            Register::cell(was, "Contract"),
-            Register::cell(now, "Contract"),
-            direction,
-            false,
-        ) {
-            findings.push(weakened(name, "its Contract got looser"));
-        }
-        // "after #1583" becomes a figure, or waits on something else.
-        if loosened(
-            Register::cell(was, "Today"),
-            Register::cell(now, "Today"),
-            direction,
-            true,
-        ) {
-            findings.push(weakened(name, "its Today figure got worse"));
-        }
-        if Register::cell(was, "Direction") != Register::cell(now, "Direction") {
-            findings.push(weakened(name, "its Direction changed"));
-        }
+        ratchet(name, was, now, findings);
+    }
+}
+
+/// What weakens a counted row's limits from `was` to `now`.
+fn ratchet(
+    name: &str,
+    was: &BTreeMap<String, String>,
+    now: &BTreeMap<String, String>,
+    findings: &mut Vec<Finding>,
+) {
+    let direction = if Register::cell(was, "Direction").contains("fall") {
+        Direction::MustNotFall
+    } else {
+        Direction::MustNotGrow
+    };
+    if loosened(
+        Register::cell(was, "Contract"),
+        Register::cell(now, "Contract"),
+        direction,
+        false,
+    ) {
+        findings.push(weakened(name, "its Contract got looser"));
+    }
+    // "after #1583" becomes a figure, or waits on something else.
+    if loosened(
+        Register::cell(was, "Today"),
+        Register::cell(now, "Today"),
+        direction,
+        true,
+    ) {
+        findings.push(weakened(name, "its Today figure got worse"));
+    }
+    if Register::cell(was, "Direction") != Register::cell(now, "Direction") {
+        findings.push(weakened(name, "its Direction changed"));
     }
 }
 

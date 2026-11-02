@@ -884,13 +884,13 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
         "TESTING.md",
-        format!("{}{C1_ROWS}", register("8")).as_bytes(),
+        format!("{}{C1_ROWS}{C3_ROWS}", register("8")).as_bytes(),
     );
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[

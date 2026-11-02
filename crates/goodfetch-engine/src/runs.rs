@@ -1705,6 +1705,7 @@ impl Run {
                     // handle while it ends, and its owner waits for its
                     // tasks, the file's actor among them.
                     return Politeness::in_memory(
+                        &self.admitting.politeness.options,
                         self.admitting.politeness.tables.clone(),
                         &self.admitting.politeness.owner,
                     )

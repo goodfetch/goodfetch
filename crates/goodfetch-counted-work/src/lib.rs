@@ -64,11 +64,25 @@ pub enum Row {
     /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
     /// does until the journal lands (#1550).
     EffectSyncs,
+    /// `E6.transactions`: a transaction on a Politeness file, as its commit
+    /// hook sees it.
+    PolitenessTransactions,
+    /// `E6.opens`: a Politeness file opened. Its statement preparations are
+    /// the benchmark's, read from Callgrind, as no wrapper sees them.
+    PolitenessOpens,
+    /// `E6.script_sends`: a script sent whole to Valkey or Redis, which no
+    /// code does until a Politeness store lands.
+    PolitenessScriptSends,
+    /// `E6.robots_parses`: a robots.txt parsed for the copy a user's runs
+    /// share.
+    RobotsParses,
+    /// `E6.robots_reads`: a read of that copy from the Politeness file.
+    RobotsReads,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 17] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -81,6 +95,11 @@ impl Row {
         Self::ConfigurationReads,
         Self::Prunes,
         Self::EffectSyncs,
+        Self::PolitenessTransactions,
+        Self::PolitenessOpens,
+        Self::PolitenessScriptSends,
+        Self::RobotsParses,
+        Self::RobotsReads,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -100,6 +119,11 @@ impl Row {
             | Self::ConfigurationReads
             | Self::Prunes
             | Self::EffectSyncs => "run_state",
+            Self::PolitenessTransactions
+            | Self::PolitenessOpens
+            | Self::PolitenessScriptSends
+            | Self::RobotsParses
+            | Self::RobotsReads => "politeness_permit",
         }
     }
 
@@ -114,11 +138,15 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::RunTransactions => "transactions",
+            Self::RunTransactions | Self::PolitenessTransactions => "transactions",
             Self::WriterReads => "writer_reads",
             Self::ConfigurationReads => "configuration_reads",
             Self::Prunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
+            Self::PolitenessOpens => "opens",
+            Self::PolitenessScriptSends => "script_sends",
+            Self::RobotsParses => "robots_parses",
+            Self::RobotsReads => "robots_reads",
         }
     }
 
@@ -138,6 +166,11 @@ impl Row {
             Self::ConfigurationReads => "F2.configuration_reads",
             Self::Prunes => "F2.prunes",
             Self::EffectSyncs => "F2.effect_syncs",
+            Self::PolitenessTransactions => "E6.transactions",
+            Self::PolitenessOpens => "E6.opens",
+            Self::PolitenessScriptSends => "E6.script_sends",
+            Self::RobotsParses => "E6.robots_parses",
+            Self::RobotsReads => "E6.robots_reads",
         }
     }
 

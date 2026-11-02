@@ -10815,7 +10815,8 @@
           "name": "shared_path",
           "values": [
             "page_analysis",
-            "run_state"
+            "run_state",
+            "politeness_permit"
           ]
         },
         {
@@ -10832,7 +10833,11 @@
             "writer_reads",
             "configuration_reads",
             "prunes",
-            "effect_syncs"
+            "effect_syncs",
+            "opens",
+            "script_sends",
+            "robots_parses",
+            "robots_reads"
           ]
         }
       ],

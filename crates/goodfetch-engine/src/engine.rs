@@ -313,6 +313,7 @@ impl Engine {
         console: Option<String>,
     ) -> (Runs, Events) {
         dependencies.run_state.work = self.metrics.counted_work().clone();
+        dependencies.politeness.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
         let settings = host_settings(

@@ -214,6 +214,7 @@ fn a_take_that_meets_a_full_disk_is_rolled_back_and_reported_as_a_storage_failur
             file.clone(),
             &PolitenessOptions {
                 vfs: Some(vfs.name().to_owned()),
+                ..PolitenessOptions::default()
             },
             Vec::new(),
             gone_unless_live,
@@ -313,7 +314,9 @@ fn a_permit_given_back_to_a_runs_own_politeness_wakes_its_waiter_within_the_engi
     let now = SystemTime::now();
 
     let woken = run(async |owner| {
-        let own = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let own = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
+            .await
+            .unwrap();
         let mut wakes = own.wakes();
         let held = granted(
             own.take("proxy", &holder(&env, "own"), cap(1), now)

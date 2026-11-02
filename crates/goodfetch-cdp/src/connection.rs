@@ -200,6 +200,9 @@ fn lock(subscribers: &Shared) -> MutexGuard<'_, Subscribers> {
 pub struct Connection {
     requests: mpsc::Sender<Request>,
     subscribers: Shared,
+    /// The work a typed command's params serialization counts on: C1's
+    /// encodes, beside the driver's frame (ADR 0140).
+    work: CountedWork,
 }
 
 /// How the connection ended.
@@ -242,6 +245,7 @@ impl Connection {
             Self {
                 requests,
                 subscribers: Arc::clone(&subscribers),
+                work: work.clone(),
             },
             Driver {
                 reader,
@@ -273,6 +277,9 @@ impl Connection {
         params: &C,
         timeout: Duration,
     ) -> Result<C::Returns, Failure> {
+        // A serialization of its own before the frame's: C1 counts both
+        // (#1861's Decision 3, X21).
+        self.work.count(Row::CdpEncodes);
         let params = serde_json::to_value(params).expect("invariant: a command's params serialize");
         let answer = self.send_raw(C::METHOD, session, params, timeout).await?;
         read(C::METHOD, answer)

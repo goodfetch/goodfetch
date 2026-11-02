@@ -285,6 +285,54 @@ fn a_ceiling_row_of_a_benchmark_xtask_perf_does_not_hold_fails() {
     );
 }
 
+/// The clean workspace with `F1.file_opens` promoted from the Measured table
+/// to the Enforced section's table of counted work, its command `command` and
+/// its figure `today`.
+fn promoted(command: &str, today: &str) -> Workspace {
+    let workspace = clean();
+    workspace.edit(
+        TESTING,
+        "| `F1.file_opens` | files opened per page | 0 | 0 | B1 | must not grow |\n",
+        "",
+    );
+    workspace.edit(
+        TESTING,
+        "\n### Measured, not yet enforced",
+        &format!(
+            "\n#### Counted work\n\n\
+             | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+             |---|---|---|---|---|---|---|---|\n\
+             | `F1.file_opens` | files opened per page | 0 | {today} | B1 | must not grow | {command} | implementer done, merge gate |\n\n\
+             ### Measured, not yet enforced"
+        ),
+    );
+    workspace
+}
+
+/// A row promoted to Enforced is checked as both: its command must exist,
+/// and its figure must not pass its Contract with no Exception naming it.
+#[rstest]
+#[case::its_command_exists("`just lint`", "0", None)]
+#[case::its_command_does_not_exist("`just no-such-recipe`", "0", Some("command-missing"))]
+#[case::its_figure_over_its_contract_with_no_exception(
+    "`just lint`",
+    "2",
+    Some("row-above-contract")
+)]
+fn a_row_promoted_to_enforced_is_checked_as_an_enforced_and_a_counted_row(
+    #[case] command: &str,
+    #[case] today: &str,
+    #[case] fails: Option<&str>,
+) {
+    let outcome = check(&promoted(command, today), TODAY);
+
+    let expected: Vec<_> = fails
+        .into_iter()
+        .map(|kind| finding(kind, "F1.file_opens"))
+        .collect();
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+}
+
 /// A section or table the check cannot read never passes as an empty one.
 #[rstest]
 #[case::no_enforced_table(TESTING, "### Enforced", "### Other", "TESTING.md")]

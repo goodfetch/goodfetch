@@ -117,8 +117,16 @@ pub(crate) fn with_cell(
 /// The heading of the table of measured rows.
 pub(crate) const MEASURED: &str = "### Measured, not yet enforced";
 
+/// The heading, inside the Enforced section, of the table of counted rows
+/// promoted there: the Measured table's columns, its limits gating.
+pub(crate) const COUNTED_WORK: &str = "#### Counted work";
+
+/// The columns a table of counted rows holds, measured or enforced.
+const ROW_COLUMNS: [&str; 5] = ["Row", "Metric, per unit", "Contract", "Today", "Benchmark"];
+
 /// The register's three tables.
 pub(crate) struct Register {
+    /// The Enforced table's rows, then its counted work's.
     pub(crate) enforced: Vec<Row>,
     pub(crate) measured: Vec<Row>,
     pub(crate) exceptions: Vec<Row>,
@@ -134,17 +142,19 @@ impl Register {
             .take_while(|line| !line.starts_with("## "))
             .collect::<Vec<_>>()
             .join("\n");
+        let mut enforced = table(
+            &section,
+            "### Enforced",
+            &["Dimension", "Rule", "Checked by"],
+        )?;
+        // No row promoted yet leaves the counted work without a heading; one
+        // under its heading that cannot be read is a missing table.
+        if section.lines().any(|line| line.trim() == COUNTED_WORK) {
+            enforced.extend(table(&section, COUNTED_WORK, &ROW_COLUMNS)?);
+        }
         Some(Self {
-            enforced: table(
-                &section,
-                "### Enforced",
-                &["Dimension", "Rule", "Checked by"],
-            )?,
-            measured: table(
-                &section,
-                MEASURED,
-                &["Row", "Metric, per unit", "Contract", "Today", "Benchmark"],
-            )?,
+            enforced,
+            measured: table(&section, MEASURED, &ROW_COLUMNS)?,
             exceptions: table(&section, "### Exceptions", &["ID", "Rule", "Expires"])?,
         })
     }

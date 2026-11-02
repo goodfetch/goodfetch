@@ -38,9 +38,11 @@ fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
     .map(|row| work.read(row))
 }
 
-/// Every command costs one encode, one send and one send to the command log's
-/// writer, which keeps its file open once per batch at most; the page a
-/// Borrowed browser opens walks no memory, as the pool never measures it.
+/// Every command costs the encode of its frame, one send and one send to the
+/// command log's writer, which keeps its file open once per batch at most; a
+/// typed command's params serialized first are an encode of their own (X21);
+/// the page a Borrowed browser opens walks no memory, as the pool never
+/// measures it.
 #[test]
 fn a_session_counts_each_commands_work() {
     let Counted {
@@ -51,7 +53,11 @@ fn a_session_counts_each_commands_work() {
     } = run(None);
 
     assert!(commands > 0, "the Session sent no command");
-    assert_eq!(work.read(Row::CdpEncodes), commands);
+    let encodes = work.read(Row::CdpEncodes);
+    assert!(
+        encodes > commands && encodes <= 2 * commands,
+        "{encodes} encodes over {commands} commands"
+    );
     assert_eq!(work.read(Row::CdpSends), commands);
     assert_eq!(work.read(Row::CdpLogSendsOff), commands);
     assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
@@ -97,7 +103,6 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
 /// A plant adds one unit of its row per command, which takes the row past
 /// its limit: one over the exact rows, and past two for the writer's opens.
 #[rstest]
-#[case::encodes(Row::CdpEncodes, 2)]
 #[case::sends(Row::CdpSends, 2)]
 #[case::log_sends(Row::CdpLogSendsOff, 2)]
 /// A page's walk is planted per command, at least one per page opened.
@@ -106,6 +111,19 @@ fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64)
     let Counted { commands, work, .. } = run(Some(row));
 
     assert_eq!(work.read(row), per_command * commands, "{}", row.name());
+}
+
+/// A planted encode adds one a command to the encodes the Session counts.
+#[test]
+fn a_planted_encode_adds_one_a_command() {
+    let unplanted = run(None);
+    let planted = run(Some(Row::CdpEncodes));
+
+    assert_eq!(planted.commands, unplanted.commands);
+    assert_eq!(
+        planted.work.read(Row::CdpEncodes) - unplanted.work.read(Row::CdpEncodes),
+        planted.commands
+    );
 }
 
 #[test]

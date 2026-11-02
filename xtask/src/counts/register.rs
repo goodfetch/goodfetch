@@ -1,5 +1,6 @@
-//! Each counted row's limit, read from the Measured table of `TESTING.md`'s
-//! Quality register: its "Today" figure once measured, else its "Contract",
+//! Each counted row's limit, read from `TESTING.md`'s Quality register, in the
+//! Enforced section's table of counted work or the Measured table (both start
+//! `| Row |`): its "Today" figure once measured, else its "Contract",
 //! when that holds a plain number (`1.10 × the figure after #1577` holds none).
 //! A row measured per kind holds a figure for each, as `click 6, fill 2`, and
 //! each kind's limit goes by `<row>.<kind>`, as `C3.commands.click`.
@@ -84,13 +85,34 @@ pub(super) fn limits(root: &Path) -> Result<BTreeMap<String, Limit>> {
     parse(&text)
 }
 
+/// Every table of rows in the register: the Enforced section's counted work
+/// and the Measured table.
 fn parse(text: &str) -> Result<BTreeMap<String, Limit>> {
     let Some((_, section)) = text.split_once(SECTION) else {
         bail!("{TESTING} has no \"{SECTION}\" section");
     };
-    let mut lines = section
-        .lines()
-        .skip_while(|line| !line.starts_with(HEADER_START));
+    let section = section.split("\n## ").next().unwrap_or(section);
+    let mut limits = BTreeMap::new();
+    let mut lines = section.lines().peekable();
+    while lines.peek().is_some() {
+        let mut table = lines
+            .by_ref()
+            .skip_while(|line| !line.starts_with(HEADER_START))
+            .take_while(|line| line.starts_with('|'))
+            .peekable();
+        if table.peek().is_none() {
+            break;
+        }
+        limits.extend(table_limits(table)?);
+    }
+    if limits.is_empty() {
+        bail!("{TESTING}'s Quality register has no table of rows");
+    }
+    Ok(limits)
+}
+
+/// Each row's limit in one table of rows, its header first.
+fn table_limits<'a>(mut lines: impl Iterator<Item = &'a str>) -> Result<BTreeMap<String, Limit>> {
     let Some(header) = lines.next() else {
         bail!("{TESTING}'s Quality register has no table of rows");
     };
@@ -103,7 +125,7 @@ fn parse(text: &str) -> Result<BTreeMap<String, Limit>> {
     };
     let (contract, today) = (column("Contract")?, column("Today")?);
     let mut limits = BTreeMap::new();
-    for line in lines.skip(1).take_while(|line| line.starts_with('|')) {
+    for line in lines.skip(1) {
         let row = cells(line);
         let (Some(name), Some(contract), Some(today)) =
             (row.first(), row.get(contract), row.get(today))

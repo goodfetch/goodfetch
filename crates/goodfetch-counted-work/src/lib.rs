@@ -35,11 +35,23 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `E3.statements`: a SQL statement a Usage charge reads its Limits with.
+    ChargeStatements,
+    /// `E3.slice_transactions`: a transaction committed on the ledger's
+    /// connections a charge goes through.
+    ChargeTransactions,
+    /// `E3.opens`: a connection opened to the ledger for a charge.
+    ChargeOpens,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 4] = [
+        Self::PageParses,
+        Self::ChargeStatements,
+        Self::ChargeTransactions,
+        Self::ChargeOpens,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +59,7 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
         }
     }
 
@@ -55,6 +68,9 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::ChargeStatements => "statements",
+            Self::ChargeTransactions => "transactions",
+            Self::ChargeOpens => "opens",
         }
     }
 
@@ -63,6 +79,9 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::ChargeStatements => "E3.statements",
+            Self::ChargeTransactions => "E3.slice_transactions",
+            Self::ChargeOpens => "E3.opens",
         }
     }
 

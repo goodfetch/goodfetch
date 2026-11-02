@@ -15581,13 +15581,17 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "usage_charge"
           ]
         },
         {
           "name": "work",
           "values": [
-            "parses"
+            "opens",
+            "parses",
+            "statements",
+            "transactions"
           ]
         }
       ],

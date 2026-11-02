@@ -2667,6 +2667,7 @@ dependencies = [
  "goodfetch-test-support",
  "gungraun",
  "insta",
+ "jiff",
  "mimalloc",
  "parquet",
  "pulldown-cmark",

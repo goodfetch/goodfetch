@@ -121,8 +121,12 @@ pub(crate) fn body_bytes() -> u64 {
 /// The site, served from memory, counting the body bytes it sends.
 struct Site {
     sent: Arc<AtomicU64>,
+    /// The attempts it served a page to.
+    attempts: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
+    /// The most paragraphs it serves a page.
+    largest: Option<usize>,
 }
 
 /// One extra unit of a row's Counted work, done once per page served with
@@ -132,7 +136,13 @@ pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
         let sent = Arc::clone(&self.sent);
-        let page = page(hop.url.path());
+        let mut page = page(hop.url.path());
+        if let Some(page) = &mut page {
+            self.attempts.fetch_add(1, Ordering::Relaxed);
+            page.paragraphs = self
+                .largest
+                .map_or(page.paragraphs, |largest| page.paragraphs.min(largest));
+        }
         if let (Some(plant), Some(page)) = (&self.plant, &page) {
             plant(&page.head);
         }
@@ -210,11 +220,12 @@ impl Body for Chunks {
     }
 }
 
-/// What the crawl answered: each Record of `pages`, and the body bytes the
-/// site sent.
+/// What the crawl answered: each Record of `pages`, the body bytes the site
+/// sent and the attempts it served a page to.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) body_bytes: u64,
+    pub(crate) attempts: u64,
 }
 
 /// `hello`'s line.
@@ -237,6 +248,11 @@ pub(crate) struct Options {
     pub(crate) settings: serde_json::Map<String, Value>,
     /// One extra unit of work per page served.
     pub(crate) plant: Option<Plant>,
+    /// The VFS its run file opens through (ADR 0140's sync counts).
+    pub(crate) run_state_vfs: Option<String>,
+    /// The most paragraphs a page holds, for a count that does not depend on
+    /// a page's size and a tool too slow for the whole site (Callgrind).
+    pub(crate) largest_page: Option<usize>,
 }
 
 /// [`crawl`], with `options`.
@@ -245,11 +261,16 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         metrics,
         settings,
         plant,
+        run_state_vfs,
+        largest_page,
     } = options;
     let sent = Arc::new(AtomicU64::new(0));
+    let attempts = Arc::new(AtomicU64::new(0));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),
+        attempts: Arc::clone(&attempts),
         plant,
+        largest: largest_page,
     }));
     let identity = Identity {
         product: Product::Foxhound,
@@ -308,7 +329,10 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             entropy: Entropy::seeded(seed),
             blocking: BlockingPolicy::Inline,
             run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions::default(),
+            run_state: RunStateOptions {
+                vfs: run_state_vfs,
+                ..RunStateOptions::default()
+            },
             politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
         let (served, records) = tokio::join!(
@@ -321,6 +345,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     Crawled {
         records,
         body_bytes: sent.load(Ordering::Relaxed),
+        attempts: attempts.load(Ordering::Relaxed),
     }
 }
 
@@ -339,9 +364,10 @@ const CREDITS: &str =
 /// The code-free `crawl.start` from the site's index: every in-scope link
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
-/// through, which no connection reaches.
-fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
-    settings.extend([
+/// through, which no connection reaches. A cell's own `settings` replace a
+/// key of these whole.
+fn crawl_start(cell: serde_json::Map<String, Value>) -> Value {
+    let mut settings = serde_json::Map::from_iter([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
@@ -350,6 +376,7 @@ fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
         ),
         ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
     ]);
+    settings.extend(cell);
     json!({
         "jsonrpc": "2.0",
         "id": "start",

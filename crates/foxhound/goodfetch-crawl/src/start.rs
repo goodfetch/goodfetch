@@ -150,6 +150,14 @@ async fn serve(
         .map_err(|error| run_error(error, context.identity()))
 }
 
+/// A start's inputs: its `seeds`.
+fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
+    BTreeMap::from([(
+        StartInput::Seeds,
+        serde_json::to_value(seeds).expect("invariant: seeds encode as JSON"),
+    )])
+}
+
 async fn start(
     mut params: CrawlStartParams,
     context: CallContext,
@@ -185,20 +193,13 @@ async fn start(
     let payloads = PayloadRules::of(settings.resolved(), &params.labels)?;
     let found =
         schema_unchanged(&context, run_id.as_ref(), &payloads, &fragments, &datasets).await?;
-    if !found {
-        work_items::check_seeds(
-            &payloads,
-            params.seeds.iter(),
-            context.runs().metrics().counted_work(),
-        )?;
-    }
     let seeding = egress.clone();
     let work = context.runs().metrics().counted_work().clone();
+    if !found {
+        work_items::check_seeds(&payloads, params.seeds.iter(), &work)?;
+    }
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
-    let inputs = BTreeMap::from([(
-        StartInput::Seeds,
-        serde_json::to_value(&seeds).expect("invariant: seeds encode as JSON"),
-    )]);
+    let inputs = seed_inputs(&seeds);
     let declared = params.labels;
     let redeclaring = (datasets.clone(), params.extraction.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), &seeds);
@@ -220,11 +221,9 @@ async fn start(
                 fragments.record(connection)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
-                let mut positions = work_items::Positions::of(connection)?;
-                positions.counting(&work);
                 let answers = work_items::admit_seeds(
                     connection,
-                    &mut positions,
+                    &mut work_items::Positions::counted(connection, &work)?,
                     &scope,
                     &seeding,
                     &admitted,

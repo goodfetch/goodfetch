@@ -205,19 +205,7 @@ pub(crate) async fn enqueue_links(
         work.count(Row::BatchCompilations);
     }
     let (served, base) = served(&tiers, &params.locator).await?;
-    if let Some(payloads) = &params.payloads
-        && payloads.len() != served.elements.len()
-    {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "`payloads` holds {} Payloads, but the locator `{}` matches {} elements: give one per element, in the order `crawl_request.links` read them.",
-                payloads.len(),
-                params.locator.selector,
-                served.elements.len()
-            ),
-        ));
-    }
+    payloads_fit(&params, served.elements.len())?;
     let links: Vec<Link> = served
         .elements
         .into_iter()
@@ -278,6 +266,22 @@ pub(crate) async fn enqueue_links(
         Ok(Some(Err(refused))) => Err(refused),
         Ok(None) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
+    }
+}
+
+/// `invalid_params` when `params`'s `payloads` do not give one Payload for each
+/// of the `elements` its locator matches.
+fn payloads_fit(params: &CrawlRequestEnqueueLinksParams, elements: usize) -> Result<(), CallError> {
+    match &params.payloads {
+        Some(payloads) if payloads.len() != elements => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "`payloads` holds {} Payloads, but the locator `{}` matches {elements} elements: give one per element, in the order `crawl_request.links` read them.",
+                payloads.len(),
+                params.locator.selector,
+            ),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -414,6 +418,26 @@ struct Batch<'a> {
 }
 
 impl Batch<'_> {
+    /// The refusal of the first of its Payloads that does not fit `label`'s
+    /// schema or the cap, each link that has one checked before any is admitted.
+    fn refused_payload(
+        &self,
+        connection: &Connection,
+        label: &str,
+    ) -> rusqlite::Result<Option<CallError>> {
+        self.work.count(Row::BatchInvariantReads);
+        let rules = PayloadRules::read(connection)?;
+        Ok(self
+            .links
+            .iter()
+            .find_map(|link| match (&link.href, &link.payload) {
+                (Some(_), Chosen::Payload(payload)) => {
+                    rules.check(label, payload.as_ref(), self.work).err()
+                }
+                _ => None,
+            }))
+    }
+
     /// Clears the mark of the request that the link `href`, one that is not
     /// suspected, reaches again as a `duplicate`: a request stays marked
     /// only while every link that reached it was suspected; a link a person
@@ -458,14 +482,8 @@ fn add(
         return Ok(None);
     };
     positions.counting(batch.work);
-    batch.work.count(Row::BatchInvariantReads);
-    let rules = PayloadRules::read(connection)?;
-    for link in batch.links {
-        if let (Some(_), Chosen::Payload(payload)) = (&link.href, &link.payload)
-            && let Err(refused) = rules.check(&params.label, payload.as_ref(), batch.work)
-        {
-            return Ok(Some(Err(refused)));
-        }
+    if let Some(refused) = batch.refused_payload(connection, &params.label)? {
+        return Ok(Some(Err(refused)));
     }
     let scope = Scope::read_counted(
         connection,

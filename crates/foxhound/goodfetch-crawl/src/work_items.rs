@@ -468,6 +468,13 @@ impl Positions {
         })
     }
 
+    /// [`Positions::of`], counting each Payload it stores on `work`.
+    pub(crate) fn counted(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
+        let mut positions = Self::of(connection)?;
+        positions.counting(work);
+        Ok(positions)
+    }
+
     /// Has each Payload it stores counted on `work`.
     pub(crate) fn counting(&mut self, work: &CountedWork) {
         self.work = work.clone();

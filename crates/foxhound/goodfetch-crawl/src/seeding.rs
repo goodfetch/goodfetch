@@ -310,11 +310,9 @@ async fn admit_batch(
                 if let Err(refused) = refused(connection, &seeds, &work)? {
                     return Ok(Err(refused));
                 }
-                let mut positions = Positions::of(connection)?;
-                positions.counting(&work);
                 work_items::admit_seeds(
                     connection,
-                    &mut positions,
+                    &mut Positions::counted(connection, &work)?,
                     &Scope::read(connection)?,
                     &egress,
                     &seeds,

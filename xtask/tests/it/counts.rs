@@ -213,14 +213,13 @@ const FRONTIER_ROWS: [&str; 15] = [
 
 /// The register's F3 rows, each with the limit 1.
 fn frontier_register() -> String {
-    let rows: String = FRONTIER_ROWS
-        .iter()
+    let rows = FRONTIER_ROWS
         .map(|row| {
             format!(
-                "| `{row}` | its work | 99 | 1 | B1 | must not grow | `xtask counts` | implementer done |\n"
+                "| `{row}` | its work | 99 | 1 | B1 | must not grow | `xtask counts` | implementer done |"
             )
         })
-        .collect();
+        .join("\n");
     format!(
         "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
          | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\

@@ -24,7 +24,6 @@ use super::daemon::{cli_hello, daemon, draining, opened, stuck, the_pick};
 use super::disk_view::DiskView;
 use super::layout::install_file;
 use super::run::{call, run_folder};
-use super::storage::configure;
 use super::{engine, engine_with};
 use crate::daemon::DaemonOptions;
 use crate::metrics::{METER, Metrics};
@@ -192,10 +191,16 @@ fn a_daemon_whose_essential_writes_are_on_a_critical_filesystem_is_not_ready(
     #[case] critical: Critical,
 ) {
     let env = TestEnv::new();
-    configure(
-        &env,
-        "storage.low_free = 2000000\nstorage.critical_free = 1000000\n",
-    );
+    // One sample a minute: the Daemon stays through its idle timeout on the
+    // paused clock, and each sample is real work a loaded host pays for.
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings]\ngovernor.sample_interval = 60000\n\
+         storage.low_free = 2000000\nstorage.critical_free = 1000000\n",
+    )
+    .unwrap();
     let view = DiskView::default();
     let (home, per_major) = (env.home().to_owned(), env.home().join("1"));
     let runs = per_major.join("runs");
@@ -227,7 +232,7 @@ fn a_daemon_whose_essential_writes_are_on_a_critical_filesystem_is_not_ready(
         options,
         |dialer| async move {
             let mut client = opened(&dialer, cli_hello()).await;
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(61)).await;
             let health = call(&mut client, 1, "daemon.health", json!({})).await;
             let started = call(&mut client, 2, "run.start", json!({ "run_id": "refused" })).await;
             if started["result"].is_object() {

@@ -204,11 +204,20 @@ pub enum Row {
     RobotsParses,
     /// `E6.robots_reads`: a read of that copy from the Politeness file.
     RobotsReads,
+    /// `C2.commands`: a CDP command an engine read in a frame sends.
+    PageReadCommands,
+    /// `C2.world_creations`: a `Page.createIsolatedWorld` an engine read
+    /// sends past its document's first. The driver keeps no registry of each
+    /// frame's document yet, so every read's creation counts (X10).
+    PageReadWorldCreations,
+    /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
+    /// sends, held per document and frame read.
+    PageReadDocumentWorlds,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 72] = [
+    pub const ALL: [Self; 75] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -281,6 +290,9 @@ impl Row {
         Self::PolitenessScriptSends,
         Self::RobotsParses,
         Self::RobotsReads,
+        Self::PageReadCommands,
+        Self::PageReadWorldCreations,
+        Self::PageReadDocumentWorlds,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -353,6 +365,9 @@ impl Row {
             | Self::PolitenessScriptSends
             | Self::RobotsParses
             | Self::RobotsReads => "politeness_permit",
+            Self::PageReadCommands
+            | Self::PageReadWorldCreations
+            | Self::PageReadDocumentWorlds => "page_read",
         }
     }
 
@@ -422,6 +437,9 @@ impl Row {
             Self::LiveViewAcknowledgements => "acknowledgements",
             Self::LiveViewSeals => "seals",
             Self::RunTraceFormattingOff => "formatting_off",
+            Self::PageReadCommands => "commands",
+            Self::PageReadWorldCreations => "world_creations",
+            Self::PageReadDocumentWorlds => "document_worlds",
         }
     }
 
@@ -503,6 +521,9 @@ impl Row {
             Self::PolitenessScriptSends => "E6.script_sends",
             Self::RobotsParses => "E6.robots_parses",
             Self::RobotsReads => "E6.robots_reads",
+            Self::PageReadCommands => "C2.commands",
+            Self::PageReadWorldCreations => "C2.world_creations",
+            Self::PageReadDocumentWorlds => "C2.document_worlds",
         }
     }
 

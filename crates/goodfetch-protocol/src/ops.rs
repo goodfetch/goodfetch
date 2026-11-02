@@ -173,6 +173,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "json_rpc_message",
         "live_view_frame",
         "page_analysis",
+        "page_read",
         "politeness_permit",
         "record",
         "run_state",
@@ -228,6 +229,9 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "acknowledgements",
         "seals",
         "formatting_off",
+        "commands",
+        "world_creations",
+        "document_worlds",
     ],
 };
 

@@ -224,6 +224,12 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`E6.script_sends` has no production site:** no Politeness store exists, so its counter is the count alone and its plant counts it, as `F2.effect_syncs`'.
 > - **`E6.off_work` is the sum of E6's counters in the cell `politeness_and_robots_txt_off`** (delay 0, no per-domain limit, `site_preferences.respect_robots_txt` false), over its attempts; no other cell has its unit. Politeness and robots.txt off cost the same as on today, so X19 waives it with the other rows, and neither off cell removes a row until the Shared paths spec makes off cost nothing (ADR 0138).
 
+> Note (agent decisions of #1863, pending owner review), 2026-11-02, on C2's rows on B2:
+> - **C2 counts at the driver's `read_in_frame`,** the one function through which every engine read reaches a frame (the locator waits, the Page check's and Block markers' reads, the consent detector's and live hiding's), not at the connection: a read's commands are told apart from a gesture's only there.
+> - **A read is a locator wait the scripted browser answers as ready at once,** and B2 reads each of its two documents twice, once the navigation's own work ended. The rows count over those reads alone, so the reads a navigation judges its document with stay C4's outcome, and the browser counts the reads and the documents they ran in from outside the engine, as it counts C1's commands. `C2.document_worlds`' figure is the reads per document, so its Today of 2 follows the two reads B2 makes in each.
+> - **`C2.world_creations` counts every world a read makes,** as the driver holds no registry of each frame's document to tell a document's first read from its later ones: a bound on the row, which X10's fix replaces by counting a creation only for a document its registry already holds.
+> - **`C2.closed_root_commands` and `C2.live_view_commands` stay "not run yet"** until #726 and #1683 build those reads; `xtask counts` holds the first to its Contract and prints the second, a ratchet, as having no figure yet.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

@@ -140,6 +140,9 @@ fn each_row_counts_on_its_own() {
             ("E6.script_sends", 0),
             ("E6.robots_parses", 0),
             ("E6.robots_reads", 0),
+            ("C2.commands", 0),
+            ("C2.world_creations", 0),
+            ("C2.document_worlds", 0),
         ]
     );
 }

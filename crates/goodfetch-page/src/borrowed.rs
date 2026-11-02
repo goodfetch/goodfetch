@@ -169,7 +169,8 @@ pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, C
     .map_err(|error| unreachable(&address, &error.to_string()))?;
     let (engine, bridge_end) = tokio::io::duplex(BUFFER);
     let (reader, writer) = tokio::io::split(engine);
-    let (connection, driver) = Connection::new(reader, writer);
+    let (connection, driver) =
+        Connection::new(reader, writer, run.metrics().counted_work().clone());
     run.spawn(async move {
         let ended = driver.run().await;
         tracing::debug!(?ended, "a Borrowed browser's connection ended");

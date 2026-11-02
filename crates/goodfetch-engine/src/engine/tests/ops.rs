@@ -383,6 +383,10 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="encodes"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="file_opens"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="log_sends_off"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="sends"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="builds"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="calls"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="messages_no_hook"} 0"#.to_owned(),
@@ -411,6 +415,10 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
             ]),
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="encodes"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="file_opens"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="log_sends_off"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="cdp_command",work="sends"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="builds"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="calls"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="hook_stage",work="messages_no_hook"} 0"#.to_owned(),

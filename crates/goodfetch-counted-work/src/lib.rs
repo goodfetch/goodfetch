@@ -84,11 +84,21 @@ pub enum Row {
     RecordConstantLookups,
     /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
     RecordTransactions,
+    /// `C1.encodes`: a CDP command written into the bytes its pipe carries.
+    CdpEncodes,
+    /// `C1.sends`: a CDP command's bytes written to its pipe.
+    CdpSends,
+    /// `C1.file_opens`: a directory created or a file opened for a CDP
+    /// command, as the CDP command log's writer does.
+    CdpFileOpens,
+    /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
+    /// log's writer. The log has no off yet, so every send counts (X9).
+    CdpLogSendsOff,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 26] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -111,6 +121,10 @@ impl Row {
         Self::RecordDeepCopies,
         Self::RecordConstantLookups,
         Self::RecordTransactions,
+        Self::CdpEncodes,
+        Self::CdpSends,
+        Self::CdpFileOpens,
+        Self::CdpLogSendsOff,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -135,6 +149,9 @@ impl Row {
             | Self::RecordDeepCopies
             | Self::RecordConstantLookups
             | Self::RecordTransactions => "record",
+            Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
+                "cdp_command"
+            }
         }
     }
 
@@ -145,11 +162,9 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageEncodes => "encodes",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
@@ -162,6 +177,10 @@ impl Row {
             Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
             Self::RecordConstantLookups => "constant_lookups",
             Self::SinkTransactions | Self::RecordTransactions => "transactions",
+            Self::MessageEncodes | Self::CdpEncodes => "encodes",
+            Self::CdpSends => "sends",
+            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
+            Self::CdpLogSendsOff => "log_sends_off",
         }
     }
 
@@ -191,6 +210,10 @@ impl Row {
             Self::RecordDeepCopies => "F4.deep_copies",
             Self::RecordConstantLookups => "F4.constant_lookups",
             Self::RecordTransactions => "F4.transactions",
+            Self::CdpEncodes => "C1.encodes",
+            Self::CdpSends => "C1.sends",
+            Self::CdpFileOpens => "C1.file_opens",
+            Self::CdpLogSendsOff => "C1.log_sends_off",
         }
     }
 

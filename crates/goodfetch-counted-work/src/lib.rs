@@ -56,11 +56,25 @@ pub enum Row {
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
     MessageEncodes,
+    /// `F5.messages_no_hook`: a message or its formatting for a stage with no
+    /// Hook on it.
+    HookMessagesNoHook,
+    /// `F5.calls`: a request out to a Hook called.
+    HookCalls,
+    /// `F5.builds`: a Hook chain's build or compilation at a stage.
+    HookBuilds,
+    /// `F6.opens`: a store open or statement preparation for a delivered batch.
+    SinkOpens,
+    /// `F6.transactions`: a transaction for a delivered batch.
+    SinkTransactions,
+    /// `F6.writer_reads`: a read through the run file's writer for a delivered
+    /// batch.
+    SinkWriterReads,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 15] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -70,6 +84,12 @@ impl Row {
         Self::PagePluginAnswerParses,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
+        Self::HookMessagesNoHook,
+        Self::HookCalls,
+        Self::HookBuilds,
+        Self::SinkOpens,
+        Self::SinkTransactions,
+        Self::SinkWriterReads,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -85,6 +105,8 @@ impl Row {
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
+            Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
+            Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
         }
     }
 
@@ -101,6 +123,12 @@ impl Row {
             Self::PagePluginAnswerParses => "plugin_answer_parses",
             Self::MessageDeepCopies => "deep_copies",
             Self::MessageEncodes => "encodes",
+            Self::HookMessagesNoHook => "messages_no_hook",
+            Self::HookCalls => "calls",
+            Self::HookBuilds => "builds",
+            Self::SinkOpens => "opens",
+            Self::SinkTransactions => "transactions",
+            Self::SinkWriterReads => "writer_reads",
         }
     }
 
@@ -117,6 +145,12 @@ impl Row {
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
+            Self::HookMessagesNoHook => "F5.messages_no_hook",
+            Self::HookCalls => "F5.calls",
+            Self::HookBuilds => "F5.builds",
+            Self::SinkOpens => "F6.opens",
+            Self::SinkTransactions => "F6.transactions",
+            Self::SinkWriterReads => "F6.writer_reads",
         }
     }
 

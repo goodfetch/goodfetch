@@ -1753,8 +1753,10 @@
         {
           "name": "shared_path",
           "values": [
+            "hook_stage",
             "json_rpc_message",
-            "page_analysis"
+            "page_analysis",
+            "sink_delivery"
           ]
         },
         {
@@ -1768,7 +1770,13 @@
             "plugin_serializations",
             "plugin_answer_parses",
             "deep_copies",
-            "encodes"
+            "encodes",
+            "builds",
+            "calls",
+            "messages_no_hook",
+            "opens",
+            "transactions",
+            "writer_reads"
           ]
         }
       ],

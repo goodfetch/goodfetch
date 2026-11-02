@@ -1229,9 +1229,9 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
 
-Until the gate's spec builds them, one thing this section names doesn't exist in full yet: the counters of counted work (`F1.parses` has its own; a row whose "Checked by" says none yet has none). Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
+Until the gate's spec builds them, one thing this section names doesn't exist in full yet: the counters of counted work (`F1.parses` and F2's have theirs; a row whose "Checked by" says none yet has none). Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
 
-**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1` or `--path F1` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives.
+**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1` or `--path F1` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives. F2's "Today" is its worst cell, `concurrency_1`, where a delivery pass runs per request. `F2.syncs` reads a counting VFS and `F2.prepares` Callgrind on pages of about 1 kB (Valgrind needed: without it the row is not counted, which fails); both are the benchmark's own, so the ops metric has neither. `F2.effect_syncs` has no Effect to divide by until the Effect journal lands (#1550): 0 passes, a planted one fails.
 
 ### Floor
 
@@ -1289,13 +1289,13 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow | `xtask perf` | merge gate |
-| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | 9.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 11.231 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.prepares` | statement preparations per page | 0 | 181.693 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.writer_reads` | reads through the writer per page | 0 | 1.847 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.configuration_reads` | configuration reads per Run | 1 | 41 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F3.compilations` | glob and regex compilations and validator builds per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |

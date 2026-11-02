@@ -342,7 +342,7 @@ struct NotRunYet {
     builder: &'static str,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const NOT_RUN_YET: [NotRunYet; 11] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -373,6 +373,31 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
         family: "B1",
         builder: "#1121",
     },
+    NotRunYet {
+        name: "C6.file_opens",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.compilations",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.spawns",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.acknowledgements",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.seals",
+        family: "B2",
+        builder: "#959",
+    },
 ];
 
 #[derive(clap::Args)]
@@ -380,7 +405,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, C1).
+    /// Only this path's rows (F1, C1, C6).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).

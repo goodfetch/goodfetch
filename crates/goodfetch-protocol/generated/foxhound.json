@@ -15582,6 +15582,7 @@
           "name": "shared_path",
           "values": [
             "action",
+            "audit_entry",
             "cdp_command",
             "frontier_admission",
             "frontier_hop",
@@ -15589,11 +15590,13 @@
             "frontier_sitemap",
             "hook_stage",
             "json_rpc_message",
+            "live_view_frame",
             "page_analysis",
             "record",
             "run_state",
             "sink_delivery",
-            "usage_charge"
+            "usage_charge",
+            "working_copy_update"
           ]
         },
         {
@@ -15631,7 +15634,15 @@
             "configuration_reads",
             "prunes",
             "effect_syncs",
-            "statements"
+            "statements",
+            "merge_round_trips",
+            "document_loads",
+            "document_encodes",
+            "prepares",
+            "syncs",
+            "spawns",
+            "acknowledgements",
+            "seals"
           ]
         }
       ],

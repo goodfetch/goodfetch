@@ -35,11 +35,20 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `E1.deep_copies`: a whole copy of what a Client's message carries.
+    MessageDeepCopies,
+    /// `E1.encodes`: an encode of what the engine sends, into bytes or into
+    /// a `Value` that is encoded again.
+    MessageEncodes,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 3] = [
+        Self::PageParses,
+        Self::MessageDeepCopies,
+        Self::MessageEncodes,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +56,7 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
         }
     }
 
@@ -55,6 +65,8 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::MessageDeepCopies => "deep_copies",
+            Self::MessageEncodes => "encodes",
         }
     }
 
@@ -63,6 +75,8 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::MessageDeepCopies => "E1.deep_copies",
+            Self::MessageEncodes => "E1.encodes",
         }
     }
 

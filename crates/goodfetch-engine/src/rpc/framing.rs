@@ -5,6 +5,7 @@
 //! typed limit error (ADR 0067), and the framer keeps no more than the limit
 //! in memory while it skips the rest of that line.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, Notification, ProtocolFailure, Request, RequestId,
 };
@@ -128,8 +129,9 @@ impl DecodeError {
     }
 }
 
-/// Decodes one line into a request or a notification.
-pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
+/// Decodes one line into a request or a notification, counting on `work`
+/// each whole copy of what it carries (ADR 0140's E1).
+pub fn decode(line: &[u8], work: &CountedWork) -> Result<Incoming, DecodeError> {
     if nesting_exceeds(line, MAX_DEPTH) {
         return Err(DecodeError::new(
             ProtocolFailure::MessageTooDeep,
@@ -157,7 +159,7 @@ pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
     let has_id = object.contains_key("id");
     if !object.contains_key("method")
         && let Some(id) = id.clone()
-        && let Some(answer) = reply_answer(object)
+        && let Some(answer) = reply_answer(object, work)
     {
         return Ok(Incoming::Reply { id, answer });
     }
@@ -175,6 +177,7 @@ pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
             error.to_string(),
         )
     };
+    work.count(Row::MessageDeepCopies);
     if has_id {
         serde_json::from_value(value.clone())
             .map(Incoming::Request)
@@ -188,11 +191,16 @@ pub fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
 
 /// The answer a reply carries: its `result`, or its `error`, read as the
 /// handler's own `handler_failed` when it names no Error code.
-fn reply_answer(object: &Map<String, Value>) -> Option<Result<Value, ErrorObject>> {
+fn reply_answer(
+    object: &Map<String, Value>,
+    work: &CountedWork,
+) -> Option<Result<Value, ErrorObject>> {
     if let Some(result) = object.get("result") {
+        work.count(Row::MessageDeepCopies);
         return Some(Ok(result.clone()));
     }
     let error = object.get("error")?;
+    work.count(Row::MessageDeepCopies);
     if let Ok(error) = serde_json::from_value::<ErrorObject>(error.clone()) {
         return Some(Err(error));
     }
@@ -250,6 +258,7 @@ fn nesting_exceeds(line: &[u8], limit: usize) -> bool {
 /// small limit and decodes each line; a decoded message must encode and
 /// decode back to itself. It panics only on a bug.
 pub fn fuzz_framing(data: &[u8]) {
+    let work = CountedWork::default();
     let mut framer = Framer::new(4096);
     let mut lines = Vec::new();
     let split = data
@@ -263,7 +272,7 @@ pub fn fuzz_framing(data: &[u8]) {
             continue;
         };
         assert!(line.len() <= 4096, "a line longer than the framer's limit");
-        let Ok(message) = decode(&line) else {
+        let Ok(message) = decode(&line, &work) else {
             continue;
         };
         let encoded = match &message {
@@ -284,7 +293,7 @@ pub fn fuzz_framing(data: &[u8]) {
         }
         .expect("invariant: a decoded message encodes");
         assert_eq!(
-            decode(&encoded),
+            decode(&encoded, &work),
             Ok(message),
             "a decoded message reads back as itself"
         );

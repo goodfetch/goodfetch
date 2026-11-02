@@ -581,24 +581,55 @@ fn proving_leaves_a_row_not_run_yet_out() {
     );
 }
 
+/// B2's rows, as the register holds them: C1's per command, C2's per read or
+/// per document read, and C2's two rows whose reads are not built yet.
+const B2_ROWS: &str = "\
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C2.world_creations` | worlds per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C2.document_worlds` | worlds per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C2.closed_root_commands` | CDP commands per read in a closed root's document | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done |
+| `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
+";
+
+/// A stand-in of B2 over 20 commands, 4 reads and 2 documents, each row at its
+/// limit, which counts `extra` more of `planted` when told to plant it.
+fn b2_benchmark(planted: &str, extra: u64) -> String {
+    let counts = [
+        ("C1.encodes", 20),
+        ("C1.sends", 20),
+        ("C1.file_opens", 30),
+        ("C1.log_sends_off", 20),
+        ("C2.commands", 8),
+        ("C2.world_creations", 4),
+        ("C2.document_worlds", 4),
+    ]
+    .iter()
+    .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
+    .collect::<Vec<_>>()
+    .join(",");
+    format!(
+        "#!/bin/sh\nplant=$2\n\
+         planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2}},\"counts\":{{{counts}}}}}'\n"
+    )
+}
+
 /// A plant reaches only its own row's family: B1's benchmark knows no plant of
 /// B2's row, and fails when asked for one.
 #[test]
 fn a_plant_goes_to_the_family_of_its_row_alone() {
     let (workspace, _) = whole_b1(104, "");
-    let c1_rows = "\
-| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
-| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
-| `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |
-| `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |
-";
     workspace.write(
         "TESTING.md",
-        format!("{}{OTHER_B1_ROWS}{c1_rows}", register("8")).as_bytes(),
+        format!("{}{OTHER_B1_ROWS}{B2_ROWS}", register("8")).as_bytes(),
     );
     let b1 = "#!/bin/sh\n[ -n \"$1\" ] && exit 3\nexec \"$(dirname \"$0\")/benchmark.sh\"\n";
-    let b2 = "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n";
-    let executables: Vec<String> = [("B1", b1), ("B2", b2)]
+    let b2 = b2_benchmark("C1.sends", 20);
+    let executables: Vec<String> = [("B1", b1), ("B2", b2.as_str())]
         .iter()
         .map(|(family, script)| {
             let path = executable_script(&workspace, &format!("{family}.sh"), script);
@@ -618,4 +649,48 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// C2's rows on a stand-in of B2: its read rows divide by the reads or the
+/// documents read, and its rows not run yet are held as they stand, a ratchet
+/// with no figure included.
+#[test]
+fn page_read_rows_divide_by_their_reads_and_a_ratchet_not_run_yet_passes() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!(
+            "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+             | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+             |---|---|---|---|---|---|---|---|\n{B2_ROWS}"
+        )
+        .as_bytes(),
+    );
+    let path = executable_script(&workspace, "B2.sh", &b2_benchmark("C2.document_worlds", 1));
+    let executable = format!("B2={}", path.display());
+
+    let held = workspace.xtask(&["counts", "--path", "C2", "--executable", &executable]);
+    let planted = workspace.xtask(&[
+        "counts",
+        "--path",
+        "C2",
+        "--executable",
+        &executable,
+        "--plant",
+        "C2.document_worlds",
+    ]);
+
+    assert_eq!((held.code, held.findings()), (0, vec![]), "{}", held.stderr);
+    for line in [
+        "C2.commands [default]: 2 per read, limit 2 (8 over 4)",
+        "C2.document_worlds [default]: 2 per document, limit 2 (4 over 2)",
+        "C2.closed_root_commands: not run yet, limit 3, until #726 builds its path",
+        "C2.live_view_commands: not run yet, a ratchet with no figure yet, until #1683 builds its path",
+    ] {
+        assert!(held.stdout.contains(line), "{line}\n{}", held.stdout);
+    }
+    assert_eq!(
+        planted.findings(),
+        vec![finding("over-limit", "C2.document_worlds")]
+    );
 }

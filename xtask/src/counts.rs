@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 26] = [
+const ROWS: [Row; 29] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -328,6 +328,27 @@ const ROWS: [Row; 26] = [
         happens: false,
         valgrind: None,
     },
+    Row {
+        name: "C2.commands",
+        family: "B2",
+        unit: "reads",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C2.world_creations",
+        family: "B2",
+        unit: "reads",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C2.document_worlds",
+        family: "B2",
+        unit: "documents",
+        happens: true,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -340,38 +361,59 @@ struct NotRunYet {
     family: &'static str,
     /// The ticket that builds its path.
     builder: &'static str,
+    /// Whether its Contract caps it: a ratchet's (`no cap (ratchet)`) is
+    /// held only to its first figure, so it has no limit before one.
+    capped: bool,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const NOT_RUN_YET: [NotRunYet; 8] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
         builder: "#1481",
+        capped: true,
     },
     NotRunYet {
         name: "F5.calls",
         family: "B1",
         builder: "#1481",
+        capped: true,
     },
     NotRunYet {
         name: "F5.builds",
         family: "B1",
         builder: "#1481",
+        capped: true,
     },
     NotRunYet {
         name: "F6.opens",
         family: "B1",
         builder: "#1121",
+        capped: true,
     },
     NotRunYet {
         name: "F6.transactions",
         family: "B1",
         builder: "#1121",
+        capped: true,
     },
     NotRunYet {
         name: "F6.writer_reads",
         family: "B1",
         builder: "#1121",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C2.closed_root_commands",
+        family: "B2",
+        builder: "#726",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C2.live_view_commands",
+        family: "B2",
+        builder: "#1683",
+        capped: false,
     },
 ];
 
@@ -380,7 +422,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, C1).
+    /// Only this path's rows (F1, C1, C2).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -437,6 +479,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
         .iter()
         .filter(|_| !arguments.valgrind)
+        .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
     if rows.is_empty() && not_run_yet.is_empty() {
@@ -451,11 +494,13 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         bail!("{planted} is no counted row of what runs");
     }
     for row in &not_run_yet {
-        let limit = limits
-            .get(row.name)
-            .with_context(|| format!("the Quality register has no row {}", row.name))?;
+        let limit = match limits.get(row.name) {
+            Some(limit) => format!("limit {limit}"),
+            None if !row.capped => "a ratchet with no figure yet".to_owned(),
+            None => bail!("the Quality register has no row {}", row.name),
+        };
         output::line(&format!(
-            "{}: not run yet, limit {limit}, until {} builds its path",
+            "{}: not run yet, {limit}, until {} builds its path",
             row.name, row.builder
         ));
     }

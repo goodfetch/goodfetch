@@ -83,6 +83,40 @@ fn cells(line: &str) -> Vec<&str> {
         .collect()
 }
 
+/// `text` with the `column` cell of the row of `counter`, in the table under
+/// `heading`, set to `value`; `None` when the table, the row or the column is
+/// missing.
+pub(crate) fn with_cell(
+    text: &str,
+    heading: &str,
+    counter: &str,
+    column: &str,
+    value: &str,
+) -> Option<String> {
+    let mut lines = text
+        .lines()
+        .skip_while(|line| line.trim() != heading)
+        .skip(1)
+        .take_while(|line| !line.starts_with('#'))
+        .skip_while(|line| !line.starts_with('|'))
+        .take_while(|line| line.starts_with('|'));
+    let position = cells(lines.next()?)
+        .iter()
+        .position(|cell| *cell == column)?;
+    let row = lines.find(|line| {
+        cells(line)
+            .first()
+            .is_some_and(|first| code_spans(first).first() == Some(&counter))
+    })?;
+    let mut pieces: Vec<String> = row.split('|').map(str::to_owned).collect();
+    // The piece before the row's first `|` is empty.
+    *pieces.get_mut(position + 1)? = format!(" {value} ");
+    Some(text.replacen(row, &pieces.join("|"), 1))
+}
+
+/// The heading of the table of measured rows.
+pub(crate) const MEASURED: &str = "### Measured, not yet enforced";
+
 /// The register's three tables.
 pub(crate) struct Register {
     pub(crate) enforced: Vec<Row>,
@@ -108,7 +142,7 @@ impl Register {
             )?,
             measured: table(
                 &section,
-                "### Measured, not yet enforced",
+                MEASURED,
                 &["Row", "Metric, per unit", "Contract", "Today", "Benchmark"],
             )?,
             exceptions: table(&section, "### Exceptions", &["ID", "Rule", "Expires"])?,

@@ -33,6 +33,7 @@ use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionWriter, Network};
@@ -120,12 +121,21 @@ pub(crate) fn body_bytes() -> u64 {
 /// The site, served from memory, counting the body bytes it sends.
 struct Site {
     sent: Arc<AtomicU64>,
+    /// Run once per page it serves: the benchmark's own extra unit of work.
+    plant: Option<Plant>,
 }
+
+/// One extra unit of a row's Counted work, done once per page served with
+/// that page's head, which `xtask counts` must fail on (ADR 0140).
+pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
         let sent = Arc::clone(&self.sent);
         let page = page(hop.url.path());
+        if let (Some(plant), Some(page)) = (&self.plant, &page) {
+            plant(&page.head);
+        }
         Box::pin(async move {
             Ok(match page {
                 Some(page) => Sent {
@@ -215,9 +225,31 @@ const HELLO: &str = r#"{"jsonrpc":"2.0","id":"hello","method":"hello","params":{
 /// starting at `start` and its entropy seeded with `seed`, and answers
 /// every Record of `pages` and the body bytes the site sent.
 pub(crate) fn crawl(home: &Path, start: SystemTime, seed: u64) -> Crawled {
+    crawl_with(home, start, seed, Options::default())
+}
+
+/// What a crawl runs with beyond the fixture: the counts cells' (ADR 0140).
+#[derive(Default)]
+pub(crate) struct Options {
+    /// Where its engine records, among them its Counted work.
+    pub(crate) metrics: Metrics,
+    /// The settings the cell sets beside the crawl's own.
+    pub(crate) settings: serde_json::Map<String, Value>,
+    /// One extra unit of work per page served.
+    pub(crate) plant: Option<Plant>,
+}
+
+/// [`crawl`], with `options`.
+pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Options) -> Crawled {
+    let Options {
+        metrics,
+        settings,
+        plant,
+    } = options;
     let sent = Arc::new(AtomicU64::new(0));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),
+        plant,
     }));
     let identity = Identity {
         product: Product::Foxhound,
@@ -232,7 +264,9 @@ pub(crate) fn crawl(home: &Path, start: SystemTime, seed: u64) -> Crawled {
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution())
         .with(goodfetch_crawl::contribution(tiers));
-    let engine = Engine::new(identity, &composition).expect("invariant: one handler each");
+    let engine = Engine::new(identity, &composition)
+        .expect("invariant: one handler each")
+        .with_metrics(metrics);
     let records = goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
@@ -243,7 +277,7 @@ pub(crate) fn crawl(home: &Path, start: SystemTime, seed: u64) -> Crawled {
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, HELLO).await;
-            send(&mut writer, &crawl_start().to_string()).await;
+            send(&mut writer, &crawl_start(settings).to_string()).await;
             let mut records = Vec::new();
             while let Ok(Some(line)) = lines.next_line().await {
                 let message: Value =
@@ -306,7 +340,16 @@ const CREDITS: &str =
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
 /// through, which no connection reaches.
-fn crawl_start() -> Value {
+fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
+    settings.extend([
+        ("fetch".to_owned(), json!({ "tier": "http" })),
+        ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
+        (
+            "network".to_owned(),
+            json!({ "resolve": { HOST: ["127.0.0.1"] } }),
+        ),
+        ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
+    ]);
     json!({
         "jsonrpc": "2.0",
         "id": "start",
@@ -320,12 +363,7 @@ fn crawl_start() -> Value {
                 "follow": "scope",
                 "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
             },
-            "settings": {
-                "fetch": { "tier": "http" },
-                "politeness": { "domain": { "delay": 0 } },
-                "network": { "resolve": { HOST: ["127.0.0.1"] } },
-                "egress": { "private_ranges": [HOST] },
-            },
+            "settings": settings,
         },
     })
 }

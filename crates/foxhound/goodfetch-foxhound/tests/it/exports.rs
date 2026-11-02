@@ -782,6 +782,10 @@ pub(crate) fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
 
 /// The title and the rows an HTML parser reads in `text`, its header row
 /// first.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 pub(crate) fn html_rows(text: &str) -> (String, Vec<Vec<String>>) {
     let document = scraper::Html::parse_document(text);
     let title = scraper::Selector::parse("title").unwrap();

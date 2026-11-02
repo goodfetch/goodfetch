@@ -1747,6 +1747,29 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Counted work the Daemon did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "path",
+          "values": [
+            "F1"
+          ]
+        },
+        {
+          "name": "work",
+          "values": [
+            "parses"
+          ]
+        }
+      ],
+      "name": "goodfetch.counted_work",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{work}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "1 while the Daemon drains, taking no Run (ADR 0049), else 0.",
       "instrument": "gauge",
       "labels": [],

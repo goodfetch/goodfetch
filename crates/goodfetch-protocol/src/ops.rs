@@ -158,6 +158,31 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// The values of `goodfetch.counted_work`'s `path` label: the Shared paths
+/// (ADR 0140) with a counted row so far.
+const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
+    name: "path",
+    values: &["F1"],
+};
+
+/// The values of `goodfetch.counted_work`'s `work` label: what those rows
+/// count.
+const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
+    name: "work",
+    values: &["parses"],
+};
+
+/// `goodfetch.counted_work`: the Counted work of each Shared path (ADR 0140).
+pub const COUNTED_WORK: Metric = Metric {
+    name: "goodfetch.counted_work",
+    description: "The Counted work the Daemon did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
+    instrument: Instrument::Counter,
+    unit: "{work}",
+    labels: &[COUNTED_WORK_PATH, COUNTED_WORK_WORK],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -174,6 +199,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_MEMORY,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
+        COUNTED_WORK,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],
     hook_stages: &[],

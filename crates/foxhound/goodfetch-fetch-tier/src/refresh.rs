@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use url::Url;
 
 /// A document's refresh directive.
@@ -38,12 +39,13 @@ pub(crate) fn directive(
     headers: &[(String, String)],
     body: &[u8],
     html: bool,
+    work: &CountedWork,
 ) -> Option<Refresh> {
     let header = in_header(url, headers);
     if header.is_some() || !html {
         return header;
     }
-    in_markup(url, body)
+    in_markup(url, body, work)
 }
 
 /// The first `Refresh` header among `headers` (names lower-cased) of the
@@ -58,8 +60,8 @@ pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refre
 /// The first `<meta http-equiv="refresh">` outside `<noscript>` of the
 /// HTML document `body` at `url` that parses: a whole parse of the
 /// document, which blocks.
-pub(crate) fn in_markup(url: &Url, body: &[u8]) -> Option<Refresh> {
-    let document = dom_query::Document::from(String::from_utf8_lossy(body).as_ref());
+pub(crate) fn in_markup(url: &Url, body: &[u8], work: &CountedWork) -> Option<Refresh> {
+    let document = work.parse_html(Row::PageParses, String::from_utf8_lossy(body).as_ref());
     document
         .select("meta[http-equiv][content]")
         .nodes()
@@ -156,7 +158,7 @@ pub fn fuzz_refresh(data: &[u8]) {
     let url = Url::parse("http://fuzz.test/a/b?c").expect("invariant: the URL parses");
     let text = String::from_utf8_lossy(data);
     let _ = parse(&text, &url);
-    let _ = directive(&url, &[], data, true);
+    let _ = directive(&url, &[], data, true, &CountedWork::default());
 }
 
 #[cfg(test)]

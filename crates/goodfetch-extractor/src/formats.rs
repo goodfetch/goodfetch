@@ -14,6 +14,7 @@ use crate::references::{Head, References, references};
 use crate::shadow::composed;
 use crate::structured_data::{json_ld, microdata};
 use crate::tables::tables;
+use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::page::{
     Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
     MarkdownOptions, Metadata, PageFormats,
@@ -61,7 +62,7 @@ pub trait CleanUp {
 /// What a call reads with beside its document: the Clean-up rules'
 /// cosmetic matcher, when the page's rules are on, and the main-content
 /// step `content.extractor` chose.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Context<'a> {
     /// The cosmetic matcher applied before the main-content step and the
     /// Markdown converter, never to what reads the document as it stands;
@@ -69,6 +70,8 @@ pub struct Context<'a> {
     pub clean_up: Option<&'a dyn CleanUp>,
     /// The main-content step.
     pub extractor: &'a dyn Extractor,
+    /// Where the call's parses count (ADR 0140).
+    pub work: CountedWork,
 }
 
 impl Default for Context<'_> {
@@ -77,6 +80,7 @@ impl Default for Context<'_> {
         Self {
             clean_up: None,
             extractor: BuiltIn::default().extractor(),
+            work: CountedWork::default(),
         }
     }
 }
@@ -118,6 +122,10 @@ pub struct Measured {
 /// them, and the length of the main content they were read from, so that a
 /// caller measuring what the Clean-up rules took of it (ADR 0047) runs no
 /// second main-content step on the document they left.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub fn measured_formats(
     document: &Document<'_>,
     request: &FormatsRequest,
@@ -135,7 +143,7 @@ pub fn measured_formats(
     // (story 8): outside, none read; inside, none found.
     let read_main = request
         .reads_main_content()
-        .then(|| main_content(&seen, document.url, context.extractor));
+        .then(|| main_content(&seen, document.url, context.extractor, &context.work));
     let main = read_main.as_ref().and_then(Option::as_ref);
     let main_html = main.map(|(html, _)| html.as_str());
     let of_main = |read: fn(&str) -> String| main_html.map(read).unwrap_or_default();
@@ -254,8 +262,12 @@ impl Serialization {
 /// `document`, white space aside, in characters, its shadow roots' text
 /// included; 0 when it has none: how a caller measures what
 /// extraction-side removal took of it (ADR 0047).
-pub fn main_content_length(document: &Document<'_>, extractor: &dyn Extractor) -> usize {
-    main_text_length(&composed(document.html), document.url, extractor)
+pub fn main_content_length(
+    document: &Document<'_>,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> usize {
+    main_text_length(&composed(document.html), document.url, extractor, work)
 }
 
 /// The fuzz target of the HTML entry point (ADR 0067): reads `data` as a

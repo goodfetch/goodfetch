@@ -8,6 +8,11 @@ use super::{
     first_elements, matched,
 };
 
+/// Counts no test of this file reads.
+fn no_counts() -> goodfetch_counted_work::CountedWork {
+    goodfetch_counted_work::CountedWork::default()
+}
+
 /// The value page's article, as a served document holds it.
 const ARTICLE: &str = r#"<!doctype html><html><body>
 <nav><h1>Shop</h1></nav>
@@ -62,7 +67,7 @@ fn a_locator_matches_each_element_with_its_href_text_and_attributes() {
 </ul></body></html>"#;
 
     assert_eq!(
-        matched(html, "ul.books a.book"),
+        matched(html, "ul.books a.book", &no_counts()),
         Ok(vec![
             element(
                 Some("book/1?a=1&b=2"),
@@ -86,7 +91,7 @@ fn a_locator_matches_each_element_with_its_href_text_and_attributes() {
 #[test]
 fn a_selector_that_is_no_css_is_refused() {
     assert_eq!(
-        matched("<a href=x>x</a>", "a >"),
+        matched("<a href=x>x</a>", "a >", &no_counts()),
         Err(SelectorInvalid("a >".to_owned()))
     );
 }
@@ -116,7 +121,7 @@ fn a_selector_a_browser_refuses_is_refused_on_both_tiers(
 
     assert_eq!(check_selector(selector).is_ok(), accepted, "{selector}");
     assert_eq!(
-        matched("<p><a href=x>x</a></p>", selector).is_ok(),
+        matched("<p><a href=x>x</a></p>", selector, &no_counts()).is_ok(),
         accepted,
         "{selector}"
     );
@@ -127,7 +132,8 @@ fn a_selector_a_browser_refuses_is_refused_on_both_tiers(
                 "<p>x</p>",
                 &[FieldLocator::Css {
                     selector: selector.to_owned()
-                }]
+                }],
+                &no_counts()
             ),
             refused.map(|()| Vec::new()).map_err(LocatorInvalid::Css)
         );
@@ -145,7 +151,7 @@ fn a_link_hidden_in_what_a_button_controls_reads_revealable() {
 <div id="more" hidden><a href="/shown">Shown</a></div>
 <div id="less" hidden><a href="/kept">Kept</a></div>"#;
 
-    let revealable: Vec<bool> = matched(html, "a")
+    let revealable: Vec<bool> = matched(html, "a", &no_counts())
         .unwrap()
         .into_iter()
         .map(|element| match element.sight {
@@ -183,7 +189,7 @@ fn an_xpath_locator_reads_the_first_element_it_finds_in_the_served_document() {
     ];
 
     assert_eq!(
-        first_elements(ARTICLE, &locators),
+        first_elements(ARTICLE, &locators, &no_counts()),
         Ok(vec![
             Some(field("h1", "Delta-Drachen", &[("class", "title")])),
             Some(field("p", "Artikelnummer: DK-0042", &[("class", "sku")])),
@@ -219,7 +225,7 @@ fn an_xpath_a_browser_refuses_or_that_answers_a_value_is_refused(#[case] express
     assert!(check_xpath(expression).is_err(), "{expression}");
     assert!(
         matches!(
-            first_elements(ARTICLE, &[xpath(expression)]),
+            first_elements(ARTICLE, &[xpath(expression)], &no_counts()),
             Err(LocatorInvalid::Xpath(_))
         ),
         "{expression}"

@@ -40,12 +40,16 @@ const DRAWN: [&str; 13] = [
 /// parse, a document with a declarative shadow root, more than one match,
 /// whose wait the browser refuses as not strict, or an element whose
 /// visibility needs layout or a stylesheet's rules.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn shown(html: &str, selector: &str) -> Option<Shown> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
     let matcher = Matcher::new(selector).ok()?;
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     let selection = document.select_matcher(&matcher);
     let nodes = selection.nodes();
     let element = match nodes {

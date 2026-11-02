@@ -10,10 +10,11 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{CountingVfs, TestEnv};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
+use crate::crawl_plants::{Counted, run_state_plant};
 use crate::crawl_scenario::{
     Frontier, Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant,
 };
@@ -457,4 +458,130 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
     assert!(no_globs.of(Row::HopCompilations) < default.of(Row::HopCompilations));
     assert_eq!(no_schema.of(Row::PayloadValidations), 0);
     assert_eq!(no_schema.of(Row::PayloadCompilations), 0);
+}
+
+/// The run-state rows a crawl with `settings` counted and, when `planted`,
+/// with one extra unit of that row's work per page served.
+struct RunStateCounts {
+    transactions: u64,
+    syncs: u64,
+    writer_reads: u64,
+    configuration_reads: u64,
+    prunes: u64,
+    effect_syncs: u64,
+    attempts: u64,
+}
+
+impl RunStateCounts {
+    /// The figure of the row named `row`.
+    fn of(&self, row: &str) -> u64 {
+        match row {
+            "F2.transactions" => self.transactions,
+            "F2.syncs" => self.syncs,
+            "F2.writer_reads" => self.writer_reads,
+            "F2.configuration_reads" => self.configuration_reads,
+            "F2.prunes" => self.prunes,
+            "F2.effect_syncs" => self.effect_syncs,
+            other => panic!("no such row: {other}"),
+        }
+    }
+}
+
+fn run_state_counts(settings: &Value, planted: Option<&str>) -> RunStateCounts {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let vfs = CountingVfs::register();
+    let plant = planted.map(|row| {
+        run_state_plant(
+            row,
+            &Counted {
+                work: &work,
+                vfs: vfs.name(),
+            },
+        )
+    });
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            settings: settings.as_object().unwrap().clone(),
+            plant,
+            run_state_vfs: Some(vfs.name().to_owned()),
+            // Small pages: a page's size moves none of these counts.
+            largest_page: Some(PAGES[0]),
+            ..Options::default()
+        },
+    );
+    RunStateCounts {
+        transactions: work.read(Row::RunTransactions),
+        syncs: vfs.syncs(),
+        writer_reads: work.read(Row::WriterReads),
+        configuration_reads: work.read(Row::ConfigurationReads),
+        prunes: work.read(Row::Prunes),
+        effect_syncs: work.read(Row::EffectSyncs),
+        attempts: crawled.attempts,
+    }
+}
+
+/// B1's counts cell (ADR 0140): each counter of the run-state writer sees one
+/// extra unit of its work per page, done for real where it can be.
+#[rstest]
+#[case::transactions("F2.transactions")]
+#[case::syncs("F2.syncs")]
+#[case::writer_reads("F2.writer_reads")]
+#[case::configuration_reads("F2.configuration_reads")]
+#[case::prunes("F2.prunes")]
+#[case::effect_syncs("F2.effect_syncs")]
+fn a_planted_unit_per_page_moves_its_run_state_row_by_a_page_each(#[case] row: &str) {
+    let default = run_state_counts(&json!({}), None);
+    let planted = run_state_counts(&json!({}), Some(row));
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert_eq!(default.attempts, pages);
+    assert!(
+        planted.of(row) >= default.of(row) + pages,
+        "{row}: {} planted, {} not",
+        planted.of(row),
+        default.of(row)
+    );
+}
+
+/// The crawl does the writer's work the rows count at concurrency 1 and 16,
+/// and durability changes how a transaction reaches the disk and not how many
+/// there are: `fast` keeps its transactions and takes syncs away. That a count
+/// does not depend on how its jobs group is `run_state`'s own test.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "three crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
+    let at = |concurrency: u64| json!({ "politeness": { "domain": { "delay": 0, "concurrency": concurrency } } });
+    let (one, sixteen, full, fast) = std::thread::scope(|scope| {
+        let one = scope.spawn(|| run_state_counts(&at(1), None));
+        let sixteen = scope.spawn(|| run_state_counts(&at(16), None));
+        let full = scope.spawn(|| run_state_counts(&json!({}), None));
+        let fast = scope
+            .spawn(|| run_state_counts(&json!({ "run_state": { "durability": "fast" } }), None));
+        (
+            one.join().unwrap(),
+            sixteen.join().unwrap(),
+            full.join().unwrap(),
+            fast.join().unwrap(),
+        )
+    });
+
+    for counts in [&one, &sixteen, &full] {
+        assert!(counts.transactions > 0 && counts.syncs > 0 && counts.configuration_reads > 0);
+    }
+    assert_eq!(full.transactions, fast.transactions);
+    assert!(
+        fast.syncs < full.syncs,
+        "{} at fast, {} at full",
+        fast.syncs,
+        full.syncs
+    );
 }

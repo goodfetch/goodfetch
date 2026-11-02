@@ -119,11 +119,24 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `F2.transactions`: a transaction on a run file: a commit its commit
+    /// hook saw, and each job the writer folded into a commit's group, so the
+    /// count does not depend on how commits group (ADR 0138's note).
+    RunTransactions,
+    /// `F2.writer_reads`: a read through a run file's writer.
+    WriterReads,
+    /// `F2.configuration_reads`: a read of the machine's settings files.
+    ConfigurationReads,
+    /// `F2.prunes`: a prune pass.
+    Prunes,
+    /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
+    /// does until the journal lands (#1550).
+    EffectSyncs,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 43] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -162,6 +175,11 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::RunTransactions,
+        Self::WriterReads,
+        Self::ConfigurationReads,
+        Self::Prunes,
+        Self::EffectSyncs,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -201,6 +219,11 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::RunTransactions
+            | Self::WriterReads
+            | Self::ConfigurationReads
+            | Self::Prunes
+            | Self::EffectSyncs => "run_state",
         }
     }
 
@@ -222,7 +245,10 @@ impl Row {
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
             Self::SinkOpens => "opens",
-            Self::SinkWriterReads => "writer_reads",
+            Self::SinkWriterReads | Self::WriterReads => "writer_reads",
+            Self::ConfigurationReads => "configuration_reads",
+            Self::Prunes => "prunes",
+            Self::EffectSyncs => "effect_syncs",
             Self::RecordDeclarationReads => "declaration_reads",
             Self::RecordValidatorBuilds => "validator_builds",
             Self::RecordValidations | Self::PayloadValidations => "validations",
@@ -233,7 +259,8 @@ impl Row {
             | Self::RecordTransactions
             | Self::BatchTransactions
             | Self::HopTransactions
-            | Self::SitemapTransactions => "transactions",
+            | Self::SitemapTransactions
+            | Self::RunTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -288,6 +315,11 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::RunTransactions => "F2.transactions",
+            Self::WriterReads => "F2.writer_reads",
+            Self::ConfigurationReads => "F2.configuration_reads",
+            Self::Prunes => "F2.prunes",
+            Self::EffectSyncs => "F2.effect_syncs",
         }
     }
 
@@ -315,6 +347,11 @@ impl CountedWork {
     /// Counts one unit of `row`'s work.
     pub fn count(&self, row: Row) {
         self.0.0[row.index()].add_one();
+    }
+
+    /// Counts `units` units of `row`'s work.
+    pub fn count_many(&self, row: Row, units: u64) {
+        self.0.0[row.index()].add(units);
     }
 
     /// The units of `row`'s work counted so far.

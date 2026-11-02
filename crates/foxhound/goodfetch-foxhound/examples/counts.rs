@@ -21,12 +21,32 @@
 //! before its first page: a selector checked and a locale's forms built once
 //! per crawl are no page's work (ADRs 0138 and 0140), and a build moved onto
 //! each page counts at once.
+//!
+//! The run file's work no wrapper sees is read from outside it too: syncs
+//! through a counting VFS under the run file, and `F2.prepares` from
+//! Callgrind's call count of `sqlite3_prepare_v3` over a whole cell, for
+//! which each cell runs this example again as `--callgrind <cell>`, on pages
+//! of about 1 kB, as Callgrind takes minutes on a crawl with no large page and
+//! far longer on the whole site. A page's size moves no statement. Without
+//! Valgrind `F2.prepares` goes unprinted, which `xtask counts` fails as a row
+//! not counted.
+//!
+//! The cells of the run file's own switches (`concurrency_1`,
+//! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
+//! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
+//! Payload's rows say "no hops" there.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
+#![expect(
+    clippy::print_stderr,
+    reason = "why a row goes unprinted, which `xtask counts` fails, beside its finding"
+)]
 #![expect(
     clippy::print_stdout,
     reason = "the benchmark's one output, which `xtask counts` reads"
 )]
 
+#[path = "../benches/plants.rs"]
+mod plants;
 #[path = "../benches/scenarios.rs"]
 #[expect(
     dead_code,
@@ -40,6 +60,9 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_test_support::CountingVfs;
+use goodfetch_test_support::callgrind;
+use plants::{Counted as PlantOn, run_state_plant};
 use scenarios::{Frontier, Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
 use serde_json::{Map, Value, json};
 
@@ -68,8 +91,12 @@ fn planted_prepare(connection: &rusqlite::Connection) {
         .expect("invariant: a literal statement");
 }
 
-/// The plant of the row named `name`.
-fn plant(name: &str, work: &CountedWork) -> Plant {
+/// The plant of the row named `name`, a run-state row's on its own file
+/// through the VFS `vfs`.
+fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
+    if name.starts_with("F2.") {
+        return run_state_plant(name, &PlantOn { work, vfs });
+    }
     let work = work.clone();
     if name == "F1.parses" {
         return Arc::new(move |head: &str| {
@@ -115,21 +142,42 @@ fn number_field() -> Map<String, Value> {
     Map::from_iter([("number".to_owned(), field)])
 }
 
+/// The run-state row Callgrind reads over a whole cell.
+const RUN_STATE_PREPARES: &str = "F2.prepares";
+
+/// The row the counting VFS reads.
+const SYNCS: &str = "F2.syncs";
+
+/// The units the rows of no outcome of this fixture divide by: one Run, and
+/// no Effect until the Effect journal lands (#1550).
+const RUNS: u64 = 1;
+const EFFECTS: u64 = 0;
+
+/// The paragraphs of the fixture's smallest page, about 1 kB: all a
+/// `--callgrind` run serves a page.
+const CALLGRIND_PAGE: usize = PAGES[0];
+
 /// The plant of a row counted at its seam, which no function wraps.
 fn counting(work: CountedWork, row: Row) -> Plant {
     Arc::new(move |_: &str| work.count(row))
 }
 
-/// One cell: a name, the settings it runs with beside the fixture's, whether
-/// the fixture's Payload has its schema, and the rows it must count fewer of
-/// than the default cell: a feature's work goes with the feature (ADR 0140).
+/// One cell: a name, the settings it runs with beside the fixture's, the
+/// Frontier's outcomes it meets beyond a links batch, and the rows it must
+/// count fewer of than the default cell: a feature's work goes with the
+/// feature (ADR 0140).
 struct Cell {
     name: &'static str,
     settings: Value,
-    schema: bool,
+    frontier: Option<Frontier>,
     removes: &'static [Row],
+    /// Whether it must sync less than the default cell.
+    removes_syncs: bool,
     handler: bool,
 }
+
+/// The Frontier's outcomes, the Payload under its schema.
+const FRONTIER: Option<Frontier> = Some(Frontier { schema: true });
 
 /// A glob in the Scope, which is what a Frontier's reads of it compile.
 fn scoped(mut settings: Value) -> Value {
@@ -137,13 +185,14 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-fn cells() -> [Cell; 5] {
+fn cells() -> [Cell; 8] {
     [
         Cell {
             name: "default",
             settings: scoped(json!({})),
-            schema: true,
+            frontier: FRONTIER,
             removes: &[],
+            removes_syncs: false,
             handler: false,
         },
         Cell {
@@ -151,29 +200,62 @@ fn cells() -> [Cell; 5] {
             settings: scoped(json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } })),
-            schema: true,
+            frontier: FRONTIER,
             removes: &[Row::PageParses, Row::PageSelectorCompilations],
+            removes_syncs: false,
             handler: false,
         },
         Cell {
             name: "document_tier_handler",
             settings: json!({}),
-            schema: true,
+            frontier: None,
             removes: &[],
+            removes_syncs: false,
             handler: true,
         },
         Cell {
             name: "scope_globs_off",
             settings: json!({}),
-            schema: true,
+            frontier: FRONTIER,
             removes: &[Row::BatchCompilations, Row::HopCompilations],
+            removes_syncs: false,
             handler: false,
         },
         Cell {
             name: "payload_schema_off",
             settings: scoped(json!({})),
-            schema: false,
+            frontier: Some(Frontier { schema: false }),
             removes: &[Row::PayloadCompilations, Row::PayloadValidations],
+            removes_syncs: false,
+            handler: false,
+        },
+        // A transaction counts one job whatever group it commits in (ADR
+        // 0138's note), so a row is read where commits group least and where
+        // they group most. The crawl's own jobs differ between the two: one
+        // request at a time runs a delivery pass per request. Each is held to
+        // the limit, so neither hides the other's work.
+        Cell {
+            name: "concurrency_1",
+            settings: json!({ "politeness": { "domain": { "delay": 0, "concurrency": 1 } } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+        },
+        Cell {
+            name: "concurrency_16",
+            settings: json!({ "politeness": { "domain": { "delay": 0, "concurrency": 16 } } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+        },
+        Cell {
+            name: "durability_fast",
+            settings: json!({ "run_state": { "durability": "fast" } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: true,
             handler: false,
         },
     ]
@@ -191,6 +273,13 @@ struct Counted {
     removes: &'static [Row],
     /// Each outcome's `F3.prepares`, when Valgrind ran.
     prepares: BTreeMap<&'static str, u64>,
+    attempts: u64,
+    syncs: u64,
+    removes_syncs: bool,
+    /// `F2.prepares`, when Valgrind ran.
+    run_state_prepares: Option<u64>,
+    /// Whether it met the Frontier's outcomes beyond a links batch.
+    frontier: bool,
 }
 
 impl Counted {
@@ -204,24 +293,36 @@ impl Counted {
     }
 }
 
-/// What a crawl of a cell answered and counted, and what [`FROM_FIRST_PAGE`]
-/// held when its first page was asked for.
+/// What a crawl of a cell answered and counted, what [`FROM_FIRST_PAGE`]
+/// held when its first page was asked for, and its run file's syncs.
 struct Crawl {
     crawled: scenarios::Crawled,
     work: CountedWork,
     started: Arc<OnceLock<Vec<u64>>>,
+    syncs: u64,
+}
+
+/// The pages a crawl serves: whole, each without its paragraphs (a
+/// `--small-cell` run), or none past [`CALLGRIND_PAGE`]'s (a `--callgrind`
+/// run).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pages {
+    Whole,
+    Small,
+    Callgrind,
 }
 
 /// The crawl of `cell`, on an engine and in a home of its own.
-fn crawl(cell: &Cell, planted: Option<&str>, small_pages: bool) -> Crawl {
+fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
+    let vfs = CountingVfs::register();
     let settings: Map<String, Value> = match &cell.settings {
         Value::Object(settings) => settings.clone(),
         other => panic!("a cell's settings are an object, not {other}"),
     };
-    let planted = planted.map(|name| plant(name, &work));
+    let planted = planted.map(|name| plant(name, &work, vfs.name()));
     let started = Arc::new(OnceLock::new());
     let first_page: Plant = {
         let (work, started) = (work.clone(), Arc::clone(&started));
@@ -246,34 +347,37 @@ fn crawl(cell: &Cell, planted: Option<&str>, small_pages: bool) -> Crawl {
                 number_field()
             },
             handler: cell.handler,
-            frontier: Some(Frontier {
-                schema: cell.schema,
-            }),
-            small_pages,
+            frontier: cell.frontier,
+            small_pages: pages == Pages::Small,
+            run_state_vfs: Some(vfs.name().to_owned()),
+            largest_page: (pages == Pages::Callgrind).then_some(CALLGRIND_PAGE),
         },
     );
     Crawl {
         crawled,
         work,
         started,
+        syncs: vfs.syncs(),
     }
 }
 
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row.
 fn run(cell: &Cell, planted: Option<&str>) -> Counted {
+    let run_state_prepares = run_state_prepares(cell.name, planted);
     let Crawl {
         crawled,
         work,
         started,
-    } = crawl(cell, planted, false);
+        syncs,
+    } = crawl(cell, planted, Pages::Whole);
     assert_eq!(
         crawled.body_bytes,
         body_bytes(),
         "the site sends each body once"
     );
-    // The index and its pages, the redirect's target, the sitemap's entry and
-    // the seed with a Payload.
-    let pages = PAGES.len() + 4;
+    // The index and its pages, and with the Frontier's outcomes the
+    // redirect's target, the sitemap's entry and the seed with a Payload.
+    let pages = PAGES.len() + if cell.frontier.is_some() { 4 } else { 1 };
     if cell.handler {
         assert_eq!(
             crawled.handled,
@@ -312,17 +416,59 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         work,
         started,
         removes: cell.removes,
-        prepares: prepares(cell.name, planted),
+        prepares: prepares(cell.name, cell.frontier.is_some(), planted),
+        attempts: crawled.attempts,
+        syncs,
+        removes_syncs: cell.removes_syncs,
+        run_state_prepares: run_state_prepares
+            .join()
+            .expect("invariant: the run under Callgrind ended"),
+        frontier: cell.frontier.is_some(),
     }
 }
 
+/// Starts `cell`'s run under Callgrind for `F2.prepares`, when this run
+/// reads its row: a plant of another row has no use for its figure and would
+/// wait for it.
+fn run_state_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<u64>> {
+    let cell = cell.to_owned();
+    let planted = planted.map(str::to_owned);
+    std::thread::spawn(move || {
+        if planted
+            .as_deref()
+            .is_some_and(|row| row != RUN_STATE_PREPARES)
+        {
+            return None;
+        }
+        let executable = std::env::current_exe().expect("invariant: this process has a path");
+        let mut arguments = vec!["--callgrind", cell.as_str()];
+        if planted.is_some() {
+            arguments.extend(["--plant", RUN_STATE_PREPARES]);
+        }
+        match callgrind::calls(PREPARE, &executable, &arguments) {
+            Ok(calls) => Some(calls),
+            Err(error) => {
+                eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
+                None
+            }
+        }
+    })
+}
+
 /// Each outcome's `F3.prepares` in the cell `cell`, side by side, the planted
-/// one's alone when a row is planted, and none when another row is.
-fn prepares(cell: &'static str, planted: Option<&str>) -> BTreeMap<&'static str, u64> {
-    std::thread::scope(|scope| {
+/// one's alone when a row is planted, and none when another row is. A cell
+/// with no `frontier` meets no hop and no sitemap: theirs are 0, once
+/// Valgrind ran.
+fn prepares(
+    cell: &'static str,
+    frontier: bool,
+    planted: Option<&str>,
+) -> BTreeMap<&'static str, u64> {
+    let mut prepares: BTreeMap<&'static str, u64> = std::thread::scope(|scope| {
         let runs: Vec<_> = PREPARES
             .iter()
             .filter(|(row, _)| planted.is_none_or(|planted| planted == *row))
+            .filter(|(row, _)| frontier || *row == PREPARES[0].0)
             .map(|(row, function)| {
                 scope.spawn(move || {
                     under_callgrind(cell, function, planted).map(|count| (*row, count))
@@ -332,7 +478,13 @@ fn prepares(cell: &'static str, planted: Option<&str>) -> BTreeMap<&'static str,
         runs.into_iter()
             .filter_map(|run| run.join().expect("invariant: a run under Callgrind ended"))
             .collect()
-    })
+    });
+    if !frontier && !prepares.is_empty() {
+        for (row, _) in &PREPARES[1..] {
+            prepares.insert(row, 0);
+        }
+    }
+    prepares
 }
 
 /// The prepares inside `function` in the cell `cell`, with `planted`'s plant,
@@ -404,19 +556,23 @@ fn calls_to_prepare(dump: &str) -> u64 {
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let (small, planted) = match arguments.as_slice() {
-        [] => (None, None),
-        ["--plant", row] => (None, Some(*row)),
-        ["--small-cell", cell] => (Some(*cell), None),
-        ["--small-cell", cell, "--plant", row] => (Some(*cell), Some(*row)),
-        other => panic!("usage: counts [--small-cell <cell>] [--plant <row>], not {other:?}"),
+    let (pages, cell, planted) = match arguments.as_slice() {
+        [] => (Pages::Whole, None, None),
+        ["--plant", row] => (Pages::Whole, None, Some(*row)),
+        ["--small-cell", cell] => (Pages::Small, Some(*cell), None),
+        ["--small-cell", cell, "--plant", row] => (Pages::Small, Some(*cell), Some(*row)),
+        ["--callgrind", cell] => (Pages::Callgrind, Some(*cell), None),
+        ["--callgrind", cell, "--plant", row] => (Pages::Callgrind, Some(*cell), Some(*row)),
+        other => panic!(
+            "usage: counts [--small-cell <cell> | --callgrind <cell>] [--plant <row>], not {other:?}"
+        ),
     };
-    if let Some(small) = small {
+    if let Some(name) = cell {
         let cell = cells()
             .into_iter()
-            .find(|cell| cell.name == small)
+            .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        let _ = crawl(&cell, planted, true);
+        let _ = crawl(&cell, planted, pages);
         return;
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
@@ -443,6 +599,11 @@ fn main() {
                 row.name()
             );
         }
+        assert!(
+            !cell.removes_syncs || cell.syncs < default.syncs,
+            "the cell {} leaves {SYNCS} as it is",
+            cell.name
+        );
         let mut counts: Map<String, Value> = Row::ALL
             .iter()
             .map(|row| (row.name().to_owned(), json!(cell.count(*row))))
@@ -450,13 +611,20 @@ fn main() {
         for (row, count) in &cell.prepares {
             counts.insert((*row).to_owned(), json!(count));
         }
+        counts.insert(SYNCS.to_owned(), json!(cell.syncs));
+        if let Some(prepares) = cell.run_state_prepares {
+            counts.insert(RUN_STATE_PREPARES.to_owned(), json!(prepares));
+        }
         let units = json!({
             "pages": cell.pages,
             "records": cell.pages,
             "links_batches": cell.pages,
             "hops": cell.hops,
             "sitemaps": cell.sitemaps,
-            "payloads": 1,
+            "payloads": u64::from(cell.frontier),
+            "attempts": cell.attempts,
+            "runs": RUNS,
+            "effects": EFFECTS,
         });
         println!(
             "{}",

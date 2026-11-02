@@ -32,6 +32,9 @@ mod crawl_commands;
     reason = "the scenario runs on the test Clock and Entropy (ADR 0059)"
 )]
 mod crawl_scenario;
+// The run-state rows' plants, which `in_memory_crawl` proves.
+#[path = "../../benches/plants.rs"]
+mod crawl_plants;
 mod daemon;
 mod dataset_pages;
 mod datasets;

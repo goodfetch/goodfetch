@@ -469,6 +469,13 @@ const OTHER_B1_ROWS: &str = "\
 | `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.transactions` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.syncs` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prepares` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.writer_reads` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.configuration_reads` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prunes` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.effect_syncs` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.invariant_reads` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.invariant_reads.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.invariant_reads.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -489,9 +496,10 @@ const OTHER_B1_ROWS: &str = "\
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
 /// readability run a page, one validation and one serialization a Record, one
-/// Payload serialized and validated over one links batch, none of the other
-/// rows' work, then `extra` as it is, and 13 more of the row it is told to
-/// plant.
+/// Payload serialized and validated over one links batch, one transaction,
+/// sync and configuration read over one attempt and one Run, none of the
+/// other rows' work, then `extra` as it is, and 13 more of the row it is told
+/// to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -513,6 +521,13 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F4.deep_copies", 0),
         ("F4.constant_lookups", 0),
         ("F4.transactions", 0),
+        ("F2.transactions", 1),
+        ("F2.syncs", 1),
+        ("F2.prepares", 0),
+        ("F2.writer_reads", 0),
+        ("F2.configuration_reads", 1),
+        ("F2.prunes", 0),
+        ("F2.effect_syncs", 0),
         ("F3.invariant_reads", 0),
         ("F3.invariant_reads.hop", 0),
         ("F3.invariant_reads.sitemap", 0),
@@ -534,7 +549,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -751,4 +766,78 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// A register of F2's rows, each of contract 1, and a benchmark printing them
+/// with no Effect, whose plant of `F2.effect_syncs` counts one each page.
+fn effectless() -> (Workspace, String) {
+    let rows = [
+        "transactions",
+        "syncs",
+        "prepares",
+        "writer_reads",
+        "configuration_reads",
+        "prunes",
+        "effect_syncs",
+    ]
+    .iter()
+    .map(|work| format!("| `F2.{work}` | it, per unit | 1 | after #1583 | B1 | must not grow | `xtask counts` | implementer done |"))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let register = format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    );
+    let line = "{\"cell\":\"default\",\"units\":{\"pages\":13,\"attempts\":13,\"runs\":1,\"effects\":0},\"counts\":{\"F2.transactions\":13,\"F2.syncs\":13,\"F2.prepares\":0,\"F2.writer_reads\":0,\"F2.configuration_reads\":1,\"F2.prunes\":0,\"F2.effect_syncs\":'$extra'}}";
+    let script =
+        format!("#!/bin/sh\nextra=0\n[ \"$2\" = F2.effect_syncs ] && extra=13\necho '{line}'\n");
+    let (workspace, executable) = workspace("8", &script);
+    workspace.write("TESTING.md", register.as_bytes());
+    (workspace, executable)
+}
+
+/// A row whose unit the fixture has none of, such as an Effect's until the
+/// Effect journal lands: nothing done passes and says so, and a planted unit
+/// still fails, naming the row.
+#[test]
+fn a_row_with_no_units_passes_at_zero_and_fails_when_planted() {
+    let (workspace, executable) = effectless();
+
+    let clean = workspace.xtask(&["counts", "--path", "F2", "--executable", &executable]);
+    let planted = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F2",
+        "--plant",
+        "F2.effect_syncs",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(
+        (clean.code, clean.findings()),
+        (0, vec![]),
+        "{}",
+        clean.stderr
+    );
+    assert!(
+        clean
+            .stdout
+            .contains("F2.effect_syncs [default]: no effects in this cell"),
+        "{}",
+        clean.stdout
+    );
+    assert_eq!(planted.code, 1, "{}", planted.stderr);
+    assert_eq!(
+        planted.findings(),
+        vec![finding("over-limit", "F2.effect_syncs")]
+    );
+    assert!(
+        planted
+            .stdout
+            .contains("13 with no effects in the cell `default`, over its limit of 1"),
+        "{}",
+        planted.stdout
+    );
 }

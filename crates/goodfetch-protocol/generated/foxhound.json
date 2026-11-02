@@ -15590,6 +15590,7 @@
             "json_rpc_message",
             "page_analysis",
             "record",
+            "run_state",
             "sink_delivery"
           ]
         },
@@ -15619,7 +15620,10 @@
             "invariant_reads",
             "compilations",
             "sends",
-            "log_sends_off"
+            "log_sends_off",
+            "configuration_reads",
+            "prunes",
+            "effect_syncs"
           ]
         }
       ],

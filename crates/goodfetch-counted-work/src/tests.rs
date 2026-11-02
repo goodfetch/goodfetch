@@ -106,6 +106,11 @@ fn each_row_counts_on_its_own() {
             ("C1.sends", 0),
             ("C1.file_opens", 0),
             ("C1.log_sends_off", 0),
+            ("F2.transactions", 0),
+            ("F2.writer_reads", 0),
+            ("F2.configuration_reads", 0),
+            ("F2.prunes", 0),
+            ("F2.effect_syncs", 0),
         ]
     );
 }

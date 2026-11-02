@@ -129,6 +129,8 @@ pub(crate) fn body_bytes() -> u64 {
 /// The site, served from memory, counting the body bytes it sends.
 struct Site {
     sent: Arc<AtomicU64>,
+    /// The attempts it served a page to.
+    attempts: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
     /// Whether it also serves [`Frontier`]'s paths.
@@ -137,6 +139,8 @@ struct Site {
     small_pages: bool,
     hops: Arc<AtomicU64>,
     sitemaps: Arc<AtomicU64>,
+    /// The most paragraphs it serves a page.
+    largest: Option<usize>,
 }
 
 /// The seed that redirects, to [`MOVED_TO`].
@@ -216,6 +220,15 @@ impl Transport for Site {
             .map(|page| Page {
                 paragraphs: if self.small_pages { 0 } else { page.paragraphs },
                 ..page
+            })
+            .map(|page| {
+                self.attempts.fetch_add(1, Ordering::Relaxed);
+                Page {
+                    paragraphs: self
+                        .largest
+                        .map_or(page.paragraphs, |largest| page.paragraphs.min(largest)),
+                    ..page
+                }
             });
         if let (Some(plant), Some(page)) = (&self.plant, &page) {
             plant(&page.head);
@@ -318,7 +331,8 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
 }
 
 /// What the crawl answered: each Record of `pages`, how many requests a
-/// handler handled, and the body bytes the site sent.
+/// handler handled, the body bytes the site sent and the attempts it served
+/// a page to.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) handled: u64,
@@ -327,6 +341,7 @@ pub(crate) struct Crawled {
     pub(crate) hops: u64,
     /// The sitemaps it sent.
     pub(crate) sitemaps: u64,
+    pub(crate) attempts: u64,
 }
 
 /// `hello`'s line.
@@ -361,6 +376,11 @@ pub(crate) struct Options {
     /// in less time, for a run under Callgrind, which counts what admission
     /// does and not the size of a page.
     pub(crate) small_pages: bool,
+    /// The VFS its run file opens through (ADR 0140's sync counts).
+    pub(crate) run_state_vfs: Option<String>,
+    /// The most paragraphs a page holds, for a count that does not depend on
+    /// a page's size and a tool too slow for the whole site (Callgrind).
+    pub(crate) largest_page: Option<usize>,
 }
 
 /// How the crawl meets the Frontier's outcomes beyond a links batch.
@@ -380,16 +400,21 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         handler,
         frontier,
         small_pages,
+        run_state_vfs,
+        largest_page,
     } = options;
     let sent = Arc::new(AtomicU64::new(0));
+    let attempts = Arc::new(AtomicU64::new(0));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),
+        attempts: Arc::clone(&attempts),
         plant,
         frontier: frontier.is_some(),
         small_pages,
         hops: Arc::clone(&hops),
         sitemaps: Arc::clone(&sitemaps),
+        largest: largest_page,
     }));
     let identity = Identity {
         product: Product::Foxhound,
@@ -459,7 +484,10 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             entropy: Entropy::seeded(seed),
             blocking: BlockingPolicy::Inline,
             run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions::default(),
+            run_state: RunStateOptions {
+                vfs: run_state_vfs,
+                ..RunStateOptions::default()
+            },
             politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
         let (served, read) = tokio::join!(
@@ -475,6 +503,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         body_bytes: sent.load(Ordering::Relaxed),
         hops: hops.load(Ordering::Relaxed),
         sitemaps: sitemaps.load(Ordering::Relaxed),
+        attempts: attempts.load(Ordering::Relaxed),
     }
 }
 
@@ -493,14 +522,15 @@ const CREDITS: &str =
 /// The code-free `crawl.start` from the site's index: every in-scope link
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
-/// through, which no connection reaches.
+/// through, which no connection reaches. A cell's own settings, `cell`,
+/// replace a key of these whole.
 fn crawl_start(
-    mut settings: serde_json::Map<String, Value>,
+    cell: serde_json::Map<String, Value>,
     mut fields: serde_json::Map<String, Value>,
     handler: bool,
     frontier: Option<Frontier>,
 ) -> Value {
-    settings.extend([
+    let mut settings = serde_json::Map::from_iter([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
@@ -509,6 +539,7 @@ fn crawl_start(
         ),
         ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
     ]);
+    settings.extend(cell);
     let mut seeds = Vec::new();
     let mut labels = json!({});
     if let Some(frontier) = frontier {

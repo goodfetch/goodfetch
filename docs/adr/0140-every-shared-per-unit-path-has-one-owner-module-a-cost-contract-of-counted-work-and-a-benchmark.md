@@ -180,6 +180,14 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`C1.file_opens`' Today of 2 is a bound, not a figure.** The command log's writer does 2 opens per batch, and a batch holds at least one command, so 2 per command is the most it can cost. The printed figure follows the socket's timing (48 or 50 over 35 commands in 66 runs, and 40 over 21 with the Filter lists off), so holding it to a measured figure would fail at random. The other three rows repeat exactly. #1881 keeps the 2, and #1891 and #1890 replace the writer it describes.
 > - **`C1.log_sends_off` counts in every cell** until #1891 gives the log an off, as the log has none: its Today of 1 is X9's gap, and #1891 adds the off cell the row names.
 
+> Note (agent decisions of #1848, pending owner review), 2026-11-02, on the run-state writer's rows:
+> - **`F2.transactions` adds the commit hook's commits and each job a group folded in,** so a commit of three jobs counts three, as ADR 0138's note defines a transaction, and a commit beside the writer counts too. `F2.syncs` depends on grouping by nature: it is what grouping saves.
+> - **The counts differ between concurrency 1 and 16 for a reason other than grouping:** one request at a time runs one delivery pass per request, so the crawl does more jobs, more reads and more configuration reads (122 transactions against 78, on 13 attempts). Each cell is held to the limit, so a row's "Today" is its worst cell.
+> - **`F2.configuration_reads` counts every read of the machine's layers (`Settings::machine`),** beneath each owner, whether a Run or the governor asked. **`F2.prunes` counts `AuditLog::prune`,** the only prune pass the engine has; nothing on an attempt reaches it today, so it reads 0.
+> - **`F2.effect_syncs` has no fixture yet:** the Effect journal is #1550's, and "work no code does yet joins the fixture in the ticket that adds it". Its counter is the count alone, its plant counts it, and its unit, `effects`, is 0: a row with no units passes at 0 and fails when planted. #1550 adds the Effect to B1, and the journal's synced commit counts on this row.
+> - **Syncs and preparations are the benchmark's, not the metric's:** the counting VFS is test support, a pass-through of the OS's own VFS rather than the crash VFS, whose device characteristics make the WAL pad to a sector and sync more; Callgrind reads `sqlite3_prepare_v3` in a second run of each cell, on pages of about 1 kB. A family's rows then take about 5 minutes under the gate's load, past the minute the spec's story 12 asks. No cell was dropped to meet it.
+> - **A plant does the real work on a run file, settings and Audit log of its own beside the crawl's,** through the same code the crawl runs, so a counter that stops seeing the work fails.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

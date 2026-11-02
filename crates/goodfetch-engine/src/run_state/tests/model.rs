@@ -164,6 +164,7 @@ impl Subject {
         let options = RunStateOptions {
             vfs: Some(self.run_file_vfs()),
             durability: self.durability,
+            ..RunStateOptions::default()
         };
         let state = self
             .runtime

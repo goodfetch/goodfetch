@@ -14,7 +14,7 @@ use serde_json::Map;
 use session::{Counted, counted, counting};
 
 fn run(planted: Option<Row>) -> Counted {
-    let home = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
     counted(home.path(), metrics, Map::new(), plant)

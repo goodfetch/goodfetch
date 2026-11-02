@@ -53,7 +53,7 @@ fn cells() -> [Cell; 2] {
 /// What one cell counted.
 struct Counted {
     name: &'static str,
-    counted: session::Counted,
+    session: session::Counted,
     removes: &'static [Row],
 }
 
@@ -74,7 +74,7 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
     };
     Counted {
         name: cell.name,
-        counted: session::counted(home.path(), metrics, settings, plant),
+        session: session::counted(home.path(), metrics, settings, plant),
         removes: cell.removes,
     }
 }
@@ -96,9 +96,9 @@ fn main() {
             .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
             .collect()
     });
-    let default = &counted[0].counted;
+    let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.counted;
+        let session::Counted { commands, work } = &cell.session;
         assert!(*commands > 0, "the cell {} sent no command", cell.name);
         for row in cell.removes {
             assert!(

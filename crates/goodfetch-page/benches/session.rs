@@ -17,6 +17,10 @@
 //!
 //! Each new outcome of a family's rows (a read, an action, a request) is a
 //! step of [`program`]'s and, where it needs one, an answer of [`answered`].
+#![expect(
+    clippy::disallowed_types,
+    reason = "a benchmark's browser end listens on its own socket, and counts its commands on an atomic no behaviour reads (ADR 0071)"
+)]
 
 use std::collections::BTreeSet;
 use std::path::Path;

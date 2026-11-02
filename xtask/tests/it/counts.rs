@@ -469,13 +469,28 @@ const OTHER_B1_ROWS: &str = "\
 | `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.transactions` | run-file transactions per attempt | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
+| `F2.syncs` | syncs per attempt | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prepares` | statement preparations per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.writer_reads` | reads through the writer per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.configuration_reads` | configuration reads per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F2.prunes` | prune passes per attempt | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E6.transactions` | Politeness-file transactions per attempt | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
+| `E6.opens` | opens and statement preparations per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.script_sends` | script sends per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
-/// readability run a page, one validation and one serialization a Record, none
-/// of the other rows' work, then `extra` as it is, and 13 more of the row
-/// it is told to plant.
+/// readability run a page, one validation and one serialization a Record,
+/// two run-file and two Politeness transactions and one sync an attempt, one
+/// configuration read a Run and one robots.txt parse an origin, none of the
+/// other rows' work, then `extra` as it is, and 13 more of the row it is told
+/// to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -497,13 +512,26 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F4.deep_copies", 0),
         ("F4.constant_lookups", 0),
         ("F4.transactions", 0),
+        ("F2.transactions", 26),
+        ("F2.syncs", 13),
+        ("F2.prepares", 0),
+        ("F2.writer_reads", 0),
+        ("F2.configuration_reads", 1),
+        ("F2.prunes", 0),
+        ("F2.effect_syncs", 0),
+        ("E6.transactions", 26),
+        ("E6.opens", 0),
+        ("E6.script_sends", 0),
+        ("E6.robots_parses", 1),
+        ("E6.robots_reads", 0),
+        ("E6.off_work", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"attempts\":13,\"runs\":1,\"effects\":0,\"permits\":14,\"requests\":14,\"origins\":1,\"off_attempts\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

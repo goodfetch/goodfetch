@@ -11,6 +11,7 @@
 //! attempt or discarded with it (ADR 0093); the crawl's delivery keys it
 //! and queues it under its domain once the attempt settles.
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::payload::PayloadRules;
@@ -72,6 +73,7 @@ async fn enqueue(
         })
         .transpose()?;
     let request = params.clone();
+    let work = run.metrics().counted_work().clone();
     let answered = run
         .state()
         .write(move |connection| {
@@ -82,7 +84,15 @@ async fn enqueue(
                 &crawl_request_id,
                 lease_epoch,
                 move |connection, positions| {
-                    add(connection, positions, &egress, &request, document.as_ref())
+                    positions.counting(&work);
+                    add(
+                        connection,
+                        positions,
+                        &egress,
+                        &request,
+                        document.as_ref(),
+                        &work,
+                    )
                 },
             )
         })
@@ -116,6 +126,7 @@ fn add(
     egress: &Policy,
     params: &CrawlRequestEnqueueParams,
     document: Option<&goodfetch_frontier::Url>,
+    work: &CountedWork,
 ) -> Answered<Enqueued> {
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
@@ -126,7 +137,7 @@ fn add(
         return Ok(None);
     };
     if let Err(refused) =
-        PayloadRules::read(connection)?.check(&params.label, params.payload.as_ref())
+        PayloadRules::read(connection)?.check(&params.label, params.payload.as_ref(), work)
     {
         return Ok(Some(Err(refused)));
     }

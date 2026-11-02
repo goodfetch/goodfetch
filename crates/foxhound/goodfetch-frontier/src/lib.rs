@@ -46,8 +46,8 @@ pub use admit::{Candidate, admit, admit_in};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
-    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, rewrite,
-    url_key,
+    Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
+    redirect_reached, rewrite, url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{

@@ -14,6 +14,10 @@
 //! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
 //! figure per unit is the difference between a scenario and the run of its
 //! benchmark that sends nothing, so no start-up cost hides a change.
+//!
+//! Size: one concern, the command's one register of counted rows (`ROWS`, a
+//! row per counted work of every family) and the run, verdict and proof that
+//! hold them to the register; the rows' table is most of its length.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -161,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 33] = [
+const ROWS: [Row; 59] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -212,94 +216,71 @@ const ROWS: [Row; 33] = [
         valgrind: None,
     },
     Row {
-        name: "E1.deep_copies",
-        family: "B3",
-        unit: "incoming_messages",
+        name: "F2.transactions",
+        family: "B1",
+        unit: "attempts",
         happens: true,
         valgrind: None,
     },
     Row {
-        name: "E1.encodes",
-        family: "B3",
-        unit: "outgoing_messages",
-        happens: true,
-        valgrind: None,
-    },
-    message_row(
-        "E1.instructions",
-        "instructions",
-        Figure::Instructions,
-        SMALL,
-    ),
-    message_row(
-        "E1.instructions_large",
-        "instructions",
-        Figure::Instructions,
-        LARGE,
-    ),
-    message_row("E1.allocations", "heap", Figure::TotalAllocations, SMALL),
-    message_row(
-        "E1.allocations_large",
-        "heap",
-        Figure::TotalAllocations,
-        LARGE,
-    ),
-    message_row("E1.bytes_allocated", "heap", Figure::TotalBytes, SMALL),
-    message_row(
-        "E1.bytes_allocated_large",
-        "heap",
-        Figure::TotalBytes,
-        LARGE,
-    ),
-    Row {
-        name: "F4.declaration_reads",
+        name: "F2.syncs",
         family: "B1",
-        unit: "records",
-        happens: false,
-        valgrind: None,
-    },
-    Row {
-        name: "F4.validator_builds",
-        family: "B1",
-        unit: "records",
-        happens: false,
-        valgrind: None,
-    },
-    Row {
-        name: "F4.validations",
-        family: "B1",
-        unit: "records",
+        unit: "attempts",
         happens: true,
         valgrind: None,
     },
     Row {
-        name: "F4.serializations",
+        name: "F2.prepares",
         family: "B1",
-        unit: "records",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F2.writer_reads",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F2.configuration_reads",
+        family: "B1",
+        unit: "runs",
         happens: true,
         valgrind: None,
     },
     Row {
-        name: "F4.deep_copies",
+        name: "F2.prunes",
         family: "B1",
-        unit: "records",
+        unit: "attempts",
         happens: false,
         valgrind: None,
     },
+    // Its unit is the Effects its benchmark meets: none until the Effect
+    // journal lands (#1550), so 0 passes and a planted one fails.
     Row {
-        name: "F4.constant_lookups",
+        name: "F2.effect_syncs",
         family: "B1",
-        unit: "records",
+        unit: "effects",
         happens: false,
         valgrind: None,
     },
-    Row {
-        name: "F4.transactions",
-        family: "B1",
-        unit: "records",
-        happens: false,
-        valgrind: None,
-    },
+    b1("F3.invariant_reads", LINKS_BATCHES, false),
+    b1("F3.invariant_reads.hop", HOPS, false),
+    b1("F3.invariant_reads.sitemap", SITEMAPS, false),
+    b1("F3.compilations", LINKS_BATCHES, false),
+    b1("F3.compilations.hop", HOPS, false),
+    b1("F3.compilations.sitemap", SITEMAPS, false),
+    b1("F3.compilations.payload", PAYLOADS, false),
+    b1("F3.prepares", LINKS_BATCHES, false),
+    b1("F3.prepares.hop", HOPS, false),
+    b1("F3.prepares.sitemap", SITEMAPS, false),
+    b1("F3.transactions", LINKS_BATCHES, false),
+    b1("F3.transactions.hop", HOPS, false),
+    b1("F3.transactions.sitemap", SITEMAPS, false),
+    b1("F3.payload_serializations", PAYLOADS, true),
+    b1("F3.validations", PAYLOADS, true),
     Row {
         name: "C1.encodes",
         family: "B2",
@@ -377,6 +358,123 @@ const ROWS: [Row; 33] = [
         happens: true,
         valgrind: None,
     },
+    Row {
+        name: "E1.deep_copies",
+        family: "B3",
+        unit: "incoming_messages",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E1.encodes",
+        family: "B3",
+        unit: "outgoing_messages",
+        happens: true,
+        valgrind: None,
+    },
+    message_row(
+        "E1.instructions",
+        "instructions",
+        Figure::Instructions,
+        SMALL,
+    ),
+    message_row(
+        "E1.instructions_large",
+        "instructions",
+        Figure::Instructions,
+        LARGE,
+    ),
+    message_row("E1.allocations", "heap", Figure::TotalAllocations, SMALL),
+    message_row(
+        "E1.allocations_large",
+        "heap",
+        Figure::TotalAllocations,
+        LARGE,
+    ),
+    message_row("E1.bytes_allocated", "heap", Figure::TotalBytes, SMALL),
+    message_row(
+        "E1.bytes_allocated_large",
+        "heap",
+        Figure::TotalBytes,
+        LARGE,
+    ),
+    Row {
+        name: "E3.statements",
+        family: "B3",
+        unit: "covered_charges",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.slice_transactions",
+        family: "B3",
+        unit: "slices",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.opens",
+        family: "B3",
+        unit: "charges",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.prepares",
+        family: "B3",
+        unit: "slices",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.declaration_reads",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validator_builds",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.serializations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.deep_copies",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.constant_lookups",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.transactions",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -444,12 +542,31 @@ const NOT_RUN_YET: [NotRunYet; 10] = [
     },
 ];
 
+/// The links batches B1's crawl admitted.
+const LINKS_BATCHES: &str = "links_batches";
+/// The redirect hops it took through the Frontier.
+const HOPS: &str = "hops";
+/// The sitemaps it read.
+const SITEMAPS: &str = "sitemaps";
+/// The URLs it enqueued with a Payload.
+const PAYLOADS: &str = "payloads";
+
+const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
+    Row {
+        name,
+        family: "B1",
+        unit,
+        happens,
+        valgrind: None,
+    }
+}
+
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, E1, F4, C1, C5).
+    /// Only this path's rows (F1 to F4, C1, C5, E1, E3).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -546,6 +663,14 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             .iter()
             .copied()
             .filter(|row| row.family == family)
+            // A plant's run answers for what it planted: it counts no other
+            // row Valgrind would have to run for.
+            .filter(|row| {
+                arguments
+                    .plant
+                    .as_deref()
+                    .is_none_or(|plant| plant == row.name)
+            })
             .collect();
         // A family's benchmark plants only its own rows.
         let plant = arguments
@@ -855,6 +980,14 @@ fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
     Ok(cells)
 }
 
+/// One of the units `unit` names, as a figure's line says it.
+fn one_of(unit: &str) -> &str {
+    match unit {
+        LINKS_BATCHES => "links batch",
+        unit => unit.trim_end_matches('s'),
+    }
+}
+
 /// Prints each row's figure in each of `cells` and answers what fails.
 fn verdict(
     rows: &[&Row],
@@ -879,6 +1012,30 @@ fn verdict(
                 ));
                 continue;
             };
+            if *units == 0 && !row.happens {
+                if *count == 0 {
+                    output::line(&format!(
+                        "{} [{}]: no {} in this cell",
+                        row.name, cell.name, row.unit
+                    ));
+                } else {
+                    findings.push(Finding::new(
+                        "over-limit",
+                        row.name,
+                        format!(
+                            "{count} with no {} in the cell `{}`, over its limit of {limit}",
+                            row.unit, cell.name
+                        ),
+                    ));
+                }
+                continue;
+            }
+            // A feature off may take the whole outcome away, which is what
+            // its cell shows.
+            if *units == 0 && cell.name != DEFAULT_CELL {
+                output::line(&format!("{} [{}]: no {}", row.name, cell.name, row.unit));
+                continue;
+            }
             if *units == 0 || (row.happens && *count == 0 && cell.name == DEFAULT_CELL) {
                 findings.push(Finding::new(
                     "work-not-done",
@@ -895,7 +1052,7 @@ fn verdict(
                 "{} [{}]: {figure} per {}, limit {limit} ({count} over {units})",
                 row.name,
                 cell.name,
-                row.unit.trim_end_matches('s'),
+                one_of(row.unit),
             ));
             let limit_held = if row.valgrind.is_some() {
                 limit.with_valgrind_tolerance()
@@ -908,7 +1065,7 @@ fn verdict(
                     row.name,
                     format!(
                         "{figure} per {} in the cell `{}`, over its limit of {limit}",
-                        row.unit.trim_end_matches('s'),
+                        one_of(row.unit),
                         cell.name
                     ),
                 ));

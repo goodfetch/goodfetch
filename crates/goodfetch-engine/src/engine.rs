@@ -353,6 +353,7 @@ impl Engine {
         install: Option<InstallDatabase>,
         console: Option<String>,
     ) -> (Runs, Events) {
+        dependencies.run_state.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(
             self.events,
@@ -813,7 +814,8 @@ fn host_settings(
         });
     }
     let keychain = dependencies.keychain.clone();
-    Settings::with_host(files, product, owner.child(), move || {
+    let work = dependencies.run_state.work.clone();
+    Settings::with_host(files, product, owner.child(), work, move || {
         let keychain = keychain.clone();
         let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
         Box::pin(async move {

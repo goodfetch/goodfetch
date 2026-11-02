@@ -70,6 +70,9 @@ zstd.workspace = true
 # The counts cell's and its tests' reads of the crawl's Counted work
 # (examples/counts.rs).
 goodfetch-counted-work.workspace = true
+# The Audit log's prune pass a counts cell plants (benches/plants.rs), and
+# the moment a benchmark's Limit is set at (benches/scenarios.rs).
+jiff.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true

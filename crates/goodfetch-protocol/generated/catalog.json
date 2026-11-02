@@ -1754,12 +1754,18 @@
           "name": "shared_path",
           "values": [
             "cdp_command",
+            "frontier_admission",
+            "frontier_hop",
+            "frontier_payload",
+            "frontier_sitemap",
             "governor_sample",
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
             "record",
-            "sink_delivery"
+            "run_state",
+            "sink_delivery",
+            "usage_charge"
           ]
         },
         {
@@ -1785,9 +1791,14 @@
             "validations",
             "serializations",
             "constant_lookups",
+            "invariant_reads",
+            "compilations",
             "sends",
             "log_sends_off",
             "configuration_reads",
+            "prunes",
+            "effect_syncs",
+            "statements",
             "meminfo_opens",
             "static_opens",
             "cpu_stat_opens",

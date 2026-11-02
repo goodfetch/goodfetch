@@ -72,6 +72,28 @@ fn health_of(env: &TestEnv, options: DaemonOptions) -> Value {
     health
 }
 
+/// `series`, and each Counted work row `series` does not name, at 0.
+fn with_counted_work<const N: usize>(series: [String; N]) -> BTreeSet<String> {
+    let named = |line: &str| {
+        line.rsplit_once(' ')
+            .map_or(line, |(name, _)| name)
+            .to_owned()
+    };
+    let given: BTreeSet<String> = series.iter().map(|line| named(line)).collect();
+    goodfetch_counted_work::Row::ALL
+        .map(|row| {
+            format!(
+                r#"goodfetch_counted_work_total{{shared_path="{}",work="{}"}} 0"#,
+                row.path(),
+                row.work()
+            )
+        })
+        .into_iter()
+        .filter(|line| !given.contains(&named(line)))
+        .chain(series)
+        .collect()
+}
+
 /// `goodfetch.counted_work`'s labels take exactly the values of the rows it
 /// counts (ADR 0140), so a new row declares its path and its work.
 #[test]
@@ -314,25 +336,6 @@ fn a_draining_daemon_is_live_and_not_ready() {
     );
 }
 
-/// Every `goodfetch.counted_work` series the Daemon test's traffic gives, by
-/// its row: each at 0 but a message's deep copies, 4, and its `encodes`.
-fn counted_work(encodes: u64) -> impl Iterator<Item = String> {
-    use goodfetch_counted_work::Row;
-
-    Row::ALL.into_iter().map(move |row| {
-        let count = match row {
-            Row::MessageDeepCopies => 4,
-            Row::MessageEncodes => encodes,
-            _ => 0,
-        };
-        format!(
-            r#"goodfetch_counted_work_total{{shared_path="{}",work="{}"}} {count}"#,
-            row.path(),
-            row.work()
-        )
-    })
-}
-
 /// Every series of `registry`, as `name{label="value",…} value`.
 pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
     registry
@@ -397,28 +400,42 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         },
     );
 
+    // What the run file does is `xtask counts`' to hold, not this test's.
+    // Each Run's charging opens the ledger once, for the Limits its report
+    // lists, and that open commits its set-up: a Usage charge's counts.
+    let beside_the_run_file = |series: BTreeSet<String>| -> BTreeSet<String> {
+        series
+            .into_iter()
+            .filter(|line| !line.contains(r#"shared_path="run_state""#))
+            .collect()
+    };
     assert_eq!(
-        (while_running, series(&registry)),
         (
-            BTreeSet::from([
+            beside_the_run_file(while_running),
+            beside_the_run_file(series(&registry)),
+        ),
+        (
+            beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 1"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
-            ])
-            .into_iter()
-            .chain(counted_work(12))
-            .collect::<BTreeSet<_>>(),
-            BTreeSet::from([
+            ])),
+            beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 2"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 2"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="incomplete",lifecycle="stopped",run_kind="collie",verdict="verified"} 1"#.to_owned(),
-            ])
-            .into_iter()
-            .chain(counted_work(16))
-            .collect::<BTreeSet<_>>(),
+            ])),
         )
     );
 }

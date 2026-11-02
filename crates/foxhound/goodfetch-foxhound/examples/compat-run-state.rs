@@ -404,6 +404,7 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         &policy,
         &id,
         &sitemap::Document::Entries(vec!["/about".to_owned(), "/books/1".to_owned()]),
+        &goodfetch_counted_work::CountedWork::default(),
         |_, _| Err(rusqlite::Error::InvalidQuery),
     )?;
     let missing = SitemapSeed {

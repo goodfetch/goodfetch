@@ -23,6 +23,7 @@ static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
     goodfetch_engine::heap::Counting::new(std::alloc::System);
 
 mod certificates;
+mod charge_counts;
 mod children;
 mod client_certificates;
 mod counted_governor;

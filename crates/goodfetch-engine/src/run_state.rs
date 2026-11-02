@@ -26,6 +26,7 @@
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
 use goodfetch_protocol::run::DURABILITY_FAST;
@@ -126,7 +127,7 @@ pub struct RunStateTables {
 pub const PAGE_CACHE_KIB: u32 = 512;
 
 /// How a run file opens.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct RunStateOptions {
     /// The name of the SQLite VFS it opens through: none in production, the
     /// crash VFS in tests (ADR 0060), and the install database's in the
@@ -134,6 +135,8 @@ pub struct RunStateOptions {
     pub vfs: Option<String>,
     /// How its commits reach the disk (`run_state.durability`).
     pub durability: Durability,
+    /// Where it counts its transactions and its writer's reads (ADR 0140).
+    pub work: CountedWork,
 }
 
 /// How a run file's commits reach the disk (`run_state.durability`, ADR
@@ -324,6 +327,7 @@ pub struct RunState {
     path: PathBuf,
     epoch: u64,
     watched: std::sync::Arc<Watched>,
+    work: CountedWork,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -366,11 +370,14 @@ impl RunState {
         let mut connection = connection;
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
+        let work = options.work.clone();
+        let counted = work.clone();
         owner
             .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
                 let signals = Signals {
                     commits: &committed,
                     failures: &failed,
+                    work: &counted,
                 };
                 let last = group.iter().position(|queued| queued.last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
@@ -391,6 +398,7 @@ impl RunState {
             path,
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
+            work,
         })
     }
 
@@ -512,6 +520,7 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
+        self.work.count(Row::WriterReads);
         self.write(work).await
     }
 }
@@ -623,6 +632,15 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
+    // Beneath every owner, so a commit beside the writer's jobs counts too
+    // (ADR 0140).
+    let work = options.work.clone();
+    connection
+        .commit_hook(Some(move || {
+            work.count(Row::RunTransactions);
+            false
+        }))
+        .map_err(failed)?;
     crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", options.durability.synchronous())
@@ -726,12 +744,15 @@ fn run_in_savepoint<T>(
 struct Signals<'a> {
     commits: &'a watch::Sender<u64>,
     failures: &'a watch::Sender<Option<String>>,
+    work: &'a CountedWork,
 }
 
 /// Commits `group` in one transaction under `epoch`, counts the commit in
 /// `commits`, then answers each write: all of them with the failure when
 /// the transaction fails or the file holds another epoch, and a full disk or
-/// an I/O error also goes to `failures`.
+/// an I/O error also goes to `failures`. The commit hook counts the commit,
+/// and each other job of its group counts here: a transaction is one job,
+/// whatever group it commits in (ADR 0138's note).
 fn commit_group(
     connection: &mut Connection,
     path: &Path,
@@ -739,8 +760,10 @@ fn commit_group(
     group: Vec<QueuedWrite>,
     signals: &Signals<'_>,
 ) {
+    let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
     let (completions, committed) = match commit_writes(connection, path, epoch, group) {
         Ok(completions) => {
+            signals.work.count_many(Row::RunTransactions, grouped);
             signals.commits.send_modify(|count| *count += 1);
             (completions, Ok(()))
         }

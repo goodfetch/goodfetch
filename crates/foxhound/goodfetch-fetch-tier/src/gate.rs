@@ -71,6 +71,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::egress::{Policy, Refused};
@@ -78,7 +79,7 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
-use goodfetch_frontier::{DomainKeys, Scope};
+use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
     Sending,
@@ -786,17 +787,16 @@ impl ChainGate {
         let run = &self.hand_over.run;
         let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
         let egress = Arc::clone(&self.hand_over.egress);
+        let work = run.metrics().counted_work().clone();
+        work.count(Row::HopTransactions);
         run.state()
             .write(move |connection| {
-                let scope = Scope::read(connection)?;
-                goodfetch_frontier::redirect_hop(
+                goodfetch_frontier::admit_hop(
                     connection,
-                    &scope,
+                    &work,
                     &egress,
                     &id,
-                    &url,
-                    &method,
-                    body.as_deref(),
+                    (&url, &method, body.as_deref()),
                 )
             })
             .await

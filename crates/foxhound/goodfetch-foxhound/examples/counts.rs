@@ -64,11 +64,11 @@
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
-    reason = "why a row goes unprinted, which `xtask counts` fails, beside its finding"
+    reason = "the counts harness (ADR 0140): why a row goes unprinted, which `xtask counts` fails, beside its finding"
 )]
 #![expect(
     clippy::print_stdout,
-    reason = "the benchmark's one output, which `xtask counts` reads"
+    reason = "the counts harness (ADR 0140): the benchmark's one output, which `xtask counts` reads"
 )]
 
 #[path = "../benches/plants.rs"]
@@ -548,126 +548,137 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         Watched::Counted => (true, None),
         Watched::Traced { bypass } => (false, bypass),
     };
-    let prepare_calls = prepare_calls(cell.name, planted, counted);
-    let Crawl {
-        crawled,
-        work,
-        started,
-        syncs,
-        vfs_files,
-        setup_syncs,
-        entries,
-    } = crawl(cell, planted, bypassed, Pages::Whole);
-    assert!(entries > 0, "the crawl wrote no Run-trace entry");
-    assert!(
-        !cell.limit || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
-        "the crawl charged nothing against its Limit"
-    );
-    assert_eq!(
-        crawled.body_bytes,
-        body_bytes(),
-        "the site sends each body once"
-    );
-    // The index and its pages, and with the Frontier's outcomes the
-    // redirect's target, the sitemap's entry and the seed with a Payload.
-    let pages = PAGES.len() + if cell.frontier.is_some() { 4 } else { 1 };
-    if cell.handler {
-        assert_eq!(
-            crawled.handled,
-            u64::try_from(pages).expect("invariant: a dozen pages"),
-            "the handler handles each page once"
-        );
-    } else {
-        assert_eq!(
-            crawled.records.len(),
-            pages,
-            "the crawl extracts each page once"
-        );
+    let (prepare_calls, mut ran) = prepare_calls(cell.name, planted, counted, || {
+        let Crawl {
+            crawled,
+            work,
+            started,
+            syncs,
+            vfs_files,
+            setup_syncs,
+            entries,
+        } = crawl(cell, planted, bypassed, Pages::Whole);
+        assert!(entries > 0, "the crawl wrote no Run-trace entry");
         assert!(
-            crawled
-                .records
-                .iter()
-                .any(|record| record["title"] == "Page 3" && record["number"] == 3),
-            "the field's Value transform read no number: {:?}",
-            crawled.records
+            !cell.limit
+                || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
+            "the crawl charged nothing against its Limit"
         );
-        let forms = FROM_FIRST_PAGE
-            .iter()
-            .position(|row| *row == Row::PageLocaleFormBuilds);
-        let built = forms.and_then(|at| started.get().map(|started| started[at]));
         assert_eq!(
-            built,
-            Some(1),
-            "the crawl builds its field's forms once, as it starts"
+            crawled.body_bytes,
+            body_bytes(),
+            "the site sends each body once"
         );
-    }
-    Counted {
-        name: cell.name,
-        pages: u64::try_from(pages).expect("invariant: a dozen pages"),
-        hops: crawled.hops,
-        sitemaps: crawled.sitemaps,
-        entries,
-        work,
-        started,
-        removes: cell.removes,
-        prepares: if counted {
-            prepares(cell.name, cell.frontier.is_some(), cell.handler, planted)
+        // The index and its pages, and with the Frontier's outcomes the
+        // redirect's target, the sitemap's entry and the seed with a Payload.
+        let pages = PAGES.len() + if cell.frontier.is_some() { 4 } else { 1 };
+        if cell.handler {
+            assert_eq!(
+                crawled.handled,
+                u64::try_from(pages).expect("invariant: a dozen pages"),
+                "the handler handles each page once"
+            );
         } else {
-            BTreeMap::new()
-        },
-        attempts: crawled.attempts,
-        requests: crawled.requests,
-        syncs,
-        vfs_files,
-        setup_syncs,
-        removes_syncs: cell.removes_syncs,
-        prepare_calls: prepare_calls
-            .join()
-            .expect("invariant: the run under Callgrind ended"),
-        frontier: cell.frontier.is_some(),
-        handler: cell.handler,
-    }
+            assert_eq!(
+                crawled.records.len(),
+                pages,
+                "the crawl extracts each page once"
+            );
+            assert!(
+                crawled
+                    .records
+                    .iter()
+                    .any(|record| record["title"] == "Page 3" && record["number"] == 3),
+                "the field's Value transform read no number: {:?}",
+                crawled.records
+            );
+            let forms = FROM_FIRST_PAGE
+                .iter()
+                .position(|row| *row == Row::PageLocaleFormBuilds);
+            let built = forms.and_then(|at| started.get().map(|started| started[at]));
+            assert_eq!(
+                built,
+                Some(1),
+                "the crawl builds its field's forms once, as it starts"
+            );
+        }
+        Counted {
+            name: cell.name,
+            pages: u64::try_from(pages).expect("invariant: a dozen pages"),
+            hops: crawled.hops,
+            sitemaps: crawled.sitemaps,
+            entries,
+            work,
+            started,
+            removes: cell.removes,
+            prepares: if counted {
+                prepares(cell.name, cell.frontier.is_some(), cell.handler, planted)
+            } else {
+                BTreeMap::new()
+            },
+            attempts: crawled.attempts,
+            requests: crawled.requests,
+            syncs,
+            vfs_files,
+            setup_syncs,
+            removes_syncs: cell.removes_syncs,
+            prepare_calls: None,
+            frontier: cell.frontier.is_some(),
+            handler: cell.handler,
+        }
+    });
+    ran.prepare_calls = prepare_calls;
+    ran
 }
 
-/// Starts `cell`'s run under Callgrind for `F2.prepares` and `E6.opens`,
-/// when this run reads their rows and is `counted`: a plant of another row
-/// has no use for their figures and would wait for them, and `strace` would
-/// trace that run too.
-fn prepare_calls(
+/// Runs `cell` under Callgrind for `F2.prepares` and `E6.opens` beside
+/// `beside`, which runs on this thread, when this run reads their rows and is
+/// `counted`: a plant of another row has no use for their figures and would
+/// wait for them, and `strace` would trace that run too. The run is scoped to
+/// this call, so its Valgrind child never outlives a panic of `beside`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the ADR 0140 counts harness runs Callgrind beside the crawl on a scoped thread, which nothing else waits on"
+)]
+fn prepare_calls<T>(
     cell: &str,
     planted: Option<&str>,
     counted: bool,
-) -> std::thread::JoinHandle<Option<Calls>> {
-    let cell = cell.to_owned();
-    let planted = planted.map(str::to_owned);
-    std::thread::spawn(move || {
-        if !counted
-            || planted
-                .as_deref()
-                .is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
-        {
-            return None;
-        }
-        let executable = std::env::current_exe().expect("invariant: this process has a path");
-        let mut arguments = vec!["--callgrind", cell.as_str()];
-        if let Some(row) = &planted {
-            arguments.extend(["--plant", row.as_str()]);
-        }
-        let calls = callgrind::calls_beneath(
-            PREPARE,
-            CALLERS,
-            POLITENESS,
-            &OPENING,
-            &executable,
-            &arguments,
-        );
-        match calls {
-            Ok(calls) => Some(calls),
-            Err(error) => {
-                eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
-                None
+    beside: impl FnOnce() -> T,
+) -> (Option<Calls>, T) {
+    std::thread::scope(|scope| {
+        let calls = scope.spawn(|| {
+            if !counted
+                || planted.is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
+            {
+                return None;
             }
-        }
+            let executable = std::env::current_exe().expect("invariant: this process has a path");
+            let mut arguments = vec!["--callgrind", cell];
+            if let Some(row) = planted {
+                arguments.extend(["--plant", row]);
+            }
+            let calls = callgrind::calls_beneath(
+                PREPARE,
+                CALLERS,
+                POLITENESS,
+                &OPENING,
+                &executable,
+                &arguments,
+            );
+            match calls {
+                Ok(calls) => Some(calls),
+                Err(error) => {
+                    eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
+                    None
+                }
+            }
+        });
+        let beside = beside();
+        let calls = calls
+            .join()
+            .expect("invariant: the run under Callgrind ended");
+        (calls, beside)
     })
 }
 
@@ -676,6 +687,10 @@ fn prepare_calls(
 /// with no `frontier` meets no hop and no sitemap: theirs are 0, once
 /// Valgrind ran. A handler's cell follows no links, so it admits no links
 /// batch either, and every outcome's is 0.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the ADR 0140 counts harness runs each outcome under Callgrind on a scoped thread, none waiting on another"
+)]
 fn prepares(
     cell: &'static str,
     frontier: bool,
@@ -805,6 +820,10 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
+)]
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();

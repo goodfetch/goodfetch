@@ -50,7 +50,7 @@ fn workspace(today: &str, script: &str) -> (Workspace, String) {
 fn a_figure_at_its_limit_passes_and_is_printed() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -73,6 +73,8 @@ fn a_planted_parse_fails_naming_the_row_its_figure_and_its_limit() {
 
     let outcome = workspace.xtask(&[
         "counts",
+        "--family",
+        "B1",
         "--executable",
         &executable,
         "--plant",
@@ -106,7 +108,7 @@ fn the_limit_is_todays_figure_else_the_contract(
 ) {
     let (workspace, executable) = workspace(today, &benchmark(&[("default", count)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
 }
@@ -118,7 +120,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
         &benchmark(&[("default", 104), ("a_feature_off", 105)], false),
     );
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
 
     assert_eq!(outcome.findings(), vec![finding("over-limit", "F1.parses")]);
     assert!(
@@ -132,7 +134,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
 fn a_benchmark_that_did_none_of_the_work_fails() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 0)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
 
     assert_eq!(
         outcome.findings(),
@@ -144,7 +146,14 @@ fn a_benchmark_that_did_none_of_the_work_fails() {
 fn proving_passes_when_each_counter_sees_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -158,7 +167,14 @@ fn proving_passes_when_each_counter_sees_its_plant() {
 fn proving_fails_a_counter_blind_to_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], true));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         outcome.findings(),
@@ -171,7 +187,47 @@ fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
     workspace.write("TESTING.md", b"# Testing\n\n## Quality register\n");
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--family", "B1", "--executable", &executable]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+}
+
+/// A plant reaches only its own row's family: B1's benchmark knows no plant of
+/// B2's row, and fails when asked for one.
+#[test]
+fn a_plant_goes_to_the_family_of_its_row_alone() {
+    let register = "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n\
+         | `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |\n\
+         | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |\n";
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", register.as_bytes());
+    let b1 = "#!/bin/sh\n[ -n \"$1\" ] && exit 3\necho '{\"cell\":\"default\",\"units\":{\"pages\":13},\"counts\":{\"F1.parses\":104}}'\n";
+    let b2 = "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n";
+    let mut executables = Vec::new();
+    for (family, script) in [("B1", b1), ("B2", b2)] {
+        let file = format!("{family}.sh");
+        workspace.write(&file, script.as_bytes());
+        let path = workspace.path().join(&file);
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        executables.push(format!("{family}={}", path.display()));
+    }
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--executable",
+        &executables[0],
+        "--executable",
+        &executables[1],
+        "--plant",
+        "C1.sends",
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
 }

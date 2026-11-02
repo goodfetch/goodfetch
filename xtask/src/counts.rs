@@ -47,7 +47,13 @@ const B1: Family = Family {
     target: "counts",
 };
 
-const FAMILIES: [Family; 1] = [B1];
+const B2: Family = Family {
+    name: "B2",
+    package: "goodfetch-page",
+    target: "counts",
+};
+
+const FAMILIES: [Family; 2] = [B1, B2];
 
 /// One counted row of the register.
 struct Row {
@@ -67,19 +73,45 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 1] = [Row {
-    name: "F1.parses",
-    family: "B1",
-    unit: "pages",
-    happens: true,
-}];
+const ROWS: [Row; 5] = [
+    Row {
+        name: "F1.parses",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+    },
+    Row {
+        name: "C1.encodes",
+        family: "B2",
+        unit: "commands",
+        happens: true,
+    },
+    Row {
+        name: "C1.sends",
+        family: "B2",
+        unit: "commands",
+        happens: true,
+    },
+    Row {
+        name: "C1.file_opens",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+    },
+    Row {
+        name: "C1.log_sends_off",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+    },
+];
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// Only this family's rows (B1).
+    /// Only this family's rows (B1, B2).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1).
+    /// Only this path's rows (F1, C1).
     #[arg(long)]
     path: Option<String>,
     /// Has the benchmark do one extra unit of this row's work.
@@ -164,12 +196,17 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let mut families: Vec<&str> = rows.iter().map(|row| row.family).collect();
     families.dedup();
     for family in families {
-        let cells = cells(&executables[family], arguments.plant.as_deref())?;
         let of_family: Vec<&Row> = rows
             .iter()
             .copied()
             .filter(|row| row.family == family)
             .collect();
+        // A family's benchmark plants only its own rows.
+        let plant = arguments
+            .plant
+            .as_deref()
+            .filter(|planted| of_family.iter().any(|row| row.name == *planted));
+        let cells = cells(&executables[family], plant)?;
         findings.extend(verdict(&of_family, &cells, &limits)?);
     }
     Ok(check::report(&findings))

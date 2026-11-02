@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::{check, work_of};
-use crate::compare_spider::trials::{Comparison, Declared, Machine, Tool, Trial};
+use crate::compare_spider::trials::{Comparison, Declared, InstructionCell, Machine, Tool, Trial};
 
 /// The paths of the site of `size` pages.
 fn site(size: u64) -> Vec<String> {
@@ -45,6 +45,9 @@ fn comparison(trials: Vec<Trial>) -> Comparison {
         commit: "0".repeat(40),
         order_seed: 7,
         trials,
+        instructions: InstructionCell::NotRun {
+            reason: "a test".to_owned(),
+        },
     }
 }
 

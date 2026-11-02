@@ -3,7 +3,9 @@
 //! pages per second and peak resident memory, labelled `local-controlled`
 //! with the machine, only once every trial of both tools fetched the same
 //! pages and was served the same bytes; otherwise it fails naming the trial
-//! that did other work, and writes no figure. Trials are fixtures here.
+//! that did other work, and writes no figure. Its Callgrind cell gives
+//! `foxhound.spider_instruction_ratio` under the same check (ADR 0140). Trials
+//! are fixtures here.
 
 use serde_json::{Value, json};
 
@@ -62,7 +64,45 @@ fn trials() -> Value {
             trial("foxhound", 3, 4.0, 10 * mib, &site),
             trial("spider", 3, 2.0, 40 * mib, &site),
         ],
+        "instructions": { "status": "not_run", "reason": "Valgrind is not installed on this host" },
     })
+}
+
+/// A run of the Callgrind cell counting `instructions` over `pages`.
+fn run(tool: &str, number: u32, instructions: u64, pages: &[String]) -> Value {
+    json!({
+        "tool": tool,
+        "number": number,
+        "instructions": instructions,
+        "pages": pages,
+        "requests": pages.len(),
+        "bytes": 600 * pages.len(),
+    })
+}
+
+/// A Callgrind cell of three runs of each tool over the 1,000-page site:
+/// Foxhound's a median of 32,000 instructions a page, Spider's 1,000.
+fn measured_cell() -> Value {
+    let site = pages(1000);
+    json!({
+        "status": "measured",
+        "scenario": "scenario 1 of ADR 0138's matrix",
+        "trials": 3,
+        "runs": [
+            run("foxhound", 1, 31_000_000, &site),
+            run("foxhound", 2, 32_000_000, &site),
+            run("foxhound", 3, 40_000_000, &site),
+            run("spider", 1, 1_000_000, &site),
+            run("spider", 2, 900_000, &site),
+            run("spider", 3, 1_100_000, &site),
+        ],
+    })
+}
+
+fn trials_with(cell: Value) -> Value {
+    let mut trials = trials();
+    trials["instructions"] = cell;
+    trials
 }
 
 fn report(workspace: &Workspace, trials: &Value) -> crate::workspace::Outcome {
@@ -146,6 +186,133 @@ fn a_tool_short_of_its_declared_trials_fails() {
     assert_eq!(
         (outcome.findings(), outcome.code),
         (vec![finding("trial_count", "spider")], 1),
+        "{}",
+        outcome.stderr
+    );
+}
+
+#[test]
+fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials_with(measured_cell()));
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let written: Value = serde_json::from_slice(&workspace.read(REPORT).unwrap()).unwrap();
+    assert_eq!(
+        written["instructions"],
+        json!({
+            "status": "measured",
+            "row": "foxhound.spider_instruction_ratio",
+            "scenario": "scenario 1 of ADR 0138's matrix",
+            "foxhound_per_page": 32_000.0,
+            "spider_per_page": 1_000.0,
+            "ratio": 32.0,
+        })
+    );
+    let markdown = workspace.read_text("target/compare-spider/report.md");
+    assert!(
+        markdown.contains("`foxhound.spider_instruction_ratio`: 32.000"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn a_cell_that_did_not_run_says_why_and_gives_no_ratio() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!((outcome.findings(), outcome.code), (vec![], 0));
+    let written: Value = serde_json::from_slice(&workspace.read(REPORT).unwrap()).unwrap();
+    assert_eq!(
+        written["instructions"],
+        json!({ "status": "not_run", "reason": "Valgrind is not installed on this host" })
+    );
+    assert!(
+        workspace
+            .read_text("target/compare-spider/report.md")
+            .contains("`foxhound.spider_instruction_ratio`: not run: Valgrind is not installed")
+    );
+}
+
+#[test]
+fn a_callgrind_run_of_other_pages_fails_the_same_work_check_and_reports_no_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = measured_cell();
+    cell["runs"][4] = run("spider", 2, 500, &pages(999));
+
+    let outcome = report(&workspace, &trials_with(cell));
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("different_pages", "spider callgrind trial 2")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+#[test]
+fn a_callgrind_run_served_other_bytes_fails_the_same_work_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = measured_cell();
+    cell["runs"][1]["bytes"] = json!(600_001);
+
+    let outcome = report(&workspace, &trials_with(cell));
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("different_bytes", "foxhound callgrind trial 2")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+#[test]
+fn a_tool_short_of_its_declared_callgrind_runs_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = measured_cell();
+    cell["runs"].as_array_mut().unwrap().pop();
+
+    let outcome = report(&workspace, &trials_with(cell));
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![finding("trial_count", "spider callgrind")], 1),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// A Spider count of 0 instructions is no measurement, and no ratio follows
+/// from it.
+#[test]
+fn a_tool_that_counted_no_instructions_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = measured_cell();
+    cell["runs"][3]["instructions"] = json!(0);
+
+    let outcome = report(&workspace, &trials_with(cell));
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("no_instructions", "spider callgrind trial 1")],
+            1
+        ),
         "{}",
         outcome.stderr
     );

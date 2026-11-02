@@ -6,9 +6,11 @@
 //! tool's median pages per second and peak resident memory, labelled
 //! `local-controlled` with the machine and never published (ADR 0076),
 //! once every trial fetched the same pages and was served the same bytes,
-//! and a failure naming the trial that did other work otherwise. It is no
-//! Live check, gates nothing and declares no Feature; M4's competitor
-//! adapters may absorb it.
+//! and a failure naming the trial that did other work otherwise. Its
+//! Callgrind cell counts each tool's instructions per page on ADR 0138's
+//! scenario 1 under the same check, and reports
+//! `foxhound.spider_instruction_ratio` (ADR 0140). It is no Live check, gates
+//! nothing and declares no Feature; M4's competitor adapters may absorb it.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -88,6 +90,10 @@ pub(crate) struct TrialArguments {
     pages: u64,
     #[arg(long)]
     concurrency: u32,
+    /// Runs the tool under Callgrind on ADR 0138's scenario 1, its output
+    /// written here.
+    #[arg(long)]
+    callgrind: Option<PathBuf>,
 }
 
 /// The entries of the test tool manifest a run takes.
@@ -146,6 +152,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     concurrency: arguments.concurrency,
                 },
                 &environment.goodfetch_variables,
+                arguments.callgrind.as_deref(),
             )?;
             output::line(&format!("seconds={seconds} peak-bytes={peak}"));
             Ok(ExitCode::SUCCESS)

@@ -1753,13 +1753,19 @@
         {
           "name": "shared_path",
           "values": [
+            "hook_stage",
+            "json_rpc_message",
             "page_analysis",
-            "run_trace"
+            "record",
+            "run_trace",
+            "sink_delivery"
           ]
         },
         {
           "name": "work",
           "values": [
+            "deep_copies",
+            "encodes",
             "parses",
             "selector_compilations",
             "readability_runs",
@@ -1767,6 +1773,17 @@
             "locale_form_builds",
             "plugin_serializations",
             "plugin_answer_parses",
+            "builds",
+            "calls",
+            "messages_no_hook",
+            "opens",
+            "transactions",
+            "writer_reads",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "constant_lookups",
             "spawns",
             "formatting_off"
           ]

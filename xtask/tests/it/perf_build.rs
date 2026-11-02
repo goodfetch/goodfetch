@@ -35,6 +35,7 @@ fn crate_with_bench(workspace: &Workspace, bench: &str) {
         &format!("crates/foxhound/goodfetch-frontier/benches/{bench}.rs"),
         b"//! A benchmark.\n\nfn main() {}\n",
     );
+    workspace.write("ci/perf-reference.toml", b"");
 }
 
 #[test]

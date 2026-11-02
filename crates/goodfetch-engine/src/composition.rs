@@ -19,6 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
@@ -222,6 +223,8 @@ pub(crate) struct ConnectionContext {
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
     /// The log events the Connection receives, at the level it asks for.
     pub(crate) log: ConnectionLog,
+    /// The engine's Counted work, which a call's answer adds its encode to.
+    pub(crate) work: CountedWork,
 }
 
 /// A boxed future of a [`DaemonSide`]'s answer.
@@ -428,6 +431,7 @@ impl Handler {
             // `handle` runs when the request arrives, before the next one
             // is read, so what it does before its future (arming a route or
             // a waiter, ADR 0080) is done in the Connection's arrival order.
+            let work = context.connection.work.clone();
             let answering = params::read::<P>(params)
                 .map(|params| handle(params, context))
                 .map_err(|error| {
@@ -435,6 +439,7 @@ impl Handler {
                 });
             Box::pin(async move {
                 let result = answering?.await?;
+                work.count(Row::MessageEncodes);
                 serde_json::to_value(result).map_err(|error| {
                     CallError::protocol(ProtocolFailure::InternalError, error.to_string())
                 })

@@ -129,7 +129,8 @@ fn summary_lists_each_ceiling_with_its_derived_head_figure() {
     let ceilings: String = outcome
         .stdout
         .split_once("#### Absolute ceilings\n\n")
-        .map(|(_, rest)| rest.to_owned())
+        .and_then(|(_, rest)| rest.split_once("\n#### Reference build"))
+        .map(|(ceilings, _)| ceilings.to_owned())
         .unwrap_or_default();
     insta::assert_snapshot!(ceilings, @r#"
     | Benchmark or entry | Figure | Head | Ceiling | Verdict |

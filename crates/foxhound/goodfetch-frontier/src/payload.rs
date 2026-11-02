@@ -72,6 +72,10 @@ impl PayloadRules {
     /// # Errors
     ///
     /// `invalid_params` naming a Label whose schema is no JSON Schema.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the declaration's one check of its schema, as the crawl starts (ADR 0140)"
+    )]
     pub fn of(
         settings: &Resolved,
         labels: &BTreeMap<String, LabelDeclaration>,
@@ -324,6 +328,10 @@ fn hash(schema: &Value) -> String {
 
 /// Each way `payload`, a missing one read as `null`, does not fit
 /// `schema`, a JSON Schema [`PayloadRules::of`] checked.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a Payload's validator, which `F3.compilations` has yet to count (ADR 0140)"
+)]
 fn issues(schema: &Value, payload: Option<&Value>) -> Vec<PayloadIssue> {
     let Ok(validator) = jsonschema::validator_for(schema) else {
         return Vec::new();

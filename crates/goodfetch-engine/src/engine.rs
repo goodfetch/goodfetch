@@ -8,6 +8,7 @@
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
 
+use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -117,6 +118,7 @@ impl Engine {
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
+                work: CountedWork::default(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
@@ -138,6 +140,14 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.dispatch = Arc::new(Dispatch {
+            identity: Arc::clone(&self.dispatch.identity),
+            handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
+            log_events: self.dispatch.log_events.clone(),
+            masks: self.dispatch.masks.clone(),
+            work: metrics.counted_work().clone(),
+        });
         self.metrics = metrics;
         self
     }
@@ -162,6 +172,7 @@ impl Engine {
             drivers: Arc::clone(&self.dispatch.drivers),
             log_events: Some(log_events),
             masks: self.dispatch.masks.clone(),
+            work: self.dispatch.work.clone(),
         });
         self
     }
@@ -177,6 +188,7 @@ impl Engine {
             drivers: Arc::clone(&self.dispatch.drivers),
             log_events: self.dispatch.log_events.clone(),
             masks,
+            work: self.dispatch.work.clone(),
         });
         self
     }
@@ -313,7 +325,12 @@ impl Engine {
         console: Option<String>,
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
-        let events = Events::start(self.events, instance, owner);
+        let events = Events::start(
+            self.events,
+            instance,
+            owner,
+            self.metrics.counted_work().clone(),
+        );
         let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,

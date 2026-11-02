@@ -1,6 +1,6 @@
 //! The trials file `run` writes and `report` reads: what was declared
-//! before the first trial, the machine, and each trial's figures with the
-//! work the Proving ground saw it do.
+//! before the first trial, the machine, each trial's figures with the work
+//! the Proving ground saw it do, and the Callgrind cell's runs with theirs.
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +17,13 @@ pub(crate) const SITE_PAGES: u64 = crate::rss::crawl::PAGES;
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
 /// (a unit test holds the two equal).
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";
+
+/// Runs of each tool in the Callgrind cell, whose figure is their median:
+/// fewer than the timed trials, since a count barely varies and a run under
+/// Callgrind takes minutes.
+pub(crate) const INSTRUCTION_RUNS: u32 = 3;
+/// What the Callgrind cell crawls with.
+pub(crate) const INSTRUCTION_SCENARIO: &str = "scenario 1 of ADR 0138's matrix";
 
 /// A tool compared.
 #[derive(
@@ -94,6 +101,37 @@ pub(crate) struct Comparison {
     /// The seed of the trials' order.
     pub(crate) order_seed: u64,
     pub(crate) trials: Vec<Trial>,
+    pub(crate) instructions: InstructionCell,
+}
+
+/// One run of the Callgrind cell: one tool, in a fresh process under
+/// Callgrind, crawling the site served by a fresh Proving ground.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct InstructionRun {
+    pub(crate) tool: Tool,
+    /// Its number among the tool's runs, from 1.
+    pub(crate) number: u32,
+    /// Callgrind's total of the whole process, its start and exit included.
+    pub(crate) instructions: u64,
+    /// As a [`Trial`]'s.
+    pub(crate) pages: Vec<String>,
+    pub(crate) requests: u64,
+    pub(crate) bytes: u64,
+}
+
+/// The Callgrind cell, which gives `foxhound.spider_instruction_ratio` (ADR
+/// 0140).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum InstructionCell {
+    /// This host cannot run it.
+    NotRun { reason: String },
+    Measured {
+        scenario: String,
+        /// Runs of each tool.
+        trials: u32,
+        runs: Vec<InstructionRun>,
+    },
 }
 
 #[cfg(test)]

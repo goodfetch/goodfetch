@@ -121,7 +121,7 @@ impl Scenario {
             Self::IdleDaemon => idle_daemon(needs, child, stdin, stdout),
             Self::Crawl => {
                 let site = site.context("the crawl needs the Proving ground's address")?;
-                crawl::crawl(stdin, stdout, site)
+                crawl::crawl(stdin, stdout, site, crawl::Settings::CodeFree)
             }
         }
     }

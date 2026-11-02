@@ -178,7 +178,7 @@ pub fn fuzz_posted(body: &[u8]) {
         if let Frame::Line(line) = frame {
             assert!(line.len() <= LIMIT, "a message longer than the limit");
             assert!(!line.contains(&b'\n'), "a message spans two lines");
-            let _ = super::framing::decode(&line);
+            let _ = super::framing::decode(&line, &goodfetch_counted_work::CountedWork::default());
         }
     }
 }

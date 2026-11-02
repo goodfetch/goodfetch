@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{Notification, Version};
 use goodfetch_protocol::log::{LOG, LogEvent, LogLevel};
 use serde_json::{Map, Value};
@@ -173,6 +174,7 @@ impl ConnectionLog {
     pub(crate) fn forward(
         &self,
         outgoing: mpsc::Sender<Vec<u8>>,
+        work: CountedWork,
     ) -> impl Future<Output = ()> + Send + 'static {
         let receivers = self.0.as_ref().map(|listening| {
             (
@@ -183,7 +185,7 @@ impl ConnectionLog {
         });
         async move {
             if let Some((connection, events, level)) = receivers {
-                forward(connection, events, level, outgoing).await;
+                forward(connection, events, level, outgoing, work).await;
             }
         }
     }
@@ -203,6 +205,7 @@ async fn forward(
     mut events: broadcast::Receiver<Item>,
     mut level: watch::Receiver<LogLevel>,
     outgoing: mpsc::Sender<Vec<u8>>,
+    work: CountedWork,
 ) {
     let mut dropped: u64 = 0;
     let mut wanted = *level.borrow_and_update();
@@ -223,6 +226,7 @@ async fn forward(
                         dropped: std::mem::take(&mut dropped),
                         ..LogEvent::clone(&event)
                     };
+                    work.count(Row::MessageEncodes);
                     if outgoing.send(line(&event)).await.is_err() {
                         return;
                     }

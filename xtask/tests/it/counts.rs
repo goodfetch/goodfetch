@@ -869,11 +869,15 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 }
 
 /// B2's counted rows, as the register holds them.
-const C1_ROWS: &str = "\
+const B2_ROWS: &str = "\
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C4.provenance_entries` | Provenance entries per navigation | 1 | 1.334 | B2 | must not grow | `just counts` | implementer done |
 ";
 
 /// B2's benchmark holds the Live view frame's rows as not run, so the ticket
@@ -883,13 +887,13 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
         "TESTING.md",
-        format!("{}{C1_ROWS}", register("8")).as_bytes(),
+        format!("{}{B2_ROWS}", register("8")).as_bytes(),
     );
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[

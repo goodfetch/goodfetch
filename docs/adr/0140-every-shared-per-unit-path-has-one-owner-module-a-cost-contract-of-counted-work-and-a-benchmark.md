@@ -166,6 +166,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`F4.transactions` counts `crawl_request.push`'s own write,** which a commit hook could not tell from the attempt's commit. The code-free crawl pushes nothing, so B1 reads 0 until a ticket gives its fixture a handler.
 > - **B1's fixture needs no change for this row:** the code-free crawl's `pages` Dataset already has a schema. A Dataset's schema cannot be switched off there, as a crawl with `extraction` declares its own; the rows run in B1's other cells.
 
+> Note (agent decisions of #1850, pending owner review), 2026-11-02, on Frontier admission's rows:
+> - **Each outcome has its own rows:** a redirect hop, a sitemap's read and a URL's Payload each have rows beside a links batch's (`F3.compilations.hop`), with their own units and limits, as the contract holds each to the same counts. One limit across outcomes would hide them: `--prove` found a planted prepare per page unseen on a hop, under a batch's limit.
+> - **`F3.transactions` counts the writes an outcome asks the writer for, at each outcome's call, not a commit hook.** A commit hook sees a commit, which groups several writes, so it cannot say whose it was. It therefore counts one for a links batch's staging, which rolls back, as for a hop and a sitemap. X6 gains the row.
+> - **`F3.prepares` runs under Callgrind with `--zero-before` and `--dump-after` on the one function of each outcome, not `--toggle-collect`:** Callgrind's call counts ignore its collection state, so a toggle counts the whole process. This names Rust functions (`links::add`, `identity::admit_hop`, `work_items::read_sitemap`) only to bound what is counted, and the count itself is still of SQLite's C symbol; the benchmark fails if a named function is never entered. `just counts` therefore needs Valgrind, and takes about two minutes on a loaded server for this family, over the one minute user story 12 asks.
+> - **The prepares row is not a series of `goodfetch.counted_work`:** the Daemon runs under no Callgrind, and a series that stays 0 would say something false.
+> - **A Payload reaches B1 on a seed,** as a code-free crawl's links carry none: its validator, validation and serializations are counted on `frontier_payload`, whoever checks it. The batch's own Payload cost is reached once B1 has a handler.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

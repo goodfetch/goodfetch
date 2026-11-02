@@ -580,3 +580,107 @@ fn proving_leaves_a_row_not_run_yet_out() {
         outcome.stdout
     );
 }
+
+/// Every F3 row, in what a benchmark prints and the register holds.
+const FRONTIER_ROWS: [&str; 15] = [
+    "F3.invariant_reads",
+    "F3.invariant_reads.hop",
+    "F3.invariant_reads.sitemap",
+    "F3.compilations",
+    "F3.compilations.hop",
+    "F3.compilations.sitemap",
+    "F3.compilations.payload",
+    "F3.prepares",
+    "F3.prepares.hop",
+    "F3.prepares.sitemap",
+    "F3.transactions",
+    "F3.transactions.hop",
+    "F3.transactions.sitemap",
+    "F3.payload_serializations",
+    "F3.validations",
+];
+
+/// The register's F3 rows, each with the limit 1.
+fn frontier_register() -> String {
+    let rows = FRONTIER_ROWS
+        .map(|row| {
+            format!(
+                "| `{row}` | its work | 99 | 1 | B1 | must not grow | `xtask counts` | implementer done |"
+            )
+        })
+        .join("\n");
+    format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    )
+}
+
+/// A benchmark that prints every F3 count, each outcome one unit and each
+/// count 1, except `counted`, whose count is 5.
+fn frontier_benchmark(counted: &str) -> String {
+    let counts: Vec<String> = FRONTIER_ROWS
+        .iter()
+        .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
+        .collect();
+    format!(
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}}}}}'\n",
+        counts.join(",")
+    )
+}
+
+/// A hop's work is its own row: over its limit it fails, divided by its hops
+/// and not by the batches.
+#[test]
+fn a_hops_work_fails_its_own_row_divided_by_its_hops() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("F3.compilations.hop"));
+    workspace.write("TESTING.md", frontier_register().as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("over-limit", "F3.compilations.hop")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F3.compilations.hop [default]: 5 per hop, limit 1 (5 over 1)"),
+        "{}",
+        outcome.stdout
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("5 per hop in the cell `default`, over its limit of 1"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// Every outcome at its limit passes, and each of the six rows is printed.
+#[test]
+fn the_frontiers_rows_pass_at_their_limit_and_each_is_printed() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("none"));
+    workspace.write("TESTING.md", frontier_register().as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    for row in [
+        "F3.invariant_reads [default]: 1 per links batch",
+        "F3.compilations [default]",
+        "F3.prepares [default]",
+        "F3.transactions [default]",
+        "F3.payload_serializations [default]",
+        "F3.validations [default]",
+    ] {
+        assert!(outcome.stdout.contains(row), "{row}: {}", outcome.stdout);
+    }
+}

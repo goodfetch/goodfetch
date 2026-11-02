@@ -163,6 +163,10 @@ pub const DAEMON_DRAINING: Metric = Metric {
 const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     name: "shared_path",
     values: &[
+        "frontier_admission",
+        "frontier_hop",
+        "frontier_payload",
+        "frontier_sitemap",
         "hook_stage",
         "json_rpc_message",
         "page_analysis",
@@ -196,6 +200,8 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "validations",
         "serializations",
         "constant_lookups",
+        "invariant_reads",
+        "compilations",
     ],
 };
 

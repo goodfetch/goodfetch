@@ -15581,6 +15581,10 @@
         {
           "name": "shared_path",
           "values": [
+            "frontier_admission",
+            "frontier_hop",
+            "frontier_payload",
+            "frontier_sitemap",
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
@@ -15610,7 +15614,9 @@
             "validator_builds",
             "validations",
             "serializations",
-            "constant_lookups"
+            "constant_lookups",
+            "invariant_reads",
+            "compilations"
           ]
         }
       ],

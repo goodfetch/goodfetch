@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 
 use data_encoding::HEXLOWER;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
@@ -154,8 +155,14 @@ impl PayloadRules {
     ///
     /// `payload_invalid` when its JSON is longer than the cap, or it does
     /// not fit its Label's schema.
-    pub fn check(&self, label: &str, payload: Option<&Value>) -> Result<(), CallError> {
+    pub fn check(
+        &self,
+        label: &str,
+        payload: Option<&Value>,
+        work: &CountedWork,
+    ) -> Result<(), CallError> {
         if let Some(payload) = payload {
+            work.count(Row::PayloadSerializations);
             let size = u64::try_from(payload.to_string().len()).unwrap_or(u64::MAX);
             if size > self.max_size {
                 return Err(CallError::new(
@@ -177,6 +184,8 @@ impl PayloadRules {
         let Some(Some(schema)) = self.labels.get(label) else {
             return Ok(());
         };
+        work.count(Row::PayloadCompilations);
+        work.count(Row::PayloadValidations);
         let issues = issues(schema, payload);
         if issues.is_empty() {
             return Ok(());
@@ -288,8 +297,10 @@ pub fn store(
     connection: &Connection,
     request: &str,
     payload: Option<&Value>,
+    work: &CountedWork,
 ) -> rusqlite::Result<()> {
     if let Some(payload) = payload {
+        work.count(Row::PayloadSerializations);
         connection.execute(
             "INSERT INTO payloads (request, payload) VALUES (?1, ?2)",
             (request, payload.to_string()),

@@ -153,7 +153,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 22] = [
+const ROWS: [Row; 37] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -203,6 +203,21 @@ const ROWS: [Row; 22] = [
         happens: false,
         valgrind: None,
     },
+    b1("F3.invariant_reads", LINKS_BATCHES, false),
+    b1("F3.invariant_reads.hop", HOPS, false),
+    b1("F3.invariant_reads.sitemap", SITEMAPS, false),
+    b1("F3.compilations", LINKS_BATCHES, false),
+    b1("F3.compilations.hop", HOPS, false),
+    b1("F3.compilations.sitemap", SITEMAPS, false),
+    b1("F3.compilations.payload", PAYLOADS, false),
+    b1("F3.prepares", LINKS_BATCHES, false),
+    b1("F3.prepares.hop", HOPS, false),
+    b1("F3.prepares.sitemap", SITEMAPS, false),
+    b1("F3.transactions", LINKS_BATCHES, false),
+    b1("F3.transactions.hop", HOPS, false),
+    b1("F3.transactions.sitemap", SITEMAPS, false),
+    b1("F3.payload_serializations", PAYLOADS, true),
+    b1("F3.validations", PAYLOADS, true),
     Row {
         name: "E1.deep_copies",
         family: "B3",
@@ -339,6 +354,25 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
     },
 ];
 
+/// The links batches B1's crawl admitted.
+const LINKS_BATCHES: &str = "links_batches";
+/// The redirect hops it took through the Frontier.
+const HOPS: &str = "hops";
+/// The sitemaps it read.
+const SITEMAPS: &str = "sitemaps";
+/// The URLs it enqueued with a Payload.
+const PAYLOADS: &str = "payloads";
+
+const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
+    Row {
+        name,
+        family: "B1",
+        unit,
+        happens,
+        valgrind: None,
+    }
+}
+
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
     /// Only this family's rows (B1, B3).
@@ -448,6 +482,14 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             .iter()
             .copied()
             .filter(|row| row.family == family)
+            // A plant's run answers for what it planted: it counts no other
+            // row Valgrind would have to run for.
+            .filter(|row| {
+                arguments
+                    .plant
+                    .as_deref()
+                    .is_none_or(|plant| plant == row.name)
+            })
             .collect();
         findings.extend(verdict(&of_family, &cells, &limits)?);
         findings.extend(
@@ -751,6 +793,14 @@ fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
     Ok(cells)
 }
 
+/// One of the units `unit` names, as a figure's line says it.
+fn one_of(unit: &str) -> &str {
+    match unit {
+        LINKS_BATCHES => "links batch",
+        unit => unit.trim_end_matches('s'),
+    }
+}
+
 /// Prints each row's figure in each of `cells` and answers what fails.
 fn verdict(
     rows: &[&Row],
@@ -791,7 +841,7 @@ fn verdict(
                 "{} [{}]: {figure} per {}, limit {limit} ({count} over {units})",
                 row.name,
                 cell.name,
-                row.unit.trim_end_matches('s'),
+                one_of(row.unit),
             ));
             let limit_held = if row.valgrind.is_some() {
                 limit.with_valgrind_tolerance()
@@ -804,7 +854,7 @@ fn verdict(
                     row.name,
                     format!(
                         "{figure} per {} in the cell `{}`, over its limit of {limit}",
-                        row.unit.trim_end_matches('s'),
+                        one_of(row.unit),
                         cell.name
                     ),
                 ));

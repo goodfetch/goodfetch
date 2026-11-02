@@ -72,6 +72,28 @@ fn health_of(env: &TestEnv, options: DaemonOptions) -> Value {
     health
 }
 
+/// `series`, and each Counted work row `series` does not name, at 0.
+fn with_counted_work<const N: usize>(series: [String; N]) -> BTreeSet<String> {
+    let named = |line: &str| {
+        line.rsplit_once(' ')
+            .map_or(line, |(name, _)| name)
+            .to_owned()
+    };
+    let given: BTreeSet<String> = series.iter().map(|line| named(line)).collect();
+    goodfetch_counted_work::Row::ALL
+        .map(|row| {
+            format!(
+                r#"goodfetch_counted_work_total{{shared_path="{}",work="{}"}} 0"#,
+                row.path(),
+                row.work()
+            )
+        })
+        .into_iter()
+        .filter(|line| !given.contains(&named(line)))
+        .chain(series)
+        .collect()
+}
+
 /// `goodfetch.counted_work`'s labels take exactly the values of the rows it
 /// counts (ADR 0140), so a new row declares its path and its work.
 #[test]
@@ -381,58 +403,18 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
     assert_eq!(
         (while_running, series(&registry)),
         (
-            BTreeSet::from([
+            with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="calls"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="messages_no_hook"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="locale_form_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_answer_parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="readability_runs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="selector_compilations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="constant_lookups"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="declaration_reads"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="deep_copies"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="transactions"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="validations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="validator_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="transactions"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="writer_reads"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ]),
-            BTreeSet::from([
+            with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="calls"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="hook_stage",work="messages_no_hook"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="locale_form_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_answer_parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="readability_runs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="selector_compilations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="constant_lookups"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="declaration_reads"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="deep_copies"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="transactions"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="validations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="record",work="validator_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="transactions"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="sink_delivery",work="writer_reads"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

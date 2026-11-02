@@ -90,6 +90,18 @@ fn each_row_counts_on_its_own() {
             ("F4.deep_copies", 0),
             ("F4.constant_lookups", 0),
             ("F4.transactions", 0),
+            ("F3.invariant_reads", 0),
+            ("F3.compilations", 0),
+            ("F3.transactions", 0),
+            ("F3.invariant_reads.hop", 0),
+            ("F3.compilations.hop", 0),
+            ("F3.transactions.hop", 0),
+            ("F3.invariant_reads.sitemap", 0),
+            ("F3.compilations.sitemap", 0),
+            ("F3.transactions.sitemap", 0),
+            ("F3.compilations.payload", 0),
+            ("F3.payload_serializations", 0),
+            ("F3.validations", 0),
         ]
     );
 }

@@ -2697,6 +2697,7 @@ dependencies = [
  "data-encoding",
  "encoding_rs",
  "flate2",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

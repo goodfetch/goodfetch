@@ -10814,13 +10814,19 @@
         {
           "name": "shared_path",
           "values": [
+            "cdp_command",
+            "frontier_admission",
+            "frontier_hop",
+            "frontier_payload",
+            "frontier_sitemap",
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
             "politeness_permit",
             "record",
             "run_state",
-            "sink_delivery"
+            "sink_delivery",
+            "usage_charge"
           ]
         },
         {
@@ -10851,7 +10857,12 @@
             "validator_builds",
             "validations",
             "serializations",
-            "constant_lookups"
+            "constant_lookups",
+            "invariant_reads",
+            "compilations",
+            "sends",
+            "log_sends_off",
+            "statements"
           ]
         }
       ],

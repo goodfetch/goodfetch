@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 
 use crate::crawl_plants::{Counted, politeness_plant, run_state_plant};
 use crate::crawl_scenario::{
-    Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant,
+    Frontier, Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant,
 };
 
 /// The total body bytes `benches/pages.source.toml` records.
@@ -228,6 +228,42 @@ fn parses(settings: &Value, planted: bool) -> u64 {
     work.read(Row::PageParses)
 }
 
+/// B1 meets a Limit (ADR 0140's E3): every page's request is charged through
+/// the counted ledger, on the crawl's own engine, which the crawl with no
+/// Limit also reads and no Slice's transaction commits; a Slice's commit is
+/// the difference.
+#[test]
+fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
+    let charged = |limit: Option<u64>| {
+        let env = TestEnv::new();
+        let metrics = Metrics::none();
+        let work = metrics.counted_work().clone();
+        crawl_with(
+            env.home(),
+            env.start_time(),
+            env.seed(),
+            Options {
+                metrics,
+                limit,
+                ..Options::default()
+            },
+        );
+        (
+            work.read(Row::ChargeStatements),
+            work.read(Row::ChargeTransactions),
+        )
+    };
+
+    let (limited, free) = (charged(Some(1_000_000)), charged(None));
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(limited.0 >= pages, "{limited:?} over {pages} pages");
+    assert!(
+        limited.1 > free.1,
+        "a Slice taken commits: {limited:?} with a Limit, {free:?} without"
+    );
+}
+
 /// B1's counts cell (ADR 0140): the crawl's parses are counted from the
 /// parse, a planted one per page adds exactly its pages' worth, and turning
 /// the Filter lists off takes the clean-up's parse away. `xtask counts` holds
@@ -259,6 +295,205 @@ fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes
         off < default,
         "{off} parses with the lists off, {default} on"
     );
+}
+
+/// The rows of a Record's work (F4).
+const RECORD_ROWS: [Row; 7] = [
+    Row::RecordDeclarationReads,
+    Row::RecordValidatorBuilds,
+    Row::RecordValidations,
+    Row::RecordSerializations,
+    Row::RecordDeepCopies,
+    Row::RecordConstantLookups,
+    Row::RecordTransactions,
+];
+
+/// Each of [`RECORD_ROWS`]' counts in a crawl and, when `planted`, with one
+/// more unit of each per page served, and how many Records it committed.
+fn record_counts(planted: bool) -> ([u64; 7], u64) {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let plant: Option<Plant> = planted.then(|| {
+        let work = work.clone();
+        Arc::new(move |_head: &str| {
+            for row in RECORD_ROWS {
+                if row == Row::RecordValidatorBuilds {
+                    let _ = goodfetch_dataset::counted_validator(&work, &json!({}));
+                } else {
+                    work.count(row);
+                }
+            }
+        }) as Plant
+    });
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            plant,
+            ..Options::default()
+        },
+    );
+    (
+        RECORD_ROWS.map(|row| work.read(row)),
+        u64::try_from(crawled.records.len()).unwrap(),
+    )
+}
+
+/// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
+/// Dataset's schema, is validated and serialized once and commits in its
+/// attempt's transaction; what its check and its commit repeat per Record is
+/// counted (the Exceptions X7 and X8), and one planted unit per page adds
+/// exactly its Records' worth to every row. `xtask counts` holds the figures
+/// to the register, and `--prove` runs each plant through it.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "two crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_every_row() {
+    let ((default, records), (planted, _)) = std::thread::scope(|scope| {
+        let default = scope.spawn(|| record_counts(false));
+        let planted = scope.spawn(|| record_counts(true));
+        (default.join().unwrap(), planted.join().unwrap())
+    });
+
+    let [
+        reads,
+        builds,
+        validations,
+        serializations,
+        copies,
+        lookups,
+        transactions,
+    ] = default;
+    assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
+    assert_eq!(
+        (validations, serializations, transactions),
+        (records, records, 0)
+    );
+    assert!(
+        reads > 0 && builds > 0 && copies > 0 && lookups > 0,
+        "reads {reads}, builds {builds}, copies {copies}, lookups {lookups}"
+    );
+    assert_eq!(
+        std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),
+        [records; 7],
+    );
+}
+
+/// The rows of the Frontier's admission, which every outcome reaches.
+const FRONTIER_ROWS: [Row; 12] = [
+    Row::BatchInvariantReads,
+    Row::BatchCompilations,
+    Row::BatchTransactions,
+    Row::HopInvariantReads,
+    Row::HopCompilations,
+    Row::HopTransactions,
+    Row::SitemapInvariantReads,
+    Row::SitemapCompilations,
+    Row::SitemapTransactions,
+    Row::PayloadCompilations,
+    Row::PayloadSerializations,
+    Row::PayloadValidations,
+];
+
+/// What one crawl of the Frontier's fixture counted: each row of
+/// [`FRONTIER_ROWS`], the Records, the hops and the sitemaps.
+struct Frontiers {
+    counts: Vec<u64>,
+    pages: u64,
+    hops: u64,
+    sitemaps: u64,
+}
+
+impl Frontiers {
+    fn of(&self, row: Row) -> u64 {
+        let at = FRONTIER_ROWS.iter().position(|each| *each == row).unwrap();
+        self.counts[at]
+    }
+}
+
+/// A crawl of the Frontier's fixture, each page small, and when `planted`,
+/// one more unit of every row per page served.
+fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let plant: Option<Plant> = planted.then(|| {
+        let work = work.clone();
+        Arc::new(move |_: &str| {
+            for row in FRONTIER_ROWS {
+                work.count(row);
+            }
+        }) as Plant
+    });
+    let settings = if globs {
+        json!({ "crawl": { "scope": { "exclude": ["http://pages.test/never/**"] } } })
+    } else {
+        json!({})
+    };
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            settings: settings.as_object().unwrap().clone(),
+            plant,
+            frontier: Some(Frontier { schema }),
+            small_pages: true,
+            ..Options::default()
+        },
+    );
+    Frontiers {
+        counts: FRONTIER_ROWS.iter().map(|row| work.read(*row)).collect(),
+        pages: u64::try_from(crawled.records.len()).unwrap(),
+        hops: crawled.hops,
+        sitemaps: crawled.sitemaps,
+    }
+}
+
+/// B1's Frontier rows (ADR 0140): a batch's, a hop's, a sitemap's and a
+/// Payload's work are each counted on their own row, once the crawl met each
+/// outcome; a plant per page adds exactly its pages' worth to each; and with
+/// no glob in the Scope or no schema on the Label, their work goes.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "four crawls of a few small pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_and_off_removes_its_work()
+ {
+    let (default, planted, no_globs, no_schema) = std::thread::scope(|scope| {
+        let default = scope.spawn(|| frontier_crawl(true, true, false));
+        let planted = scope.spawn(|| frontier_crawl(true, true, true));
+        let no_globs = scope.spawn(|| frontier_crawl(false, true, false));
+        let no_schema = scope.spawn(|| frontier_crawl(true, false, false));
+        (
+            default.join().unwrap(),
+            planted.join().unwrap(),
+            no_globs.join().unwrap(),
+            no_schema.join().unwrap(),
+        )
+    });
+
+    // The index and its pages, the redirect's target, the sitemap's entry and
+    // the seed with a Payload.
+    assert_eq!(
+        (default.pages, default.hops, default.sitemaps),
+        (u64::try_from(PAGES.len()).unwrap() + 4, 1, 1)
+    );
+    for row in FRONTIER_ROWS {
+        assert!(default.of(row) > 0, "{row:?} counted nothing");
+        assert_eq!(planted.of(row) - default.of(row), default.pages, "{row:?}");
+    }
+    assert!(no_globs.of(Row::BatchCompilations) < default.of(Row::BatchCompilations));
+    assert!(no_globs.of(Row::HopCompilations) < default.of(Row::HopCompilations));
+    assert_eq!(no_schema.of(Row::PayloadValidations), 0);
+    assert_eq!(no_schema.of(Row::PayloadCompilations), 0);
 }
 
 /// The run-state rows a crawl with `settings` counted and, when `planted`,
@@ -463,92 +698,5 @@ fn a_planted_unit_per_page_moves_its_politeness_row_by_a_page_each(
         "{name}: {} planted, {} not",
         planted.read(row),
         default.read(row)
-    );
-}
-
-/// The rows of a Record's work (F4).
-const RECORD_ROWS: [Row; 7] = [
-    Row::RecordDeclarationReads,
-    Row::RecordValidatorBuilds,
-    Row::RecordValidations,
-    Row::RecordSerializations,
-    Row::RecordDeepCopies,
-    Row::RecordConstantLookups,
-    Row::RecordTransactions,
-];
-
-/// Each of [`RECORD_ROWS`]' counts in a crawl and, when `planted`, with one
-/// more unit of each per page served, and how many Records it committed.
-fn record_counts(planted: bool) -> ([u64; 7], u64) {
-    let env = TestEnv::new();
-    let metrics = Metrics::none();
-    let work = metrics.counted_work().clone();
-    let plant: Option<Plant> = planted.then(|| {
-        let work = work.clone();
-        Arc::new(move |_head: &str| {
-            for row in RECORD_ROWS {
-                if row == Row::RecordValidatorBuilds {
-                    let _ = goodfetch_dataset::counted_validator(&work, &json!({}));
-                } else {
-                    work.count(row);
-                }
-            }
-        }) as Plant
-    });
-    let crawled = crawl_with(
-        env.home(),
-        env.start_time(),
-        env.seed(),
-        Options {
-            metrics,
-            plant,
-            ..Options::default()
-        },
-    );
-    (
-        RECORD_ROWS.map(|row| work.read(row)),
-        u64::try_from(crawled.records.len()).unwrap(),
-    )
-}
-
-/// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
-/// Dataset's schema, is validated and serialized once and commits in its
-/// attempt's transaction; what its check and its commit repeat per Record is
-/// counted (the Exceptions X7 and X8), and one planted unit per page adds
-/// exactly its Records' worth to every row. `xtask counts` holds the figures
-/// to the register, and `--prove` runs each plant through it.
-#[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "two crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
-)]
-fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_every_row() {
-    let ((default, records), (planted, _)) = std::thread::scope(|scope| {
-        let default = scope.spawn(|| record_counts(false));
-        let planted = scope.spawn(|| record_counts(true));
-        (default.join().unwrap(), planted.join().unwrap())
-    });
-
-    let [
-        reads,
-        builds,
-        validations,
-        serializations,
-        copies,
-        lookups,
-        transactions,
-    ] = default;
-    assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
-    assert_eq!(
-        (validations, serializations, transactions),
-        (records, records, 0)
-    );
-    assert!(
-        reads > 0 && builds > 0 && copies > 0 && lookups > 0,
-        "reads {reads}, builds {builds}, copies {copies}, lookups {lookups}"
-    );
-    assert_eq!(
-        std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),
-        [records; 7],
     );
 }

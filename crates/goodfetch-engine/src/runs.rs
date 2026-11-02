@@ -1149,6 +1149,8 @@ pub struct Runs {
     /// The engine's Product version, whose major's Run index its Runs
     /// write.
     version: ProductVersion,
+    /// The runtime's metrics.
+    metrics: Metrics,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -2386,6 +2388,7 @@ impl Runs {
             home: setup.home.clone(),
             owner: Arc::clone(&readers),
             ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
+            work: setup.metrics.counted_work().clone(),
             known_certificates: KnownCertificates::of(&setup.home, setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,
@@ -2426,6 +2429,7 @@ impl Runs {
             needs_you: setup.needs_you.clone(),
             controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
+            metrics: setup.metrics.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -2465,6 +2469,12 @@ impl Runs {
 
     fn downgrade(&self) -> mpsc::WeakSender<Command> {
         self.commands.downgrade()
+    }
+
+    /// The runtime's metrics, which what a start does before its Run exists
+    /// records in (ADR 0050).
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
     }
 
     /// The engine's settings, which a start resolves its Run's under.
@@ -5135,6 +5145,7 @@ impl Registry {
             needs_you: self.setup.needs_you.clone(),
             controls: Arc::new(self.setup.controls.clone()),
             version: self.setup.version.clone(),
+            metrics: self.setup.metrics.clone(),
         }
     }
 

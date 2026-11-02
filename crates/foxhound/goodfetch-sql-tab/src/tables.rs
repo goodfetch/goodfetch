@@ -144,6 +144,8 @@ struct Scan {
 enum Cursor {
     Unopened,
     Reading {
+        // Boxed: `rusqlite`'s `hooks` feature, which the run file's and the
+        // ledger's commit hooks turn on, makes a connection most of the enum.
         connection: Box<Connection>,
         after: Option<Vec<rusqlite::types::Value>>,
     },

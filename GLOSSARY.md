@@ -44,6 +44,10 @@ _Avoid_: dashboard, inspector, app
 Goodfetch's local tool for watching and controlling the runs of a machine's Daemon, published apart from the Products under its own version; part of no Product.
 _Avoid_: Console, dashboard, tray app, monitor
 
+**Desktop notice**:
+A message the Kennel shows through the operating system's notifications, only while it runs, when a Run or the Daemon changes to a state that needs a person; not a Notification, which the engine sends whether or not a Kennel runs.
+_Avoid_: alert, notification (for the Kennel's)
+
 **Needs you**:
 The Console's one list of everything waiting for a person across every run in the Run index and the stores beside it, each item of a kind whose source, a domain crate's value, fills it, and gone once resolved or dismissed.
 _Avoid_: inbox, to-do list, attention list

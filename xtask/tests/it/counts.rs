@@ -309,19 +309,25 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
 #[test]
 fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let workspace = Workspace::from_fixture("empty");
-    // The whole family runs, so the register holds B3's Usage charge rows too.
+    // The whole family runs, so the register holds B3's Usage charge and
+    // governor sample rows too.
     let register = format!(
         "{B3_REGISTER}\
          | `E3.statements` | SQL statements per charge the held Slices cover | 0 | 1 | B3 | must not grow | `just counts` | implementer done |\n\
          | `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | 2.25 | B3 | must not grow | `just counts` | implementer done |\n\
          | `E3.opens` | store opens per charge or Slice | 0 | 0.125 | B3 | must not grow | `just counts` | implementer done |\n\
-         | `E3.prepares` | statement preparations per Slice taken | 0 | 19.75 | B3 | must not grow | `just counts` | implementer done |\n"
+         | `E3.prepares` | statement preparations per Slice taken | 0 | 19.75 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E4.configuration_reads` | configuration reads per governor sample | 0 | 2 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | 3 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | 2 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E4.cpu_stat_opens` | `cpu.stat` opens per sample | ≤ 1 | not run yet (#1306) | B3 | must not grow | `just counts --path E4` | implementer done |\n\
+         | `E4.process_reads` | memory reads per process per sample | 1 | 1.5 | B3 | must not grow | `just counts` | implementer done |\n"
     );
     workspace.write("TESTING.md", register.as_bytes());
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[

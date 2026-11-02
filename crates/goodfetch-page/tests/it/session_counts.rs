@@ -1,5 +1,6 @@
 //! B2 (ADR 0140): a Session against the scripted browser counts each CDP
-//! command's work, and a plant of one extra unit shows in the count. Its
+//! command's work and each intercepted request's, and a plant of one extra
+//! unit shows in the count. Its
 //! figures against the register's limits are `xtask counts`', and `--prove`
 //! runs the plant through it.
 
@@ -100,4 +101,64 @@ fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
         "{}",
         row.name()
     );
+}
+
+/// Every request the page sends passes the interception (C5): each pause and
+/// each answer to it is a `Fetch` message, as is the page's `Fetch.enable`;
+/// each request leaving is matched once against the Filter lists, which are
+/// on by default; each refusal spawns one task, which sends one entry to the
+/// request log, whose folder and file it opens; nothing is compiled.
+#[test]
+fn a_session_counts_each_intercepted_requests_work() {
+    let Counted {
+        requests,
+        paused,
+        refused,
+        work,
+        ..
+    } = run(None);
+
+    assert!(
+        refused > 0 && requests > refused && paused > requests,
+        "{requests} requests, {paused} pauses, {refused} refused"
+    );
+    assert_eq!(
+        [
+            Row::InterceptedFetchMessages,
+            Row::InterceptedAnswers,
+            Row::InterceptedMatches,
+            Row::InterceptedSpawns,
+            Row::InterceptedEntries,
+            Row::InterceptedFileOpens,
+            Row::InterceptedCompilations,
+        ]
+        .map(|row| work.read(row)),
+        [
+            2 * paused + 1,
+            paused,
+            requests,
+            refused,
+            refused,
+            2 * refused,
+            0
+        ]
+    );
+}
+
+/// A plant adds one unit of its row per command, and every intercepted
+/// request's unit is answered by a command, so the row passes its limit.
+#[rstest]
+#[case::fetch_messages(Row::InterceptedFetchMessages)]
+#[case::spawns(Row::InterceptedSpawns)]
+#[case::file_opens(Row::InterceptedFileOpens)]
+#[case::matches(Row::InterceptedMatches)]
+#[case::answers(Row::InterceptedAnswers)]
+#[case::compilations(Row::InterceptedCompilations)]
+#[case::entries(Row::InterceptedEntries)]
+fn a_planted_unit_adds_one_to_an_intercepted_requests_row_a_command(#[case] row: Row) {
+    let unplanted = run(None).work.read(row);
+
+    let Counted { commands, work, .. } = run(Some(row));
+
+    assert_eq!(work.read(row), unplanted + commands, "{}", row.name());
 }

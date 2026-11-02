@@ -228,11 +228,29 @@ pub enum Row {
     /// `E4.pool_walks`: a browser's processes walked for their memory as a
     /// page opens in the browser pool.
     PoolWalks,
+    /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
+    /// command sent or an event read, for a page's requests.
+    InterceptedFetchMessages,
+    /// `C5.spawns`: a task spawned for a refused request.
+    InterceptedSpawns,
+    /// `C5.file_opens`: a file opened or a folder created for a refused
+    /// request, as the Run trace's request log does.
+    InterceptedFileOpens,
+    /// `C5.matches`: a paused request matched against the compiled Filter
+    /// lists.
+    InterceptedMatches,
+    /// `C5.answers`: a CDP command that answers a paused request.
+    InterceptedAnswers,
+    /// `C5.compilations`: a glob or regular expression compiled for a paused
+    /// request.
+    InterceptedCompilations,
+    /// `C5.entries`: an entry sent to the Run trace's request log.
+    InterceptedEntries,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 81] = [
+    pub const ALL: [Self; 88] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -314,6 +332,13 @@ impl Row {
         Self::GovernorCpuStatOpens,
         Self::GovernorProcessReads,
         Self::PoolWalks,
+        Self::InterceptedFetchMessages,
+        Self::InterceptedSpawns,
+        Self::InterceptedFileOpens,
+        Self::InterceptedMatches,
+        Self::InterceptedAnswers,
+        Self::InterceptedCompilations,
+        Self::InterceptedEntries,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -395,6 +420,13 @@ impl Row {
             | Self::GovernorCpuStatOpens
             | Self::GovernorProcessReads
             | Self::PoolWalks => "governor_sample",
+            Self::InterceptedFetchMessages
+            | Self::InterceptedSpawns
+            | Self::InterceptedFileOpens
+            | Self::InterceptedMatches
+            | Self::InterceptedAnswers
+            | Self::InterceptedCompilations
+            | Self::InterceptedEntries => "intercepted_request",
         }
     }
 
@@ -408,13 +440,19 @@ impl Row {
             Self::PageFileOpens
             | Self::CdpFileOpens
             | Self::LiveViewFileOpens
-            | Self::RunTraceFileOpens => "file_opens",
+            | Self::RunTraceFileOpens
+            | Self::InterceptedFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::InterceptedFetchMessages => "fetch_messages_no_rule",
+            Self::InterceptedSpawns => "spawns",
+            Self::InterceptedMatches => "matches",
+            Self::InterceptedAnswers => "answers",
+            Self::InterceptedEntries => "entries",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
@@ -456,7 +494,8 @@ impl Row {
             | Self::HopCompilations
             | Self::SitemapCompilations
             | Self::PayloadCompilations
-            | Self::LiveViewCompilations => "compilations",
+            | Self::LiveViewCompilations
+            | Self::InterceptedCompilations => "compilations",
             Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
             Self::WorkingCopyDocumentLoads => "document_loads",
             Self::WorkingCopyDocumentEncodes => "document_encodes",
@@ -564,6 +603,13 @@ impl Row {
             Self::GovernorCpuStatOpens => "E4.cpu_stat_opens",
             Self::GovernorProcessReads => "E4.process_reads",
             Self::PoolWalks => "E4.pool_walks",
+            Self::InterceptedFetchMessages => "C5.fetch_messages_no_rule",
+            Self::InterceptedSpawns => "C5.spawns",
+            Self::InterceptedFileOpens => "C5.file_opens",
+            Self::InterceptedMatches => "C5.matches",
+            Self::InterceptedAnswers => "C5.answers",
+            Self::InterceptedCompilations => "C5.compilations",
+            Self::InterceptedEntries => "C5.entries",
         }
     }
 

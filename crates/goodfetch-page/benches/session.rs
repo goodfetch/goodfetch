@@ -22,6 +22,15 @@
 //! engine read, done once the Session's work after each navigation ended: the
 //! rows of [`READ_ROWS`] are what those reads counted, never the reads a
 //! navigation judges its document with, which are C4's outcome.
+//!
+//! Every request a page sends passes the interception (C5): the browser
+//! pauses each navigation's document as it leaves and again at its
+//! response, then, once it loaded, an image the egress policy refuses, at a
+//! documentation address no range of the Run lists. It counts the requests
+//! it paused, its pauses and the requests it was told to fail, each the unit
+//! of a C5 row. A document answers `304`, a status the Collie page's
+//! robots.txt reading leaves alone: that reading fetches through a page of
+//! its own, which this browser does not play.
 #![expect(
     clippy::disallowed_types,
     reason = "a benchmark's browser end listens on its own socket, and counts its commands on an atomic no behaviour reads (ADR 0071)"
@@ -53,11 +62,17 @@ use tokio_tungstenite::tungstenite::Message;
 /// One extra unit of a row's work, done once per command the browser reads.
 pub(crate) type Plant = Arc<dyn Fn() + Send + Sync>;
 
-/// A plant of one extra unit of `row` on `work`: the work of a row with no
-/// counted function a benchmark could call, so counted at the seam that counts.
+/// A plant of one extra unit of `row` on `work`: through the counted
+/// function of a compilation, and for a row with no counted function a
+/// benchmark could call, counted at the seam that counts.
 pub(crate) fn counting(work: &CountedWork, row: Row) -> Plant {
     let work = work.clone();
-    Arc::new(move || work.count(row))
+    match row {
+        Row::InterceptedCompilations => Arc::new(move || {
+            drop(work.compile_regex(row, "planted"));
+        }),
+        _ => Arc::new(move || work.count(row)),
+    }
 }
 
 /// The Run the scenario starts.
@@ -87,6 +102,14 @@ pub(crate) const READ_ROWS: [Row; 3] = [
     Row::PageReadDocumentWorlds,
 ];
 
+/// The range the pages' address is in, which the Run lists in
+/// `egress.private_ranges`, as a program against a local site does.
+const PAGES_RANGE: &str = "192.0.2.0/24";
+
+/// The image each page loads, at an address no range of the Run lists: the
+/// egress policy refuses it.
+const REFUSED: &str = "http://198.51.100.7/pixel.png";
+
 /// What one run of the scenario counted.
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
@@ -100,6 +123,13 @@ pub(crate) struct Counted {
     pub(crate) read_commands: u64,
     /// The pages the browser opened (`Target.createTarget`), each once.
     pub(crate) pages_opened: u64,
+    /// The requests the browser paused, each once.
+    pub(crate) requests: u64,
+    /// The browser's `Fetch.requestPaused` events: a request's, and a
+    /// document's response's.
+    pub(crate) paused: u64,
+    /// The requests the browser was told to fail, each once.
+    pub(crate) refused: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
     /// What [`READ_ROWS`] counted while the program read.
@@ -140,6 +170,173 @@ struct Page {
 
 /// The states a locator wait waits for, as its check's argument names them.
 const WAITED: [&str; 4] = ["attached", "detached", "visible", "hidden"];
+
+/// The browser's counts of what it read and sent, each the unit of a row.
+#[derive(Default)]
+struct Units {
+    commands: AtomicU64,
+    requests: AtomicU64,
+    paused: AtomicU64,
+    refused: AtomicU64,
+}
+
+impl Units {
+    fn reading(&self) -> [u64; 4] {
+        [&self.commands, &self.requests, &self.paused, &self.refused]
+            .map(|unit| unit.load(Ordering::Relaxed))
+    }
+}
+
+/// A request the browser paused, by its interception ID.
+struct Request {
+    url: String,
+    network_id: String,
+    kind: &'static str,
+    /// Whether its response was paused.
+    responded: bool,
+    /// Whether it was failed.
+    failed: bool,
+}
+
+/// The requests the browser paused, and the next ID it gives one.
+#[derive(Default)]
+struct Requests {
+    paused: BTreeMap<String, Request>,
+    next: u64,
+}
+
+impl Requests {
+    /// Pauses a request of `kind` to `url`, sent from the document at
+    /// `document`: its events, as the browser sends them, its
+    /// `Network.requestWillBeSent` first for one a page's events follow.
+    fn pause(
+        &mut self,
+        url: &str,
+        kind: &'static str,
+        document: &str,
+        units: &Units,
+    ) -> Vec<Value> {
+        self.next += 1;
+        let (id, network_id) = (
+            format!("interception-{}", self.next),
+            format!("network-{}", self.next),
+        );
+        let headers = if kind == "Document" {
+            json!({})
+        } else {
+            json!({ "Referer": document })
+        };
+        let request = json!({
+            "url": url,
+            "method": "GET",
+            "headers": headers,
+            "initialPriority": "VeryHigh",
+            "referrerPolicy": "strict-origin-when-cross-origin",
+        });
+        let mut events = Vec::new();
+        if kind != "Document" {
+            events.push(json!({
+                "method": "Network.requestWillBeSent",
+                "sessionId": SESSION,
+                "params": {
+                    "requestId": network_id,
+                    "loaderId": document,
+                    "documentURL": document,
+                    "request": request,
+                    "timestamp": 0.0,
+                    "wallTime": 0.0,
+                    "initiator": { "type": "parser" },
+                    "redirectHasExtraInfo": false,
+                    "type": kind,
+                    "frameId": FRAME,
+                },
+            }));
+        }
+        events.push(json!({
+            "method": "Fetch.requestPaused",
+            "sessionId": SESSION,
+            "params": {
+                "requestId": id,
+                "request": request,
+                "frameId": FRAME,
+                "resourceType": kind,
+                "networkId": network_id,
+            },
+        }));
+        units.requests.fetch_add(1, Ordering::Relaxed);
+        units.paused.fetch_add(1, Ordering::Relaxed);
+        self.paused.insert(
+            id,
+            Request {
+                url: url.to_owned(),
+                network_id,
+                kind,
+                responded: false,
+                failed: false,
+            },
+        );
+        events
+    }
+
+    /// The events of the answer `method` to the request paused at `id`.
+    fn answered(&mut self, method: &str, id: &str, units: &Units) -> Vec<Value> {
+        let request = self
+            .paused
+            .get_mut(id)
+            .unwrap_or_else(|| panic!("`{method}` answers no paused request: {id}"));
+        match method {
+            // A document's response pauses too.
+            "Fetch.continueRequest" if request.kind == "Document" && !request.responded => {
+                request.responded = true;
+                units.paused.fetch_add(1, Ordering::Relaxed);
+                vec![json!({
+                    "method": "Fetch.requestPaused",
+                    "sessionId": SESSION,
+                    "params": {
+                        "requestId": id,
+                        "request": {
+                            "url": request.url,
+                            "method": "GET",
+                            "headers": {},
+                            "initialPriority": "VeryHigh",
+                            "referrerPolicy": "strict-origin-when-cross-origin",
+                        },
+                        "frameId": FRAME,
+                        "resourceType": "Document",
+                        "networkId": request.network_id,
+                        "responseStatusCode": 304,
+                        "responseHeaders": [{ "name": "Content-Type", "value": "text/html" }],
+                    },
+                })]
+            }
+            "Fetch.continueResponse" if request.kind == "Document" => {
+                let url = request.url.clone();
+                let mut events = navigated(&url);
+                // The page's image, before its `load`.
+                let image = self.pause(REFUSED, "Image", &url, units);
+                let load = events.split_off(4);
+                events.extend(image);
+                events.extend(load);
+                events
+            }
+            "Fetch.failRequest" if !request.failed => {
+                request.failed = true;
+                units.refused.fetch_add(1, Ordering::Relaxed);
+                vec![json!({
+                    "method": "Network.loadingFailed",
+                    "sessionId": SESSION,
+                    "params": {
+                        "requestId": request.network_id,
+                        "timestamp": 0.0,
+                        "type": request.kind,
+                        "errorText": "net::ERR_BLOCKED_BY_CLIENT",
+                    },
+                })]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
 
 /// The `result` of `method` as the browser answers it on `page`, and the
 /// events it sends right after.
@@ -202,9 +399,23 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> (Value, Vec<Value>
         "Page.navigate" => {
             let url = params["url"].as_str().unwrap_or_default();
             url.clone_into(&mut page.loader);
-            (json!({ "frameId": FRAME, "loaderId": url }), navigated(url))
+            (json!({ "frameId": FRAME, "loaderId": url }), Vec::new())
         }
         _ => (json!({}), Vec::new()),
+    }
+}
+
+/// The events the browser sends once it answered `method` with `params`,
+/// past [`answered`]'s: a navigation's document pauses as it leaves, and each
+/// answer to a paused request moves that request on.
+fn moved_on(method: &str, params: &Value, requests: &mut Requests, units: &Units) -> Vec<Value> {
+    if method == "Page.navigate" {
+        let url = params["url"].as_str().unwrap_or_default();
+        return requests.pause(url, "Document", url, units);
+    }
+    match params["requestId"].as_str() {
+        Some(id) if method.starts_with("Fetch.") => requests.answered(method, id, units),
+        _ => Vec::new(),
     }
 }
 
@@ -247,12 +458,12 @@ fn navigated(url: &str) -> Vec<Value> {
     ]
 }
 
-/// What the browser end counts, from outside the connection: every command,
-/// the pages it opened, and what the program's reads sent.
+/// What the browser end counts, from outside the connection: every command
+/// and request, in its units, the pages it opened, and what the program's
+/// reads sent.
 #[derive(Clone, Default)]
 struct Heard {
-    /// The commands it read, each once.
-    commands: Arc<AtomicU64>,
+    units: Arc<Units>,
     /// The pages it opened, each once.
     pages: Arc<AtomicU64>,
     reading: Arc<Reading>,
@@ -269,6 +480,7 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
         loader: "loader".to_owned(),
         ..Page::default()
     };
+    let mut requests = Requests::default();
     while let Some(Ok(message)) = socket.next().await {
         let Message::Text(text) = message else {
             continue;
@@ -279,8 +491,9 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
             .as_u64()
             .expect("invariant: a command has an ID");
         let method = command["method"].as_str().unwrap_or_default();
-        if seen.insert(id) {
-            counts.commands.fetch_add(1, Ordering::Relaxed);
+        let first = seen.insert(id);
+        if first {
+            counts.units.commands.fetch_add(1, Ordering::Relaxed);
             if method == "Target.createTarget" {
                 counts.pages.fetch_add(1, Ordering::Relaxed);
             }
@@ -303,7 +516,15 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
         if let Some(plant) = &plant {
             plant();
         }
-        let (result, events) = answered(method, &command["params"], &mut page);
+        let (result, mut events) = answered(method, &command["params"], &mut page);
+        if first {
+            events.extend(moved_on(
+                method,
+                &command["params"],
+                &mut requests,
+                &counts.units,
+            ));
+        }
         let mut answer = json!({ "id": id, "result": result });
         if let Some(session) = command.get("sessionId") {
             answer["sessionId"] = session.clone();
@@ -400,7 +621,7 @@ async fn program(
                 &json!({ "page_id": opened["page_id"], "url": url }),
             )
             .await;
-        quiet(&heard.commands, work).await;
+        quiet(&heard.units, work).await;
         let before = READ_ROWS.map(|row| work.read(row));
         heard.reading.now.store(true, Ordering::Relaxed);
         for _ in 0..READS {
@@ -414,7 +635,7 @@ async fn program(
                 )
                 .await;
         }
-        quiet(&heard.commands, work).await;
+        quiet(&heard.units, work).await;
         heard.reading.now.store(false, Ordering::Relaxed);
         for (row, before) in READ_ROWS.into_iter().zip(before) {
             *during_reads.entry(row.name()).or_default() += work.read(row) - before;
@@ -424,10 +645,10 @@ async fn program(
 
 /// Waits until nothing is counted or sent any more, as the engine still sends
 /// what no call waits for.
-async fn quiet(commands: &AtomicU64, work: &CountedWork) {
+async fn quiet(units: &Units, work: &CountedWork) {
     let reading = || {
         let counts: Vec<u64> = Row::ALL.iter().map(|row| work.read(*row)).collect();
-        (commands.load(Ordering::Relaxed), counts)
+        (units.reading(), counts)
     };
     let mut last = reading();
     loop {
@@ -451,9 +672,13 @@ async fn quiet(commands: &AtomicU64, work: &CountedWork) {
 pub(crate) fn counted(
     home: &Path,
     metrics: Metrics,
-    settings: Map<String, Value>,
+    mut settings: Map<String, Value>,
     plant: Option<Plant>,
 ) -> Counted {
+    settings.insert(
+        "egress".to_owned(),
+        json!({ "private_ranges": [PAGES_RANGE] }),
+    );
     let work = metrics.counted_work().clone();
     let identity = Identity {
         product: Product::Collie,
@@ -498,7 +723,7 @@ pub(crate) fn counted(
                 &mut during_reads,
             )
             .await;
-            quiet(&heard.commands, &work).await;
+            quiet(&heard.units, &work).await;
             client
                 .writer
                 .shutdown()
@@ -530,12 +755,16 @@ pub(crate) fn counted(
         .lock()
         .expect("invariant: no holder panics")
         .len();
+    let [commands, requests, paused, refused] = heard.units.reading();
     Counted {
-        commands: heard.commands.load(Ordering::Relaxed),
+        commands,
         reads: reading.calls.load(Ordering::Relaxed),
         documents: u64::try_from(documents).expect("invariant: a few documents"),
         read_commands: reading.commands.load(Ordering::Relaxed),
         pages_opened: heard.pages.load(Ordering::Relaxed),
+        requests,
+        paused,
+        refused,
         work,
         during_reads,
     }

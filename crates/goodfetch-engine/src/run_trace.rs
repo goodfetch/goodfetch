@@ -11,6 +11,12 @@
 //! (ADR 0121). Every line passes through the Run's `Mask` as a kept output
 //! (spec #564): no value a Run resolved is written, unless the Run's
 //! `security.redaction` is off.
+//!
+//! Each line is one entry an intercepted request sends the Run trace's
+//! writer, and the folder and file the log opens to append it are that
+//! request's, counted on the interception's rows (`C5.entries`,
+//! `C5.file_opens`; ADR 0140). The Provenance log's are a page's
+//! (`F1.file_opens`).
 
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
@@ -102,7 +108,15 @@ impl RequestLog {
         self.mask.masks().apply_value(&mut entry, Scope::KeptOutput);
         let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');
-        write(&self.owner, Arc::clone(&self.file), line, &self.work).await
+        self.work.count(Row::InterceptedEntries);
+        write(
+            &self.owner,
+            Arc::clone(&self.file),
+            line,
+            &self.work,
+            Row::InterceptedFileOpens,
+        )
+        .await
     }
 }
 
@@ -132,34 +146,47 @@ pub async fn provenance(
     mask.masks().apply_value(&mut entry, Scope::KeptOutput);
     let mut line = serde_json::to_vec(&entry)?;
     line.push(b'\n');
-    write(owner, run_folder.join(PROVENANCE).into(), line, work).await
+    write(
+        owner,
+        run_folder.join(PROVENANCE).into(),
+        line,
+        work,
+        Row::PageFileOpens,
+    )
+    .await
 }
 
 /// Appends `line`, one entry, to `file` on a blocking task of `owner`'s,
 /// counted on `E5.spawns` whatever `owner`'s policy, as a Run's runs one in
-/// production (ADR 0140, Exception X2).
+/// production (ADR 0140, Exception X2), its folder and file opens also on
+/// `opens`.
 async fn write(
     owner: &TaskOwner,
     file: Arc<Path>,
     line: Vec<u8>,
     work: &CountedWork,
+    opens: Row,
 ) -> io::Result<()> {
     work.count(Row::RunTraceSpawns);
     let work = work.clone();
-    owner.blocking(move || append(&file, &line, &work)).await
+    owner
+        .blocking(move || append(&file, &line, &work, opens))
+        .await
 }
 
 /// Appends `line` to `file`, creating its folder: each counted on
-/// `E5.file_opens`, the entry's work, and on `F1.file_opens`, the work of
-/// the page whose entry it is (Exception X2). An entry of no fetched page,
-/// such as a browser page's, counts there too until the Run-trace writer
-/// holds its handles.
-fn append(file: &Path, line: &[u8], work: &CountedWork) -> io::Result<()> {
+/// `E5.file_opens`, the entry's work, and on `opens`, the work of what the
+/// entry records (Exception X2): `C5.file_opens` for a request log's line, an
+/// intercepted or refused request's, and `F1.file_opens` for a Provenance
+/// entry, its page's. A Provenance entry of no fetched page, such as a
+/// browser page's, counts on F1 too until the Run-trace writer holds its
+/// handles.
+fn append(file: &Path, line: &[u8], work: &CountedWork, opens: Row) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        work.count(Row::PageFileOpens);
+        work.count(opens);
         work.create_dir_all(Row::RunTraceFileOpens, folder)?;
     }
-    work.count(Row::PageFileOpens);
+    work.count(opens);
     work.open_file(
         Row::RunTraceFileOpens,
         OpenOptions::new().create(true).append(true),

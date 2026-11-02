@@ -149,6 +149,13 @@ fn each_row_counts_on_its_own() {
             ("E4.cpu_stat_opens", 0),
             ("E4.process_reads", 0),
             ("E4.pool_walks", 0),
+            ("C5.fetch_messages_no_rule", 0),
+            ("C5.spawns", 0),
+            ("C5.file_opens", 0),
+            ("C5.matches", 0),
+            ("C5.answers", 0),
+            ("C5.compilations", 0),
+            ("C5.entries", 0),
         ]
     );
 }

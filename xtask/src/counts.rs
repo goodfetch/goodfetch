@@ -165,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 75] = [
+const ROWS: [Row; 82] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -592,6 +592,55 @@ const ROWS: [Row; 75] = [
         happens: true,
         valgrind: None,
     },
+    Row {
+        name: "C5.fetch_messages_no_rule",
+        family: "B2",
+        unit: "requests",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.spawns",
+        family: "B2",
+        unit: "refusals",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.file_opens",
+        family: "B2",
+        unit: "refusals",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.matches",
+        family: "B2",
+        unit: "pauses",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.answers",
+        family: "B2",
+        unit: "pauses",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.compilations",
+        family: "B2",
+        unit: "pauses",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C5.entries",
+        family: "B2",
+        unit: "refusals",
+        happens: true,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -623,7 +672,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 22] = [
+const NOT_RUN_YET: [NotRunYet; 26] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -716,6 +765,30 @@ const NOT_RUN_YET: [NotRunYet; 22] = [
         builder: "#1306",
         capped: true,
     },
+    NotRunYet {
+        name: "C5.cache_lookups",
+        family: "B2",
+        builder: "#793",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.cache_file_opens",
+        family: "B2",
+        builder: "#793",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.body_reads",
+        family: "B2",
+        builder: "#1291",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.charset_refetches",
+        family: "B2",
+        builder: "#1783",
+        capped: true,
+    },
 ];
 
 /// The links batches B1's crawl admitted.
@@ -742,7 +815,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1 to F4, C1, C2, C6, E1 to E7).
+    /// Only this path's rows (F1 to F4, C1, C2, C5, C6, E1 to E7).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).

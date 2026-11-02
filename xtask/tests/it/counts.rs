@@ -753,8 +753,8 @@ fn proving_leaves_a_row_not_run_yet_out() {
 }
 
 /// B2's rows, as the register holds them: C1's per command, C2's per read or
-/// per document read, C2's two rows whose reads are not built yet, and the
-/// pool's walks per page opened.
+/// per document read, C2's two rows whose reads are not built yet, the
+/// pool's walks per page opened, and C5's per request, pause or refusal.
 const B2_ROWS: &str = "\
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
@@ -766,10 +766,21 @@ const B2_ROWS: &str = "\
 | `C2.closed_root_commands` | CDP commands per read in a closed root's document | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `E4.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no rule | 0 | 3.25 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.spawns` | tasks spawned per refused request | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.file_opens` | files opened per refused request | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.answers` | CDP answers per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.entries` | entries per refused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.body_reads` | body reads per recorded response | 1 | not run yet (#1291) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 ";
 
-/// A stand-in of B2 over 20 commands, 4 reads, 2 documents and 1 page opened,
-/// each row at its limit, which counts `extra` more of `planted` when told to
+/// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 1 page opened and
+/// 4 requests paused 6 times, 2 of them refused, each row at its limit, which counts `extra` more of `planted` when told to
 /// plant it.
 fn b2_benchmark(planted: &str, extra: u64) -> String {
     let counts = [
@@ -781,6 +792,13 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C2.world_creations", 4),
         ("C2.document_worlds", 4),
         ("E4.pool_walks", 0),
+        ("C5.fetch_messages_no_rule", 13),
+        ("C5.spawns", 2),
+        ("C5.file_opens", 4),
+        ("C5.matches", 4),
+        ("C5.answers", 6),
+        ("C5.compilations", 0),
+        ("C5.entries", 2),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
@@ -789,7 +807,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"pages_opened\":1}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -928,6 +946,13 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+    assert!(
+        outcome
+            .stdout
+            .contains("C5.cache_lookups: not run yet, limit 1, until #793 builds its path"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 /// B2's benchmark holds the Live view frame's rows as not run, so the ticket
@@ -942,8 +967,8 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[

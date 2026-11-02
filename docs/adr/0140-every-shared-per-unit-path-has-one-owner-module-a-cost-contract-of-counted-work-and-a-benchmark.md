@@ -237,6 +237,14 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`E4.cpu_stat_opens` is a row not run yet until #1306,** which reads `cpu.stat` for its CPU-throttle warning: no code opens it today. Its counter is ready, and #1306 adds the warning's off cell the row names. No other switch sits on a sample's counted work, so E4's rows run in B3's two cells, whose `log_off` changes nothing of theirs.
 > - **`E4.pool_walks` counts the pool's walk where it asks for one,** and reads 0 on B2: B2's Session is a Borrowed browser's, which the pool never measures, so its plant alone shows its counter. X17's walk per page opened is seen only once B2 drives a launched browser, which is #1861's gap. Its unit, a page opened, is the browser's `Target.createTarget`, counted once by ID.
 
+> Note (agent decisions of #1868, pending owner review), 2026-11-02, on C5's rows on B2:
+> - **`Fetch` messages and answers are counted at the CDP connection,** beneath every owner: each command written and each event read of the `Fetch` domain, so the page's `Fetch.enable` counts too, and each of the five commands that answer a paused request. A row of the pipeline's own would miss a message sent beside it.
+> - **`C5.fetch_messages_no_rule` counts in every cell:** B2's Session is on a Borrowed browser, which no relay holds, so the cell the row names (no rule, egress the relay enforces) does not exist yet; its Today of 3.25 is X18's gap.
+> - **A "paused request" is each pause,** a request's and a document's response's, so 1 answer per pause is the contract: the pipeline pauses every document's response for the navigation gate and the redirect check. Matches and compilations divide by the same pauses; Fetch messages by the requests paused, and spawns, file opens and entries by the refusals.
+> - **The request log's folder and file count on `C5.file_opens`,** no longer `F1.file_opens`: each of its lines is a refused or intercepted request's. Each line counts once on `C5.entries` as it is sent to the writer. The Provenance log stays on `F1.file_opens`.
+> - **The Response cache, recording or WARC, and charset rows are not run yet** (#793, #1291, #1783): no code holds their work, so each starts at its Contract and fails as soon as B2 counts any of it.
+> - **B2's documents answer `304`:** a Collie page's robots.txt reading starts on each other document's response and fetches through a second page this scripted browser does not play. Its pages' TEST-NET range is in the Run's `egress.private_ranges`, as a program against a local site does; the image each page loads, at another TEST-NET address, is the refused request.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

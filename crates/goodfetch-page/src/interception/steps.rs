@@ -12,6 +12,7 @@ use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{self, Choices, ResourceKind, Verdict};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 
 /// What to send instead of what a request carries; each part replaces the
@@ -39,12 +40,14 @@ impl Overrides {
 
 /// Step 4 as a page's Session chose it (ADRs 0047 and 0117): the
 /// never-block list, the embedded Filter lists when any is on, which every
-/// Session shares, and its choices.
+/// Session shares, and its choices; each match against the lists is
+/// counted on `work`, its Run's.
 #[derive(Clone)]
 pub(crate) struct Blocking {
     pub(crate) never_block: Arc<NeverBlock>,
     pub(crate) lists: Option<Arc<FilterLists>>,
     pub(crate) choices: Choices,
+    pub(crate) work: CountedWork,
 }
 
 impl Blocking {
@@ -61,6 +64,7 @@ impl Blocking {
                 annoyances: false,
                 ..self.choices.clone()
             },
+            work: self.work.clone(),
         }
     }
 }
@@ -122,6 +126,9 @@ pub(crate) fn send_on(
     }
     // Step 4: the never-block list, the Filter lists and
     // `browser.block_resources`.
+    if blocking.lists.is_some() {
+        blocking.work.count(Row::InterceptedMatches);
+    }
     let verdict = matching::judge(
         &matching::Request {
             url: paused.url,

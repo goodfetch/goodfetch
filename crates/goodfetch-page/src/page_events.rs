@@ -78,6 +78,7 @@ use std::time::{Duration, SystemTime};
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{network, page, runtime};
 use goodfetch_cdp::{NetError, SessionId as TargetSession, Subscription, SubscriptionEnd};
+use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
@@ -1430,6 +1431,11 @@ fn failed_request(
         // The Run trace holds the Error code no reply carries (ADR 0072).
         shared.run.record_outcome(&refused.code);
         let (log, request) = (Arc::clone(&shared.log), request.clone());
+        shared
+            .run
+            .metrics()
+            .counted_work()
+            .count(Row::InterceptedSpawns);
         shared.run.spawn(async move {
             if let Err(error) = log.record(&PAGE_REQUEST_FAILED, &request).await {
                 tracing::warn!(%error, "the Run trace did not take a refused request");

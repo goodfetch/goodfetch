@@ -58,6 +58,7 @@ impl CleanUp {
                 never_block: Arc::clone(never_block),
                 lists,
                 choices,
+                work: run.metrics().counted_work().clone(),
             },
             version,
         )

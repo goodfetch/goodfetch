@@ -12,9 +12,11 @@
 //! rows count over those reads alone (`session::READ_ROWS`).
 //!
 //! `--plant <row>` does one extra unit of that row's work per command the
-//! browser reads. The run fails here if the work it counts did not happen, if
-//! a feature off did not take its work away, or if the cell with no viewer did
-//! any of a Live view frame's work.
+//! browser reads, which is at least one per unit of every row: each request
+//! paused, each pause and each refusal is answered by a command. The run
+//! fails here if the work it counts did not happen, if a feature off did not
+//! take its work away, or if the cell with no viewer did any of a Live view
+//! frame's work.
 #![expect(
     clippy::disallowed_methods,
     reason = "benchmark harness: each cell on a thread of its own, none waiting on another (ADR 0071)"
@@ -65,7 +67,7 @@ fn cells() -> [Cell; 3] {
             settings: json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
-            removes: &[Row::CdpSends],
+            removes: &[Row::CdpSends, Row::InterceptedMatches],
             counts_none_of: &[],
         },
         Cell {
@@ -148,6 +150,13 @@ fn main() {
             "the cell {} opened no page",
             cell.name
         );
+        assert!(
+            session.requests > 0 && session.refused > 0,
+            "the cell {} paused {} requests and refused {}",
+            cell.name,
+            session.requests,
+            session.refused
+        );
         for row in cell.removes {
             assert!(
                 session.count(*row) < default.count(*row),
@@ -174,6 +183,9 @@ fn main() {
             "reads": session.reads,
             "documents": session.documents,
             "pages_opened": session.pages_opened,
+            "requests": session.requests,
+            "pauses": session.paused,
+            "refusals": session.refused,
         });
         println!(
             "{}",

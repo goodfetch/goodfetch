@@ -15589,6 +15589,7 @@
             "frontier_sitemap",
             "governor_sample",
             "hook_stage",
+            "intercepted_request",
             "json_rpc_message",
             "live_view_frame",
             "page_analysis",
@@ -15652,7 +15653,11 @@
             "static_opens",
             "cpu_stat_opens",
             "process_reads",
-            "pool_walks"
+            "pool_walks",
+            "fetch_messages_no_rule",
+            "matches",
+            "answers",
+            "entries"
           ]
         }
       ],

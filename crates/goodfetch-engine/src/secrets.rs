@@ -982,7 +982,7 @@ fn lock_exclusive(path: &Path) -> std::io::Result<std::fs::File> {
     if let Some(folder) = path.parent() {
         #[expect(
             clippy::disallowed_methods,
-            reason = "it runs on the tasks module's blocking policy"
+            reason = "ADR 0140: a folder created on no counted row yet, on the tasks module's blocking policy; the Shared paths audit moves it onto its counted function"
         )]
         std::fs::create_dir_all(folder)?;
     }

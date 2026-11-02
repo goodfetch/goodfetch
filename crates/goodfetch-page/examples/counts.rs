@@ -109,6 +109,10 @@ fn cells() -> [Cell; 5] {
 /// The plant of `bypass`: one raw unit of its work per command beside the
 /// counted function, in a Run trace of its own under `home`, created first
 /// through what counts.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140's strace cross-check: each bypass opens or creates beside the counted function on purpose, which no counter sees"
+)]
 fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
     let folder = home.join("bypass").join("trace");
     work.create_dir_all(Row::RunTraceFileOpens, &folder)

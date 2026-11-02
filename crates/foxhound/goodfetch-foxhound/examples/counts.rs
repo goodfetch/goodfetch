@@ -238,6 +238,10 @@ enum Watched<'a> {
 /// The plant of `bypass`: one raw unit of its work per page beside the
 /// counted function, in a Run trace or on a file of `vfs` of its own under
 /// `home`, made first through what counts.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140's strace cross-check: each bypass opens, creates or syncs beside the counted function on purpose, which no counter sees"
+)]
 fn bypass(bypass: &str, home: &Path, work: &CountedWork, vfs: &str) -> Plant {
     let folder = home.join("bypass").join("trace");
     work.create_dir_all(Row::RunTraceFileOpens, &folder)

@@ -94,6 +94,9 @@ fn each_row_counts_on_its_own() {
             ("C1.sends", 0),
             ("C1.file_opens", 0),
             ("C1.log_sends_off", 0),
+            ("C2.commands", 0),
+            ("C2.world_creations", 0),
+            ("C2.document_worlds", 0),
         ]
     );
 }

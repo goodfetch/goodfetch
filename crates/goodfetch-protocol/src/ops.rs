@@ -167,6 +167,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "hook_stage",
         "json_rpc_message",
         "page_analysis",
+        "page_read",
         "record",
         "sink_delivery",
     ],
@@ -199,6 +200,9 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "constant_lookups",
         "sends",
         "log_sends_off",
+        "commands",
+        "world_creations",
+        "document_worlds",
     ],
 };
 

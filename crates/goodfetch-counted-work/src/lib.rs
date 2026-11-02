@@ -94,11 +94,20 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C2.commands`: a CDP command an engine read in a frame sends.
+    PageReadCommands,
+    /// `C2.world_creations`: a `Page.createIsolatedWorld` an engine read
+    /// sends past its document's first. The driver keeps no registry of each
+    /// frame's document yet, so every read's creation counts (X10).
+    PageReadWorldCreations,
+    /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
+    /// sends, held per document and frame read.
+    PageReadDocumentWorlds,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 29] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -125,6 +134,9 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::PageReadCommands,
+        Self::PageReadWorldCreations,
+        Self::PageReadDocumentWorlds,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -152,6 +164,9 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::PageReadCommands
+            | Self::PageReadWorldCreations
+            | Self::PageReadDocumentWorlds => "page_read",
         }
     }
 
@@ -181,6 +196,9 @@ impl Row {
             Self::SinkTransactions | Self::RecordTransactions => "transactions",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::PageReadCommands => "commands",
+            Self::PageReadWorldCreations => "world_creations",
+            Self::PageReadDocumentWorlds => "document_worlds",
         }
     }
 
@@ -214,6 +232,9 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::PageReadCommands => "C2.commands",
+            Self::PageReadWorldCreations => "C2.world_creations",
+            Self::PageReadDocumentWorlds => "C2.document_worlds",
         }
     }
 

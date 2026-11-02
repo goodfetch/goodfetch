@@ -1757,6 +1757,7 @@
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
+            "page_read",
             "record",
             "sink_delivery"
           ]
@@ -1785,7 +1786,10 @@
             "serializations",
             "constant_lookups",
             "sends",
-            "log_sends_off"
+            "log_sends_off",
+            "commands",
+            "world_creations",
+            "document_worlds"
           ]
         }
       ],

@@ -15579,7 +15579,7 @@
       "instrument": "counter",
       "labels": [
         {
-          "name": "path",
+          "name": "shared_path",
           "values": [
             "page_analysis"
           ]

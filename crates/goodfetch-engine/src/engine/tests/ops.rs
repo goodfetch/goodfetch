@@ -97,7 +97,7 @@ fn the_counted_works_labels_are_the_protocols_own() {
             Row::ALL.map(Row::path).into_iter().collect::<BTreeSet<_>>(),
             Row::ALL.map(Row::work).into_iter().collect::<BTreeSet<_>>(),
         ),
-        (declared("path"), declared("work")),
+        (declared("shared_path"), declared("work")),
     );
 }
 
@@ -378,14 +378,14 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
-                r#"goodfetch_counted_work_total{path="page_analysis",work="parses"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ]),
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{path="page_analysis",work="parses"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

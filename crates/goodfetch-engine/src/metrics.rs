@@ -118,7 +118,7 @@ impl Metrics {
                     observer.observe(
                         counted.read(row),
                         &[
-                            KeyValue::new("path", row.path()),
+                            KeyValue::new("shared_path", row.path()),
                             KeyValue::new("work", row.work()),
                         ],
                     );

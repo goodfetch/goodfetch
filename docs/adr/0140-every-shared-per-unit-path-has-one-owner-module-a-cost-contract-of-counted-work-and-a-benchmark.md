@@ -130,6 +130,7 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **A count's atomic maps to no loom yet.** The crate has its `sync` module, but a count is a relaxed `fetch_add` nothing synchronizes on, so it orders nothing for loom to explore, and the workspace has no loom dependency. A count that does order something brings loom with it.
 > - **B1's counts cell is an example target, `goodfetch-foxhound`'s `examples/counts.rs`, and not a `[[bench]]`:** `xtask perf` runs every bench target under gungraun, and a count needs neither Valgrind nor an optimized build. It compiles the same `benches/scenarios.rs`.
 > - **A row's limit is its Today figure, else its Contract.** `F1.parses` starts at the 8 it measures, under Exception X1, because its contract of 1 would fail its first gate, against "Retroactive adoption" above.
+> - **The metric's labels are `shared_path` and `work`,** not `path` and `work`: the protocol's metric test refuses a label named `path`, which elsewhere holds a URL's, and every label's value is a lowercase word, so `shared_path` takes the path's name, `page_analysis`, and not `F1`.
 > - **Which parses count:** the eight sites B1 reaches. Every other raw parse carries an `#[expect]` naming this ADR, so it counts once the Shared paths audit, or a ticket extending B1 to its outcome, moves it onto the counted function. A row's figure sees only what its fixture reaches.
 
 ## Considered Options

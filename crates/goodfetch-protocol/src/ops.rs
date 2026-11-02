@@ -158,10 +158,10 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
-/// The values of `goodfetch.counted_work`'s `path` label: the Shared paths
-/// (ADR 0140) with a counted row so far.
+/// The values of `goodfetch.counted_work`'s `shared_path` label: the Shared
+/// paths (ADR 0140) with a counted row so far, each by name.
 const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
-    name: "path",
+    name: "shared_path",
     values: &["page_analysis"],
 };
 

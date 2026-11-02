@@ -41,7 +41,7 @@ impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
     pub const ALL: [Self; 1] = [Self::PageParses];
 
-    /// Its Shared path by name, the metric's `path` label: a word, as every
+    /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
     #[must_use]
     pub const fn path(self) -> &'static str {

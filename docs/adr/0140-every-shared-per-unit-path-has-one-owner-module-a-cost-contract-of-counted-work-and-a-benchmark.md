@@ -114,6 +114,14 @@ Adopted from recommendations R3, R4 and R9 of the 2026-10-31 research, as amendm
 - **No gate is informational without an owner and an expiry (R4).** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends. `GATING` being `Informational` is such a waiver: it is an Exception of the register, on ADR 0071's comparison and the ceilings, ending at #1577's merge or on 2027-01-30, whichever comes first. Meanwhile the rows of this ADR gate from their pull request.
 - **The instruction ratio against Spider is counted, and blocks once tuned (R9).** Foxhound's instructions per page against Spider's, both under Callgrind on scenario 1 of ADR 0138's matrix, is a Measured row; it was 32 times on the 2026-10-30 profile. Its ceiling is set from #1577's tuned figure, and it gates from that pull request. The matrix's wall-time cells stay Performance targets.
 
+  > Note (agent decisions of #1877, pending owner review), 2026-11-02:
+  >
+  > - The pin is a file, `ci/perf-reference.toml`, holding the revision; none pinned reports "not run yet", and a missing file fails `xtask perf build`, so losing it cannot stop the gate quietly. Moving it selects every bench target.
+  > - The reference measures the head's selected targets it has, so a figure the head no longer measures is not compared; the ceilings keep their own check on a lost benchmark.
+  > - The drift gate fails whatever `GATING` says, as this section says of this ADR's rows, and no "Performance change" section passes it.
+  > - Scenario 1's `run_state.durability: off` and `frontier.learning: false` (ADR 0138) do not exist yet. Until #1577 adds them, the ratio's Foxhound runs use `fast`, the setting the 2026-10-30 profile ran in, and the default learning; #1577's pull request adds both to the cell, in `xtask/src/rss/crawl.rs`'s `Settings::Raw`, before it sets the ceiling.
+  > - The cell counts each whole process under Callgrind, its start and exit included, and takes the median of 3 runs of each tool.
+
 ### Open questions
 
 These are recorded here, and each blocks only the tickets that would extend its path:

@@ -910,8 +910,11 @@ rss-propose *scenarios:
 # requests at once. Once every trial fetched the same pages and was served
 # the same bytes, it writes each tool's median pages per second and peak RSS
 # to target/compare-spider/report.md and report.json, `local-controlled` and
-# never published (ADR 0076); otherwise it fails naming the trial. It gates
-# nothing and is no Live check. Spider's crate is downloaded once, free.
+# never published (ADR 0076); otherwise it fails naming the trial. Its Callgrind
+# cell runs each tool 3 times under Callgrind, Foxhound on ADR 0138's scenario
+# 1, and reports `foxhound.spider_instruction_ratio` under the same check; a
+# host without Valgrind reports it as not run (ADR 0140). It gates nothing and
+# is no Live check. Spider's crate is downloaded once, free.
 # Compares Foxhound's crawl with Spider's on this machine.
 compare-spider profile="release":
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"

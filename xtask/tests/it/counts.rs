@@ -19,6 +19,11 @@ const NOT_RUN_YET: &str = "\
 | `F6.opens` | store opens per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.transactions` | transactions per delivered batch | 1 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.writer_reads` | writer reads per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
+| `C6.file_opens` | files opened per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.compilations` | compilations per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.acknowledgements` | acknowledgements per Live view frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.seals` | seals per fragment of a relayed viewer's frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
 ";
 
 /// A register whose `F1.parses` holds `today` under a contract of 1.
@@ -218,7 +223,21 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.allocations_large` | allocations per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.bytes_allocated` | bytes per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
-     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n";
+     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | not run yet (#1998) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.document_loads` | whole-document loads per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.opens` | store opens per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.prepares` | statement preparations per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.transactions` | transactions per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.syncs` | syncs per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.encodes` | encodes per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.opens` | store opens per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prepares` | statement preparations per Audit entry | 0 | 14 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prunes` | prune passes per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.transactions` | transactions per Audit entry | 1 | 2.05 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | 5.2 | B3 | must not grow | `xtask counts` | implementer done |\n";
 
 fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::path::PathBuf {
     workspace.write(name, script.as_bytes());
@@ -228,14 +247,17 @@ fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::pa
 }
 
 /// B3's counted rows each divide by their own outcome: copies by the messages
-/// in, encodes by the messages out.
+/// in, encodes by the messages out, an Audit entry's transactions by its
+/// entries.
 #[rstest]
-#[case::each_within_its_limit(11, 20, 0, &[])]
-#[case::copies_over_per_message_in(12, 20, 1, &["E1.deep_copies"])]
-#[case::encodes_over_per_message_out(11, 21, 1, &["E1.encodes"])]
+#[case::each_within_its_limit(11, 20, 41, 0, &[])]
+#[case::copies_over_per_message_in(12, 20, 41, 1, &["E1.deep_copies"])]
+#[case::encodes_over_per_message_out(11, 21, 41, 1, &["E1.encodes"])]
+#[case::transactions_over_per_audit_entry(11, 20, 42, 1, &["E2.transactions"])]
 fn each_b3_row_divides_by_the_outcome_that_did_its_work(
     #[case] copies: u64,
     #[case] encodes: u64,
+    #[case] transactions: u64,
     #[case] code: i32,
     #[case] over: &[&str],
 ) {
@@ -245,24 +267,84 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
+    );
+
+    let executable = format!("B3={}", path.display());
+    let on_path =
+        |path: &str| workspace.xtask(&["counts", "--path", path, "--executable", &executable]);
+    let (messages, audit) = (on_path("E1"), on_path("E2"));
+
+    assert_eq!(
+        messages.code.max(audit.code),
+        code,
+        "{}\n{}\n{}\n{}",
+        messages.stdout,
+        messages.stderr,
+        audit.stdout,
+        audit.stderr
+    );
+    assert_eq!(
+        [messages.findings(), audit.findings()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        audit
+            .stdout
+            .contains("E2.opens [default]: 1 per audit_entry, limit 1 (20 over 20)"),
+        "{}",
+        audit.stdout
+    );
+}
+
+/// B3's run holds the Working-copy update's rows, not run yet, to their
+/// absence: the ticket that builds the path cannot count its work on B3 and
+/// leave them saying they have not run.
+#[test]
+fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
+    let workspace = Workspace::from_fixture("empty");
+    // The whole family runs, so the register holds B3's Usage charge rows too.
+    let register = format!(
+        "{B3_REGISTER}\
+         | `E3.statements` | SQL statements per charge the held Slices cover | 0 | 1 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | 2.25 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.opens` | store opens per charge or Slice | 0 | 0.125 | B3 | must not grow | `just counts` | implementer done |\n\
+         | `E3.prepares` | statement preparations per Slice taken | 0 | 19.75 | B3 | must not grow | `just counts` | implementer done |\n"
+    );
+    workspace.write("TESTING.md", register.as_bytes());
+    let path = executable_script(
+        &workspace,
+        "benchmark.sh",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[
         "counts",
-        "--path",
-        "E1",
+        "--family",
+        "B3",
         "--executable",
         &format!("B3={}", path.display()),
     ]);
 
-    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
     assert_eq!(
-        outcome.findings(),
-        over.iter()
-            .map(|row| finding("over-limit", row))
-            .collect::<Vec<_>>()
+        (outcome.code, outcome.findings()),
+        (1, vec![finding("row-listed-as-not-run", "E7.encodes")]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("E7.merge_round_trips: not run yet, limit 1, until #1998 builds its path"),
+        "{}",
+        outcome.stdout
     );
 }
 
@@ -433,6 +515,23 @@ fn proving_fails_a_valgrind_row_blind_to_its_plant() {
     "F6.opens: not run yet, limit 0, until #1121 builds its path",
     "F6.transactions: not run yet, limit 1, until #1121 builds its path",
     "F6.writer_reads: not run yet, limit 0, until #1121 builds its path",
+])]
+#[case::working_copy_update("E7", &[
+    "E7.merge_round_trips: not run yet, limit 1, until #1998 builds its path",
+    "E7.document_loads: not run yet, limit 0, until #1689 builds its path",
+    "E7.document_encodes: not run yet, limit 0, until #1689 builds its path",
+    "E7.opens: not run yet, limit 0, until #1689 builds its path",
+    "E7.prepares: not run yet, limit 0, until #1689 builds its path",
+    "E7.transactions: not run yet, limit 1, until #1689 builds its path",
+    "E7.syncs: not run yet, limit 0, until #1689 builds its path",
+    "E7.encodes: not run yet, limit 1, until #1689 builds its path",
+])]
+#[case::live_view_frame("C6", &[
+    "C6.file_opens: not run yet, limit 0, until #959 builds its path",
+    "C6.compilations: not run yet, limit 0, until #959 builds its path",
+    "C6.spawns: not run yet, limit 0, until #959 builds its path",
+    "C6.acknowledgements: not run yet, limit 1, until #959 builds its path",
+    "C6.seals: not run yet, limit 1, until #959 builds its path",
 ])]
 fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] lines: &[&str]) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -773,6 +872,53 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// B2's counted rows, as the register holds them.
+const C1_ROWS: &str = "\
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+";
+
+/// B2's benchmark holds the Live view frame's rows as not run, so the ticket
+/// that gives B2 its viewer cannot leave them saying so.
+#[test]
+fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{C1_ROWS}", register("8")).as_bytes(),
+    );
+    let b2 = executable_script(
+        &workspace,
+        "B2.sh",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":1}}'\n",
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B2",
+        "--executable",
+        &format!("B2={}", b2.display()),
+    ]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("row-listed-as-not-run", "C6.acknowledgements")],
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("C6.acknowledgements: not run yet, limit 1, until #959 builds its path"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 /// A register of F2's rows, each of contract 1, and a benchmark printing them

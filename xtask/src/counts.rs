@@ -178,7 +178,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 55] = [
+const ROWS: [Row; 61] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -336,6 +336,49 @@ const ROWS: [Row; 55] = [
         happens: true,
         valgrind: None,
     },
+    Row {
+        name: "E2.configuration_reads",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.opens",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.prepares",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // 0 in the default cell, where no `audit.retention` is set.
+    Row {
+        name: "E2.prunes",
+        family: "B3",
+        unit: "audit_entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.transactions",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.syncs",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
     message_row(
         "E1.instructions",
         "instructions",
@@ -474,7 +517,20 @@ struct NotRunYet {
     builder: &'static str,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYet {
+    NotRunYet {
+        name,
+        family: "B3",
+        builder,
+    }
+}
+
+/// The ticket that builds the Working-copy update (E7) and the one that moves
+/// its merge into the Merge host.
+const WORKING_COPY: &str = "#1689";
+const MERGE_HOST: &str = "#1998";
+
+const NOT_RUN_YET: [NotRunYet; 19] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -505,6 +561,39 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
         family: "B1",
         builder: "#1121",
     },
+    working_copy_row("E7.merge_round_trips", MERGE_HOST),
+    working_copy_row("E7.document_loads", WORKING_COPY),
+    working_copy_row("E7.document_encodes", WORKING_COPY),
+    working_copy_row("E7.opens", WORKING_COPY),
+    working_copy_row("E7.prepares", WORKING_COPY),
+    working_copy_row("E7.transactions", WORKING_COPY),
+    working_copy_row("E7.syncs", WORKING_COPY),
+    working_copy_row("E7.encodes", WORKING_COPY),
+    NotRunYet {
+        name: "C6.file_opens",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.compilations",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.spawns",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.acknowledgements",
+        family: "B2",
+        builder: "#959",
+    },
+    NotRunYet {
+        name: "C6.seals",
+        family: "B2",
+        builder: "#959",
+    },
 ];
 
 /// The links batches B1's crawl admitted.
@@ -531,7 +620,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1 to F4, C1, E1, E3).
+    /// Only this path's rows (F1 to F4, C1, C6, E1 to E3, E7).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -608,6 +697,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
         .iter()
         .filter(|_| !arguments.valgrind)
+        .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
     if rows.is_empty() && not_run_yet.is_empty() {
@@ -976,6 +1066,7 @@ fn one_of(unit: &str) -> &str {
     match unit {
         LINKS_BATCHES => "links batch",
         "entries" => "entry",
+        "audit_entries" => "audit_entry",
         unit => unit.trim_end_matches('s'),
     }
 }

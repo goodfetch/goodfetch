@@ -1,13 +1,16 @@
 //! B2's counts cell (ADR 0140): runs `benches/session.rs`' Session once with
 //! its default features on and once per feature on its paths that can be
-//! switched off, and prints what each counted as one JSON line, which `xtask
-//! counts` divides and holds to the Quality register's limits. An example and
-//! not a `[[bench]]`, as `xtask perf` runs every bench target under gungraun:
-//! counts need no Valgrind and no optimized build.
+//! switched off, and once with no Live view viewer (C6 in ADR 0140: the
+//! default cell is the one with a viewer, which #959 gives it), and prints
+//! what each counted as one JSON line, which `xtask counts` divides and holds
+//! to the Quality register's limits. An example and not a `[[bench]]`, as
+//! `xtask perf` runs every bench target under gungraun: counts need no
+//! Valgrind and no optimized build.
 //!
 //! `--plant <row>` does one extra unit of that row's work per command the
-//! browser reads. The run fails here if the work it counts did not happen, or
-//! if a feature off did not take its work away.
+//! browser reads. The run fails here if the work it counts did not happen, if
+//! a feature off did not take its work away, or if the cell with no viewer did
+//! any of a Live view frame's work.
 //!
 //! `--strace` runs the cells as `xtask counts --strace` watches them, under
 //! `strace`; it runs nothing beside them either way. `--strace --bypass
@@ -35,21 +38,34 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use serde_json::{Map, Value, json};
 
-/// One cell: a name, the settings it runs with, and the rows it must count
-/// fewer of than the default cell: a feature's work goes with the feature
-/// (ADR 0140).
+/// One cell: a name, the settings it runs with, the rows it must count fewer
+/// of than the default cell, as a feature's work goes with the feature (ADR
+/// 0140), and the rows it must count none of.
 struct Cell {
     name: &'static str,
     settings: Value,
     removes: &'static [Row],
+    counts_none_of: &'static [Row],
 }
 
-fn cells() -> [Cell; 2] {
+/// A Live view frame's work: a Session with no viewer does none of it (ADR
+/// 0140's C6).
+const LIVE_VIEW_FRAME: &[Row] = &[
+    Row::LiveViewFileOpens,
+    Row::LiveViewCompilations,
+    Row::LiveViewSpawns,
+    Row::LiveViewAcknowledgements,
+    Row::LiveViewSeals,
+];
+
+fn cells() -> [Cell; 3] {
     [
+        // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
             name: "default",
             settings: json!({}),
             removes: &[],
+            counts_none_of: &[],
         },
         Cell {
             name: "filter_lists_off",
@@ -57,6 +73,13 @@ fn cells() -> [Cell; 2] {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
             removes: &[Row::CdpSends],
+            counts_none_of: &[],
+        },
+        Cell {
+            name: "no_viewer",
+            settings: json!({}),
+            removes: &[],
+            counts_none_of: LIVE_VIEW_FRAME,
         },
     ]
 }
@@ -90,6 +113,7 @@ struct Counted {
     name: &'static str,
     session: session::Counted,
     removes: &'static [Row],
+    counts_none_of: &'static [Row],
 }
 
 /// Runs `cell`, on an engine and in a home of its own, with the row `planted`
@@ -114,6 +138,7 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
         name: cell.name,
         session: session::counted(home.path(), metrics, settings, plant),
         removes: cell.removes,
+        counts_none_of: cell.counts_none_of,
     }
 }
 
@@ -149,6 +174,15 @@ fn main() {
             assert!(
                 work.read(*row) < default.work.read(*row),
                 "the cell {} leaves {} as it is",
+                cell.name,
+                row.name()
+            );
+        }
+        for row in cell.counts_none_of {
+            assert_eq!(
+                work.read(*row),
+                0,
+                "the cell {} counts {}",
                 cell.name,
                 row.name()
             );

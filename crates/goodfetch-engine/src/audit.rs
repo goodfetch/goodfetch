@@ -180,7 +180,9 @@ impl AuditLog {
         }
     }
 
-    /// The same, each prune pass counted on `work` (ADR 0140).
+    /// The same, its Counted work counted on `work` (ADR 0140): each
+    /// configuration read, store open, prune pass, transaction and head-file
+    /// write of its entries.
     #[must_use]
     pub fn counting_on(mut self, work: CountedWork) -> Self {
         self.work = work;
@@ -333,6 +335,7 @@ impl AuditLog {
         now: Timestamp,
     ) -> Result<Option<AuditEntry>, AuditError> {
         self.work.count(Row::Prunes);
+        self.work.count(Row::AuditPrunes);
         let cutoff = SignedDuration::try_from(retention)
             .ok()
             .and_then(|retention| now.checked_sub(retention).ok());
@@ -395,6 +398,7 @@ impl AuditLog {
     /// prunes nothing.
     fn retention(&self) -> Option<(Duration, SettingsLayer)> {
         let (files, product) = self.retained_under.as_ref()?;
+        self.work.count(Row::AuditConfigurationReads);
         let machine = files
             .load(*product)
             .inspect_err(|error| {
@@ -621,6 +625,7 @@ impl AuditLog {
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, AuditError> {
+        self.work.count(Row::AuditOpens);
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         if let Some(folder) = self.path.parent() {
             #[expect(
@@ -637,6 +642,15 @@ impl AuditLog {
             None => Connection::open_with_flags(&self.path, flags),
         }
         .map_err(|error| failed(&error))?;
+        // Beneath every caller, so a commit beside the append's counts too
+        // (ADR 0140).
+        let work = self.work.clone();
+        connection
+            .commit_hook(Some(move || {
+                work.count(Row::AuditTransactions);
+                false
+            }))
+            .map_err(|error| failed(&error))?;
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
@@ -684,6 +698,7 @@ impl AuditLog {
             message: error.to_string(),
         };
         let text = serde_json::to_vec(head).map_err(|error| failed(&error))?;
+        self.work.count(Row::AuditSyncs);
         durable::replace(&self.head, &text).map_err(|error| failed(&error))
     }
 

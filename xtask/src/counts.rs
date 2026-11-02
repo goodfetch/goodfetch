@@ -67,12 +67,50 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 1] = [Row {
-    name: "F1.parses",
-    family: "B1",
-    unit: "pages",
-    happens: true,
-}];
+const ROWS: [Row; 7] = [
+    Row {
+        name: "F1.parses",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+    },
+    Row {
+        name: "F1.selector_compilations",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F1.readability_runs",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+    },
+    Row {
+        name: "F1.file_opens",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F1.locale_form_builds",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F1.plugin_serializations",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+    Row {
+        name: "F1.plugin_answer_parses",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+    },
+];
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
@@ -82,6 +120,9 @@ pub(crate) struct Arguments {
     /// Only this path's rows (F1).
     #[arg(long)]
     path: Option<String>,
+    /// Only this row, by its name in the register (F1.parses).
+    #[arg(long)]
+    row: Option<String>,
     /// Has the benchmark do one extra unit of this row's work.
     #[arg(long, conflicts_with = "prove")]
     plant: Option<String>,
@@ -128,9 +169,10 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 .as_deref()
                 .is_none_or(|path| row.name.split('.').next() == Some(path))
         })
+        .filter(|row| arguments.row.as_deref().is_none_or(|name| name == row.name))
         .collect();
     if rows.is_empty() {
-        bail!("no counted row matches the family and path asked for");
+        bail!("no counted row matches the family, path and row asked for");
     }
     if let Some(planted) = &arguments.plant
         && !rows.iter().any(|row| row.name == planted)

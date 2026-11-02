@@ -50,7 +50,7 @@ fn workspace(today: &str, script: &str) -> (Workspace, String) {
 fn a_figure_at_its_limit_passes_and_is_printed() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -73,6 +73,8 @@ fn a_planted_parse_fails_naming_the_row_its_figure_and_its_limit() {
 
     let outcome = workspace.xtask(&[
         "counts",
+        "--row",
+        "F1.parses",
         "--executable",
         &executable,
         "--plant",
@@ -106,7 +108,7 @@ fn the_limit_is_todays_figure_else_the_contract(
 ) {
     let (workspace, executable) = workspace(today, &benchmark(&[("default", count)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
 }
@@ -118,7 +120,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
         &benchmark(&[("default", 104), ("a_feature_off", 105)], false),
     );
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
 
     assert_eq!(outcome.findings(), vec![finding("over-limit", "F1.parses")]);
     assert!(
@@ -132,7 +134,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
 fn a_benchmark_that_did_none_of_the_work_fails() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 0)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
 
     assert_eq!(
         outcome.findings(),
@@ -144,7 +146,14 @@ fn a_benchmark_that_did_none_of_the_work_fails() {
 fn proving_passes_when_each_counter_sees_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.parses",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -158,7 +167,14 @@ fn proving_passes_when_each_counter_sees_its_plant() {
 fn proving_fails_a_counter_blind_to_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], true));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.parses",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         outcome.findings(),
@@ -171,7 +187,7 @@ fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
     workspace.write("TESTING.md", b"# Testing\n\n## Quality register\n");
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }

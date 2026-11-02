@@ -196,6 +196,11 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **X16 now names `E3.slice_transactions`:** a Slice takes 2.25 transactions in B3 against a contract of 1, as each connection's schema set-up commits a transaction of its own. The gap's cause and its fix are X16's, so its row joins it instead of a new Exception.
 > - **B1 meets a Limit but does not hold E3's rows.** A crawl's figures mix covered charges and Slices over too few of either, so its counts cell only fails when the crawl charged nothing; the register's rows stay on B3.
 
+> Note (agent decisions of #2037, pending owner review), 2026-11-02, on the Working-copy update's rows:
+> - **E7's eight rows start at their contract, not run yet,** as F5's and F6's do: `just counts --path E7` prints each limit and passes, building nothing, and B3's run fails `row-listed-as-not-run` once a cell counts any of their work. `E7.merge_round_trips` waits on the Merge host (#1998), the other seven on the Working copy's first code (#1689).
+> - **Their counters exist now:** a `Row` each on the Shared path `working_copy_update`, and the metric's label values, so the path's tickets only count at their seams.
+> - **The B3 scenario with several Connections following comes with the path's code,** not here: nothing yet updates a Working copy or follows one, and a stand-in would fix a follow mechanism #1689 and #1998 have not chosen. The ticket that first counts an E7 row adds it, with its plants.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

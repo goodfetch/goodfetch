@@ -175,6 +175,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "run_state",
         "sink_delivery",
         "usage_charge",
+        "working_copy_update",
     ],
 };
 
@@ -211,6 +212,11 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "prunes",
         "effect_syncs",
         "statements",
+        "merge_round_trips",
+        "document_loads",
+        "document_encodes",
+        "prepares",
+        "syncs",
     ],
 };
 

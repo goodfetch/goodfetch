@@ -218,7 +218,15 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.allocations_large` | allocations per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.bytes_allocated` | bytes per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
-     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n";
+     | `E1.bytes_allocated_large` | bytes per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
+     | `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | not run yet (#1998) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.document_loads` | whole-document loads per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.opens` | store opens per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.prepares` | statement preparations per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.transactions` | transactions per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.syncs` | syncs per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E7.encodes` | encodes per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n";
 
 fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::path::PathBuf {
     workspace.write(name, script.as_bytes());
@@ -263,6 +271,43 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         over.iter()
             .map(|row| finding("over-limit", row))
             .collect::<Vec<_>>()
+    );
+}
+
+/// B3's run holds the Working-copy update's rows, not run yet, to their
+/// absence: the ticket that builds the path cannot count its work on B3 and
+/// leave them saying they have not run.
+#[test]
+fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", B3_REGISTER.as_bytes());
+    let path = executable_script(
+        &workspace,
+        "benchmark.sh",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E7.encodes\":3}}'\n",
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B3",
+        "--executable",
+        &format!("B3={}", path.display()),
+    ]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (1, vec![finding("row-listed-as-not-run", "E7.encodes")]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("E7.merge_round_trips: not run yet, limit 1, until #1998 builds its path"),
+        "{}",
+        outcome.stdout
     );
 }
 
@@ -433,6 +478,16 @@ fn proving_fails_a_valgrind_row_blind_to_its_plant() {
     "F6.opens: not run yet, limit 0, until #1121 builds its path",
     "F6.transactions: not run yet, limit 1, until #1121 builds its path",
     "F6.writer_reads: not run yet, limit 0, until #1121 builds its path",
+])]
+#[case::working_copy_update("E7", &[
+    "E7.merge_round_trips: not run yet, limit 1, until #1998 builds its path",
+    "E7.document_loads: not run yet, limit 0, until #1689 builds its path",
+    "E7.document_encodes: not run yet, limit 0, until #1689 builds its path",
+    "E7.opens: not run yet, limit 0, until #1689 builds its path",
+    "E7.prepares: not run yet, limit 0, until #1689 builds its path",
+    "E7.transactions: not run yet, limit 1, until #1689 builds its path",
+    "E7.syncs: not run yet, limit 0, until #1689 builds its path",
+    "E7.encodes: not run yet, limit 1, until #1689 builds its path",
 ])]
 fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] lines: &[&str]) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

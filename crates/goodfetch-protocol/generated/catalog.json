@@ -1764,7 +1764,8 @@
             "record",
             "run_state",
             "sink_delivery",
-            "usage_charge"
+            "usage_charge",
+            "working_copy_update"
           ]
         },
         {
@@ -1797,7 +1798,12 @@
             "configuration_reads",
             "prunes",
             "effect_syncs",
-            "statements"
+            "statements",
+            "merge_round_trips",
+            "document_loads",
+            "document_encodes",
+            "prepares",
+            "syncs"
           ]
         }
       ],

@@ -139,11 +139,30 @@ pub enum Row {
     ChargeTransactions,
     /// `E3.opens`: a connection opened to the ledger for a charge.
     ChargeOpens,
+    /// `E7.merge_round_trips`: a round trip to the Merge host for a
+    /// Working-copy update.
+    WorkingCopyMergeRoundTrips,
+    /// `E7.document_loads`: a whole document loaded for a Working-copy update.
+    WorkingCopyDocumentLoads,
+    /// `E7.document_encodes`: a whole document encoded for a Working-copy
+    /// update.
+    WorkingCopyDocumentEncodes,
+    /// `E7.opens`: a store opened for a Working-copy update.
+    WorkingCopyOpens,
+    /// `E7.prepares`: a statement prepared for a Working-copy update.
+    WorkingCopyPrepares,
+    /// `E7.transactions`: a transaction for a Working-copy update.
+    WorkingCopyTransactions,
+    /// `E7.syncs`: a sync for a Working-copy update.
+    WorkingCopySyncs,
+    /// `E7.encodes`: an encode of a Working-copy update for the Connections
+    /// that follow it.
+    WorkingCopyEncodes,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 46] = [
+    pub const ALL: [Self; 54] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -190,6 +209,14 @@ impl Row {
         Self::ChargeStatements,
         Self::ChargeTransactions,
         Self::ChargeOpens,
+        Self::WorkingCopyMergeRoundTrips,
+        Self::WorkingCopyDocumentLoads,
+        Self::WorkingCopyDocumentEncodes,
+        Self::WorkingCopyOpens,
+        Self::WorkingCopyPrepares,
+        Self::WorkingCopyTransactions,
+        Self::WorkingCopySyncs,
+        Self::WorkingCopyEncodes,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -235,6 +262,14 @@ impl Row {
             | Self::Prunes
             | Self::EffectSyncs => "run_state",
             Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
+            Self::WorkingCopyMergeRoundTrips
+            | Self::WorkingCopyDocumentLoads
+            | Self::WorkingCopyDocumentEncodes
+            | Self::WorkingCopyOpens
+            | Self::WorkingCopyPrepares
+            | Self::WorkingCopyTransactions
+            | Self::WorkingCopySyncs
+            | Self::WorkingCopyEncodes => "working_copy_update",
         }
     }
 
@@ -249,13 +284,13 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageEncodes | Self::CdpEncodes => "encodes",
+            Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
-            Self::SinkOpens | Self::ChargeOpens => "opens",
+            Self::SinkOpens | Self::ChargeOpens | Self::WorkingCopyOpens => "opens",
             Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
             Self::ConfigurationReads => "configuration_reads",
@@ -273,7 +308,8 @@ impl Row {
             | Self::HopTransactions
             | Self::SitemapTransactions
             | Self::RunTransactions
-            | Self::ChargeTransactions => "transactions",
+            | Self::ChargeTransactions
+            | Self::WorkingCopyTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -281,6 +317,11 @@ impl Row {
             | Self::HopCompilations
             | Self::SitemapCompilations
             | Self::PayloadCompilations => "compilations",
+            Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
+            Self::WorkingCopyDocumentLoads => "document_loads",
+            Self::WorkingCopyDocumentEncodes => "document_encodes",
+            Self::WorkingCopyPrepares => "prepares",
+            Self::WorkingCopySyncs => "syncs",
         }
     }
 
@@ -336,6 +377,14 @@ impl Row {
             Self::ChargeStatements => "E3.statements",
             Self::ChargeTransactions => "E3.slice_transactions",
             Self::ChargeOpens => "E3.opens",
+            Self::WorkingCopyMergeRoundTrips => "E7.merge_round_trips",
+            Self::WorkingCopyDocumentLoads => "E7.document_loads",
+            Self::WorkingCopyDocumentEncodes => "E7.document_encodes",
+            Self::WorkingCopyOpens => "E7.opens",
+            Self::WorkingCopyPrepares => "E7.prepares",
+            Self::WorkingCopyTransactions => "E7.transactions",
+            Self::WorkingCopySyncs => "E7.syncs",
+            Self::WorkingCopyEncodes => "E7.encodes",
         }
     }
 

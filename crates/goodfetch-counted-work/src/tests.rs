@@ -114,6 +114,14 @@ fn each_row_counts_on_its_own() {
             ("E3.statements", 0),
             ("E3.slice_transactions", 0),
             ("E3.opens", 0),
+            ("E7.merge_round_trips", 0),
+            ("E7.document_loads", 0),
+            ("E7.document_encodes", 0),
+            ("E7.opens", 0),
+            ("E7.prepares", 0),
+            ("E7.transactions", 0),
+            ("E7.syncs", 0),
+            ("E7.encodes", 0),
         ]
     );
 }

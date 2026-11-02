@@ -207,23 +207,22 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
         )
     });
 
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    // The Clean-up rules compile their 613 selectors once a Run, kept in
+    // their cache, and a page's own 10 compile on every page; with the Filter
+    // lists off only the page's own are left. Each of the crawl's 27
+    // Run-trace entries opens its folder and its file. #1577 lowers these,
+    // and writes its figures here.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
-            default.read(compilations) > off.read(compilations),
-            off.read(compilations) > 0,
-            default.read(Row::PageFileOpens) > 0,
+            default.read(compilations),
+            off.read(compilations),
+            default.read(Row::PageFileOpens),
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (
-            u64::try_from(PAGES.len() + 1).unwrap(),
-            true,
-            true,
-            true,
-            0,
-            1
-        )
+        (pages, 613 + 10 * pages, 10 * pages, 2 * 27, 0, 1)
     );
 }
 

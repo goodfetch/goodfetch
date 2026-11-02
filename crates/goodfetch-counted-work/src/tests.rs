@@ -57,3 +57,32 @@ fn a_compilation_or_an_opening_counts_one_on_its_row_and_answers_as_the_raw_call
         ((true, false, true, false, true, false), 6, 3, true)
     );
 }
+
+/// `Row::ALL` sizes the counts, so a row left out of it would index past them.
+#[test]
+fn each_row_counts_on_its_own() {
+    let work = CountedWork::default();
+
+    work.count(Row::SinkWriterReads);
+
+    assert_eq!(
+        Row::ALL.map(|row| (row.name(), work.read(row))),
+        [
+            ("F1.parses", 0),
+            ("F1.selector_compilations", 0),
+            ("F1.readability_runs", 0),
+            ("F1.file_opens", 0),
+            ("F1.locale_form_builds", 0),
+            ("F1.plugin_serializations", 0),
+            ("F1.plugin_answer_parses", 0),
+            ("E1.deep_copies", 0),
+            ("E1.encodes", 0),
+            ("F5.messages_no_hook", 0),
+            ("F5.calls", 0),
+            ("F5.builds", 0),
+            ("F6.opens", 0),
+            ("F6.transactions", 0),
+            ("F6.writer_reads", 1),
+        ]
+    );
+}

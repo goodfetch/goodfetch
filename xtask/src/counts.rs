@@ -149,7 +149,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 15] = [
+const ROWS: [Row; 22] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -239,6 +239,55 @@ const ROWS: [Row; 15] = [
         Figure::TotalBytes,
         LARGE,
     ),
+    Row {
+        name: "F4.declaration_reads",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validator_builds",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.serializations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.deep_copies",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.constant_lookups",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.transactions",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit

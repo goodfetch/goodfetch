@@ -159,6 +159,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Two features have no off cell yet.** `frontier.learning`, which ADR 0138 adds to switch off the Page signature's readability, is #1577's, and Provenance has no setting; the one switchable feature the fixture reaches stays the Filter lists.
 > - **`dom_query`'s methods taking a selector string are refused,** since each compiles on each call. Raw file opens and folder creations stay under the blocking ban's existing module-level `#[expect]`s, whose reasons do not name this ADR: the Shared paths audit moves those on a path onto the counted functions.
 
+> Note (agent decisions of #1853, pending owner review), 2026-11-02, on F4's rows:
+> - **A Record's validator build has its counted function in `goodfetch-dataset`, `counted_validator`,** not in `goodfetch-counted-work`: that crate sits beneath the engine, so holding it there would link `jsonschema` into Collie and every linked engine, which build no validator.
+> - **A row counts the Record's path, not every use of its primitive.** `Datasets::read_for_records` counts `F4.declaration_reads`; a reader of a Dataset uses plain `Datasets::read`, whose unit is no Record. `Datasets::declare`'s one build per Run is not counted, being what the contract allows.
+> - **`F4.constant_lookups` counts two lookups:** the schema hash's subquery per insert, and the Clean-up rules' digest read per commit. Exception X8 takes the row, as the first measure found it.
+> - **`F4.transactions` counts `crawl_request.push`'s own write,** which a commit hook could not tell from the attempt's commit. The code-free crawl pushes nothing, so B1 reads 0 until a ticket gives its fixture a handler.
+> - **B1's fixture needs no change for this row:** the code-free crawl's `pages` Dataset already has a schema. A Dataset's schema cannot be switched off there, as a crawl with `extraction` declares its own; the rows run in B1's other cells.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

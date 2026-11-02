@@ -462,11 +462,19 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.locale_form_builds` | locale-form builds per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.plugin_serializations` | serializations per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.plugin_answer_parses` | answer parses per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F4.serializations` | serializations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
-/// benchmark prints over 13 pages `parses` parses, one readability run a page,
-/// none of the other rows' work, then `extra` as it is, and 13 more of the row
+/// benchmark prints over 13 pages and their 13 Records `parses` parses, one
+/// readability run a page, one validation and one serialization a Record, none
+/// of the other rows' work, then `extra` as it is, and 13 more of the row
 /// it is told to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
@@ -482,13 +490,20 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.locale_form_builds", 0),
         ("F1.plugin_serializations", 0),
         ("F1.plugin_answer_parses", 0),
+        ("F4.declaration_reads", 0),
+        ("F4.validator_builds", 0),
+        ("F4.validations", 13),
+        ("F4.serializations", 13),
+        ("F4.deep_copies", 0),
+        ("F4.constant_lookups", 0),
+        ("F4.transactions", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

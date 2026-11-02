@@ -10817,6 +10817,7 @@
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
+            "record",
             "sink_delivery"
           ]
         },
@@ -10837,7 +10838,12 @@
             "messages_no_hook",
             "opens",
             "transactions",
-            "writer_reads"
+            "writer_reads",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "constant_lookups"
           ]
         }
       ],

@@ -1310,13 +1310,13 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.validator_builds` | validator builds per Record | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.deep_copies` | deep copies of a Record's data | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow | none yet | none yet |
@@ -1440,7 +1440,7 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 | X5 | `F2.prepares`, `F2.configuration_reads` | F2, F3, F4 | 135 statement preparations per page; settings read again at each admission (`goodfetch-engine/src/settings.rs:253`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
 | X6 | `F3.invariant_reads`, `F3.compilations`, `F3.prepares`, `F3.payload_serializations`, `F3.validations` | F3 | the Scope is read and its globs compiled per links batch (`goodfetch-crawl/src/enqueue/links.rs:460`, `goodfetch-frontier/src/scope.rs:385`); a validator is built per payload, and each payload is serialized only to measure it (`goodfetch-frontier/src/payload.rs:155`, `:328`); each redirect hop reads the Scope in a writer transaction (`goodfetch-fetch-tier/src/gate.rs:790`), and each sitemap read reads it again and compiles its rules (`goodfetch-crawl/src/work_items.rs:289`, `goodfetch-frontier/src/sitemap.rs:551`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X7 | `F4.declaration_reads`, `F4.validator_builds` | F4 | Datasets read and a validator built per check (`goodfetch-crawl/src/lease.rs:404`, `goodfetch-dataset/src/declaration.rs:140`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
-| X8 | `F4.deep_copies` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`); suspected, confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X8 | `F4.deep_copies`, `F4.constant_lookups` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`), and the Clean-up rules' digest read again at each commit (`goodfetch-crawl/src/work_items.rs:794`); confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X9 | `C1.file_opens`, `C1.log_sends_off` | C1 | the CDP command log is always on and its writer creates its folder and opens its file per batch (`goodfetch-page/src/driver.rs:312`, `goodfetch-page/src/trace.rs:93`, `:100`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X10 | `C2.commands`, `C2.world_creations`, `C2.document_worlds` | C2 | every read creates its isolated world (`goodfetch-page/src/driver.rs:1439`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X11 | `C3.script_sends`, `C3.check_commands` | C3 | every check sends `check.js`'s 9,631 bytes (`goodfetch-page/src/guard.rs:205`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |

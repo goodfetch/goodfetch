@@ -280,6 +280,10 @@ fn committed_schema() -> serde_json::Value {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's own validator, on no Shared path (ADR 0140)"
+)]
 fn the_committed_table_meets_its_committed_schema() {
     let table: serde_json::Value = toml::from_str(super::COMMITTED).unwrap();
 
@@ -293,6 +297,10 @@ fn the_committed_table_meets_its_committed_schema() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's own validator, on no Shared path (ADR 0140)"
+)]
 fn the_committed_schema_refuses_a_listener_the_table_has_no_kind_for() {
     let table: serde_json::Value =
         toml::from_str(&GOOD.replace("daemon_socket", "mcp_listener")).unwrap();

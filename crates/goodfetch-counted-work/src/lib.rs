@@ -70,11 +70,25 @@ pub enum Row {
     /// `F6.writer_reads`: a read through the run file's writer for a delivered
     /// batch.
     SinkWriterReads,
+    /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
+    RecordDeclarationReads,
+    /// `F4.validator_builds`: a validator built to check a Record.
+    RecordValidatorBuilds,
+    /// `F4.validations`: a validation of a Record against its Dataset's schema.
+    RecordValidations,
+    /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
+    RecordSerializations,
+    /// `F4.deep_copies`: a deep copy of a Record's data.
+    RecordDeepCopies,
+    /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
+    RecordConstantLookups,
+    /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
+    RecordTransactions,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 22] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -90,6 +104,13 @@ impl Row {
         Self::SinkOpens,
         Self::SinkTransactions,
         Self::SinkWriterReads,
+        Self::RecordDeclarationReads,
+        Self::RecordValidatorBuilds,
+        Self::RecordValidations,
+        Self::RecordSerializations,
+        Self::RecordDeepCopies,
+        Self::RecordConstantLookups,
+        Self::RecordTransactions,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -107,6 +128,13 @@ impl Row {
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
+            Self::RecordDeclarationReads
+            | Self::RecordValidatorBuilds
+            | Self::RecordValidations
+            | Self::RecordSerializations
+            | Self::RecordDeepCopies
+            | Self::RecordConstantLookups
+            | Self::RecordTransactions => "record",
         }
     }
 
@@ -129,6 +157,13 @@ impl Row {
             Self::SinkOpens => "opens",
             Self::SinkTransactions => "transactions",
             Self::SinkWriterReads => "writer_reads",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations => "validations",
+            Self::RecordSerializations => "serializations",
+            Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::RecordTransactions => "transactions",
         }
     }
 
@@ -151,6 +186,13 @@ impl Row {
             Self::SinkOpens => "F6.opens",
             Self::SinkTransactions => "F6.transactions",
             Self::SinkWriterReads => "F6.writer_reads",
+            Self::RecordDeclarationReads => "F4.declaration_reads",
+            Self::RecordValidatorBuilds => "F4.validator_builds",
+            Self::RecordValidations => "F4.validations",
+            Self::RecordSerializations => "F4.serializations",
+            Self::RecordDeepCopies => "F4.deep_copies",
+            Self::RecordConstantLookups => "F4.constant_lookups",
+            Self::RecordTransactions => "F4.transactions",
         }
     }
 

@@ -127,6 +127,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
                         not_added: &[],
+                        work: &goodfetch_counted_work::CountedWork::default(),
                     },
                 )
             }

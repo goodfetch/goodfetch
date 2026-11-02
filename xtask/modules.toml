@@ -170,8 +170,9 @@ drift = ["budget", "figure", "figures"]
 figure = []
 figures = ["compare", "figure"]
 gungraun = ["figure"]
-measure = ["budget", "gungraun"]
+measure = ["budget", "gungraun", "reference"]
 pull_request = ["compare"]
+reference = ["budget", "compare", "figure", "table"]
 table = ["compare", "figure"]
 
 # Which of `notices`'s own modules may import which.

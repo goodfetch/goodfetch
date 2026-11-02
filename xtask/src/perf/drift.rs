@@ -116,7 +116,7 @@ pub(crate) fn check(api: &Api<'_>, repository: &str, store: &Path) -> Result<Exi
         }) else {
             continue;
         };
-        if drifted(released.value, recorded.value) {
+        if budget::drifted(released.value, recorded.value) {
             let key = format!("perf-drift {platform} {id}");
             let title = format!("Performance drift since {tag}: {id} on {platform}");
             let mut body = format!(
@@ -180,10 +180,6 @@ fn near_ceiling(recorded: &Recorded) -> Option<u64> {
         && u128::from(recorded.value) * 100
             >= u128::from(ceiling) * u128::from(100 - budget::CEILING_MARGIN_PERCENT))
     .then_some(ceiling)
-}
-
-fn drifted(released: u64, value: u64) -> bool {
-    u128::from(value) * 100 > u128::from(released) * u128::from(100 + budget::DRIFT_PERCENT)
 }
 
 fn change(released: u64, value: u64) -> String {

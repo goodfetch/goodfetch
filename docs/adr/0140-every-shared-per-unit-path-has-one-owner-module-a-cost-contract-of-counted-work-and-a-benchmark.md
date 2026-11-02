@@ -173,6 +173,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`C1.file_opens`' Today of 2 is a bound, not a figure.** The command log's writer does 2 opens per batch, and a batch holds at least one command, so 2 per command is the most it can cost. The printed figure follows the socket's timing (48 or 50 over 35 commands in 66 runs, and 40 over 21 with the Filter lists off), so holding it to a measured figure would fail at random. The other three rows repeat exactly. #1881 keeps the 2, and #1891 and #1890 replace the writer it describes.
 > - **`C1.log_sends_off` counts in every cell** until #1891 gives the log an off, as the log has none: its Today of 1 is X9's gap, and #1891 adds the off cell the row names.
 
+> Note (agent decisions of #1874, pending owner review), 2026-11-02, on E4's rows:
+> - **The governor is given the engine's `CountedWork` at `Governor::start`,** and hands it to the `System` it samples, whose counted opens of the stand-in `/proc` go through `CountedWork::open_file`: `meminfo`, `self/cgroup` and `self/mountinfo`, and each process's `smaps_rollup`, which is a process's memory read. The other files a sample reads (`self/stat`, PSI, each thread's `children`, the cgroup's `memory.max`) count on no row.
+> - **A configuration read is a settings file read,** counted where the sampler asks for the machine's layers: one per file those layers came from, so 2 a sample today; a read that failed counts one.
+> - **B3's governor scenario has a browser of the engine's own process tree joined to the governor,** so a process read counts per process per sample: the engine's walk reads the browser too, and its own walk reads it again, 3 reads over 2 processes. X17 takes the first figures: 2 configuration reads, 3 `meminfo` opens, 2 static opens and 1.5 process reads a sample.
+> - **`E4.cpu_stat_opens` is a row not run yet until #1306,** which reads `cpu.stat` for its CPU-throttle warning: no code opens it today. Its counter is ready, and #1306 adds the warning's off cell the row names. No other switch sits on a sample's counted work, so E4's rows run in B3's two cells, whose `log_off` changes nothing of theirs.
+> - **`E4.pool_walks` counts the pool's walk where it asks for one,** and reads 0 on B2: B2's Session is a Borrowed browser's, which the pool never measures, so its plant alone shows its counter. X17's walk per page opened is seen only once B2 drives a launched browser, which is #1861's gap. Its unit, a page opened, is the browser's `Target.createTarget`, counted once by ID.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

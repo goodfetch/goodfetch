@@ -6,11 +6,14 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
+use goodfetch_counted_work::Row;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::TestEnv;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::crawl_scenario::{PAGES, body_bytes, crawl};
+use crate::crawl_scenario::{Options, PAGES, Plant, body_bytes, crawl, crawl_with};
 
 /// The total body bytes `benches/pages.source.toml` records.
 #[expect(
@@ -59,5 +62,63 @@ fn a_crawl_fed_from_memory_extracts_each_page_once_and_reads_the_body_bytes_its_
             .iter()
             .map(Value::to_string)
             .collect::<Vec<_>>()
+    );
+}
+
+/// The parses of a crawl with `settings` and, when `planted`, one more parse
+/// per page served through the one counted function, each on its own engine.
+fn parses(settings: &Value, planted: bool) -> u64 {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let plant: Option<Plant> = planted.then(|| {
+        let work = work.clone();
+        Arc::new(move |head: &str| {
+            let _ = work.parse_html(Row::PageParses, head);
+        }) as Plant
+    });
+    crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            settings: settings.as_object().unwrap().clone(),
+            plant,
+        },
+    );
+    work.read(Row::PageParses)
+}
+
+/// B1's counts cell (ADR 0140): the crawl's parses are counted from the
+/// parse, a planted one per page adds exactly its pages' worth, and turning
+/// the Filter lists off takes the clean-up's parse away. `xtask counts` holds
+/// the figure to the register, and `--prove` runs the plant through it.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "three crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes_its_own() {
+    let lists_off = json!({ "filter_lists": {
+        "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
+    } });
+    let (default, planted, off) = std::thread::scope(|scope| {
+        let default = scope.spawn(|| parses(&json!({}), false));
+        let planted = scope.spawn(|| parses(&json!({}), true));
+        let off = scope.spawn(|| parses(&lists_off, false));
+        (
+            default.join().unwrap(),
+            planted.join().unwrap(),
+            off.join().unwrap(),
+        )
+    });
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(default > 0, "the crawl counted no parse");
+    assert_eq!(planted - default, pages);
+    assert!(
+        off < default,
+        "{off} parses with the lists off, {default} on"
     );
 }

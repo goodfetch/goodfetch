@@ -73,6 +73,34 @@ fn health_of(env: &TestEnv, options: DaemonOptions) -> Value {
     health
 }
 
+/// `goodfetch.counted_work`'s labels take exactly the values of the rows it
+/// counts (ADR 0140), so a new row declares its path and its work.
+#[test]
+fn the_counted_works_labels_are_the_protocols_own() {
+    use goodfetch_counted_work::Row;
+    use goodfetch_protocol::ops::COUNTED_WORK;
+
+    let declared = |label: &str| -> BTreeSet<&str> {
+        COUNTED_WORK
+            .labels
+            .iter()
+            .find(|declared| declared.name == label)
+            .unwrap()
+            .values
+            .iter()
+            .copied()
+            .collect()
+    };
+
+    assert_eq!(
+        (
+            Row::ALL.map(Row::path).into_iter().collect::<BTreeSet<_>>(),
+            Row::ALL.map(Row::work).into_iter().collect::<BTreeSet<_>>(),
+        ),
+        (declared("shared_path"), declared("work")),
+    );
+}
+
 /// Covers: story:3-102, story:3-104, operation:daemon.health
 #[test]
 fn a_daemon_that_can_take_a_run_is_live_and_ready() {
@@ -350,12 +378,14 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ]),
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

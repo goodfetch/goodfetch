@@ -67,5 +67,13 @@ fn a_document_is_judged_where_its_markup_decides(
     #[case] check: PageCheck,
     #[case] verdict: Verdict,
 ) {
-    assert_eq!(judge(&check, URL, html), verdict);
+    assert_eq!(
+        judge(
+            &check,
+            URL,
+            html,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
+        verdict
+    );
 }

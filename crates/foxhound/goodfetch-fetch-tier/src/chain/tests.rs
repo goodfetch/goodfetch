@@ -47,10 +47,15 @@ fn stub(content: &str) -> Fetched {
 async fn next(fetched: &Fetched, following: &Following) -> Option<String> {
     let hop = Hop::get(fetched.url.clone());
     let owner = TaskOwner::root(BlockingPolicy::Inline);
-    next_hop(&hop, fetched, following, &owner)
-        .await
-        .unwrap_or_else(|_| panic!("the stub fails its chain"))
-        .map(|hop| hop.url.to_string())
+    next_hop(
+        &hop,
+        fetched,
+        following,
+        (&owner, &goodfetch_counted_work::CountedWork::default()),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("the stub fails its chain"))
+    .map(|hop| hop.url.to_string())
 }
 
 /// A refresh to a `javascript:` or `data:` URL is the document, as the

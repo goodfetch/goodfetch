@@ -2309,6 +2309,7 @@ dependencies = [
  "adblock",
  "data-encoding",
  "dom_query 0.28.0",
+ "goodfetch-counted-work",
  "rstest",
  "serde",
  "serde_json",
@@ -2416,6 +2417,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-counted-work"
+version = "0.0.0"
+dependencies = [
+ "dom_query 0.28.0",
+]
+
+[[package]]
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
@@ -2497,6 +2505,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
@@ -2559,6 +2568,7 @@ dependencies = [
  "dom_query 0.28.0",
  "dom_smoothie",
  "ego-tree",
+ "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-test-support",
  "gungraun",
@@ -2589,6 +2599,7 @@ dependencies = [
  "dom_query 0.28.0",
  "encoding_rs",
  "flate2",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-frontier",
@@ -2642,6 +2653,7 @@ dependencies = [
  "data-encoding",
  "flate2",
  "goodfetch-collie",
+ "goodfetch-counted-work",
  "goodfetch-crawl",
  "goodfetch-dataset",
  "goodfetch-engine",
@@ -2714,6 +2726,7 @@ dependencies = [
  "futures-util",
  "goodfetch-cdp",
  "goodfetch-clean-up-rules",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-protocol",

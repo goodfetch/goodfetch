@@ -408,6 +408,10 @@ fn waited(
 /// matches; `None` when the markup alone cannot tell, the selector being
 /// one the matcher does not parse or the document holding a declarative
 /// shadow root.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn matches(html: &str, selector: &str) -> Option<u64> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;

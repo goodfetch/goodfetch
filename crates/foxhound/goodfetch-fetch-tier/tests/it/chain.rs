@@ -159,7 +159,11 @@ fn followed(
         first,
         following,
         gate,
-        (&Clock::system(), &TaskOwner::root(BlockingPolicy::Threads)),
+        (
+            &Clock::system(),
+            &TaskOwner::root(BlockingPolicy::Threads),
+            &goodfetch_counted_work::CountedWork::default(),
+        ),
         |hop| async move { fetch(transport, &hop, &deadlines(), &Clock::system()).await },
     ))
 }
@@ -719,7 +723,11 @@ fn a_first_hop_refused_at_its_connection_ends_skipped_with_domain_policy() {
             Hop::get(Url::parse("http://rebound.test/").unwrap()),
             &defaults(),
             &Recording::default(),
-            (&Clock::system(), &TaskOwner::root(BlockingPolicy::Inline)),
+            (
+                &Clock::system(),
+                &TaskOwner::root(BlockingPolicy::Inline),
+                &goodfetch_counted_work::CountedWork::default(),
+            ),
             |_| {
                 let error = error.clone();
                 async move { Err::<Fetched, _>(error) }

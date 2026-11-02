@@ -49,6 +49,7 @@ fn read_with_the_ad_hidden(request: Value) -> (usize, Value) {
         request,
         &counted,
         (None, &hidden),
+        &goodfetch_counted_work::CountedWork::default(),
     );
 
     (

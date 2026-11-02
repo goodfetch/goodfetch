@@ -1482,6 +1482,7 @@ impl Pages {
                 &Values::default(),
             );
             let cosmetic = self.interception.served_cosmetic(&served.run).await;
+            let work = served.run.metrics().counted_work().clone();
             let (formats, read) = served
                 .run
                 .owner()
@@ -1492,6 +1493,7 @@ impl Pages {
                         request,
                         extractor.extractor(),
                         (cosmetic.as_ref(), &[]),
+                        &work,
                     )
                 })
                 .await;
@@ -1513,6 +1515,7 @@ impl Pages {
         );
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
+        let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page
             .run
             .owner()
@@ -1523,6 +1526,7 @@ impl Pages {
                     request,
                     extractor.extractor(),
                     (cosmetic.as_ref(), &hidden),
+                    &work,
                 )
             })
             .await;

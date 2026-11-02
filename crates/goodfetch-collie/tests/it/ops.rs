@@ -367,9 +367,10 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
 /// and `goodfetch.browser.recycled` have none, since no browser ran,
 /// `goodfetch.browser.memory` is 0, and [`INODES`] joins them only where
 /// the filesystem reports its inodes.
-const SAMPLED: [&str; 10] = [
+const SAMPLED: [&str; 11] = [
     "goodfetch.browser.memory",
     "goodfetch.client.connected",
+    "goodfetch.counted_work",
     "goodfetch.daemon.draining",
     "goodfetch.governor.pressure_source",
     "goodfetch.governor.saturation",

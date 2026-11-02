@@ -9,13 +9,14 @@
 
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::governor::{
     PRESSURE_SOURCE, PressureSource, SATURATION, SystemInfo, TARGET, WorkKind,
 };
 use goodfetch_protocol::ops::{
-    BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED, DAEMON_DRAINING,
-    RUN_ACTIVE, RUN_ENDED,
+    BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED, COUNTED_WORK,
+    DAEMON_DRAINING, RUN_ACTIVE, RUN_ENDED,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
@@ -50,6 +51,9 @@ struct Instruments {
     /// The storage series of the last sample, which the storage gauges
     /// read whole at each collection.
     storage: watch::Sender<Arc<[FolderStorage]>>,
+    /// The counts `goodfetch.counted_work` reads whole at each collection,
+    /// which each primitive adds to (ADR 0140).
+    counted_work: CountedWork,
 }
 
 /// What a storage sample found of the filesystem holding one folder
@@ -103,6 +107,24 @@ impl Metrics {
             folder.free_inodes
         });
         storage_gauge(meter, &LEVEL, read, |folder| Some(folder.level.gauge()));
+        let counted_work = CountedWork::default();
+        let counted = counted_work.clone();
+        meter
+            .u64_observable_counter(COUNTED_WORK.name)
+            .with_description(COUNTED_WORK.description)
+            .with_unit(COUNTED_WORK.unit)
+            .with_callback(move |observer: &dyn AsyncInstrument<u64>| {
+                for row in Row::ALL {
+                    observer.observe(
+                        counted.read(row),
+                        &[
+                            KeyValue::new("shared_path", row.path()),
+                            KeyValue::new("work", row.work()),
+                        ],
+                    );
+                }
+            })
+            .build();
         Self(Arc::new(Instruments {
             meter: meter.clone(),
             browser_running: meter
@@ -156,12 +178,19 @@ impl Metrics {
                 .with_unit(PRESSURE_SOURCE.unit)
                 .build(),
             storage,
+            counted_work,
         }))
     }
 
     /// Instruments that record nothing.
     pub fn none() -> Self {
         Self::new(&NoopMeterProvider::new().meter(METER))
+    }
+
+    /// The Counted work of everything that records here (ADR 0140), which
+    /// each primitive counts on.
+    pub fn counted_work(&self) -> &CountedWork {
+        &self.0.counted_work
     }
 
     /// The meter they are made on, on which a crate makes the instruments

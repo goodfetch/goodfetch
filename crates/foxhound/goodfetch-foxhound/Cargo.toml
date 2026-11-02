@@ -67,6 +67,9 @@ bytes.workspace = true
 flate2.workspace = true
 parquet.workspace = true
 zstd.workspace = true
+# The counts cell's and its tests' reads of the crawl's Counted work
+# (examples/counts.rs).
+goodfetch-counted-work.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true

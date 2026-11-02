@@ -442,6 +442,10 @@ pub(crate) struct Options {
     /// The amount of a Limit of `requests` on the install, which each
     /// request of the crawl charges (ADR 0140's E3).
     pub(crate) limit: Option<u64>,
+    /// The VFS the fixture's own setup, such as its Limit, writes through,
+    /// apart from the crawl's: a counting one counts the fixture's syncs, which
+    /// are no row's, so `xtask counts --strace` sees each sync counted.
+    pub(crate) setup_vfs: Option<String>,
 }
 
 /// How the crawl meets the Frontier's outcomes beyond a links batch.
@@ -452,9 +456,10 @@ pub(crate) struct Frontier {
 }
 
 /// A Limit of `amount` `requests` on the install, set in `home`'s ledger at
-/// `start`, which each request of the crawl charges (ADR 0140's E3).
-fn set_limit(home: &Path, start: SystemTime, amount: u64) {
-    Ledger::at(Home::new(home.to_owned()).usage_ledger(), None)
+/// `start` through `vfs`, which each request of the crawl charges (ADR 0140's
+/// E3).
+fn set_limit(home: &Path, start: SystemTime, amount: u64, vfs: Option<String>) {
+    Ledger::at(Home::new(home.to_owned()).usage_ledger(), vfs)
         .add_limit(
             &Limit {
                 scope: LimitScope {
@@ -530,9 +535,10 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         run_state_vfs,
         largest_page,
         limit,
+        setup_vfs,
     } = options;
     if let Some(amount) = limit {
-        set_limit(home, start, amount);
+        set_limit(home, start, amount, setup_vfs);
     }
     let sent = Arc::new(AtomicU64::new(0));
     let attempts = Arc::new(AtomicU64::new(0));

@@ -874,3 +874,241 @@ fn a_feature_off_that_removes_the_outcome_has_no_figure() {
         outcome.stdout
     );
 }
+
+/// A stand-in for B1 under `strace` (ADR 0140's cross-check): it creates a
+/// Run-trace folder twice and opens two of its files, the work it counts,
+/// syncs twice the file its counting VFS holds, reads a trace file and writes
+/// a file outside the trace, which no row counts, then does the bypass it is
+/// told to plant, unless `blind`.
+#[cfg(target_os = "linux")]
+fn traced_benchmark(blind: bool) -> String {
+    let bypass = if blind {
+        ""
+    } else {
+        "case \"$3\" in\n\
+         open) : >> \"$d/trace/requests.jsonl\" ;;\n\
+         directory) mkdir \"$d/trace\" 2>/dev/null ;;\n\
+         sync) sync \"$d/run.sqlite\" ;;\n\
+         esac\n"
+    };
+    format!(
+        "#!/bin/sh\n\
+         [ \"$1\" = --strace ] || exit 3\n\
+         d=$(mktemp -d)\n\
+         mkdir \"$d/trace\"\n\
+         : >> \"$d/trace/requests.jsonl\"\n\
+         mkdir \"$d/trace\" 2>/dev/null\n\
+         : >> \"$d/trace/provenance.jsonl\"\n\
+         : > \"$d/run.sqlite\"\n\
+         sync \"$d/run.sqlite\"\n\
+         sync --data \"$d/run.sqlite\"\n\
+         cat \"$d/trace/requests.jsonl\" > /dev/null\n\
+         {bypass}\
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{\"E5.file_opens\":3,\"C1.file_opens\":1,\"F2.syncs\":2}},\"vfs_files\":[\"'$d'/run.sqlite\"]}}'\n\
+         rm -rf \"$d\"\n"
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn traced_workspace(blind: bool) -> (Workspace, String) {
+    let workspace = Workspace::from_fixture("empty");
+    let path = executable_script(&workspace, "benchmark.sh", &traced_benchmark(blind));
+    (workspace, format!("B1={}", path.display()))
+}
+
+/// What `strace` sees of the Run trace's folders and files and of the counted
+/// files' syncs is what the counters counted: the cell passes, printing both.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_strace_cell_passes_when_strace_sees_what_the_counters_count() {
+    let (workspace, executable) = traced_workspace(false);
+
+    let outcome = workspace.xtask(&["counts", "--strace", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    for line in [
+        "B1 opens and folders: strace 4, counted 4 (E5.file_opens, C1.file_opens)",
+        "B1 syncs: strace 2, counted 2 (F2.syncs)",
+    ] {
+        assert!(outcome.stdout.contains(line), "{line}: {}", outcome.stdout);
+    }
+}
+
+/// A sync the benchmark's own setup does, such as its Limit's, through a
+/// counting VFS of its own, is counted beside the row's: no row's work, and
+/// still no bypass.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fixtures_own_counted_syncs_are_no_bypass() {
+    let workspace = Workspace::from_fixture("empty");
+    let script = "#!/bin/sh\n\
+         d=$(mktemp -d)\n\
+         : > \"$d/usage-ledger.sqlite\"\n\
+         sync \"$d/usage-ledger.sqlite\"\n\
+         sync \"$d/usage-ledger.sqlite\"\n\
+         echo '{\"cell\":\"default\",\"units\":{},\"counts\":{\"F2.syncs\":1},\"setup_syncs\":1,\"vfs_files\":[\"'$d'/usage-ledger.sqlite\"]}'\n\
+         rm -rf \"$d\"\n";
+    let path = executable_script(&workspace, "benchmark.sh", script);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--strace",
+        "--executable",
+        &format!("B1={}", path.display()),
+    ]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("B1 syncs: strace 2, counted 2 (F2.syncs, and 1 of the fixture's setup)"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// A raw open, folder creation or sync beside what the counters see fails
+/// the cell, naming the family and the work strace saw more of.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::a_raw_open(
+    "open",
+    "B1.opens",
+    "strace saw 5 Run-trace opens and folder creations, the counters 4"
+)]
+#[case::a_raw_folder_creation(
+    "directory",
+    "B1.opens",
+    "strace saw 5 Run-trace opens and folder creations, the counters 4"
+)]
+#[case::a_raw_sync(
+    "sync",
+    "B1.syncs",
+    "strace saw 3 syncs of the counted files, the counters 2"
+)]
+fn a_planted_bypass_fails_the_strace_cell(
+    #[case] bypass: &str,
+    #[case] subject: &str,
+    #[case] message: &str,
+) {
+    let (workspace, executable) = traced_workspace(false);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--strace",
+        "--executable",
+        &executable,
+        "--bypass",
+        bypass,
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), vec![finding("strace-differs", subject)]);
+    assert!(outcome.stdout.contains(message), "{}", outcome.stdout);
+}
+
+/// Proving plants each bypass in turn and passes only when each fails the
+/// cell; a benchmark blind to its bypasses fails, naming each.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::each_bypass_caught(false, 0, &[])]
+#[case::a_benchmark_blind_to_its_bypasses(true, 1, &["B1.open", "B1.directory", "B1.sync"])]
+fn proving_the_strace_cell_plants_each_bypass(
+    #[case] blind: bool,
+    #[case] code: i32,
+    #[case] blind_to: &[&str],
+) {
+    let (workspace, executable) = traced_workspace(blind);
+
+    let outcome = workspace.xtask(&["counts", "--strace", "--prove", "--executable", &executable]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    let expected: Vec<_> = blind_to
+        .iter()
+        .map(|subject| finding("strace-blind", subject))
+        .collect();
+    assert_eq!(outcome.findings(), expected);
+    if !blind {
+        assert!(
+            outcome.stdout.contains("B1 sync: one planted bypass fails"),
+            "{}",
+            outcome.stdout
+        );
+    }
+}
+
+/// Without `strace` a local run lists the cell as skipped, with its reason,
+/// as ADR 0061 asks; CI runs every part, so there it fails.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::locally(None, 0)]
+#[case::in_ci(Some("true"), 2)]
+fn without_strace_the_cell_lists_itself_as_skipped(#[case] ci: Option<&str>, #[case] code: i32) {
+    let (workspace, executable) = traced_workspace(false);
+    let empty = workspace.path().join("no-tools");
+    std::fs::create_dir(&empty).unwrap();
+    let mut variables = vec![("PATH", empty.as_os_str())];
+    if let Some(ci) = ci {
+        variables.push(("CI", std::ffi::OsStr::new(ci)));
+    }
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--strace", "--executable", &executable],
+        &variables,
+    );
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    if ci.is_some() {
+        assert!(
+            outcome
+                .stderr
+                .contains("strace is not installed on this host, and CI runs every part"),
+            "{}",
+            outcome.stderr
+        );
+    } else {
+        assert!(
+            outcome
+                .stderr
+                .contains("skipped: xtask counts --strace (strace is not installed on this host)"),
+            "{}",
+            outcome.stderr
+        );
+        assert!(
+            workspace
+                .read_text("target/skipped.txt")
+                .contains("xtask counts --strace: skipped, strace is not installed on this host"),
+        );
+    }
+}
+
+/// Off Linux there is no `strace`: the cell lists itself as skipped and
+/// passes; the merge gate runs it in the Linux CI image.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn off_linux_the_strace_cell_lists_itself_as_skipped() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = workspace.xtask(&["counts", "--strace"]);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert!(
+        outcome
+            .stderr
+            .contains("skipped: xtask counts --strace (strace runs on Linux only)"),
+        "{}",
+        outcome.stderr
+    );
+}

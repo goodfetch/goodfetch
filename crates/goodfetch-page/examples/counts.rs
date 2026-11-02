@@ -8,6 +8,13 @@
 //! `--plant <row>` does one extra unit of that row's work per command the
 //! browser reads. The run fails here if the work it counts did not happen, or
 //! if a feature off did not take its work away.
+//!
+//! `--strace` runs the cells as `xtask counts --strace` watches them, under
+//! `strace`; it runs nothing beside them either way. `--strace --bypass
+//! <work>` has the default cell alone do one raw unit of that work per
+//! command the browser reads beside the counted one: an `open` of a Run-trace
+//! file or a `directory` of a Run trace created, which no counter sees and
+//! `strace` does, so the cross-check proves it fails.
 #![expect(
     clippy::disallowed_methods,
     reason = "benchmark harness: each cell on a thread of its own, none waiting on another (ADR 0071)"
@@ -20,7 +27,11 @@
 #[path = "../benches/session.rs"]
 mod session;
 
-use goodfetch_counted_work::Row;
+use std::fs::OpenOptions;
+use std::path::Path;
+use std::sync::Arc;
+
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use serde_json::{Map, Value, json};
 
@@ -50,6 +61,30 @@ fn cells() -> [Cell; 2] {
     ]
 }
 
+/// The plant of `bypass`: one raw unit of its work per command beside the
+/// counted function, in a Run trace of its own under `home`, created first
+/// through what counts.
+fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
+    let folder = home.join("bypass").join("trace");
+    work.create_dir_all(Row::RunTraceFileOpens, &folder)
+        .expect("invariant: the bypass's Run trace is created");
+    match bypass {
+        "open" => Arc::new(move || {
+            drop(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(folder.join("bypass.jsonl"))
+                    .expect("invariant: the bypass's file opens"),
+            );
+        }),
+        "directory" => Arc::new(move || {
+            std::fs::create_dir_all(&folder).expect("invariant: the bypass's folder is there");
+        }),
+        other => panic!("no bypass {other}: open or directory"),
+    }
+}
+
 /// What one cell counted.
 struct Counted {
     name: &'static str,
@@ -57,17 +92,20 @@ struct Counted {
     removes: &'static [Row],
 }
 
-/// Runs `cell`, on an engine and in a home of its own.
-fn run(cell: Cell, planted: Option<&str>) -> Counted {
+/// Runs `cell`, on an engine and in a home of its own, with the row `planted`
+/// or the bypass `bypassed` planted.
+fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
-    let plant = planted.map(|name| {
-        let row = Row::ALL
-            .into_iter()
-            .find(|row| row.name() == name)
-            .unwrap_or_else(|| panic!("no plant for the row {name}"));
-        session::counting(metrics.counted_work(), row)
-    });
+    let plant = planted
+        .map(|name| {
+            let row = Row::ALL
+                .into_iter()
+                .find(|row| row.name() == name)
+                .unwrap_or_else(|| panic!("no plant for the row {name}"));
+            session::counting(metrics.counted_work(), row)
+        })
+        .or_else(|| bypassed.map(|name| bypass(name, home.path(), metrics.counted_work())));
     let settings: Map<String, Value> = match cell.settings {
         Value::Object(settings) => settings,
         other => panic!("a cell's settings are an object, not {other}"),
@@ -81,15 +119,22 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
 
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    let planted = match arguments.as_slice() {
-        [] => None,
-        [flag, row] if flag == "--plant" => Some(row.as_str()),
-        other => panic!("usage: counts [--plant <row>], not {other:?}"),
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let (planted, bypassed) = match arguments.as_slice() {
+        [] | ["--strace"] => (None, None),
+        ["--plant", row] => (Some(*row), None),
+        ["--strace", "--bypass", bypass] => (None, Some(*bypass)),
+        other => {
+            panic!("usage: counts [--plant <row>] | --strace [--bypass <work>], not {other:?}")
+        }
     };
     let counted: Vec<Counted> = std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
-            .map(|cell| scope.spawn(move || run(cell, planted)))
+            // A bypass needs the default cell alone, the one that proves the
+            // cross-check.
+            .filter(|cell| bypassed.is_none() || cell.name == "default")
+            .map(|cell| scope.spawn(move || run(cell, planted, bypassed)))
             .collect();
         cells
             .into_iter()

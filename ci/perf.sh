@@ -61,6 +61,13 @@ command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not install
 cargo run --quiet -p xtask -- counts
 cargo run --quiet -p xtask -- counts --prove
 
+# B1 and B2 under strace: what it sees of the Run trace's opens and folders
+# and of the counted files' syncs against the counters, then a raw unit of each
+# beside its counted function, which must fail the cell (ADR 0140). Without
+# strace on a local host it lists itself as skipped; CI fails.
+cargo run --quiet -p xtask -- counts --strace
+cargo run --quiet -p xtask -- counts --strace --prove
+
 command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
 
 # The rows read under Valgrind (ADR 0140): each against its limit, then each

@@ -173,6 +173,12 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **`C1.file_opens`' Today of 2 is a bound, not a figure.** The command log's writer does 2 opens per batch, and a batch holds at least one command, so 2 per command is the most it can cost. The printed figure follows the socket's timing (48 or 50 over 35 commands in 66 runs, and 40 over 21 with the Filter lists off), so holding it to a measured figure would fail at random. The other three rows repeat exactly. #1881 keeps the 2, and #1891 and #1890 replace the writer it describes.
 > - **`C1.log_sends_off` counts in every cell** until #1891 gives the log an off, as the log has none: its Today of 1 is X9's gap, and #1891 adds the off cell the row names.
 
+> Note (agent decisions of #1863, pending owner review), 2026-11-02, on C2's rows on B2:
+> - **C2 counts at the driver's `read_in_frame`,** the one function through which every engine read reaches a frame (the locator waits, the Page check's and Block markers' reads, the consent detector's and live hiding's), not at the connection: a read's commands are told apart from a gesture's only there.
+> - **A read is a locator wait the scripted browser answers as ready at once,** and B2 reads each of its two documents twice, once the navigation's own work ended. The rows count over those reads alone, so the reads a navigation judges its document with stay C4's outcome, and the browser counts the reads and the documents they ran in from outside the engine, as it counts C1's commands. `C2.document_worlds`' figure is the reads per document, so its Today of 2 follows the two reads B2 makes in each.
+> - **`C2.world_creations` counts every world a read makes,** as the driver holds no registry of each frame's document to tell a document's first read from its later ones: a bound on the row, which X10's fix replaces by counting a creation only for a document its registry already holds.
+> - **`C2.closed_root_commands` and `C2.live_view_commands` stay "not run yet"** until #726 and #1683 build those reads; `xtask counts` holds the first to its Contract and prints the second, a ratchet, as having no figure yet.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

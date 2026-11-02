@@ -1231,7 +1231,7 @@ Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-mod
 
 Until the gate's spec builds them, one thing this section names doesn't exist in full yet: the counters of counted work (`F1.parses` has its own; a row whose "Checked by" says none yet has none). Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
 
-**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1` or `--path F1` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives.
+**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1`, `--path F1` or `--row F1.parses` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives. Its Page analysis rows other than the parses count from the crawl's first page: what its start does once is no page's work.
 
 ### Floor
 
@@ -1282,12 +1282,12 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |
 |---|---|---|---|---|---|---|---|
 | `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `just counts` | implementer done, merge gate |
-| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
-| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |
+| `F1.selector_compilations` | selector compilations per page | 0 | 58.154 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.file_opens` | files opened per page | 0 | 4 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow | `xtask perf` | merge gate |
 | `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow | none yet | none yet |
 | `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow | none yet | none yet |

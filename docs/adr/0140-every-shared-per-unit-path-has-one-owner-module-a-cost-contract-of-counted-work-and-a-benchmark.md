@@ -133,6 +133,14 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The metric's labels are `shared_path` and `work`,** not `path` and `work`: the protocol's metric test refuses a label named `path`, which elsewhere holds a URL's, and every label's value is a lowercase word, so `shared_path` takes the path's name, `page_analysis`, and not `F1`.
 > - **Which parses count:** the eight sites B1 reaches. Every other raw parse carries an `#[expect]` naming this ADR, so it counts once the Shared paths audit, or a ticket extending B1 to its outcome, moves it onto the counted function. A row's figure sees only what its fixture reaches.
 
+> Note (agent decisions of #1846, pending owner review), 2026-11-02, on the Page analysis's other rows:
+> - **A page's rows count from its first page.** B1's cell leaves out what `F1.selector_compilations`, `F1.readability_runs`, `F1.file_opens`, `F1.locale_form_builds` and the two Plugin rows counted before the crawl asked for its first page: a selector checked, a `match` pattern compiled and a locale's forms built once per crawl are no page's work (ADR 0138), so a contract of 0 holds them, and the same build moved onto each page counts at once. The cell checks that those forms were built, once.
+> - **A folder created counts on `F1.file_opens` beside the file opened,** as Exception X2 names both: each costs its system calls per entry.
+> - **The two Plugin rows have no production site yet.** The Extractor Plugin adapter does not exist, so no page crosses to a Plugin: their figure is 0, as a crawl with none chosen must be, and only their plants prove the counters. The adapter's ticket counts at its seam.
+> - **A handler on a document tier is its own cell of B1,** `document_tier_handler`, since a crawl is either code-free or handled; each page waits on its `h1` as attached, then as visible, so `matches` and `shown` count.
+> - **Two features have no off cell yet.** `frontier.learning`, which ADR 0138 adds to switch off the Page signature's readability, is #1577's, and Provenance has no setting; the one switchable feature the fixture reaches stays the Filter lists.
+> - **`dom_query`'s methods taking a selector string are refused,** since each compiles on each call. Raw file opens and folder creations stay under the blocking ban's existing module-level `#[expect]`s, whose reasons do not name this ADR: the Shared paths audit moves those on a path onto the counted functions.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

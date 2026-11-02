@@ -158,6 +158,9 @@ setup_linux() {
   # Xvfb, the virtual display Collie's `virtual_display` tests start for a
   # headful browser.
   command -v Xvfb >/dev/null || missing+=(xvfb)
+  # strace, which `xtask counts --strace` and its tests run the benchmarks
+  # under (ADR 0140); the CI image pins it.
+  command -v strace >/dev/null || missing+=(strace)
   if [[ "$(id -u)" -ne 0 ]]; then
     PATH="$PATH:/usr/sbin:/sbin" command -v setcap >/dev/null || missing+=(libcap2-bin)
   fi

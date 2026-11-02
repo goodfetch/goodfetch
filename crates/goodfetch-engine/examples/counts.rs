@@ -417,8 +417,7 @@ fn callgrind(cell: &str, outcome: &str, planted: Option<&str>) -> u64 {
     if let Some(planted) = planted {
         command.arg(planted);
     }
-    let output = command
-        .output()
+    let output = goodfetch_test_support::callgrind::bounded(|| command.output())
         .expect("invariant: Valgrind runs, as ADR 0071's benchmarks need it");
     assert!(
         output.status.success(),

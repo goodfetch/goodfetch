@@ -739,7 +739,9 @@ fn under_callgrind(cell: &str, function: &str, planted: Option<&str>) -> Option<
     if let Some(planted) = planted {
         command.args(["--plant", planted]);
     }
-    let Ok(status) = command.stdout(Stdio::null()).stderr(Stdio::null()).status() else {
+    let Ok(status) =
+        callgrind::bounded(|| command.stdout(Stdio::null()).stderr(Stdio::null()).status())
+    else {
         return None;
     };
     assert!(status.success(), "Callgrind's run of {function} failed");

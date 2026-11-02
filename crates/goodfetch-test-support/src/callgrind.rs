@@ -4,6 +4,57 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
+#[expect(
+    clippy::disallowed_types,
+    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
+)]
+use std::sync::{Condvar, Mutex, PoisonError};
+
+/// The most Callgrind children [`bounded`] lets one process run at once.
+const MOST_AT_ONCE: usize = 8;
+
+/// The Callgrind children running now, and their release.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
+)]
+static RUNNING: Mutex<usize> = Mutex::new(0);
+#[expect(
+    clippy::disallowed_types,
+    reason = "a benchmark harness's bound on its own child processes, waited for on threads no runtime owns, which loom does not model"
+)]
+static RELEASED: Condvar = Condvar::new();
+
+/// Runs `run`, which runs one Callgrind child, once fewer than half the
+/// machine's cores, and at most [`MOST_AT_ONCE`], run in this process: a
+/// benchmark that starts one per cell and outcome side by side would
+/// otherwise start them all at once. A count Callgrind reads does not depend
+/// on how many run beside it.
+pub fn bounded<T>(run: impl FnOnce() -> T) -> T {
+    let most = std::thread::available_parallelism()
+        .map_or(1, |cores| (cores.get() / 2).clamp(1, MOST_AT_ONCE));
+    let mut running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
+    while *running >= most {
+        running = RELEASED
+            .wait(running)
+            .unwrap_or_else(PoisonError::into_inner);
+    }
+    *running += 1;
+    drop(running);
+    let _release = Release;
+    run()
+}
+
+/// Gives back its child's place in [`bounded`] once the child ended,
+/// whether `run` returned or panicked.
+struct Release;
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        RELEASED.notify_one();
+    }
+}
 
 /// Why a program's calls could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -78,16 +129,18 @@ pub fn calls_beneath(
 )]
 fn output(options: &[&str], program: &Path, arguments: &[&str]) -> Result<String, CallgrindError> {
     let output = tempfile::NamedTempFile::new().map_err(CallgrindError::Output)?;
-    let status = Command::new("valgrind")
-        .args(["--tool=callgrind", "--quiet", "--compress-strings=no"])
-        .args(options)
-        .arg(format!("--callgrind-out-file={}", output.path().display()))
-        .arg(program)
-        .args(arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .map_err(CallgrindError::Valgrind)?;
+    let status = bounded(|| {
+        Command::new("valgrind")
+            .args(["--tool=callgrind", "--quiet", "--compress-strings=no"])
+            .args(options)
+            .arg(format!("--callgrind-out-file={}", output.path().display()))
+            .arg(program)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+    })
+    .map_err(CallgrindError::Valgrind)?;
     if !status.success() {
         return Err(CallgrindError::Failed {
             program: program.display().to_string(),

@@ -580,3 +580,44 @@ fn proving_leaves_a_row_not_run_yet_out() {
         outcome.stdout
     );
 }
+
+/// A plant reaches only its own row's family: B1's benchmark knows no plant of
+/// B2's row, and fails when asked for one.
+#[test]
+fn a_plant_goes_to_the_family_of_its_row_alone() {
+    let (workspace, b1) = whole_b1(104, "");
+    let c1_rows = "\
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+";
+    workspace.write(
+        "TESTING.md",
+        format!("{}{OTHER_B1_ROWS}{c1_rows}", register("8")).as_bytes(),
+    );
+    let b1_path = b1.trim_start_matches("B1=");
+    let b1_refusing_plants = executable_script(
+        &workspace,
+        "B1.sh",
+        &format!("#!/bin/sh\n[ -n \"$1\" ] && exit 3\nexec {b1_path}\n"),
+    );
+    let b2 = executable_script(
+        &workspace,
+        "B2.sh",
+        "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n",
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--executable",
+        &format!("B1={}", b1_refusing_plants.display()),
+        "--executable",
+        &format!("B2={}", b2.display()),
+        "--plant",
+        "C1.sends",
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}

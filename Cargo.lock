@@ -2292,6 +2292,7 @@ name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "goodfetch-counted-work",
  "goodfetch-test-support",
  "rstest",
  "serde",
@@ -2754,6 +2755,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-btls",

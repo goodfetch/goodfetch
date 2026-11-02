@@ -466,7 +466,12 @@ impl Connect for BorrowedBrowser {
                 let log = self
                     .log
                     .get_or_try_init(|| async {
-                        CommandLog::start(self.run.owner(), self.run.folder()).map_err(|error| {
+                        CommandLog::start(
+                            self.run.owner(),
+                            self.run.folder(),
+                            self.run.metrics().counted_work().clone(),
+                        )
+                        .map_err(|error| {
                             CallError::new(
                                 &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
                                 format!("the Run trace's CDP log cannot start: {error}"),
@@ -626,7 +631,12 @@ impl Connect for LocalBrowser {
                 let log = self
                     .log
                     .get_or_try_init(|| async {
-                        CommandLog::start(self.run.owner(), self.run.folder()).map_err(|error| {
+                        CommandLog::start(
+                            self.run.owner(),
+                            self.run.folder(),
+                            self.run.metrics().counted_work().clone(),
+                        )
+                        .map_err(|error| {
                             CallError::new(
                                 &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
                                 format!("the Run trace's CDP log cannot start: {error}"),

@@ -189,14 +189,15 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    let (parses, selectors) = (
-        work.read(Row::PageParses),
-        work.read(Row::PageSelectorCompilations),
-    );
-    assert_eq!(crawled.handled, pages);
-    assert!(
-        parses >= 2 * pages && selectors >= 2 * pages,
-        "{parses} parses and {selectors} selectors over {pages} pages"
+    // Two parses and four compilations of a page's seven and eleven are its
+    // waits': #1577 lowers the rest, and writes its figures here.
+    assert_eq!(
+        (
+            crawled.handled,
+            work.read(Row::PageParses),
+            work.read(Row::PageSelectorCompilations),
+        ),
+        (pages, 7 * pages, 11 * pages)
     );
 }
 

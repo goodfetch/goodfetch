@@ -256,23 +256,22 @@ pub(crate) fn run_trace_plant(row: Row, work: &CountedWork) -> Option<Plant> {
 }
 
 /// What the crawl answered: each Record of `pages`, how many requests a
-/// handler handled, the body bytes the site sent, and the entries its Run
-/// trace holds.
+/// handler handled, and the body bytes the site sent.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) handled: u64,
     pub(crate) body_bytes: u64,
-    pub(crate) entries: u64,
 }
 
-/// The entries the Run traces under `home` hold: one line each of every
-/// `.jsonl` file of a `trace` folder, read from the files once the engine
-/// stopped, so the count is the files' and not the writer's.
+/// The entries the Run traces under `home` hold once its crawl ended: one
+/// line each of every `.jsonl` file of a `trace` folder, read from the files,
+/// so the count is the files' and not the writer's. Apart from the crawl, so
+/// the heap benchmark does not measure it.
 #[expect(
     clippy::disallowed_methods,
     reason = "the benchmark reads its Run trace once its engine stopped, on no async worker"
 )]
-fn entries(home: &Path) -> u64 {
+pub(crate) fn entries(home: &Path) -> u64 {
     let mut folders = vec![home.to_owned()];
     let mut entries = 0;
     while let Some(folder) = folders.pop() {
@@ -423,7 +422,6 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         records,
         handled,
         body_bytes: sent.load(Ordering::Relaxed),
-        entries: entries(home),
     }
 }
 

@@ -36,7 +36,7 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use scenarios::{
-    Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant, run_trace_plant,
+    Options, PAGES, Plant, body_bytes, crawl_with, entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
 
@@ -206,11 +206,12 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
             "the crawl builds its field's forms once, as it starts"
         );
     }
-    assert!(crawled.entries > 0, "the crawl wrote no Run-trace entry");
+    let entries = entries(home.path());
+    assert!(entries > 0, "the crawl wrote no Run-trace entry");
     Counted {
         name: cell.name,
         pages: u64::try_from(pages).expect("invariant: a dozen pages"),
-        entries: crawled.entries,
+        entries,
         work,
         started,
         removes: cell.removes,

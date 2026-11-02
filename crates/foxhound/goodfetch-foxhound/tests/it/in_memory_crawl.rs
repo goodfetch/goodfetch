@@ -15,7 +15,8 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::crawl_scenario::{
-    Options, PAGES, Plant, body_bytes, crawl, crawl_with, page_analysis_plant, run_trace_plant,
+    Options, PAGES, Plant, body_bytes, crawl, crawl_with, entries, page_analysis_plant,
+    run_trace_plant,
 };
 
 /// The total body bytes `benches/pages.source.toml` records.
@@ -140,7 +141,7 @@ fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawn
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
 
-    let crawled = crawl_with(
+    crawl_with(
         env.home(),
         env.start_time(),
         env.seed(),
@@ -150,7 +151,7 @@ fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawn
         },
     );
 
-    let entries = crawled.entries;
+    let entries = entries(env.home());
     assert!(entries > 0, "the crawl wrote no Run-trace entry");
     assert_eq!(
         (

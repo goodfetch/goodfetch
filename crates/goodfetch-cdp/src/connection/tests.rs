@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
@@ -41,7 +42,7 @@ type Pipe = Driver<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>;
 fn connected() -> (Connection, Pipe, Browser) {
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer);
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
     (
         connection,
         driver,
@@ -60,6 +61,43 @@ fn version() -> Value {
         "userAgent": "Mozilla/5.0",
         "jsVersion": "15.6.75",
     })
+}
+
+/// C1's seam (ADR 0140): each command the driver writes costs one encode and
+/// one send, on the work the connection was given.
+#[test]
+fn each_command_counts_one_encode_and_one_send_on_the_work_it_was_given() {
+    let work = CountedWork::default();
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let mut browser = Browser {
+        stream: browser,
+        framer: Framer::default(),
+    };
+    runtime().block_on(async {
+        let client = async {
+            for _ in 0..3 {
+                connection
+                    .send(None, &GetVersionParams {}, TIMEOUT)
+                    .await
+                    .unwrap();
+            }
+            drop(connection);
+        };
+        let answers = async {
+            for _ in 0..3 {
+                let command = browser.received().await;
+                browser
+                    .send(&json!({ "id": command["id"], "result": version() }))
+                    .await;
+            }
+        };
+        tokio::join!(driver.run(), client, answers);
+    });
+
+    assert_eq!(work.read(Row::CdpEncodes), 3);
+    assert_eq!(work.read(Row::CdpSends), 3);
 }
 
 #[test]
@@ -207,7 +245,7 @@ const HUNG: Duration = Duration::from_secs(600);
 fn wedged(room: usize) -> (Connection, Pipe, DuplexStream) {
     let (client, browser) = tokio::io::duplex(room);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer);
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
     (connection, driver, browser)
 }
 

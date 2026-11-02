@@ -201,6 +201,11 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Their counters exist now:** a `Row` each on the Shared path `working_copy_update`, and the metric's label values, so the path's tickets only count at their seams.
 > - **The B3 scenario with several Connections following comes with the path's code,** not here: nothing yet updates a Working copy or follows one, and a stand-in would fix a follow mechanism #1689 and #1998 have not chosen. The ticket that first counts an E7 row adds it, with its plants.
 
+> Note (agent decisions of #1872, pending owner review), 2026-11-02, on the Audit entry's rows:
+> - **E2's scenario is `goodfetch-engine`'s `benches/audit.rs`,** on B3's counts cell beside the messages: an Audit log opened as the engine's Runs open it, retention read from the machine's settings files, recording 20 entries of one Run. Its cells are B3's `default` and `log_off`, plus `audit_chain_off` (`security.audit_chain` off, which takes no row's work away) and `audit_retention` (`audit.retention` set, off by default, so each append prunes first): the prune outcome is the path's, and `xtask counts` holds every cell to one limit, so each row's Today is its highest cell's figure.
+> - **Configuration reads, opens, prune passes and head-file writes count at the Audit log's seams;** transactions through a commit hook on each of its connections, so the schema set-up's commit counts beside the append's; the store's syncs through the counting VFS it opens with in the cell, added to its head-file writes for `E2.syncs`; statement preparations from Callgrind's count of `sqlite3_prepare_v3` over the scenario alone. The metric shows the in-process counts only.
+> - **X15 also covers `E2.transactions`,** whose 3.95 against a contract of 1 has its cause: each open commits its schema set-up, and a prune its own transaction.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

@@ -226,7 +226,13 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      | `E7.prepares` | statement preparations per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
      | `E7.transactions` | transactions per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
      | `E7.syncs` | syncs per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
-     | `E7.encodes` | encodes per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n";
+     | `E7.encodes` | encodes per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done |\n\
+     | `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.opens` | store opens per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prepares` | statement preparations per Audit entry | 0 | 14 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.prunes` | prune passes per Audit entry | 0 | 1 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.transactions` | transactions per Audit entry | 1 | 2.05 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | 5.2 | B3 | must not grow | `xtask counts` | implementer done |\n";
 
 fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::path::PathBuf {
     workspace.write(name, script.as_bytes());
@@ -236,14 +242,17 @@ fn executable_script(workspace: &Workspace, name: &str, script: &str) -> std::pa
 }
 
 /// B3's counted rows each divide by their own outcome: copies by the messages
-/// in, encodes by the messages out.
+/// in, encodes by the messages out, an Audit entry's transactions by its
+/// entries.
 #[rstest]
-#[case::each_within_its_limit(11, 20, 0, &[])]
-#[case::copies_over_per_message_in(12, 20, 1, &["E1.deep_copies"])]
-#[case::encodes_over_per_message_out(11, 21, 1, &["E1.encodes"])]
+#[case::each_within_its_limit(11, 20, 41, 0, &[])]
+#[case::copies_over_per_message_in(12, 20, 41, 1, &["E1.deep_copies"])]
+#[case::encodes_over_per_message_out(11, 21, 41, 1, &["E1.encodes"])]
+#[case::transactions_over_per_audit_entry(11, 20, 42, 1, &["E2.transactions"])]
 fn each_b3_row_divides_by_the_outcome_that_did_its_work(
     #[case] copies: u64,
     #[case] encodes: u64,
+    #[case] transactions: u64,
     #[case] code: i32,
     #[case] over: &[&str],
 ) {
@@ -253,24 +262,39 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
-    let outcome = workspace.xtask(&[
-        "counts",
-        "--path",
-        "E1",
-        "--executable",
-        &format!("B3={}", path.display()),
-    ]);
+    let executable = format!("B3={}", path.display());
+    let on_path =
+        |path: &str| workspace.xtask(&["counts", "--path", path, "--executable", &executable]);
+    let (messages, audit) = (on_path("E1"), on_path("E2"));
 
-    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
     assert_eq!(
-        outcome.findings(),
+        messages.code.max(audit.code),
+        code,
+        "{}\n{}\n{}\n{}",
+        messages.stdout,
+        messages.stderr,
+        audit.stdout,
+        audit.stderr
+    );
+    assert_eq!(
+        [messages.findings(), audit.findings()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
         over.iter()
             .map(|row| finding("over-limit", row))
             .collect::<Vec<_>>()
+    );
+    assert!(
+        audit
+            .stdout
+            .contains("E2.opens [default]: 1 per audit_entry, limit 1 (20 over 20)"),
+        "{}",
+        audit.stdout
     );
 }
 
@@ -292,7 +316,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[

@@ -6,9 +6,9 @@
 //! perf` runs every bench target under gungraun: counts need no Valgrind and
 //! no optimized build.
 //!
-//! `--plant <row>` does one extra unit of that row's work per call, through
-//! its count. A cell fails here if the work it counts did not happen, or if a
-//! feature off did not take its work away.
+//! `--plant <row>` does one extra unit of that row's work per call, charge or
+//! entry, through its count. A cell fails here if the work it counts did not
+//! happen, or if a feature off did not take its work away.
 //!
 //! Its Usage charge scenario (`support/charge_counts.rs`) charges under a
 //! Limit in every cell but `no_limit`, whose run no Limit holds and which
@@ -21,15 +21,29 @@
 //! `E3.slice_transactions` is the larger of the commit hook's transactions
 //! and the crash VFS's syncs, which the row holds to one limit.
 //!
+//! What no wrapper sees on the Audit entry path is read from outside it too:
+//! the store's syncs through a counting VFS, added to its head-file writes,
+//! and statement preparations from Callgrind's call count of
+//! `sqlite3_prepare_v3`, for which each cell runs this example again as
+//! `--callgrind <cell>`, the Audit scenario alone. Without Valgrind
+//! `E2.prepares` goes unprinted, which `xtask counts` fails as a row not
+//! counted.
+//!
 //! A new scenario of the family (`benches/<scenario>.rs`) adds one line to
 //! [`run`] that runs it and inserts its units and counts, and its rows' arms
 //! to its plant.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
+    clippy::print_stderr,
+    reason = "why a row goes unprinted, which `xtask counts` fails, beside its finding"
+)]
+#![expect(
     clippy::print_stdout,
     reason = "the benchmark's one output, which `xtask counts` reads"
 )]
 
+#[path = "../benches/audit.rs"]
+mod audit;
 #[path = "../benches/messages.rs"]
 #[expect(
     dead_code,
@@ -45,9 +59,12 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
+use audit::{Audit, PLANTED_RETENTION};
 use charge_counts::{Outcome, charges};
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_test_support::CountingVfs;
 use messages::{Logs, Plant, Traffic};
 use serde_json::{Map, Value, json};
 
@@ -59,7 +76,14 @@ const TRAFFIC: Traffic = Traffic {
     plugin: 10,
 };
 
-/// The plant of the row named `name`.
+/// The Audit entry row Callgrind reads, and the C symbol it reads it from.
+const PREPARES: &str = "E2.prepares";
+const PREPARE: &str = "sqlite3_prepare_v3";
+
+/// The row the counting VFS adds the Audit log's syncs to.
+const SYNCS: &str = "E2.syncs";
+
+/// The plant of the message row named `name`.
 fn plant(name: &str, work: &CountedWork) -> Plant {
     let work = work.clone();
     match name {
@@ -75,27 +99,64 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
     }
 }
 
-/// One cell: a name, how it runs, whether a Limit holds its charges, and the
-/// rows it must count fewer of than the default cell: a feature's work goes
-/// with the feature (ADR 0140).
+/// The plant of the Audit entry row named `name`: one extra unit of its work
+/// per entry, done for real through the code that counts it.
+fn audit_plant(name: &str, work: &CountedWork, vfs: &str) -> audit::Plant {
+    match name {
+        // One entry more, on a log of its own beside the scenario's: a
+        // configuration read, a store open, its transactions and a head-file
+        // write the store syncs.
+        "E2.configuration_reads" | "E2.opens" | "E2.transactions" | SYNCS => {
+            let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+            let log = audit::log(home.path(), Some(vfs), work);
+            let home = Arc::new(home);
+            Arc::new(move |_: &AuditLog| {
+                let _kept = &home;
+                audit::run_one(&log, 0);
+            })
+        }
+        // A prune pass with nothing old enough to prune.
+        "E2.prunes" => Arc::new(|log: &AuditLog| {
+            log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH)
+                .expect("invariant: an Audit log with nothing to prune");
+        }),
+        // Callgrind counts the process's calls of SQLite's own function, on
+        // any connection.
+        PREPARES => Arc::new(|_: &AuditLog| {
+            let connection = rusqlite::Connection::open_in_memory()
+                .expect("invariant: SQLite opens an in-memory database");
+            let _ = connection
+                .prepare("SELECT 1")
+                .expect("invariant: a literal statement");
+        }),
+        other => panic!("no plant for the row {other}"),
+    }
+}
+
+/// One cell: a name, how it runs, whether a Limit holds its charges, how its
+/// Audit log runs, and the rows it must count fewer of than the default cell:
+/// a feature's work goes with the feature (ADR 0140).
 struct Cell {
     name: &'static str,
     logs: Logs,
     limited: bool,
+    audit: Audit,
     removes: &'static [Row],
 }
 
-const CELLS: [Cell; 3] = [
+const CELLS: [Cell; 5] = [
     Cell {
         name: "default",
         logs: Logs::On,
         limited: true,
+        audit: Audit::Chained,
         removes: &[],
     },
     Cell {
         name: "log_off",
         logs: Logs::Off,
         limited: true,
+        audit: Audit::Chained,
         removes: &[Row::MessageEncodes],
     },
     // With no Limit, the Slice's work goes with the Limit.
@@ -103,23 +164,41 @@ const CELLS: [Cell; 3] = [
         name: "no_limit",
         logs: Logs::On,
         limited: false,
+        audit: Audit::Chained,
         removes: &[Row::ChargeOpens, Row::ChargeTransactions],
+    },
+    // `security.audit_chain` off: its entries are hashed alone, which takes
+    // no row's work away.
+    Cell {
+        name: "audit_chain_off",
+        logs: Logs::On,
+        limited: true,
+        audit: Audit::Unchained,
+        removes: &[],
+    },
+    // `audit.retention` set, off by default: each append prunes first.
+    Cell {
+        name: "audit_retention",
+        logs: Logs::On,
+        limited: true,
+        audit: Audit::Retained,
+        removes: &[],
     },
 ];
 
-/// What one cell counted: its units, the message scenario's work, and its
-/// charges' counts by row, which the charge scenario counts on its own.
+/// What one cell counted: its units, the message and Audit scenarios' work,
+/// and the counts by row that other scenarios count on their own.
 struct Counted {
     cell: &'static Cell,
     units: BTreeMap<&'static str, u64>,
     work: CountedWork,
-    charges: BTreeMap<&'static str, u64>,
+    by_row: BTreeMap<&'static str, u64>,
 }
 
 impl Counted {
     /// What this cell counted on `row`.
     fn count(&self, row: Row) -> u64 {
-        self.charges
+        self.by_row
             .get(row.name())
             .copied()
             .unwrap_or_else(|| self.work.read(row))
@@ -130,15 +209,39 @@ fn count(number: usize) -> u64 {
     u64::try_from(number).expect("invariant: a few dozen messages")
 }
 
+/// A planted row, by the scenario that plants it.
+#[derive(Clone, Copy)]
+enum Planted<'a> {
+    Message(&'a str),
+    Charge(&'a str),
+    Audit(&'a str),
+}
+
+impl<'a> Planted<'a> {
+    fn of(name: &'a str) -> Self {
+        if name.starts_with("E3.") {
+            Self::Charge(name)
+        } else if name.starts_with("E2.") {
+            Self::Audit(name)
+        } else {
+            Self::Message(name)
+        }
+    }
+}
+
 /// Runs `cell`'s scenarios.
 fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
-    let (message_plant, charge_plant) = match planted {
-        Some(name) if name.starts_with("E3.") => (None, Some(name)),
-        other => (other, None),
+    let planted = planted.map(Planted::of);
+    let (message_plant, charge_plant, audit_planted) = match planted {
+        Some(Planted::Message(name)) => (Some(name), None, None),
+        Some(Planted::Charge(name)) => (None, Some(name), None),
+        Some(Planted::Audit(name)) => (None, None, Some(name)),
+        None => (None, None, None),
     };
+    let audit_prepares = audit_prepares(cell.name, audit_planted);
     let sent = messages::run(
         TRAFFIC,
         cell.logs,
@@ -174,14 +277,26 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     } else {
         0
     };
+    let vfs = CountingVfs::register();
+    let audit_home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let entries = audit::run(
+        audit_home.path(),
+        cell.audit,
+        Some(vfs.name()),
+        &work,
+        audit_planted
+            .map(|name| audit_plant(name, &work, vfs.name()))
+            .as_ref(),
+    );
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
         ("outgoing_messages", count(sent.outgoing)),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),
+        ("audit_entries", entries),
     ]);
-    let by_row = BTreeMap::from([
+    let mut by_row = BTreeMap::from([
         (Row::ChargeStatements.name(), charged.statements),
         (
             Row::ChargeTransactions.name(),
@@ -189,12 +304,16 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         ),
         (Row::ChargeOpens.name(), charged.opens),
         ("E3.prepares", slice_prepares),
+        (SYNCS, work.read(Row::AuditSyncs) + vfs.syncs()),
     ]);
+    if let Some(prepares) = audit_prepares.join().ok().flatten() {
+        by_row.insert(PREPARES, prepares);
+    }
     Counted {
         cell,
         units,
         work,
-        charges: by_row,
+        by_row,
     }
 }
 
@@ -278,6 +397,41 @@ fn callgrind(cell: &str, outcome: &str, planted: Option<&str>) -> u64 {
     prepares(folder.path())
 }
 
+/// Runs `cell`'s Audit scenario under Callgrind and answers its statement
+/// preparations; none when Valgrind cannot run.
+fn audit_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<u64>> {
+    let cell = cell.to_owned();
+    let planted = planted == Some(PREPARES);
+    std::thread::spawn(move || {
+        let executable = std::env::current_exe().expect("invariant: this process has a path");
+        let mut arguments = vec!["--callgrind", cell.as_str()];
+        if planted {
+            arguments.extend(["--plant", PREPARES]);
+        }
+        match goodfetch_test_support::callgrind::calls(PREPARE, &executable, &arguments) {
+            Ok(calls) => Some(calls),
+            Err(error) => {
+                eprintln!("{PREPARES} is not read: {error}");
+                None
+            }
+        }
+    })
+}
+
+/// Runs `cell`'s Audit scenario alone, as Callgrind counts it.
+fn audit_under_callgrind(cell: &str, planted: Option<&str>) {
+    let cell = CELLS
+        .iter()
+        .find(|each| each.name == cell)
+        .unwrap_or_else(|| panic!("no cell {cell}"));
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let work = CountedWork::default();
+    let plant = planted
+        .filter(|name| *name == PREPARES)
+        .map(|name| audit_plant(name, &work, ""));
+    audit::run(home.path(), cell.audit, None, &work, plant.as_ref());
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -286,6 +440,8 @@ fn main() {
         ["--plant", row] => Some(*row),
         ["--window", cell, outcome] => return window(cell, outcome, None),
         ["--window", cell, outcome, row] => return window(cell, outcome, Some(row)),
+        ["--callgrind", cell] => return audit_under_callgrind(cell, None),
+        ["--callgrind", cell, "--plant", row] => return audit_under_callgrind(cell, Some(row)),
         other => panic!("usage: counts [--plant <row>], not {other:?}"),
     };
     // Side by side, each on its own paused runtime: no cell waits on another,
@@ -314,7 +470,7 @@ fn main() {
             .iter()
             .map(|row| (row.name().to_owned(), json!(cell.work.read(*row))))
             .collect();
-        for (row, count) in &cell.charges {
+        for (row, count) in &cell.by_row {
             counts.insert((*row).to_owned(), json!(count));
         }
         println!(

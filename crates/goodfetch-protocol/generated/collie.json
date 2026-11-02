@@ -10814,6 +10814,7 @@
         {
           "name": "shared_path",
           "values": [
+            "audit_entry",
             "cdp_command",
             "frontier_admission",
             "frontier_hop",

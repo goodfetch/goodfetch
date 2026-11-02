@@ -122,6 +122,11 @@ fn each_row_counts_on_its_own() {
             ("E7.transactions", 0),
             ("E7.syncs", 0),
             ("E7.encodes", 0),
+            ("E2.configuration_reads", 0),
+            ("E2.opens", 0),
+            ("E2.prunes", 0),
+            ("E2.transactions", 0),
+            ("E2.syncs", 0),
         ]
     );
 }

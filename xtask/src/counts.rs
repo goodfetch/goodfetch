@@ -165,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 52] = [
+const ROWS: [Row; 58] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -320,6 +320,49 @@ const ROWS: [Row; 52] = [
         name: "E1.encodes",
         family: "B3",
         unit: "outgoing_messages",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.configuration_reads",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.opens",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.prepares",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // 0 in the default cell, where no `audit.retention` is set.
+    Row {
+        name: "E2.prunes",
+        family: "B3",
+        unit: "audit_entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.transactions",
+        family: "B3",
+        unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.syncs",
+        family: "B3",
+        unit: "audit_entries",
         happens: true,
         valgrind: None,
     },
@@ -936,6 +979,7 @@ fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
 fn one_of(unit: &str) -> &str {
     match unit {
         LINKS_BATCHES => "links batch",
+        "audit_entries" => "audit_entry",
         unit => unit.trim_end_matches('s'),
     }
 }

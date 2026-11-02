@@ -158,11 +158,23 @@ pub enum Row {
     /// `E7.encodes`: an encode of a Working-copy update for the Connections
     /// that follow it.
     WorkingCopyEncodes,
+    /// `E2.configuration_reads`: a read of the machine's settings files for
+    /// an Audit entry.
+    AuditConfigurationReads,
+    /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
+    AuditOpens,
+    /// `E2.prunes`: a prune pass over the Audit log.
+    AuditPrunes,
+    /// `E2.transactions`: a transaction the Audit log's store committed.
+    AuditTransactions,
+    /// `E2.syncs`: a write of the Audit log's head file; the store's own
+    /// syncs are seen by a counting VFS, which no production store has.
+    AuditSyncs,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 54] = [
+    pub const ALL: [Self; 59] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -217,6 +229,11 @@ impl Row {
         Self::WorkingCopyTransactions,
         Self::WorkingCopySyncs,
         Self::WorkingCopyEncodes,
+        Self::AuditConfigurationReads,
+        Self::AuditOpens,
+        Self::AuditPrunes,
+        Self::AuditTransactions,
+        Self::AuditSyncs,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -270,6 +287,11 @@ impl Row {
             | Self::WorkingCopyTransactions
             | Self::WorkingCopySyncs
             | Self::WorkingCopyEncodes => "working_copy_update",
+            Self::AuditConfigurationReads
+            | Self::AuditOpens
+            | Self::AuditPrunes
+            | Self::AuditTransactions
+            | Self::AuditSyncs => "audit_entry",
         }
     }
 
@@ -290,11 +312,13 @@ impl Row {
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
-            Self::SinkOpens | Self::ChargeOpens | Self::WorkingCopyOpens => "opens",
+            Self::SinkOpens | Self::ChargeOpens | Self::WorkingCopyOpens | Self::AuditOpens => {
+                "opens"
+            }
             Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
-            Self::ConfigurationReads => "configuration_reads",
-            Self::Prunes => "prunes",
+            Self::ConfigurationReads | Self::AuditConfigurationReads => "configuration_reads",
+            Self::Prunes | Self::AuditPrunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
             Self::RecordDeclarationReads => "declaration_reads",
             Self::RecordValidatorBuilds => "validator_builds",
@@ -309,7 +333,8 @@ impl Row {
             | Self::SitemapTransactions
             | Self::RunTransactions
             | Self::ChargeTransactions
-            | Self::WorkingCopyTransactions => "transactions",
+            | Self::WorkingCopyTransactions
+            | Self::AuditTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -321,7 +346,7 @@ impl Row {
             Self::WorkingCopyDocumentLoads => "document_loads",
             Self::WorkingCopyDocumentEncodes => "document_encodes",
             Self::WorkingCopyPrepares => "prepares",
-            Self::WorkingCopySyncs => "syncs",
+            Self::WorkingCopySyncs | Self::AuditSyncs => "syncs",
         }
     }
 
@@ -385,6 +410,11 @@ impl Row {
             Self::WorkingCopyTransactions => "E7.transactions",
             Self::WorkingCopySyncs => "E7.syncs",
             Self::WorkingCopyEncodes => "E7.encodes",
+            Self::AuditConfigurationReads => "E2.configuration_reads",
+            Self::AuditOpens => "E2.opens",
+            Self::AuditPrunes => "E2.prunes",
+            Self::AuditTransactions => "E2.transactions",
+            Self::AuditSyncs => "E2.syncs",
         }
     }
 

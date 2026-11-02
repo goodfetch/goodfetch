@@ -37,6 +37,12 @@ use budget::Gating;
 use compare::{Row, Verdict};
 
 // The figures `xtask rss check` saves for the drift check, in the same file.
+/// Each absolute ceiling's benchmark or entry and its number, which the
+/// register check compares with the Quality register (ADR 0140).
+pub(crate) fn ceiling_limits() -> impl Iterator<Item = (&'static str, u64)> {
+    budget::ceilings().map(budget::Ceiling::limit)
+}
+
 pub(crate) use figure::Figure;
 pub(crate) use figures::{Figures, Recorded};
 

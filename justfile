@@ -73,6 +73,7 @@ lint: fmt-check
     ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
+    cargo run --quiet -p xtask -- register check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size

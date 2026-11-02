@@ -56,6 +56,7 @@ mod pinned;
 mod quarantine;
 mod rate;
 mod received_requests;
+mod register;
 mod release_suite;
 mod repeat;
 mod results;
@@ -78,7 +79,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory as _, Parser, Subcommand};
 
 use environment::Environment;
 
@@ -255,6 +256,11 @@ enum Command {
     Quarantine {
         #[command(subcommand)]
         command: quarantine::Command,
+    },
+    /// The Quality register of `TESTING.md` (ADR 0140).
+    Register {
+        #[command(subcommand)]
+        command: register::Command,
     },
     /// Fails on a test that reads the Proving ground's requests other than
     /// through `ReceivedRequests`, which says whether a count keeps the
@@ -495,6 +501,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
+        Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),

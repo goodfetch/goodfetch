@@ -109,6 +109,21 @@ impl Ceiling {
             Self::PerUrl { subject, empty, .. } => vec![subject, empty],
         }
     }
+
+    /// The benchmark or entry it is named after, and its number.
+    pub(crate) fn limit(&self) -> (&'static str, u64) {
+        match self {
+            Self::Figure { subject, max, .. } => (subject, *max),
+            Self::PerUrl {
+                subject, max_bytes, ..
+            } => (subject, *max_bytes),
+            Self::PerBodyByte {
+                subject,
+                max_multiple,
+                ..
+            } => (subject, *max_multiple),
+        }
+    }
 }
 
 /// The fixed ceilings of ADRs 0071, 0087 and 0134. Each starts when its benchmark

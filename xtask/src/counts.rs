@@ -952,12 +952,17 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         return strace::run(arguments, environment);
     }
     let root = environment.root.as_path();
-    let limits = register::limits(root)?;
+    let register = register::read(root)?;
     let named: Vec<&str> = arguments
         .executable
         .iter()
         .filter_map(|named| named.split_once('=').map(|(family, _)| family))
         .collect();
+    let uncounted = uncounted(&register.rows, &named, arguments);
+    if !uncounted.is_empty() {
+        return Ok(check::report(&uncounted));
+    }
+    let limits = register.limits;
     let rows: Vec<&Row> = ROWS
         .iter()
         .filter(|row| row.valgrind.is_some() == arguments.valgrind)
@@ -982,6 +987,10 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             bail!("{planted} has not run yet: {} builds its path", row.builder);
         }
         bail!("{planted} is no counted row of what runs");
+    }
+    let unheld = unheld(&rows, &register.rows);
+    if !unheld.is_empty() {
+        return Ok(check::report(&unheld));
     }
     for row in &not_run_yet {
         let limit = match limits.get(row.name) {
@@ -1035,6 +1044,52 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         );
     }
     Ok(check::report(&findings))
+}
+
+/// Each enforced row of the register's counted work, of a family and name
+/// this run asks for, that [`ROWS`] has no counter for: it would go uncounted
+/// and pass.
+fn uncounted(held: &[register::Held], named: &[&str], arguments: &Arguments) -> Vec<Finding> {
+    held.iter()
+        .filter(|row| row.enforced)
+        .filter(|row| {
+            row.families.iter().any(|family| {
+                (named.is_empty() || named.contains(&family.as_str()))
+                    && arguments.asks_for(family, &row.name)
+            })
+        })
+        .filter(|row| {
+            !row.counted_as
+                .iter()
+                .all(|name| ROWS.iter().any(|counter| counter.name == name))
+        })
+        .map(|row| {
+            Finding::new(
+                "row-without-counter",
+                &row.name,
+                "the register enforces this row, and `xtask counts`' ROWS has no counter for it",
+            )
+        })
+        .collect()
+}
+
+/// Each of `rows`, the counters this run reads, that no row of the register
+/// holds.
+fn unheld(rows: &[&Row], held: &[register::Held]) -> Vec<Finding> {
+    rows.iter()
+        .filter(|counter| {
+            !held
+                .iter()
+                .any(|row| row.counted_as.iter().any(|name| name == counter.name))
+        })
+        .map(|counter| {
+            Finding::new(
+                "counter-without-row",
+                counter.name,
+                "`xtask counts`' ROWS counts this row, and the Quality register holds no row of it",
+            )
+        })
+        .collect()
 }
 
 /// Plants one extra unit of each of `rows`' work in turn and fails each
@@ -1436,3 +1491,6 @@ fn verdict(
     }
     Ok(findings)
 }
+
+#[cfg(test)]
+mod tests;

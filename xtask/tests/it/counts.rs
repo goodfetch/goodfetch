@@ -258,6 +258,63 @@ fn a_row_left_in_the_measured_table_is_read_beside_the_promoted_ones() {
     );
 }
 
+/// An enforced row of the register's counted work that `xtask counts` has no
+/// counter for would go uncounted, and pass.
+#[test]
+fn an_enforced_row_with_no_counter_fails_naming_it() {
+    let (workspace, _) = workspace("8", &benchmark(&[("default", 104)], false));
+    let register = promoted_register("8").replace(
+        "| implementer done, merge gate |\n\n",
+        "| implementer done, merge gate |\n\
+         | `F1.uncounted` | parses no counter sees per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |\n\n",
+    );
+    workspace.write("TESTING.md", register.as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.uncounted"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("row-without-counter", "F1.uncounted")],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
+/// A counter of `xtask counts` whose row the register lacks fails, naming it.
+#[test]
+fn a_counter_whose_row_the_register_lacks_fails_naming_it() {
+    let (workspace, executable) = whole_b1(104, "");
+    let rows = OTHER_B1_ROWS.replace("| `F1.readability_runs` |", "| `F1.renamed` |");
+    workspace.write("TESTING.md", format!("{}{rows}", register("8")).as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("counter-without-row", "F1.readability_runs")],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
+/// So does a counter read under Valgrind, before any Valgrind run.
+#[test]
+fn a_valgrind_counter_whose_row_the_register_lacks_fails_naming_it() {
+    let (workspace, _) = workspace("8", &benchmark(&[("default", 104)], false));
+
+    let outcome = workspace.xtask(&["counts", "--valgrind", "--row", "E1.instructions"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("counter-without-row", "E1.instructions")],
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+}
+
 #[test]
 fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));

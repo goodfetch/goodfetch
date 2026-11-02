@@ -77,8 +77,32 @@ impl fmt::Display for Limit {
     }
 }
 
-/// Each row's limit, by its name.
-pub(super) fn limits(root: &Path) -> Result<BTreeMap<String, Limit>> {
+/// The heading, inside the Enforced section, of the counted rows promoted
+/// there.
+const COUNTED_WORK: &str = "#### Counted work";
+
+/// The register's counted rows, and each one's limit by its name.
+pub(super) struct Register {
+    pub(super) limits: BTreeMap<String, Limit>,
+    pub(super) rows: Vec<Held>,
+}
+
+/// One row of a table of rows, as `xtask counts` holds it to its counters.
+pub(super) struct Held {
+    /// Its name in the register, `<path>.<work>`.
+    pub(super) name: String,
+    /// The families its Benchmark names: `B1, B2` names two.
+    pub(super) families: Vec<String>,
+    /// Whether the Enforced section's counted work holds it, not the
+    /// Measured table.
+    pub(super) enforced: bool,
+    /// The names its benchmark prints it under: its own, or `<name>.<kind>`
+    /// for each kind its Today holds a figure of.
+    pub(super) counted_as: Vec<String>,
+}
+
+/// The register `TESTING.md` holds.
+pub(super) fn read(root: &Path) -> Result<Register> {
     let path = root.join(TESTING);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -87,45 +111,51 @@ pub(super) fn limits(root: &Path) -> Result<BTreeMap<String, Limit>> {
 
 /// Every table of rows in the register: the Enforced section's counted work
 /// and the Measured table.
-fn parse(text: &str) -> Result<BTreeMap<String, Limit>> {
+fn parse(text: &str) -> Result<Register> {
     let Some((_, section)) = text.split_once(SECTION) else {
         bail!("{TESTING} has no \"{SECTION}\" section");
     };
     let section = section.split("\n## ").next().unwrap_or(section);
-    let mut limits = BTreeMap::new();
+    let mut register = Register {
+        limits: BTreeMap::new(),
+        rows: Vec::new(),
+    };
+    let mut heading = "";
     let mut lines = section.lines().peekable();
-    while lines.peek().is_some() {
-        let mut table = lines
-            .by_ref()
-            .skip_while(|line| !line.starts_with(HEADER_START))
-            .take_while(|line| line.starts_with('|'))
-            .peekable();
-        if table.peek().is_none() {
-            break;
+    while let Some(line) = lines.next() {
+        if line.starts_with('#') {
+            heading = line.trim();
         }
-        limits.extend(table_limits(table)?);
+        if !line.starts_with(HEADER_START) {
+            continue;
+        }
+        let mut table = vec![line];
+        while let Some(line) = lines.next_if(|line| line.starts_with('|')) {
+            table.push(line);
+        }
+        read_table(&table, heading == COUNTED_WORK, &mut register)?;
     }
-    if limits.is_empty() {
+    if register.limits.is_empty() {
         bail!("{TESTING}'s Quality register has no table of rows");
     }
-    Ok(limits)
+    Ok(register)
 }
 
-/// Each row's limit in one table of rows, its header first.
-fn table_limits<'a>(mut lines: impl Iterator<Item = &'a str>) -> Result<BTreeMap<String, Limit>> {
-    let Some(header) = lines.next() else {
+/// Each row of one table of rows, its header first, and its limit, into
+/// `register`; `enforced` when the table is the Enforced section's.
+fn read_table(lines: &[&str], enforced: bool, register: &mut Register) -> Result<()> {
+    let Some((header, rows)) = lines.split_first() else {
         bail!("{TESTING}'s Quality register has no table of rows");
     };
     let header = cells(header);
+    let position = |name: &str| header.iter().position(|cell| *cell == name);
     let column = |name: &str| {
-        header
-            .iter()
-            .position(|cell| *cell == name)
+        position(name)
             .with_context(|| format!("the Quality register's table has no column \"{name}\""))
     };
     let (contract, today) = (column("Contract")?, column("Today")?);
-    let mut limits = BTreeMap::new();
-    for line in lines.skip(1) {
+    let benchmark = position("Benchmark");
+    for line in rows.iter().skip(1) {
         let row = cells(line);
         let (Some(name), Some(contract), Some(today)) =
             (row.first(), row.get(contract), row.get(today))
@@ -133,22 +163,41 @@ fn table_limits<'a>(mut lines: impl Iterator<Item = &'a str>) -> Result<BTreeMap
             bail!("the Quality register's row \"{line}\" is short of columns");
         };
         let name = name.trim_matches('`');
+        let families = benchmark
+            .and_then(|column| row.get(column))
+            .map(|cell| {
+                cell.split(',')
+                    .map(|family| family.trim().to_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut held = Held {
+            name: name.to_owned(),
+            families,
+            enforced,
+            counted_as: vec![name.to_owned()],
+        };
         if let Some(kinds) = per_kind(today) {
+            held.counted_as.clear();
             for (kind, limit) in kinds {
-                limits.insert(format!("{name}.{kind}"), limit);
+                let counted = format!("{name}.{kind}");
+                register.limits.insert(counted.clone(), limit);
+                held.counted_as.push(counted);
             }
+            register.rows.push(held);
             continue;
         }
+        register.rows.push(held);
         let limit = measured(today).or_else(|| {
             (!contract.contains('×'))
                 .then(|| Limit::first_number(contract))
                 .flatten()
         });
         if let Some(limit) = limit {
-            limits.insert(name.to_owned(), limit);
+            register.limits.insert(name.to_owned(), limit);
         }
     }
-    Ok(limits)
+    Ok(())
 }
 
 /// Each kind's figure a "Today" cell holds before any `;`, as `click 6, fill

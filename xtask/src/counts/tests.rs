@@ -1,0 +1,56 @@
+//! `ROWS` and `NOT_RUN_YET` against the counters of
+//! `goodfetch_counted_work::Row`, so the command's rows and the counted work
+//! cannot drift apart.
+
+use std::collections::BTreeSet;
+
+use super::{NOT_RUN_YET, ROWS};
+
+/// The rows whose figure a benchmark reads outside Counted work: Callgrind's
+/// call counts of SQLite's prepare, a counting VFS's syncs, and E6's sum over
+/// its off cell.
+const READ_ELSEWHERE: [&str; 8] = [
+    "E2.prepares",
+    "E3.prepares",
+    "E6.off_work",
+    "F2.prepares",
+    "F2.syncs",
+    "F3.prepares",
+    "F3.prepares.hop",
+    "F3.prepares.sitemap",
+];
+
+/// Every counter is a row of the command, counted or not run yet, and each
+/// counted row with no counter is read under Valgrind or elsewhere.
+#[test]
+fn the_commands_rows_are_the_counters_and_the_figures_read_elsewhere() {
+    let counters: BTreeSet<&str> = goodfetch_counted_work::Row::ALL
+        .iter()
+        .map(|row| row.name())
+        .collect();
+    let rows: BTreeSet<&str> = ROWS.iter().map(|row| row.name).collect();
+    let not_run_yet: BTreeSet<&str> = NOT_RUN_YET.iter().map(|row| row.name).collect();
+    let valgrind: BTreeSet<&str> = ROWS
+        .iter()
+        .filter(|row| row.valgrind.is_some())
+        .map(|row| row.name)
+        .collect();
+
+    assert_eq!(
+        rows.intersection(&not_run_yet).collect::<Vec<_>>(),
+        Vec::<&&str>::new(),
+        "rows both counted and not run yet"
+    );
+    let listed: BTreeSet<&str> = rows.union(&not_run_yet).copied().collect();
+    assert_eq!(
+        counters.difference(&listed).collect::<Vec<_>>(),
+        Vec::<&&str>::new(),
+        "counters no row of `xtask counts` holds"
+    );
+    let read_elsewhere: BTreeSet<&str> = valgrind.union(&READ_ELSEWHERE.into()).copied().collect();
+    assert_eq!(
+        rows.difference(&counters).copied().collect::<BTreeSet<_>>(),
+        read_elsewhere,
+        "counted rows with no counter, against those read under Valgrind or elsewhere"
+    );
+}

@@ -387,15 +387,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         }
         bail!("{planted} is no counted row of what runs");
     }
-    for row in &not_run_yet {
-        let limit = limits
-            .get(row.name)
-            .with_context(|| format!("the Quality register has no row {}", row.name))?;
-        output::line(&format!(
-            "{}: not run yet, limit {limit}, until {} builds its path",
-            row.name, row.builder
-        ));
-    }
+    print_not_run_yet(&not_run_yet, &limits)?;
     let executables = if arguments.valgrind {
         BTreeMap::new()
     } else {
@@ -672,6 +664,20 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
         .filter_map(|line| serde_json::from_str::<Message>(line).ok())
         .find_map(|message| message.executable)
         .with_context(|| format!("cargo build reported no executable for {}", family.name))
+}
+
+/// Prints each row of `rows` with its limit, saying it has not run.
+fn print_not_run_yet(rows: &[&NotRunYet], limits: &BTreeMap<String, Limit>) -> Result<()> {
+    for row in rows {
+        let limit = limits
+            .get(row.name)
+            .with_context(|| format!("the Quality register has no row {}", row.name))?;
+        output::line(&format!(
+            "{}: not run yet, limit {limit}, until {} builds its path",
+            row.name, row.builder
+        ));
+    }
+    Ok(())
 }
 
 /// A copy of `family`'s built `executable` that no other family's build

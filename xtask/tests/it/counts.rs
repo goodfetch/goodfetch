@@ -720,11 +720,8 @@ fn the_frontiers_rows_pass_at_their_limit_and_each_is_printed() {
 /// B2's row, and fails when asked for one.
 #[test]
 fn a_plant_goes_to_the_family_of_its_row_alone() {
-    let register = "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
-         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
-         |---|---|---|---|---|---|---|---|\n\
-         | `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `xtask counts` | implementer done |\n\
-         | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
+    let register = register("8")
+        + "| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
          | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |\n\
          | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |\n\
          | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |\n";

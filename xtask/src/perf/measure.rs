@@ -22,6 +22,11 @@
 //!
 //! gungraun keeps its baselines in its own folder under the output folder, so
 //! no earlier run's baseline is ever compared with.
+//!
+//! A reference build `ci/perf-reference.toml` pins (`drift.reference`, ADR
+//! 0140) goes through the same steps as the base, in its own worktree and
+//! target folder: the selected targets it has, and size-limit when it has a
+//! `.size-limit.json`, so its figures come from this job and this runner.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
@@ -41,6 +46,7 @@ use crate::metadata;
 
 use super::budget;
 use super::gungraun;
+use super::reference;
 
 /// The output folder, under the workspace's `target/`.
 pub(crate) const OUT: &str = "target/perf";
@@ -50,6 +56,9 @@ const JUNIT: &str = "target/junit";
 const SIZE_LIMIT_CONFIG: &str = ".size-limit.json";
 /// The base's target folder, inside the workspace's.
 pub(crate) const BASE_TARGET: &str = "perf-base";
+/// The reference build's target folder, inside the workspace's, for the
+/// base's reason.
+const REFERENCE_TARGET: &str = "perf-reference";
 /// The gungraun baseline the base is saved as.
 const BASELINE: &str = "base";
 
@@ -64,6 +73,18 @@ struct Plan {
     /// The selected targets the base has too.
     base_targets: Vec<String>,
     target_directory: PathBuf,
+    /// The pinned reference build, when one is pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reference: Option<Reference>,
+}
+
+/// The pinned reference build, as `build` checked it out.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reference {
+    commit: String,
+    /// The selected targets it has too.
+    targets: Vec<String>,
 }
 
 impl Plan {
@@ -84,6 +105,8 @@ pub(crate) struct Reports {
     pub(crate) admission: Option<PathBuf>,
     pub(crate) size_base: Option<PathBuf>,
     pub(crate) size_head: Option<PathBuf>,
+    pub(crate) reference: Option<PathBuf>,
+    pub(crate) size_reference: Option<PathBuf>,
 }
 
 fn out(root: &Path) -> PathBuf {
@@ -94,38 +117,33 @@ fn base_tree(root: &Path) -> PathBuf {
     out(root).join("base")
 }
 
-/// Checks out `base` and builds the base's and the head's `targets`.
+fn reference_tree(root: &Path) -> PathBuf {
+    out(root).join("reference")
+}
+
+/// Checks out `base`, and the reference build when one is pinned, and builds
+/// their and the head's `targets`.
 pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) -> Result<()> {
-    let commit = git(
-        root,
-        &["rev-parse", "--verify", "--end-of-options"],
-        &[&format!("{base}^{{commit}}")],
-    )?;
-    let commit = commit.trim().to_owned();
-    remove_base_tree(root)?;
+    let commit = commit_of(root, base)?;
+    let reference = reference::pinned(root)?
+        .map(|revision| {
+            commit_of(root, &revision)
+                .with_context(|| format!("resolving the revision {} pins", reference::PIN_FILE))
+        })
+        .transpose()?;
+    remove_trees(root)?;
     let out = out(root);
     if out.exists() {
         std::fs::remove_dir_all(&out).with_context(|| format!("removing {}", out.display()))?;
     }
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let tree = base_tree(root);
-    // `--force`: a base tree whose folder went without Git (a cleared
-    // `target/`) leaves its record, which a plain `add` refuses to reuse.
-    git(
-        root,
-        &["worktree", "add", "--force", "--detach", "--quiet"],
-        &[&tree.to_string_lossy(), &commit],
-    )?;
+    check_out(root, &tree, &commit)?;
     // size-limit measures each side's own Console build (ADR 0071).
     if root.join(SIZE_LIMIT_CONFIG).is_file() {
         crate::console::build(root)?;
     }
-    if tree.join(SIZE_LIMIT_CONFIG).is_file() {
-        crate::console::install(&tree)?;
-        crate::console::build(&tree)?;
-    }
     let target_directory = metadata::target_directory(cargo, root)?;
-    let base_target_directory = target_directory.join(BASE_TARGET);
     // Every bench target the base has in a selected crate, so a target the
     // change renamed or removed is still measured on the base, and its
     // ceilings find their figures missing from the head (ADR 0134).
@@ -145,17 +163,39 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
             })
             .collect()
     };
-    if !base_targets.is_empty() {
-        cargo_command(cargo, &tree, &base_target_directory)
-            .args(["fetch", "--locked"])
-            .status_checked("cargo fetch in the base")?;
-        crate::console::lend_build(root, &tree)?;
-    }
-    for target in &base_targets {
-        cargo_bench(cargo, &tree, &base_target_directory, target)
-            .arg("--no-run")
-            .status_checked(&format!("building the base's {target}"))?;
-    }
+    build_side(
+        cargo,
+        root,
+        &Side {
+            name: "base",
+            tree: &tree,
+            target_directory: &target_directory.join(BASE_TARGET),
+        },
+        &base_targets,
+    )?;
+    let reference = reference
+        .map(|commit| -> Result<Reference> {
+            let tree = reference_tree(root);
+            check_out(root, &tree, &commit)?;
+            let has = bench_targets(cargo, &tree)?;
+            let targets: Vec<String> = targets
+                .iter()
+                .filter(|target| has.contains(*target))
+                .cloned()
+                .collect();
+            build_side(
+                cargo,
+                root,
+                &Side {
+                    name: "reference",
+                    tree: &tree,
+                    target_directory: &target_directory.join(REFERENCE_TARGET),
+                },
+                &targets,
+            )?;
+            Ok(Reference { commit, targets })
+        })
+        .transpose()?;
     for target in targets {
         cargo_bench(cargo, root, &target_directory, target)
             .arg("--no-run")
@@ -166,9 +206,60 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
         head_targets: targets.to_vec(),
         base_targets,
         target_directory,
+        reference,
     };
     std::fs::write(out.join("plan.json"), serde_json::to_vec_pretty(&plan)?)
         .context("writing the plan")?;
+    Ok(())
+}
+
+/// The commit `revision` names.
+fn commit_of(root: &Path, revision: &str) -> Result<String> {
+    let commit = git(
+        root,
+        &["rev-parse", "--verify", "--end-of-options"],
+        &[&format!("{revision}^{{commit}}")],
+    )?;
+    Ok(commit.trim().to_owned())
+}
+
+/// Checks `commit` out at `tree`.
+fn check_out(root: &Path, tree: &Path, commit: &str) -> Result<()> {
+    // `--force`: a tree whose folder went without Git (a cleared `target/`)
+    // leaves its record, which a plain `add` refuses to reuse.
+    git(
+        root,
+        &["worktree", "add", "--force", "--detach", "--quiet"],
+        &[&tree.to_string_lossy(), commit],
+    )?;
+    Ok(())
+}
+
+/// A build measured beside the head: the base, or the reference.
+struct Side<'a> {
+    name: &'static str,
+    tree: &'a Path,
+    target_directory: &'a Path,
+}
+
+/// Builds `side`'s Console and `targets`. The head's Console is built first:
+/// a side with no `.size-limit.json` is lent it.
+fn build_side(cargo: &OsStr, root: &Path, side: &Side<'_>, targets: &[String]) -> Result<()> {
+    if side.tree.join(SIZE_LIMIT_CONFIG).is_file() {
+        crate::console::install(side.tree)?;
+        crate::console::build(side.tree)?;
+    }
+    if !targets.is_empty() {
+        cargo_command(cargo, side.tree, side.target_directory)
+            .args(["fetch", "--locked"])
+            .status_checked(&format!("cargo fetch in the {}", side.name))?;
+        crate::console::lend_build(root, side.tree)?;
+    }
+    for target in targets {
+        cargo_bench(cargo, side.tree, side.target_directory, target)
+            .arg("--no-run")
+            .status_checked(&format!("building the {}'s {target}", side.name))?;
+    }
     Ok(())
 }
 
@@ -207,6 +298,23 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         )?;
     }
     let admission = admit(cargo, root, &plan, &head_report)?;
+    let reference_report = plan
+        .reference
+        .as_ref()
+        .map(|reference| measure_reference(cargo, root, &plan, reference))
+        .transpose()?;
+    let size_reference = if plan.reference.is_some()
+        && root.join(SIZE_LIMIT_CONFIG).is_file()
+        && reference_tree(root).join(SIZE_LIMIT_CONFIG).is_file()
+    {
+        Some(size_limit(
+            root,
+            &reference_tree(root),
+            &out.join("size-reference.json"),
+        )?)
+    } else {
+        None
+    };
     let (size_base, size_head) = if root.join(SIZE_LIMIT_CONFIG).is_file() {
         let size_base = tree
             .join(SIZE_LIMIT_CONFIG)
@@ -219,7 +327,7 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         (None, None)
     };
     copy_reports(root)?;
-    remove_base_tree(root)?;
+    remove_trees(root)?;
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
     Ok(Reports {
         base: relative(&base_report),
@@ -227,7 +335,35 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         admission: admission.as_deref().map(relative),
         size_base: size_base.as_deref().map(relative),
         size_head: size_head.as_deref().map(relative),
+        reference: reference_report.as_deref().map(relative),
+        size_reference: size_reference.as_deref().map(relative),
     })
+}
+
+/// Measures the reference's targets and returns their report: gungraun's
+/// `new` is the reference's figure, so a folder of its own holds no baseline.
+fn measure_reference(
+    cargo: &OsStr,
+    root: &Path,
+    plan: &Plan,
+    reference: &Reference,
+) -> Result<PathBuf> {
+    let out = out(root);
+    let report = out.join("reference.jsonl");
+    File::create(&report).context("creating reference.jsonl")?;
+    let gungraun_home = std::path::absolute(out.join("gungraun-reference"))
+        .context("resolving gungraun's folder")?;
+    let target_directory = plan.target_directory.join(REFERENCE_TARGET);
+    for target in &reference.targets {
+        measure(
+            cargo_bench(cargo, &reference_tree(root), &target_directory, target)
+                .env("GUNGRAUN_HOME", &gungraun_home)
+                .arg("--"),
+            &report,
+            &format!("measuring the reference's {target}"),
+        )?;
+    }
+    Ok(report)
 }
 
 /// Runs each head target that holds a benchmark the base lacks 20 more
@@ -345,6 +481,8 @@ fn copy_reports(root: &Path) -> Result<()> {
         "head.jsonl",
         "size-base.json",
         "size-head.json",
+        "reference.jsonl",
+        "size-reference.json",
     ] {
         let from = out.join(name);
         if from.is_file() {
@@ -383,18 +521,19 @@ fn bench_targets(cargo: &OsStr, root: &Path) -> Result<BTreeSet<String>> {
         .collect())
 }
 
-/// Removes the base's worktree and its record, and nothing else: never a
-/// repository-wide `git worktree prune`, which in the container (where only
-/// this worktree is mounted) would drop the record of every other unlocked
-/// worktree, whose folders it cannot see.
-fn remove_base_tree(root: &Path) -> Result<()> {
-    let tree = base_tree(root);
-    if tree.exists() {
-        git(
-            root,
-            &["worktree", "remove", "--force"],
-            &[&tree.to_string_lossy()],
-        )?;
+/// Removes the base's and the reference's worktrees and their records, and
+/// nothing else: never a repository-wide `git worktree prune`, which in the
+/// container (where only this worktree is mounted) would drop the record of
+/// every other unlocked worktree, whose folders it cannot see.
+fn remove_trees(root: &Path) -> Result<()> {
+    for tree in [base_tree(root), reference_tree(root)] {
+        if tree.exists() {
+            git(
+                root,
+                &["worktree", "remove", "--force"],
+                &[&tree.to_string_lossy()],
+            )?;
+        }
     }
     Ok(())
 }

@@ -76,10 +76,13 @@ fn committed() -> Vec<CommittedText> {
     let at = PointInTime::from_rfc3339(START.to_owned());
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets
-            .check(vec![PushedRecord {
-                dataset: "books".to_owned(),
-                data: value,
-            }])
+            .check(
+                vec![PushedRecord {
+                    dataset: "books".to_owned(),
+                    data: value,
+                }],
+                &goodfetch_counted_work::CountedWork::default(),
+            )
             .expect("invariant: each Record holds");
         let id = (request + 1).to_string();
         let wall = (request == 2).then_some(WallMarker {
@@ -106,6 +109,7 @@ fn committed() -> Vec<CommittedText> {
                     unread_fields: Vec::new(),
                 },
                 masks: &Masks::new(),
+                work: &goodfetch_counted_work::CountedWork::default(),
             },
             &checked,
         )

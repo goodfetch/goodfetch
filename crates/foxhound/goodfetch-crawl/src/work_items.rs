@@ -24,6 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Waiting;
@@ -762,6 +763,8 @@ pub(crate) struct Committed<'a> {
     pub(crate) ended_at: &'a PointInTime,
     /// Each request the attempt staged that the commit did not add.
     pub(crate) not_added: &'a [NotAddedAtCommit],
+    /// Where its Records' work is counted (F4, ADR 0140).
+    pub(crate) work: &'a CountedWork,
 }
 
 /// Commits an attempt's Records, once, each numbered in its Dataset and
@@ -782,6 +785,7 @@ pub(crate) fn commit(
         masks,
         ended_at,
         not_added,
+        work,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
@@ -790,6 +794,8 @@ pub(crate) fn commit(
         connection.query_row("SELECT url FROM work_items WHERE id = ?1", [id], |row| {
             row.get(0)
         })?;
+    // The Run's constant digest, read again at each commit.
+    work.count(Row::RecordConstantLookups);
     let clean_up_rules: Option<String> = connection
         .query_row("SELECT clean_up_digest FROM run", [], |row| row.get(0))
         .optional()?
@@ -813,6 +819,7 @@ pub(crate) fn commit(
         at: ended_at,
         provenance: &provenance,
         masks,
+        work,
     };
     let counted = goodfetch_dataset::commit(connection, committing, records)?;
     connection.execute(

@@ -9,6 +9,7 @@
 //! refuses it with `attempt_ended`, and a declared Effect's body with
 //! `effect_staging_refused`.
 
+use goodfetch_counted_work::Row;
 use goodfetch_dataset::{Datasets, Refused};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
@@ -51,13 +52,17 @@ async fn push(
         return Err(ended());
     };
     let work_item = crawl_request_id.clone();
+    let work = run.metrics().counted_work().clone();
     let answered = run
         .state()
         .write(move |connection| {
+            // This write is the push's own, apart from its attempt's commit.
+            work.count(Row::RecordTransactions);
             if !staging.holds(&work_item, lease_epoch) {
                 return Ok(None);
             }
-            match Datasets::read(connection)?.check_pushed(PushedRecord { dataset, data }) {
+            let declared = Datasets::read_for_records(connection, &work)?;
+            match declared.check_pushed(PushedRecord { dataset, data }, &work) {
                 Ok(checked) => Ok(staging.push(&work_item, lease_epoch, checked)),
                 Err(Refused { error, rejected }) => Ok(staging
                     .push(&work_item, lease_epoch, rejected)

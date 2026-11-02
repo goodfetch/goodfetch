@@ -10817,6 +10817,7 @@
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
+            "record",
             "sink_delivery",
             "working_copy_update"
           ]
@@ -10824,6 +10825,8 @@
         {
           "name": "work",
           "values": [
+            "deep_copies",
+            "encodes",
             "parses",
             "selector_compilations",
             "readability_runs",
@@ -10831,14 +10834,17 @@
             "locale_form_builds",
             "plugin_serializations",
             "plugin_answer_parses",
-            "deep_copies",
-            "encodes",
             "builds",
             "calls",
             "messages_no_hook",
             "opens",
             "transactions",
             "writer_reads",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "constant_lookups",
             "merge_round_trips",
             "document_loads",
             "document_encodes",

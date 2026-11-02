@@ -114,6 +114,14 @@ Adopted from recommendations R3, R4 and R9 of the 2026-10-31 research, as amendm
 - **No gate is informational without an owner and an expiry (R4).** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends. `GATING` being `Informational` is such a waiver: it is an Exception of the register, on ADR 0071's comparison and the ceilings, ending at #1577's merge or on 2027-01-30, whichever comes first. Meanwhile the rows of this ADR gate from their pull request.
 - **The instruction ratio against Spider is counted, and blocks once tuned (R9).** Foxhound's instructions per page against Spider's, both under Callgrind on scenario 1 of ADR 0138's matrix, is a Measured row; it was 32 times on the 2026-10-30 profile. Its ceiling is set from #1577's tuned figure, and it gates from that pull request. The matrix's wall-time cells stay Performance targets.
 
+  > Note (agent decisions of #1877, pending owner review), 2026-11-02:
+  >
+  > - The pin is a file, `ci/perf-reference.toml`, holding the revision; none pinned reports "not run yet", and a missing file fails `xtask perf build`, so losing it cannot stop the gate quietly. Moving it selects every bench target.
+  > - The reference measures the head's selected targets it has, so a figure the head no longer measures is not compared; the ceilings keep their own check on a lost benchmark.
+  > - The drift gate fails whatever `GATING` says, as this section says of this ADR's rows, and no "Performance change" section passes it.
+  > - Scenario 1's `run_state.durability: off` and `frontier.learning: false` (ADR 0138) do not exist yet. Until #1577 adds them, the ratio's Foxhound runs use `fast`, the setting the 2026-10-30 profile ran in, and the default learning; #1577's pull request adds both to the cell, in `xtask/src/rss/crawl.rs`'s `Settings::Raw`, before it sets the ceiling.
+  > - The cell counts each whole process under Callgrind, its start and exit included, and takes the median of 3 runs of each tool.
+
 ### Open questions
 
 These are recorded here, and each blocks only the tickets that would extend its path:
@@ -150,6 +158,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **A handler on a document tier is its own cell of B1,** `document_tier_handler`, since a crawl is either code-free or handled; each page waits on its `h1` as attached, then as visible, so `matches` and `shown` count.
 > - **Two features have no off cell yet.** `frontier.learning`, which ADR 0138 adds to switch off the Page signature's readability, is #1577's, and Provenance has no setting; the one switchable feature the fixture reaches stays the Filter lists.
 > - **`dom_query`'s methods taking a selector string are refused,** since each compiles on each call. Raw file opens and folder creations stay under the blocking ban's existing module-level `#[expect]`s, whose reasons do not name this ADR: the Shared paths audit moves those on a path onto the counted functions.
+
+> Note (agent decisions of #1853, pending owner review), 2026-11-02, on F4's rows:
+> - **A Record's validator build has its counted function in `goodfetch-dataset`, `counted_validator`,** not in `goodfetch-counted-work`: that crate sits beneath the engine, so holding it there would link `jsonschema` into Collie and every linked engine, which build no validator.
+> - **A row counts the Record's path, not every use of its primitive.** `Datasets::read_for_records` counts `F4.declaration_reads`; a reader of a Dataset uses plain `Datasets::read`, whose unit is no Record. `Datasets::declare`'s one build per Run is not counted, being what the contract allows.
+> - **`F4.constant_lookups` counts two lookups:** the schema hash's subquery per insert, and the Clean-up rules' digest read per commit. Exception X8 takes the row, as the first measure found it.
+> - **`F4.transactions` counts `crawl_request.push`'s own write,** which a commit hook could not tell from the attempt's commit. The code-free crawl pushes nothing, so B1 reads 0 until a ticket gives its fixture a handler.
+> - **B1's fixture needs no change for this row:** the code-free crawl's `pages` Dataset already has a schema. A Dataset's schema cannot be switched off there, as a crawl with `extraction` declares its own; the rows run in B1's other cells.
 
 > Note (agent decisions of #2037, pending owner review), 2026-11-02, on the Working-copy update's rows:
 > - **E7's eight rows start at their contract, not run yet,** as F5's and F6's do: `just counts --path E7` prints each limit and passes, building nothing, and B3's run fails `row-listed-as-not-run` once a cell counts any of their work. `E7.merge_round_trips` waits on the Merge host (#1998), the other seven on the Working copy's first code (#1689).

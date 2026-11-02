@@ -86,6 +86,8 @@ disallowed-methods = [
   { path = "tokio::fs::File::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::File::create", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::create_dir_all", reason = "create through CountedWork::create_dir_all on a blocking owner (ADR 0140)", allow-invalid = true },
+  # A validator build goes through one counted function (ADR 0140).
+  { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },

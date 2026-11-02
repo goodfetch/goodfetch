@@ -310,56 +310,6 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     );
 }
 
-/// Page analysis's rows, as the register holds them.
-const F1_ROWS: &str = "\
-| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `just counts` | implementer done |
-| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
-| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow | `just counts` | implementer done |
-| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
-| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
-| `F1.plugin_serializations` | serializations per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
-| `F1.plugin_answer_parses` | answer parses per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
-";
-
-/// Two families' examples share one name, `counts`, so Cargo puts both at one
-/// path: each family's run reads its own benchmark all the same.
-#[test]
-fn a_whole_run_reads_each_family_its_own_benchmark_though_their_examples_share_a_name() {
-    let workspace = Workspace::from_fixture("empty");
-    workspace.write(
-        "TESTING.md",
-        format!("{B3_REGISTER}{F1_ROWS}{NOT_RUN_YET}").as_bytes(),
-    );
-    let b1 = r#"{"cell":"default","units":{"pages":13},"counts":{"F1.parses":104,"F1.selector_compilations":0,"F1.readability_runs":13,"F1.file_opens":0,"F1.locale_form_builds":0,"F1.plugin_serializations":0,"F1.plugin_answer_parses":0}}"#;
-    let b3 = r#"{"cell":"default","units":{"incoming_messages":10,"outgoing_messages":10},"counts":{"E1.deep_copies":11,"E1.encodes":20}}"#;
-    let cargo = executable_script(
-        &workspace,
-        "cargo.sh",
-        &format!(
-            "#!/bin/sh\nexample=\"$PWD/target/debug/examples/counts\"\nmkdir -p \"${{example%/*}}\"\n\
-             case \"$*\" in\n  *goodfetch-foxhound*) line='{b1}' ;;\n  *) line='{b3}' ;;\nesac\n\
-             printf '#!/bin/sh\\necho %s\\n' \"'$line'\" > \"$example\"\nchmod +x \"$example\"\n\
-             echo \"{{\\\"executable\\\":\\\"$example\\\"}}\"\n"
-        ),
-    );
-
-    let outcome = workspace.xtask_with_env(&["counts"], &[("CARGO", cargo.as_os_str())]);
-
-    assert_eq!(
-        (outcome.code, outcome.findings()),
-        (0, vec![]),
-        "{}\n{}",
-        outcome.stdout,
-        outcome.stderr
-    );
-    for line in [
-        "F1.parses [default]: 8 per page",
-        "E1.encodes [default]: 2 per outgoing_message",
-    ] {
-        assert!(outcome.stdout.contains(line), "{}", outcome.stdout);
-    }
-}
-
 /// One bench target's gungraun summaries: for each cell, `no_messages` at 500
 /// and each scenario `per_message` over it per message of a hundred.
 fn summaries(bench: &str, metrics: &[&str], small: u64, large: u64) -> String {
@@ -558,38 +508,75 @@ fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] 
     assert_eq!(stdout.lines().collect::<Vec<_>>(), lines);
 }
 
-/// B3's counted rows, its copies `copies` over 10 messages in: each plant
-/// doubles its row's count.
-fn b3_workspace(copies: u64) -> (Workspace, String) {
+/// B1's counted rows other than `F1.parses`, at the figures [`whole_b1`]'s
+/// benchmark gives them, so a run that names no row holds every counted row.
+const OTHER_B1_ROWS: &str = "\
+| `F1.selector_compilations` | selector compilations per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F1.file_opens` | files opened per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.plugin_serializations` | serializations per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.plugin_answer_parses` | answer parses per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F4.serializations` | serializations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+";
+
+/// A workspace whose register holds every counted row of B1, and whose
+/// benchmark prints over 13 pages and their 13 Records `parses` parses, one
+/// readability run a page, one validation and one serialization a Record, none
+/// of the other rows' work, then `extra` as it is, and 13 more of the row
+/// it is told to plant.
+fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
-    workspace.write("TESTING.md", B3_REGISTER.as_bytes());
-    let path = executable_script(
-        &workspace,
-        "benchmark.sh",
-        &format!(
-            "#!/bin/sh\ncopies={copies}\nencodes=20\n\
-             [ \"$2\" = E1.deep_copies ] && copies=$((copies * 2))\n\
-             [ \"$2\" = E1.encodes ] && encodes=40\n\
-             echo '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10}},\"counts\":{{\"E1.deep_copies\":'$copies',\"E1.encodes\":'$encodes'}}}}'\n"
-        ),
+    workspace.write(
+        "TESTING.md",
+        format!("{}{OTHER_B1_ROWS}", register("8")).as_bytes(),
     );
-    (workspace, format!("B3={}", path.display()))
+    let counts: Vec<String> = [
+        ("F1.parses", parses),
+        ("F1.selector_compilations", 0),
+        ("F1.readability_runs", 13),
+        ("F1.file_opens", 0),
+        ("F1.locale_form_builds", 0),
+        ("F1.plugin_serializations", 0),
+        ("F1.plugin_answer_parses", 0),
+        ("F4.declaration_reads", 0),
+        ("F4.validator_builds", 0),
+        ("F4.validations", 13),
+        ("F4.serializations", 13),
+        ("F4.deep_copies", 0),
+        ("F4.constant_lookups", 0),
+        ("F4.transactions", 0),
+    ]
+    .iter()
+    .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
+    .collect();
+    let script = format!(
+        "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13}},\"counts\":{{{}{extra}}}}}'\n",
+        counts.join(",")
+    );
+    let path = executable_script(&workspace, "benchmark.sh", &script);
+    let executable = format!("B1={}", path.display());
+    (workspace, executable)
 }
 
 #[test]
 fn a_whole_run_holds_the_counted_rows_and_reports_the_rest_as_not_run() {
-    let (workspace, executable) = b3_workspace(12);
+    let (workspace, executable) = whole_b1(105, "");
 
-    let outcome = workspace.xtask(&["counts", "--family", "B3", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
 
-    assert_eq!(
-        outcome.findings(),
-        vec![finding("over-limit", "E1.deep_copies")]
-    );
+    assert_eq!(outcome.findings(), vec![finding("over-limit", "F1.parses")]);
     assert!(
         outcome
             .stdout
-            .contains("E7.opens: not run yet, limit 0, until #1689 builds its path"),
+            .contains("F6.opens: not run yet, limit 0, until #1121 builds its path"),
         "{}",
         outcome.stdout
     );
@@ -617,18 +604,24 @@ fn a_row_not_run_yet_missing_from_the_register_reaches_no_verdict() {
     assert!(outcome.stderr.contains("F6.opens"), "{}", outcome.stderr);
 }
 
+/// The ticket that builds the path cannot leave its row saying it has not run.
+#[test]
+fn a_benchmark_that_does_the_work_of_a_row_not_run_yet_fails() {
+    let (workspace, executable) = whole_b1(104, ",\"F5.calls\":13");
+
+    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("row-listed-as-not-run", "F5.calls")]
+    );
+}
+
 #[test]
 fn proving_leaves_a_row_not_run_yet_out() {
-    let (workspace, executable) = b3_workspace(11);
+    let (workspace, executable) = whole_b1(104, "");
 
-    let outcome = workspace.xtask(&[
-        "counts",
-        "--family",
-        "B3",
-        "--executable",
-        &executable,
-        "--prove",
-    ]);
+    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -637,7 +630,7 @@ fn proving_leaves_a_row_not_run_yet_out() {
         outcome.stderr
     );
     assert!(
-        outcome.stdout.contains("E7.encodes: not run yet"),
+        outcome.stdout.contains("F5.calls: not run yet"),
         "{}",
         outcome.stdout
     );

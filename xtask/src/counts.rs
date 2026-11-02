@@ -95,9 +95,9 @@ const PLANT_VARIABLE: &str = "GOODFETCH_COUNTS_PLANT";
 /// The folder under the workspace's `target/` of the Valgrind rows' reports.
 const VALGRIND_OUT: &str = "target/counts";
 
-/// The folder under the workspace's `target/` of each family's own copy of its
-/// built benchmark.
-const BUILT_OUT: &str = "target/counts/bin";
+/// The folder under the workspace's `target/` of each family's built
+/// benchmark, under its family's name.
+const EXECUTABLES_OUT: &str = "target/counts/executables";
 
 /// One counted row of the register.
 struct Row {
@@ -153,7 +153,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 15] = [
+const ROWS: [Row; 22] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -243,6 +243,55 @@ const ROWS: [Row; 15] = [
         Figure::TotalBytes,
         LARGE,
     ),
+    Row {
+        name: "F4.declaration_reads",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validator_builds",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.validations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.serializations",
+        family: "B1",
+        unit: "records",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.deep_copies",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.constant_lookups",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F4.transactions",
+        family: "B1",
+        unit: "records",
+        happens: false,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -369,7 +418,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
-    // A row not run yet is a counted row: a run under Valgrind holds none.
+    // A row not run yet is a counted row: no Valgrind run holds it.
     let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
         .iter()
         .filter(|_| !arguments.valgrind)
@@ -387,49 +436,26 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         }
         bail!("{planted} is no counted row of what runs");
     }
-    print_not_run_yet(&not_run_yet, &limits)?;
+    for row in &not_run_yet {
+        let limit = limits
+            .get(row.name)
+            .with_context(|| format!("the Quality register has no row {}", row.name))?;
+        output::line(&format!(
+            "{}: not run yet, limit {limit}, until {} builds its path",
+            row.name, row.builder
+        ));
+    }
     let executables = if arguments.valgrind {
         BTreeMap::new()
     } else {
         executables(arguments, environment, &rows)?
     };
     if arguments.prove {
-        let mut findings = Vec::new();
-        // A Valgrind plant does the same work whichever row it names, so one
-        // run of a family's targets proves all its rows.
-        let mut planted: BTreeMap<&str, Vec<Cell>> = BTreeMap::new();
-        for row in &rows {
-            if !planted.contains_key(row.family) || !arguments.valgrind {
-                let cells = family_cells(
-                    row.family,
-                    &rows,
-                    &executables,
-                    Some(row.name),
-                    arguments,
-                    environment,
-                )?;
-                planted.insert(row.family, cells);
-            }
-            let caught = verdict(&[row], &planted[row.family], &limits)?
-                .iter()
-                .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
-            output::line(&format!(
-                "{}: one planted unit {}",
-                row.name,
-                if caught { "fails" } else { "passes unseen" }
-            ));
-            if !caught {
-                findings.push(Finding::new(
-                    "counter-blind",
-                    row.name,
-                    "one planted unit of its work did not fail it",
-                ));
-            }
-        }
-        return Ok(check::report(&findings));
+        return prove(&rows, &executables, &limits, arguments, environment);
     }
     let mut findings = Vec::new();
     let mut families: Vec<&str> = rows.iter().map(|row| row.family).collect();
+    families.sort_unstable();
     families.dedup();
     for family in families {
         let cells = family_cells(
@@ -452,6 +478,50 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 .filter(|row| row.family == family)
                 .filter_map(|row| done_though_not_run(row, &cells)),
         );
+    }
+    Ok(check::report(&findings))
+}
+
+/// Plants one extra unit of each of `rows`' work in turn and fails each
+/// counter that does not see it.
+fn prove(
+    rows: &[&Row],
+    executables: &BTreeMap<&'static str, PathBuf>,
+    limits: &BTreeMap<String, Limit>,
+    arguments: &Arguments,
+    environment: &Environment,
+) -> Result<ExitCode> {
+    let mut findings = Vec::new();
+    // A Valgrind plant does the same work whichever row it names, so one
+    // run of a family's targets proves all its rows.
+    let mut planted: BTreeMap<&str, Vec<Cell>> = BTreeMap::new();
+    for row in rows {
+        if !planted.contains_key(row.family) || !arguments.valgrind {
+            let cells = family_cells(
+                row.family,
+                rows,
+                executables,
+                Some(row.name),
+                arguments,
+                environment,
+            )?;
+            planted.insert(row.family, cells);
+        }
+        let caught = verdict(&[row], &planted[row.family], limits)?
+            .iter()
+            .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
+        output::line(&format!(
+            "{}: one planted unit {}",
+            row.name,
+            if caught { "fails" } else { "passes unseen" }
+        ));
+        if !caught {
+            findings.push(Finding::new(
+                "counter-blind",
+                row.name,
+                "one planted unit of its work did not fail it",
+            ));
+        }
     }
     Ok(check::report(&findings))
 }
@@ -623,7 +693,7 @@ fn executables(
         }
         let executable = match named.get(family.name) {
             Some(path) => environment.path(Path::new(path)),
-            None => own_copy(&family, &build(&family, environment)?, environment)?,
+            None => build(&family, environment)?,
         };
         executables.insert(family.name, executable);
     }
@@ -659,37 +729,24 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     if !output.status.success() {
         bail!("cargo build of {}'s benchmark failed", family.name);
     }
-    String::from_utf8_lossy(&output.stdout)
+    let built = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| serde_json::from_str::<Message>(line).ok())
         .find_map(|message| message.executable)
-        .with_context(|| format!("cargo build reported no executable for {}", family.name))
-}
-
-/// Prints each row of `rows` with its limit, saying it has not run.
-fn print_not_run_yet(rows: &[&NotRunYet], limits: &BTreeMap<String, Limit>) -> Result<()> {
-    for row in rows {
-        let limit = limits
-            .get(row.name)
-            .with_context(|| format!("the Quality register has no row {}", row.name))?;
-        output::line(&format!(
-            "{}: not run yet, limit {limit}, until {} builds its path",
-            row.name, row.builder
-        ));
+        .with_context(|| format!("cargo build reported no executable for {}", family.name))?;
+    // Every family's example is `counts`, which Cargo leaves at one path, so
+    // the next family's build would replace this one before it runs.
+    let own = environment
+        .root
+        .join(EXECUTABLES_OUT)
+        .join(format!("{}-{}", family.name, family.target));
+    if let Some(folder) = own.parent() {
+        std::fs::create_dir_all(folder)
+            .with_context(|| format!("creating {}", folder.display()))?;
     }
-    Ok(())
-}
-
-/// A copy of `family`'s built `executable` that no other family's build
-/// replaces: Cargo puts every package's example of one name at one path, and
-/// each family's is `counts`.
-fn own_copy(family: &Family, executable: &Path, environment: &Environment) -> Result<PathBuf> {
-    let folder = environment.root.join(BUILT_OUT);
-    std::fs::create_dir_all(&folder).with_context(|| format!("creating {}", folder.display()))?;
-    let copy = folder.join(format!("{}-{}", family.name, family.target));
-    std::fs::copy(executable, &copy)
-        .with_context(|| format!("copying {} to {}", executable.display(), copy.display()))?;
-    Ok(copy)
+    std::fs::copy(&built, &own)
+        .with_context(|| format!("copying {} to {}", built.display(), own.display()))?;
+    Ok(own)
 }
 
 /// What `executable` counted, each extra unit of `plant` done.

@@ -70,6 +70,20 @@ pub enum Row {
     /// `F6.writer_reads`: a read through the run file's writer for a delivered
     /// batch.
     SinkWriterReads,
+    /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
+    RecordDeclarationReads,
+    /// `F4.validator_builds`: a validator built to check a Record.
+    RecordValidatorBuilds,
+    /// `F4.validations`: a validation of a Record against its Dataset's schema.
+    RecordValidations,
+    /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
+    RecordSerializations,
+    /// `F4.deep_copies`: a deep copy of a Record's data.
+    RecordDeepCopies,
+    /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
+    RecordConstantLookups,
+    /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
+    RecordTransactions,
     /// `E7.merge_round_trips`: a round trip to the Merge host for a
     /// Working-copy update.
     WorkingCopyMergeRoundTrips,
@@ -93,7 +107,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 30] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -109,6 +123,13 @@ impl Row {
         Self::SinkOpens,
         Self::SinkTransactions,
         Self::SinkWriterReads,
+        Self::RecordDeclarationReads,
+        Self::RecordValidatorBuilds,
+        Self::RecordValidations,
+        Self::RecordSerializations,
+        Self::RecordDeepCopies,
+        Self::RecordConstantLookups,
+        Self::RecordTransactions,
         Self::WorkingCopyMergeRoundTrips,
         Self::WorkingCopyDocumentLoads,
         Self::WorkingCopyDocumentEncodes,
@@ -134,6 +155,13 @@ impl Row {
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
+            Self::RecordDeclarationReads
+            | Self::RecordValidatorBuilds
+            | Self::RecordValidations
+            | Self::RecordSerializations
+            | Self::RecordDeepCopies
+            | Self::RecordConstantLookups
+            | Self::RecordTransactions => "record",
             Self::WorkingCopyMergeRoundTrips
             | Self::WorkingCopyDocumentLoads
             | Self::WorkingCopyDocumentEncodes
@@ -156,14 +184,21 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageDeepCopies => "deep_copies",
             Self::MessageEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
             Self::SinkOpens | Self::WorkingCopyOpens => "opens",
-            Self::SinkTransactions | Self::WorkingCopyTransactions => "transactions",
             Self::SinkWriterReads => "writer_reads",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations => "validations",
+            Self::RecordSerializations => "serializations",
+            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::SinkTransactions | Self::RecordTransactions | Self::WorkingCopyTransactions => {
+                "transactions"
+            }
             Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
             Self::WorkingCopyDocumentLoads => "document_loads",
             Self::WorkingCopyDocumentEncodes => "document_encodes",
@@ -191,6 +226,13 @@ impl Row {
             Self::SinkOpens => "F6.opens",
             Self::SinkTransactions => "F6.transactions",
             Self::SinkWriterReads => "F6.writer_reads",
+            Self::RecordDeclarationReads => "F4.declaration_reads",
+            Self::RecordValidatorBuilds => "F4.validator_builds",
+            Self::RecordValidations => "F4.validations",
+            Self::RecordSerializations => "F4.serializations",
+            Self::RecordDeepCopies => "F4.deep_copies",
+            Self::RecordConstantLookups => "F4.constant_lookups",
+            Self::RecordTransactions => "F4.transactions",
             Self::WorkingCopyMergeRoundTrips => "E7.merge_round_trips",
             Self::WorkingCopyDocumentLoads => "E7.document_loads",
             Self::WorkingCopyDocumentEncodes => "E7.document_encodes",

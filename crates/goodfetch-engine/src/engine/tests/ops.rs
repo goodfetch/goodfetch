@@ -383,6 +383,11 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="configuration_reads"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="opens"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="prunes"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="syncs"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="transactions"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),
@@ -398,6 +403,11 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
             ]),
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="configuration_reads"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="opens"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="prunes"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="syncs"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="transactions"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),

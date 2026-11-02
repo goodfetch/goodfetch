@@ -162,7 +162,7 @@ pub const DAEMON_DRAINING: Metric = Metric {
 /// paths (ADR 0140) with a counted row so far, each by name.
 const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     name: "shared_path",
-    values: &["json_rpc_message", "page_analysis"],
+    values: &["audit_entry", "json_rpc_message", "page_analysis"],
 };
 
 /// The values of `goodfetch.counted_work`'s `work` label: what those rows
@@ -179,6 +179,11 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "locale_form_builds",
         "plugin_serializations",
         "plugin_answer_parses",
+        "configuration_reads",
+        "opens",
+        "prunes",
+        "transactions",
+        "syncs",
     ],
 };
 

@@ -2401,6 +2401,7 @@ impl Runs {
             },
             Arc::new(
                 AuditLog::of(&setup.home, setup.ledger_vfs.clone())
+                    .counting_on(setup.metrics.counted_work().clone())
                     .retained_under(setup.settings.files().clone(), setup.settings.product())
                     .sending_to(setup.audit_events.clone()),
             ),

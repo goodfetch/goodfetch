@@ -15581,6 +15581,7 @@
         {
           "name": "shared_path",
           "values": [
+            "audit_entry",
             "json_rpc_message",
             "page_analysis"
           ]
@@ -15596,7 +15597,12 @@
             "file_opens",
             "locale_form_builds",
             "plugin_serializations",
-            "plugin_answer_parses"
+            "plugin_answer_parses",
+            "configuration_reads",
+            "opens",
+            "prunes",
+            "transactions",
+            "syncs"
           ]
         }
       ],

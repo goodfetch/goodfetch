@@ -56,11 +56,23 @@ pub enum Row {
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
     MessageEncodes,
+    /// `E2.configuration_reads`: a read of the machine's settings files for
+    /// an Audit entry.
+    AuditConfigurationReads,
+    /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
+    AuditOpens,
+    /// `E2.prunes`: a prune pass over the Audit log.
+    AuditPrunes,
+    /// `E2.transactions`: a transaction the Audit log's store committed.
+    AuditTransactions,
+    /// `E2.syncs`: a write of the Audit log's head file; the store's own
+    /// syncs are seen by a counting VFS, which no production store has.
+    AuditSyncs,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 14] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -70,6 +82,11 @@ impl Row {
         Self::PagePluginAnswerParses,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
+        Self::AuditConfigurationReads,
+        Self::AuditOpens,
+        Self::AuditPrunes,
+        Self::AuditTransactions,
+        Self::AuditSyncs,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -85,6 +102,11 @@ impl Row {
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
+            Self::AuditConfigurationReads
+            | Self::AuditOpens
+            | Self::AuditPrunes
+            | Self::AuditTransactions
+            | Self::AuditSyncs => "audit_entry",
         }
     }
 
@@ -101,6 +123,11 @@ impl Row {
             Self::PagePluginAnswerParses => "plugin_answer_parses",
             Self::MessageDeepCopies => "deep_copies",
             Self::MessageEncodes => "encodes",
+            Self::AuditConfigurationReads => "configuration_reads",
+            Self::AuditOpens => "opens",
+            Self::AuditPrunes => "prunes",
+            Self::AuditTransactions => "transactions",
+            Self::AuditSyncs => "syncs",
         }
     }
 
@@ -117,6 +144,11 @@ impl Row {
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
+            Self::AuditConfigurationReads => "E2.configuration_reads",
+            Self::AuditOpens => "E2.opens",
+            Self::AuditPrunes => "E2.prunes",
+            Self::AuditTransactions => "E2.transactions",
+            Self::AuditSyncs => "E2.syncs",
         }
     }
 

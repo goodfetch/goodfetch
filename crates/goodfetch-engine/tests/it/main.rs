@@ -22,9 +22,18 @@
 static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
     goodfetch_engine::heap::Counting::new(std::alloc::System);
 
+// B3's Audit entry scenario, which `counted_audit` checks.
+#[path = "../../benches/audit.rs"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the scenario writes its home's settings file before the log opens"
+)]
+#[expect(dead_code, reason = "what only the counts cell reads of the scenario")]
+mod audit_scenario;
 mod certificates;
 mod children;
 mod client_certificates;
+mod counted_audit;
 mod counted_messages;
 mod dns;
 mod downloads;

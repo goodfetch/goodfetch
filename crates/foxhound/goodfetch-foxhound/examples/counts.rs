@@ -22,6 +22,12 @@
 //! a crawl with no large page and far longer on the whole site. A page's size
 //! moves no statement. Without Valgrind `F2.prepares` goes unprinted, which `xtask
 //! counts` fails as a row not counted.
+//!
+//! The site serves its robots.txt (E6). `E6.opens` is the Politeness file's
+//! opens after the first page and the statements Callgrind sees prepared
+//! beneath its functions, its opening's left out, and goes unprinted without
+//! Valgrind too. `E6.off_work` is what the E6 counters counted in the cell with
+//! Politeness and robots.txt off, over its attempts.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -46,8 +52,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::CountingVfs;
-use goodfetch_test_support::callgrind;
-use plants::{Counted as PlantOn, run_state_plant};
+use goodfetch_test_support::callgrind::{self, Calls};
+use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
 use serde_json::{Map, Value, json};
 
@@ -59,6 +65,7 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
             let _ = counted.parse_html(Row::PageParses, head);
         }),
         other if other.starts_with("F2.") => run_state_plant(other, &PlantOn { work, vfs }),
+        other if other.starts_with("E6.") => politeness_plant(other, work),
         other => Row::ALL
             .into_iter()
             .find(|row| row.name() == other)
@@ -67,14 +74,16 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     }
 }
 
-/// The rows counted from the crawl's first page on, not from its start.
-const FROM_FIRST_PAGE: [Row; 6] = [
+/// The rows counted from the crawl's first page on, not from its start: the
+/// Politeness file opens as the crawl starts.
+const FROM_FIRST_PAGE: [Row; 7] = [
     Row::PageSelectorCompilations,
     Row::PageReadabilityRuns,
     Row::PageFileOpens,
     Row::PageLocaleFormBuilds,
     Row::PagePluginSerializations,
     Row::PagePluginAnswerParses,
+    Row::PolitenessOpens,
 ];
 
 /// The field whose Value transform has the crawl build a locale's forms:
@@ -91,6 +100,33 @@ fn number_field() -> Map<String, Value> {
 /// The row Callgrind reads, and the C symbol it reads it from.
 const PREPARES: &str = "F2.prepares";
 const PREPARE: &str = "sqlite3_prepare_v3";
+
+/// The row Callgrind adds the Politeness file's preparations to: those
+/// beneath its functions, but its opening's.
+const POLITENESS_OPENS: &str = "E6.opens";
+const POLITENESS: &str = "goodfetch_engine::politeness::";
+const OPENING: [&str; 2] = ["politeness::open_file", "politeness::create_tables"];
+
+/// How many callers up Callgrind looks for the Politeness file's functions:
+/// more than SQLite's wrapper, a contribution's rule and the file's actor take.
+const CALLERS: u32 = 32;
+
+/// The row of the cell with Politeness and robots.txt off, and that cell.
+const OFF_WORK: &str = "E6.off_work";
+const OFF_CELL: &str = "politeness_and_robots_txt_off";
+
+/// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
+/// is its work.
+const POLITENESS_ROWS: [Row; 5] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessOpens,
+    Row::PolitenessScriptSends,
+    Row::RobotsParses,
+    Row::RobotsReads,
+];
+
+/// The origins the fixture's robots.txt is read for: the site's one.
+const ORIGINS: u64 = 1;
 
 /// The row the counting VFS reads.
 const SYNCS: &str = "F2.syncs";
@@ -115,7 +151,7 @@ struct Cell {
     handler: bool,
 }
 
-fn cells() -> [Cell; 6] {
+fn cells() -> [Cell; 8] {
     [
         Cell {
             name: "default",
@@ -166,6 +202,26 @@ fn cells() -> [Cell; 6] {
             removes_syncs: false,
             handler: true,
         },
+        // robots.txt off and Politeness off take none of E6's work away yet:
+        // ADR 0138's "cost nothing" is the Shared paths spec's, and X19 waives
+        // it meanwhile, so neither cell removes a row.
+        Cell {
+            name: "robots_txt_off",
+            settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+        },
+        Cell {
+            name: OFF_CELL,
+            settings: json!({
+                "politeness": { "domain": { "delay": 0, "concurrency": null } },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+        },
     ]
 }
 
@@ -174,11 +230,12 @@ struct Counted {
     name: &'static str,
     pages: u64,
     attempts: u64,
+    requests: u64,
     work: CountedWork,
     /// What [`FROM_FIRST_PAGE`] held when the first page was asked for.
     started: Arc<OnceLock<Vec<u64>>>,
     syncs: u64,
-    prepares: Option<u64>,
+    prepares: Option<Calls>,
     removes: &'static [Row],
     removes_syncs: bool,
 }
@@ -232,6 +289,7 @@ fn run(cell: Cell, planted: Option<&str>, under_callgrind: bool) -> Counted {
             handler: cell.handler,
             run_state_vfs: Some(vfs.name().to_owned()),
             largest_page: under_callgrind.then_some(CALLGRIND_PAGE),
+            robots_txt: true,
         },
     );
     if !under_callgrind {
@@ -276,6 +334,7 @@ fn run(cell: Cell, planted: Option<&str>, under_callgrind: bool) -> Counted {
         name: cell.name,
         pages: u64::try_from(pages).expect("invariant: a dozen pages"),
         attempts: crawled.attempts,
+        requests: crawled.requests,
         work,
         started,
         syncs: vfs.syncs(),
@@ -285,21 +344,32 @@ fn run(cell: Cell, planted: Option<&str>, under_callgrind: bool) -> Counted {
     }
 }
 
-/// Starts `cell`'s run under Callgrind, when this run reads its row: a plant
-/// of another row has no use for its figure and would wait for it.
-fn prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<u64>> {
+/// Starts `cell`'s run under Callgrind, when this run reads its rows: a plant
+/// of another row has no use for their figures and would wait for them.
+fn prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<Calls>> {
     let cell = cell.to_owned();
     let planted = planted.map(str::to_owned);
     std::thread::spawn(move || {
-        if planted.as_deref().is_some_and(|row| row != PREPARES) {
+        if planted
+            .as_deref()
+            .is_some_and(|row| row != PREPARES && row != POLITENESS_OPENS)
+        {
             return None;
         }
         let executable = std::env::current_exe().expect("invariant: this process has a path");
         let mut arguments = vec!["--callgrind", cell.as_str()];
-        if planted.is_some() {
-            arguments.extend(["--plant", PREPARES]);
+        if let Some(row) = &planted {
+            arguments.extend(["--plant", row.as_str()]);
         }
-        match callgrind::calls(PREPARE, &executable, &arguments) {
+        let calls = callgrind::calls_beneath(
+            PREPARE,
+            CALLERS,
+            POLITENESS,
+            &OPENING,
+            &executable,
+            &arguments,
+        );
+        match calls {
             Ok(calls) => Some(calls),
             Err(error) => {
                 eprintln!("{PREPARES} is not read: {error}");
@@ -360,11 +430,23 @@ fn main() {
             .map(|row| (row.name().to_owned(), json!(cell.count(*row))))
             .collect();
         counts.insert(SYNCS.to_owned(), json!(cell.syncs));
-        if let Some(prepares) = cell.prepares {
-            counts.insert(PREPARES.to_owned(), json!(prepares));
+        match cell.prepares {
+            Some(prepares) => {
+                counts.insert(PREPARES.to_owned(), json!(prepares.all));
+                let opens = cell.count(Row::PolitenessOpens) + prepares.beneath;
+                counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
+            }
+            None => {
+                counts.remove(POLITENESS_OPENS);
+            }
         }
+        let off = cell.name == OFF_CELL;
+        let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
+        counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
         let units = json!({
             "pages": cell.pages, "attempts": cell.attempts, "runs": RUNS, "effects": EFFECTS,
+            "permits": cell.requests, "requests": cell.requests, "origins": ORIGINS,
+            "off_attempts": if off { cell.attempts } else { 0 },
         });
         println!(
             "{}",

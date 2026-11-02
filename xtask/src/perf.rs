@@ -43,8 +43,10 @@ pub(crate) fn ceiling_limits() -> impl Iterator<Item = (&'static str, u64)> {
     budget::ceilings().map(budget::Ceiling::limit)
 }
 
-pub(crate) use figure::Figure;
+pub(crate) use figure::{Figure, Measured};
 pub(crate) use figures::{Figures, Recorded};
+pub(crate) use gungraun::read as read_gungraun_summaries;
+pub(crate) use measure::gungraun_output;
 
 /// The file that holds the absolute ceilings, relative to the repository.
 pub(crate) const BUDGET_FILE: &str = "xtask/src/perf/budget.rs";

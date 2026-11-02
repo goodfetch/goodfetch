@@ -148,6 +148,14 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Syncs and preparations are the benchmark's, not the metric's:** the counting VFS is test support, a pass-through of the OS's own VFS rather than the crash VFS, whose device characteristics make the WAL pad to a sector and sync more; Callgrind reads `sqlite3_prepare_v3` in a second run of each cell, on pages of about 1 kB. A family's rows then take about 5 minutes under the gate's load, past the minute the spec's story 12 asks. No cell was dropped to meet it.
 > - **A plant does the real work on a run file, settings and Audit log of its own beside the crawl's,** through the same code the crawl runs, so a counter that stops seeing the work fails.
 
+> Note (agent decisions of #1858, pending owner review), 2026-11-02, on the Politeness permit's rows:
+> - **B1's site serves its robots.txt** (every page allowed), in the counts cell only: the heap cell's crawl still answers it 404, so `F1.bytes_allocated` reads the same fixture.
+> - **`E6.transactions` counts the Politeness file's commit hook,** on the shared file and on a Run's own in memory, so a contribution's transaction, such as the shared robots.txt copy's, counts too; it is divided by the crawl's attempts, a robots.txt fetch's Permit included in the count but not in the units.
+> - **`E6.opens` adds two counts:** the file's opens, from the crawl's first page on, and the statements Callgrind sees `sqlite3_prepare_v3` prepare with a function of `goodfetch_engine::politeness` among their 32 nearest callers (`--separate-callers`), its opening's (`open_file`, `create_tables`) left out. A wrapper sees no preparation, and Callgrind already runs for `F2.prepares`, which reads the same run. Its units are the requests the site was sent, one Permit each.
+> - **`E6.robots_parses` and `E6.robots_reads` count in `goodfetch-frontier`'s shared copy,** which a crawl's Run reads: a read is each read of the copy from the file, and a parse is each file the copy or an answer gives, the only place `Fetched::File` is made on that path. A Run's own copies (`RunCopies`, Collie's) are not counted yet: B2's ticket counts them where a Session reads them.
+> - **`E6.script_sends` has no production site:** no Politeness store exists, so its counter is the count alone and its plant counts it, as `F2.effect_syncs`'.
+> - **`E6.off_work` is the sum of E6's counters in the cell `politeness_and_robots_txt_off`** (delay 0, no per-domain limit, `site_preferences.respect_robots_txt` false), over its attempts; no other cell has its unit. Politeness and robots.txt off cost the same as on today, so X19 waives it with the other rows, and neither off cell removes a row until the Shared paths spec makes off cost nothing (ADR 0138).
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

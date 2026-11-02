@@ -67,7 +67,7 @@ struct Row {
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 14] = [
+const ROWS: [Row; 20] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -152,6 +152,46 @@ const ROWS: [Row; 14] = [
         name: "F2.effect_syncs",
         family: "B1",
         unit: "effects",
+        happens: false,
+    },
+    Row {
+        name: "E6.transactions",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
+    },
+    Row {
+        name: "E6.opens",
+        family: "B1",
+        unit: "permits",
+        happens: false,
+    },
+    // No Politeness store sends a script until one lands: 0 passes and a
+    // planted one fails.
+    Row {
+        name: "E6.script_sends",
+        family: "B1",
+        unit: "permits",
+        happens: false,
+    },
+    Row {
+        name: "E6.robots_parses",
+        family: "B1",
+        unit: "origins",
+        happens: true,
+    },
+    Row {
+        name: "E6.robots_reads",
+        family: "B1",
+        unit: "requests",
+        happens: false,
+    },
+    // Its unit is the attempts of the cell with Politeness and robots.txt
+    // off: none in any other cell, where its count is 0.
+    Row {
+        name: "E6.off_work",
+        family: "B1",
+        unit: "off_attempts",
         happens: false,
     },
 ];

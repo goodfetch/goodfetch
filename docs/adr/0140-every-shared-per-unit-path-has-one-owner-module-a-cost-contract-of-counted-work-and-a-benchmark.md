@@ -128,7 +128,10 @@ These are recorded here, and each blocks only the tickets that would extend its 
 
 1. **F1's crate.** The Page analysis's crate is set by #1577's spec.
 2. **C3's cap on CDP commands per action kind.** Set from the first measure of B2, plain and human-like kinds apart. Playwright's `locator.click()` sends about 15 messages, and Collie's click sends at least 5.
+   _Still open, with B2's first figures (#1881, 2026-11-02):_ the plain kinds read click 5, fill 2 and press 4 CDP commands an attempt, each held to its figure as `C3.commands`' Today. The human-like kinds have no figure: human-like input (#1018) and typing (#1022) are not built, so B2 has no cell for them. The caps are set together once those kinds are measured, plain and human-like apart.
 3. **C4's one detection read, one check left.** The Consent detection runs inside `recovery`'s one composed read, and only its clicks follow as guarded actions (C3). The cap becomes 2, with the owner's approval, only if B2's first measure shows that the runner's start per document cannot join that read.
+
+   _Answered by B2's first measure (#1866's note below; #1881):_ 4 detection reads per navigation, in every cell. The runner's start per document cannot join the composed read, as it runs from the document's first script, before the navigation's wait ends; its first-pass read can. So the cap becomes 2 with the owner's approval; until then `C4.detection_reads`' Contract stays `≤ 1` and X12 holds its figure of 4.
 4. **The SDKs' framing per message** (TypeScript's `collie-client/src/framing.ts`, and Python's generated layer). It becomes a Shared path only once its CPU cost per message is measured. Until then, the engine's decode of `_meta` counts in E1, and the protocol count snapshots cover the SDKs' bytes.
 
 ### Notes
@@ -267,6 +270,17 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The benchmark runs as `--strace`, with nothing beside its cells** (no run under Callgrind), and the counting VFS names the files it opened, so `strace`'s `-y` descriptors can be matched to them. B2 has no sync counter, so its syncs are not held. Its first run found 6 syncs of the Usage ledger no counter saw: B1's own setup of its Limit, through SQLite's default VFS, on the file the engine then opens through the counting one. The setup now writes through a counting VFS of its own, whose syncs the cell adds as the fixture's, never as `F2.syncs`.
 > - **A bypass is planted, not a row:** `--bypass open|directory|sync` has the default cell do one raw unit a page (B1) or a command (B2) beside the counted function, in a Run trace or on a file of the counting VFS of its own, made first through what counts; `--strace --prove` expects each to fail the cell.
 > - **The CI image pins `strace` at the base's Debian version (`6.13+ds-1`),** in a layer of its own at the end.
+
+> Note (agent decisions of #1881, pending owner review), 2026-11-02, on the first figures:
+> - **The promoted rows keep their Contract and Today apart,** in a table of their own under the register's Enforced section, "Counted work", in the Measured table's columns: one Rule cell could not hold a figure over its contract beside the cap the register check compares. `xtask counts`, the register check and the floor guard read it; the floor guard holds a promoted row to its ratchet and fails one removed, demoted or raised.
+> - **Each Today is the worst cell's figure** of one full `just counts` run (B1 and B3 at `bd3b2cafe`, B2 at the head with batch 5's fixes), as every cell is held to one limit; a row of B1 and B2 (E5, E6) takes the worse family's. `C1.file_opens` keeps its bound of 2 (#1861's Decision 4).
+> - **`C1.encodes` counts `Connection::send`'s `serde_json::to_value`** beside the frame (#1861's Decision 3, as #1881 asks): its first figure is over its Contract of 1, recorded as X21, to the Shared paths spec.
+> - **`F1.selector_compilations` measured 58.154 a page,** not ADR 0138's 614 twice a page: the clean-up keeps its 613 selectors for the Run and compiles 11 more a page (#1846). X1 now says so.
+> - **`E4.pool_walks` reads 0 on B2,** whose Borrowed browser skips the pool's walk (#1874): the gap X17 names is not reached, and only the row's plant proves its counter. X17 now says so.
+> - **Rows left Measured:** the paths not built yet ("not run yet", each with its builder: F5, F6, C6, E7, `C2.closed_root_commands`, `C2.live_view_commands`, `E4.cpu_stat_opens` and C5's four), `E1.decodes`, which has no counter (#1870 counts no decode), and the rows `xtask perf` holds while `GATING` is `Informational` (X20). `F2.effect_syncs` moves, with no figure: no Effect exists to divide by until #1550.
+> - **`foxhound.spider_instruction_ratio`'s Today is #1877's measure, 22.799,** on this tip's scenario 1; the profile's 32 was the code-free crawl at `0fd15a3a7`.
+> - **The Valgrind rows keep #1870's figures:** `just counts --valgrind` on this head read each within 0.2 % of them, under the row's 0.5 %.
+> - **`coverage.project`'s first figure, 88.61 % of 171,035 lines, is a local run's,** as `coverage.yml` is disabled (#2047): `just coverage all` at `bd3b2cafe`, its Vitest, Playwright and pytest runs, which nextest's two failures had skipped, run after it on the same instrumented executables, then `xtask register coverage --write`. One profile of the Rust run's 14,680 was corrupt and was left out.
 
 ## Considered Options
 

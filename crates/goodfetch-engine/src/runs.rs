@@ -2387,6 +2387,7 @@ impl Runs {
             home: setup.home.clone(),
             owner: Arc::clone(&readers),
             ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
+            work: setup.metrics.counted_work().clone(),
             known_certificates: KnownCertificates::of(&setup.home, setup.ledger_vfs.clone()),
             clock: setup.clock,
             product: setup.product,

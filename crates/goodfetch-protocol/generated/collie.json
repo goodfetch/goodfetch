@@ -10824,7 +10824,8 @@
             "page_analysis",
             "record",
             "run_state",
-            "sink_delivery"
+            "sink_delivery",
+            "usage_charge"
           ]
         },
         {
@@ -10856,7 +10857,8 @@
             "log_sends_off",
             "configuration_reads",
             "prunes",
-            "effect_syncs"
+            "effect_syncs",
+            "statements"
           ]
         }
       ],

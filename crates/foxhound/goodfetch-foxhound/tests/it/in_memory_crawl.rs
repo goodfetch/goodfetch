@@ -228,6 +228,42 @@ fn parses(settings: &Value, planted: bool) -> u64 {
     work.read(Row::PageParses)
 }
 
+/// B1 meets a Limit (ADR 0140's E3): every page's request is charged through
+/// the counted ledger, on the crawl's own engine, which the crawl with no
+/// Limit also reads and no Slice's transaction commits; a Slice's commit is
+/// the difference.
+#[test]
+fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
+    let charged = |limit: Option<u64>| {
+        let env = TestEnv::new();
+        let metrics = Metrics::none();
+        let work = metrics.counted_work().clone();
+        crawl_with(
+            env.home(),
+            env.start_time(),
+            env.seed(),
+            Options {
+                metrics,
+                limit,
+                ..Options::default()
+            },
+        );
+        (
+            work.read(Row::ChargeStatements),
+            work.read(Row::ChargeTransactions),
+        )
+    };
+
+    let (limited, free) = (charged(Some(1_000_000)), charged(None));
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(limited.0 >= pages, "{limited:?} over {pages} pages");
+    assert!(
+        limited.1 > free.1,
+        "a Slice taken commits: {limited:?} with a Limit, {free:?} without"
+    );
+}
+
 /// B1's counts cell (ADR 0140): the crawl's parses are counted from the
 /// parse, a planted one per page adds exactly its pages' worth, and turning
 /// the Filter lists off takes the clean-up's parse away. `xtask counts` holds

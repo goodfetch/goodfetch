@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 48] = [
+const ROWS: [Row; 52] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -346,6 +346,34 @@ const ROWS: [Row; 48] = [
         LARGE,
     ),
     Row {
+        name: "E3.statements",
+        family: "B3",
+        unit: "covered_charges",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.slice_transactions",
+        family: "B3",
+        unit: "slices",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.opens",
+        family: "B3",
+        unit: "charges",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E3.prepares",
+        family: "B3",
+        unit: "slices",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
         name: "F4.declaration_reads",
         family: "B1",
         unit: "records",
@@ -465,7 +493,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, C1).
+    /// Only this path's rows (F1 to F4, C1, E1, E3).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -926,6 +954,12 @@ fn verdict(
                         ),
                     ));
                 }
+                continue;
+            }
+            // A feature off may take the whole outcome away, which is what
+            // its cell shows.
+            if *units == 0 && cell.name != DEFAULT_CELL {
+                output::line(&format!("{} [{}]: no {}", row.name, cell.name, row.unit));
                 continue;
             }
             if *units == 0 || (row.happens && *count == 0 && cell.name == DEFAULT_CELL) {

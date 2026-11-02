@@ -35,6 +35,11 @@
 //! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
+//!
+//! The default cell's crawl meets a Limit of `requests`, so each request is
+//! charged through the counted ledger (E3), and fails if nothing was; B3
+//! holds E3's rows. The other cells meet none, so the ledger's prepares stay
+//! out of the run-state cells' `F2.prepares`.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -65,6 +70,10 @@ use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, run_state_plant};
 use scenarios::{Frontier, Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
 use serde_json::{Map, Value, json};
+
+/// The Limit of `requests` the default cell's crawl meets, far above what it
+/// charges.
+const LIMIT: u64 = 1_000_000;
 
 /// Each outcome's `F3.prepares`, and the one function that does its admission.
 const PREPARES: [(&str, &str); 3] = [
@@ -174,6 +183,8 @@ struct Cell {
     /// Whether it must sync less than the default cell.
     removes_syncs: bool,
     handler: bool,
+    /// Whether its crawl meets a Limit, which each request charges (E3).
+    limit: bool,
 }
 
 /// The Frontier's outcomes, the Payload under its schema.
@@ -194,6 +205,7 @@ fn cells() -> [Cell; 8] {
             removes: &[],
             removes_syncs: false,
             handler: false,
+            limit: true,
         },
         Cell {
             name: "filter_lists_off",
@@ -204,6 +216,7 @@ fn cells() -> [Cell; 8] {
             removes: &[Row::PageParses, Row::PageSelectorCompilations],
             removes_syncs: false,
             handler: false,
+            limit: false,
         },
         Cell {
             name: "document_tier_handler",
@@ -212,6 +225,7 @@ fn cells() -> [Cell; 8] {
             removes: &[],
             removes_syncs: false,
             handler: true,
+            limit: false,
         },
         Cell {
             name: "scope_globs_off",
@@ -220,6 +234,7 @@ fn cells() -> [Cell; 8] {
             removes: &[Row::BatchCompilations, Row::HopCompilations],
             removes_syncs: false,
             handler: false,
+            limit: false,
         },
         Cell {
             name: "payload_schema_off",
@@ -228,6 +243,7 @@ fn cells() -> [Cell; 8] {
             removes: &[Row::PayloadCompilations, Row::PayloadValidations],
             removes_syncs: false,
             handler: false,
+            limit: false,
         },
         // A transaction counts one job whatever group it commits in (ADR
         // 0138's note), so a row is read where commits group least and where
@@ -241,6 +257,7 @@ fn cells() -> [Cell; 8] {
             removes: &[],
             removes_syncs: false,
             handler: false,
+            limit: false,
         },
         Cell {
             name: "concurrency_16",
@@ -249,6 +266,7 @@ fn cells() -> [Cell; 8] {
             removes: &[],
             removes_syncs: false,
             handler: false,
+            limit: false,
         },
         Cell {
             name: "durability_fast",
@@ -257,6 +275,7 @@ fn cells() -> [Cell; 8] {
             removes: &[],
             removes_syncs: true,
             handler: false,
+            limit: false,
         },
     ]
 }
@@ -351,6 +370,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
             small_pages: pages == Pages::Small,
             run_state_vfs: Some(vfs.name().to_owned()),
             largest_page: (pages == Pages::Callgrind).then_some(CALLGRIND_PAGE),
+            limit: cell.limit.then_some(LIMIT),
         },
     );
     Crawl {
@@ -370,6 +390,10 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         started,
         syncs,
     } = crawl(cell, planted, Pages::Whole);
+    assert!(
+        !cell.limit || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
+        "the crawl charged nothing against its Limit"
+    );
     assert_eq!(
         crawled.body_bytes,
         body_bytes(),

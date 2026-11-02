@@ -1,5 +1,6 @@
 //! `xtask counts` (ADR 0140): each row's figure against the limit the Quality
-//! register holds, over a stand-in benchmark that prints what a real one does.
+//! register holds, over a stand-in benchmark that prints what a real one does,
+//! run as the family B1 so that no other family's benchmark is built.
 //! The real benchmark's run is `just counts`, and its own tests are
 //! `goodfetch-foxhound`'s `in_memory_crawl`.
 
@@ -839,5 +840,31 @@ fn a_row_with_no_units_passes_at_zero_and_fails_when_planted() {
             .contains("13 with no effects in the cell `default`, over its limit of 1"),
         "{}",
         planted.stdout
+    );
+}
+
+/// A feature off may take a row's whole outcome away: it has no figure then,
+/// and fails nothing.
+#[test]
+fn a_feature_off_that_removes_the_outcome_has_no_figure() {
+    let script = "#!/bin/sh\n\
+         echo '{\"cell\":\"default\",\"units\":{\"pages\":13},\"counts\":{\"F1.parses\":104}}'\n\
+         echo '{\"cell\":\"a_feature_off\",\"units\":{\"pages\":0},\"counts\":{\"F1.parses\":0}}'\n";
+    let (workspace, executable) = workspace("8", script);
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F1.parses [a_feature_off]: no pages"),
+        "{}",
+        outcome.stdout
     );
 }

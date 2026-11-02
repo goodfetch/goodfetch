@@ -111,6 +111,9 @@ fn each_row_counts_on_its_own() {
             ("F2.configuration_reads", 0),
             ("F2.prunes", 0),
             ("F2.effect_syncs", 0),
+            ("E3.statements", 0),
+            ("E3.slice_transactions", 0),
+            ("E3.opens", 0),
         ]
     );
 }

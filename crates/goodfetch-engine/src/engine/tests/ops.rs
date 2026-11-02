@@ -401,6 +401,8 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
     );
 
     // What the run file does is `xtask counts`' to hold, not this test's.
+    // Each Run's charging opens the ledger once, for the Limits its report
+    // lists, and that open commits its set-up: a Usage charge's counts.
     let beside_the_run_file = |series: BTreeSet<String>| -> BTreeSet<String> {
         series
             .into_iter()
@@ -417,6 +419,8 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 1"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
@@ -425,6 +429,8 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 2"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 2"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

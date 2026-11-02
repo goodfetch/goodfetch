@@ -18,11 +18,15 @@
 //! under this module's target.
 //!
 //! Its calls block: callers run them under their owner's blocking policy.
+//!
+//! Size: one concern, every statement of the one ledger file, so its
+//! transactions read side by side.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
 use goodfetch_protocol::run::LimitSetter;
@@ -255,17 +259,30 @@ pub fn point_in_time(at: Timestamp) -> PointInTime {
 }
 
 /// The Usage ledger of one user: its file, and the VFS it opens through.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Ledger {
     path: PathBuf,
     vfs: Option<String>,
+    /// Where a charge's opens, statements and transactions count (ADR 0140).
+    work: CountedWork,
 }
 
 impl Ledger {
     /// The ledger at `path`, opened through the SQLite VFS named `vfs`:
     /// none in production, the crash VFS in tests (ADR 0060).
     pub fn at(path: PathBuf, vfs: Option<String>) -> Self {
-        Self { path, vfs }
+        Self {
+            path,
+            vfs,
+            work: CountedWork::default(),
+        }
+    }
+
+    /// The same ledger, its Usage charges' work counted on `work` (ADR 0140).
+    #[must_use]
+    pub fn counting(mut self, work: CountedWork) -> Self {
+        self.work = work;
+        self
     }
 
     /// Its file.
@@ -309,13 +326,22 @@ impl Ledger {
         self.vfs.is_some() || matches!(self.path.try_exists(), Ok(false))
     }
 
-    /// Connects to the file read-write, with `extra` flags.
+    /// Connects to the file read-write, with `extra` flags: one counted open,
+    /// and a commit hook that counts what no wrapper sees, each transaction
+    /// the connection commits, its set-up's among them (ADR 0140).
     fn connect(&self, extra: OpenFlags) -> rusqlite::Result<Connection> {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX | extra;
-        match &self.vfs {
+        self.work.count(CountedRow::ChargeOpens);
+        let connection = match &self.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
             None => Connection::open_with_flags(&self.path, flags),
-        }
+        }?;
+        let work = self.work.clone();
+        connection.commit_hook(Some(move || {
+            work.count(CountedRow::ChargeTransactions);
+            false
+        }))?;
+        Ok(connection)
     }
 
     /// Sets up `connection`, creating the tables it lacks, and refuses a
@@ -482,6 +508,7 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     fn limits_on(&self, kept: &mut Option<Connection>) -> Result<Vec<StoredLimit>, LedgerError> {
+        self.work.count(CountedRow::ChargeStatements);
         let read = match kept {
             Some(connection) => stored_limits(connection),
             None => stored_limits(kept.insert(self.open()?)),

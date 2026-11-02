@@ -132,11 +132,18 @@ pub enum Row {
     /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
     /// does until the journal lands (#1550).
     EffectSyncs,
+    /// `E3.statements`: a SQL statement a Usage charge reads its Limits with.
+    ChargeStatements,
+    /// `E3.slice_transactions`: a transaction committed on the ledger's
+    /// connections a charge goes through.
+    ChargeTransactions,
+    /// `E3.opens`: a connection opened to the ledger for a charge.
+    ChargeOpens,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 46] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -180,6 +187,9 @@ impl Row {
         Self::ConfigurationReads,
         Self::Prunes,
         Self::EffectSyncs,
+        Self::ChargeStatements,
+        Self::ChargeTransactions,
+        Self::ChargeOpens,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -224,6 +234,7 @@ impl Row {
             | Self::ConfigurationReads
             | Self::Prunes
             | Self::EffectSyncs => "run_state",
+            Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
         }
     }
 
@@ -244,7 +255,8 @@ impl Row {
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
-            Self::SinkOpens => "opens",
+            Self::SinkOpens | Self::ChargeOpens => "opens",
+            Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
             Self::ConfigurationReads => "configuration_reads",
             Self::Prunes => "prunes",
@@ -260,7 +272,8 @@ impl Row {
             | Self::BatchTransactions
             | Self::HopTransactions
             | Self::SitemapTransactions
-            | Self::RunTransactions => "transactions",
+            | Self::RunTransactions
+            | Self::ChargeTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -320,6 +333,9 @@ impl Row {
             Self::ConfigurationReads => "F2.configuration_reads",
             Self::Prunes => "F2.prunes",
             Self::EffectSyncs => "F2.effect_syncs",
+            Self::ChargeStatements => "E3.statements",
+            Self::ChargeTransactions => "E3.slice_transactions",
+            Self::ChargeOpens => "E3.opens",
         }
     }
 

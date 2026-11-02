@@ -188,6 +188,14 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Syncs and preparations are the benchmark's, not the metric's:** the counting VFS is test support, a pass-through of the OS's own VFS rather than the crash VFS, whose device characteristics make the WAL pad to a sector and sync more; Callgrind reads `sqlite3_prepare_v3` in a second run of each cell, on pages of about 1 kB. A family's rows then take about 5 minutes under the gate's load, past the minute the spec's story 12 asks. No cell was dropped to meet it.
 > - **A plant does the real work on a run file, settings and Audit log of its own beside the crawl's,** through the same code the crawl runs, so a counter that stops seeing the work fails.
 
+> Note (agent decisions of #1854, pending owner review), 2026-11-02, on E3's rows:
+> - **`E3.statements` counts at the ledger's Limit read,** the one statement a covered charge runs, as `rusqlite`'s statement trace takes a plain function and could only count into a global. B3 compares that count with Callgrind's call count of `sqlite3_prepare_v3` over the covered charges, so an uncached statement added beside the read fails the benchmark.
+> - **A Callgrind window is two dumps,** at two marker functions the scenario calls around a charge. `--toggle-collect` stops costs but not call counts, and `--dump-after` beside `--dump-before` did not fire on Valgrind 3.26, so each part dumped at the closing marker holds exactly one window's calls.
+> - **`E3.slice_transactions` holds two counts to one figure,** the larger of the commit hook's transactions and the syncs, as the row does. The syncs come from a count the crash VFS gained, since B3 already runs on it; there is no second VFS.
+> - **The switchable feature on E3 is whether a Limit holds the run:** no setting turns charging off. The `no_limit` cell shows the Slice's transactions and opens go with it. A cell may lose a whole outcome, which `xtask counts` prints with no figure.
+> - **X16 now names `E3.slice_transactions`:** a Slice takes 2.25 transactions in B3 against a contract of 1, as each connection's schema set-up commits a transaction of its own. The gap's cause and its fix are X16's, so its row joins it instead of a new Exception.
+> - **B1 meets a Limit but does not hold E3's rows.** A crawl's figures mix covered charges and Slices over too few of either, so its counts cell only fails when the crawl charged nothing; the register's rows stay on B3.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

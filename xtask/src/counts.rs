@@ -10,6 +10,11 @@
 //! `--prove` does for every row and expects the failure: each counter proves
 //! it can fail (the register's rules).
 //!
+//! `--strace` runs B1 and B2 under `strace` and fails when what it sees of
+//! the Run trace's folders and files, and of the syncs of the files a
+//! counting VFS holds, differs from the counters (ADR 0140), so a bypass of
+//! the counted functions fails; `--bypass <work>` plants one.
+//!
 //! `--valgrind` runs the rows read under Valgrind in place of the counted ones
 //! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
 //! figure per unit is the difference between a scenario and the run of its
@@ -24,6 +29,7 @@
 )]
 
 mod register;
+mod strace;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -54,6 +60,10 @@ struct Family {
     embeds_console: bool,
     /// Its benchmark under Valgrind, if it has rows read there.
     valgrind: Option<ValgrindBenchmark>,
+    /// The bypasses of a counted function its benchmark plants under
+    /// `strace`, each one raw unit of that work: none when `--strace` does
+    /// not run it.
+    bypasses: &'static [&'static str],
 }
 
 /// A family's benchmark in its Callgrind and DHAT targets.
@@ -75,6 +85,7 @@ const B1: Family = Family {
     target: "counts",
     embeds_console: true,
     valgrind: None,
+    bypasses: &[strace::OPEN, strace::DIRECTORY, strace::SYNC],
 };
 
 const B3: Family = Family {
@@ -88,6 +99,7 @@ const B3: Family = Family {
         units: 100,
         cells: &[(DEFAULT_CELL, ""), ("log_off", "_log_off")],
     }),
+    bypasses: &[],
 };
 
 const B2: Family = Family {
@@ -96,6 +108,7 @@ const B2: Family = Family {
     target: "counts",
     embeds_console: false,
     valgrind: None,
+    bypasses: &[strace::OPEN, strace::DIRECTORY],
 };
 
 const FAMILIES: [Family; 3] = [B1, B2, B3];
@@ -899,6 +912,15 @@ pub(crate) struct Arguments {
     /// Runs the rows read under Valgrind, in place of the counted ones.
     #[arg(long, conflicts_with = "executable")]
     valgrind: bool,
+    /// Runs B1 and B2 under `strace`, in place of the counted rows, and fails
+    /// when what it sees of the opens, folders and syncs the counters count
+    /// differs from them.
+    #[arg(long, conflicts_with_all = ["valgrind", "plant", "path", "row"])]
+    strace: bool,
+    /// With `--strace`, has the benchmark do one raw unit of this work
+    /// (`open`, `directory`, `sync`) beside its counted function.
+    #[arg(long, requires = "strace", conflicts_with = "prove")]
+    bypass: Option<String>,
 }
 
 /// The cell that runs with every default feature on.
@@ -915,9 +937,20 @@ struct Cell {
     units: BTreeMap<String, u64>,
     /// Each row's whole count.
     counts: BTreeMap<String, u64>,
+    /// The files a counting VFS opened, whose syncs it counts: what
+    /// `--strace` holds its syncs to.
+    #[serde(default)]
+    vfs_files: Vec<PathBuf>,
+    /// The syncs of those files the benchmark's own setup did through a
+    /// counting VFS of its own: no row's work, and no bypass either.
+    #[serde(default)]
+    setup_syncs: u64,
 }
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    if arguments.strace {
+        return strace::run(arguments, environment);
+    }
     let root = environment.root.as_path();
     let limits = register::limits(root)?;
     let named: Vec<&str> = arguments
@@ -1129,6 +1162,8 @@ fn valgrind_cells(
                     Some((row.name.to_owned(), scenario.saturating_sub(empty)))
                 })
                 .collect(),
+            vfs_files: Vec::new(),
+            setup_syncs: 0,
         })
         .collect())
 }
@@ -1282,6 +1317,11 @@ fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
     if let Some(plant) = plant {
         command.args(["--plant", plant]);
     }
+    printed_cells(command, executable)
+}
+
+/// What `command`, which runs `executable`, printed of each cell.
+fn printed_cells(mut command: Command, executable: &Path) -> Result<Vec<Cell>> {
     let output = command
         .stderr(Stdio::inherit())
         .output()

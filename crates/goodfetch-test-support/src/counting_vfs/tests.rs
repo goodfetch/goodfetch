@@ -56,3 +56,32 @@ fn each_counting_vfs_counts_its_own_files_only() {
     assert!(used.syncs() > 0);
     assert_eq!(other.syncs(), 0);
 }
+
+/// The files whose syncs it counts are named, the journal's and the WAL's
+/// beside the database's, so a sync of one of them seen from outside the process can be
+/// held to its count (ADR 0140's `strace` cross-check).
+#[test]
+fn it_names_each_file_it_opened_once() {
+    let folder = tempfile::tempdir().unwrap();
+    let (used, other) = (CountingVfs::register(), CountingVfs::register());
+
+    let _connection = connection(&used, folder.path(), "FULL");
+    let _reader = Connection::open_with_flags_and_vfs(
+        folder.path().join("counted.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        used.name(),
+    )
+    .unwrap();
+
+    let folder = folder.path().canonicalize().unwrap();
+    assert_eq!(
+        used.files(),
+        vec![
+            folder.join("counted.sqlite"),
+            // Its rollback journal, before it turns to WAL.
+            folder.join("counted.sqlite-journal"),
+            folder.join("counted.sqlite-wal"),
+        ]
+    );
+    assert_eq!(other.files(), Vec::<std::path::PathBuf>::new());
+}

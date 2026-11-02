@@ -52,6 +52,15 @@
 //! counters counted in the cell with Politeness and robots.txt off, over its
 //! attempts. An E6 row's plant runs in every cell, as its limit is its worst
 //! cell's.
+//!
+//! `--strace` runs the cells as `xtask counts --strace` watches them, under
+//! `strace`, with nothing beside them: no run under Callgrind, so their
+//! prepares go unprinted. Each cell prints the files its counting VFS opened,
+//! whose syncs `strace` is held to. `--strace --bypass <work>` has the default
+//! cell alone do one raw unit of that work per page beside its counted
+//! function (an `open` of a Run-trace file, a `directory` of a Run trace
+//! created, a `sync` of a file the counting VFS holds), which no counter sees
+//! and `strace` does, so the cross-check proves it fails.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -72,6 +81,8 @@ mod plants;
 mod scenarios;
 
 use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 
@@ -215,6 +226,54 @@ const EFFECTS: u64 = 0;
 /// The paragraphs of the fixture's smallest page, about 1 kB: all a
 /// `--callgrind` run serves a page.
 const CALLGRIND_PAGE: usize = PAGES[0];
+
+/// How a run is watched: counted alone, with its prepares read under Callgrind
+/// beside it, or under `strace` with nothing beside it and a bypass planted.
+#[derive(Clone, Copy)]
+enum Watched<'a> {
+    Counted,
+    Traced { bypass: Option<&'a str> },
+}
+
+/// The plant of `bypass`: one raw unit of its work per page beside the
+/// counted function, in a Run trace or on a file of `vfs` of its own under
+/// `home`, made first through what counts.
+fn bypass(bypass: &str, home: &Path, work: &CountedWork, vfs: &str) -> Plant {
+    let folder = home.join("bypass").join("trace");
+    work.create_dir_all(Row::RunTraceFileOpens, &folder)
+        .expect("invariant: the bypass's Run trace is created");
+    match bypass {
+        "open" => Arc::new(move |_: &str| {
+            drop(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(folder.join("bypass.jsonl"))
+                    .expect("invariant: the bypass's file opens"),
+            );
+        }),
+        "directory" => Arc::new(move |_: &str| {
+            std::fs::create_dir_all(&folder).expect("invariant: the bypass's folder is there");
+        }),
+        "sync" => {
+            let file = home.join("bypass.sqlite");
+            rusqlite::Connection::open_with_flags_and_vfs(
+                &file,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+                vfs,
+            )
+            .and_then(|connection| connection.execute_batch("CREATE TABLE items (value INTEGER)"))
+            .expect("invariant: the bypass's database is made through the counting VFS");
+            Arc::new(move |_: &str| {
+                std::fs::File::open(&file)
+                    .and_then(|opened| opened.sync_all())
+                    .expect("invariant: the bypass's database syncs");
+            })
+        }
+        other => panic!("no bypass {other}: open, directory or sync"),
+    }
+}
 
 /// The plant of a row counted at its seam, which no function wraps.
 fn counting(work: CountedWork, row: Row) -> Plant {
@@ -372,6 +431,11 @@ struct Counted {
     /// Every request the site was sent, each under a Politeness permit.
     requests: u64,
     syncs: u64,
+    /// The files the counting VFS opened, whose syncs `syncs` holds.
+    vfs_files: Vec<PathBuf>,
+    /// The syncs the fixture's own setup did through a counting VFS of its
+    /// own, on files of `vfs_files`: no row's work.
+    setup_syncs: u64,
     removes_syncs: bool,
     /// `F2.prepares`, and those of its preparations beneath the Politeness
     /// file's functions, when Valgrind ran.
@@ -401,6 +465,8 @@ struct Crawl {
     work: CountedWork,
     started: Arc<OnceLock<Vec<u64>>>,
     syncs: u64,
+    vfs_files: Vec<PathBuf>,
+    setup_syncs: u64,
     entries: u64,
 }
 
@@ -414,17 +480,21 @@ enum Pages {
     Callgrind,
 }
 
-/// The crawl of `cell`, on an engine and in a home of its own.
-fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
+/// The crawl of `cell`, on an engine and in a home of its own, with the row
+/// `planted` or the bypass `bypassed` planted.
+fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Pages) -> Crawl {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
     let vfs = CountingVfs::register();
+    let setup = CountingVfs::register();
     let settings: Map<String, Value> = match &cell.settings {
         Value::Object(settings) => settings.clone(),
         other => panic!("a cell's settings are an object, not {other}"),
     };
-    let planted = planted.map(|name| plant(name, &work, vfs.name()));
+    let planted = planted
+        .map(|name| plant(name, &work, vfs.name()))
+        .or_else(|| bypassed.map(|name| bypass(name, home.path(), &work, vfs.name())));
     let started = Arc::new(OnceLock::new());
     let first_page: Plant = {
         let (work, started) = (work.clone(), Arc::clone(&started));
@@ -455,6 +525,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
             largest_page: (pages == Pages::Callgrind).then_some(CALLGRIND_PAGE),
             limit: cell.limit.then_some(LIMIT),
             robots_txt: true,
+            setup_vfs: Some(setup.name().to_owned()),
         },
     );
     Crawl {
@@ -462,20 +533,31 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
         work,
         started,
         syncs: vfs.syncs(),
+        // The setup's own files too, such as the ledger's journal before
+        // the engine opens it in WAL: `setup_syncs` counts their syncs.
+        vfs_files: vfs.files().into_iter().chain(setup.files()).collect(),
+        setup_syncs: setup.syncs(),
         entries: entries(home.path()),
     }
 }
 
-/// Runs `cell`, and each outcome's prepares when `planted` asks for no other row.
-fn run(cell: &Cell, planted: Option<&str>) -> Counted {
-    let prepare_calls = prepare_calls(cell.name, planted);
+/// Runs `cell`, and each outcome's prepares when `planted` asks for no other row
+/// and nothing traces it.
+fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
+    let (counted, bypassed) = match watched {
+        Watched::Counted => (true, None),
+        Watched::Traced { bypass } => (false, bypass),
+    };
+    let prepare_calls = prepare_calls(cell.name, planted, counted);
     let Crawl {
         crawled,
         work,
         started,
         syncs,
+        vfs_files,
+        setup_syncs,
         entries,
-    } = crawl(cell, planted, Pages::Whole);
+    } = crawl(cell, planted, bypassed, Pages::Whole);
     assert!(entries > 0, "the crawl wrote no Run-trace entry");
     assert!(
         !cell.limit || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
@@ -528,10 +610,16 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         work,
         started,
         removes: cell.removes,
-        prepares: prepares(cell.name, cell.frontier.is_some(), cell.handler, planted),
+        prepares: if counted {
+            prepares(cell.name, cell.frontier.is_some(), cell.handler, planted)
+        } else {
+            BTreeMap::new()
+        },
         attempts: crawled.attempts,
         requests: crawled.requests,
         syncs,
+        vfs_files,
+        setup_syncs,
         removes_syncs: cell.removes_syncs,
         prepare_calls: prepare_calls
             .join()
@@ -542,15 +630,21 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
 }
 
 /// Starts `cell`'s run under Callgrind for `F2.prepares` and `E6.opens`,
-/// when this run reads their rows: a plant of another row has no use for
-/// their figures and would wait for them.
-fn prepare_calls(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<Calls>> {
+/// when this run reads their rows and is `counted`: a plant of another row
+/// has no use for their figures and would wait for them, and `strace` would
+/// trace that run too.
+fn prepare_calls(
+    cell: &str,
+    planted: Option<&str>,
+    counted: bool,
+) -> std::thread::JoinHandle<Option<Calls>> {
     let cell = cell.to_owned();
     let planted = planted.map(str::to_owned);
     std::thread::spawn(move || {
-        if planted
-            .as_deref()
-            .is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
+        if !counted
+            || planted
+                .as_deref()
+                .is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
         {
             return None;
         }
@@ -683,38 +777,56 @@ fn calls_to_prepare(dump: &str) -> u64 {
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let (pages, cell, planted) = match arguments.as_slice() {
-        [] => (Pages::Whole, None, None),
-        ["--plant", row] => (Pages::Whole, None, Some(*row)),
-        ["--small-cell", cell] => (Pages::Small, Some(*cell), None),
-        ["--small-cell", cell, "--plant", row] => (Pages::Small, Some(*cell), Some(*row)),
-        ["--callgrind", cell] => (Pages::Callgrind, Some(*cell), None),
-        ["--callgrind", cell, "--plant", row] => (Pages::Callgrind, Some(*cell), Some(*row)),
+    let (pages, cell, planted, watched) = match arguments.as_slice() {
+        [] => (Pages::Whole, None, None, Watched::Counted),
+        ["--plant", row] => (Pages::Whole, None, Some(*row), Watched::Counted),
+        ["--strace"] => (Pages::Whole, None, None, Watched::Traced { bypass: None }),
+        ["--strace", "--bypass", bypass] => (
+            Pages::Whole,
+            None,
+            None,
+            Watched::Traced {
+                bypass: Some(*bypass),
+            },
+        ),
+        ["--small-cell", cell] => (Pages::Small, Some(*cell), None, Watched::Counted),
+        ["--small-cell", cell, "--plant", row] => {
+            (Pages::Small, Some(*cell), Some(*row), Watched::Counted)
+        }
+        ["--callgrind", cell] => (Pages::Callgrind, Some(*cell), None, Watched::Counted),
+        ["--callgrind", cell, "--plant", row] => {
+            (Pages::Callgrind, Some(*cell), Some(*row), Watched::Counted)
+        }
         other => panic!(
-            "usage: counts [--small-cell <cell> | --callgrind <cell>] [--plant <row>], not {other:?}"
+            "usage: counts [--small-cell <cell> | --callgrind <cell>] [--plant <row>] | --strace [--bypass <work>], not {other:?}"
         ),
     };
+    let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
     if let Some(name) = cell {
         let cell = cells()
             .into_iter()
             .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        let _ = crawl(&cell, planted, pages);
+        let _ = crawl(&cell, planted, None, pages);
         return;
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
-    // so a family's rows stay within their minute. A plant needs the default
-    // cell alone, the one that proves its counter. An E6 row's plant runs in
-    // every cell: its Today is its worst cell's (`concurrency_1`), which a
-    // unit more per page in the default cell stays under, and `E6.off_work`
-    // is held in its off cell alone.
+    // so a family's rows stay within their minute. A plant or a bypass needs
+    // the default cell alone, the one that proves its counter. An E6 row's
+    // plant runs in every cell: its Today is its worst cell's
+    // (`concurrency_1`), which a unit more per page in the default cell stays
+    // under, and `E6.off_work` is held in its off cell alone.
     let counted: Vec<Counted> = std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
             .filter(|cell| {
-                planted.is_none_or(|row| cell.name == "default" || row.starts_with("E6."))
+                if bypassed {
+                    cell.name == "default"
+                } else {
+                    planted.is_none_or(|row| cell.name == "default" || row.starts_with("E6."))
+                }
             })
-            .map(|cell| scope.spawn(move || run(&cell, planted)))
+            .map(|cell| scope.spawn(move || run(&cell, planted, watched)))
             .collect();
         cells
             .into_iter()
@@ -775,7 +887,13 @@ fn main() {
         });
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": units, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": units,
+                "counts": counts,
+                "vfs_files": cell.vfs_files,
+                "setup_syncs": cell.setup_syncs,
+            })
         );
     }
 }

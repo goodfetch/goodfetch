@@ -165,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 70] = [
+const ROWS: [Row; 75] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -306,6 +306,41 @@ const ROWS: [Row; 70] = [
         name: "C1.log_sends_off",
         family: "B2",
         unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.configuration_reads",
+        family: "B3",
+        unit: "samples",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.meminfo_opens",
+        family: "B3",
+        unit: "samples",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.static_opens",
+        family: "B3",
+        unit: "samples",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.process_reads",
+        family: "B3",
+        unit: "process_samples",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.pool_walks",
+        family: "B2",
+        unit: "pages_opened",
         happens: false,
         valgrind: None,
     },
@@ -588,7 +623,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 21] = [
+const NOT_RUN_YET: [NotRunYet; 22] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -675,6 +710,12 @@ const NOT_RUN_YET: [NotRunYet; 21] = [
         builder: "#959",
         capped: true,
     },
+    NotRunYet {
+        name: "E4.cpu_stat_opens",
+        family: "B3",
+        builder: "#1306",
+        capped: true,
+    },
 ];
 
 /// The links batches B1's crawl admitted.
@@ -701,7 +742,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1 to F4, C1, C2, C6, E1 to E3, E5, E6, E7).
+    /// Only this path's rows (F1 to F4, C1, C2, C6, E1 to E7).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).

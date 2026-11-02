@@ -35,12 +35,16 @@ mod charge_counts;
 mod children;
 mod client_certificates;
 mod counted_audit;
+mod counted_governor;
 mod counted_messages;
 mod dns;
 mod downloads;
 mod egress;
 mod extra_loopback;
 mod governor;
+// B3's governor scenario, which `counted_governor` checks.
+#[path = "../../benches/governor.rs"]
+mod governor_scenario;
 mod happy_eyeballs;
 mod heap;
 mod held_clock;

@@ -313,6 +313,35 @@ impl Engine {
         ended
     }
 
+    /// The engine's Resource governor, a task of `owner` that reads
+    /// `settings` on `clock` and reports each sample to `events`, when its
+    /// starter gave it the machine to read; else one that never samples.
+    fn governor(
+        &self,
+        settings: &Settings,
+        clock: Clock,
+        owner: &TaskOwner,
+        events: &Events,
+    ) -> Governor {
+        let Some(system) = &self.system else {
+            return Governor::unsampled();
+        };
+        let governor = Governor::start(
+            system.clone(),
+            settings.clone(),
+            clock,
+            owner,
+            self.metrics.counted_work().clone(),
+        );
+        owner.spawn(report_samples(
+            governor.system_info(),
+            events.clone(),
+            self.metrics.clone(),
+            owner.token().clone(),
+        ));
+        governor
+    }
+
     /// The engine's event stream and Runs registry, tasks of `owner`; the
     /// Run index names `reached_at` as the owner of its live Runs, whose
     /// run state is in `install` in the per-install layout.
@@ -339,20 +368,7 @@ impl Engine {
             owner,
             &dependencies,
         );
-        let governor = match &self.system {
-            Some(system) => {
-                let governor =
-                    Governor::start(system.clone(), settings.clone(), dependencies.clock, owner);
-                owner.spawn(report_samples(
-                    governor.system_info(),
-                    events.clone(),
-                    self.metrics.clone(),
-                    owner.token().clone(),
-                ));
-                governor
-            }
-            None => Governor::unsampled(),
-        };
+        let governor = self.governor(&settings, dependencies.clock, owner, &events);
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
             SourceContext {

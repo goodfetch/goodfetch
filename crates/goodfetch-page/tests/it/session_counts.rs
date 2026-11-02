@@ -21,15 +21,22 @@ fn run(planted: Option<Row>) -> Counted {
 }
 
 /// Every command costs one encode, one send and one send to the command log's
-/// writer, which keeps its file open once per batch at most.
+/// writer, which keeps its file open once per batch at most; the page a
+/// Borrowed browser opens walks no memory, as the pool never measures it.
 #[test]
 fn a_session_counts_each_commands_work() {
-    let Counted { commands, work, .. } = run(None);
+    let Counted {
+        commands,
+        pages_opened,
+        work,
+        ..
+    } = run(None);
 
     assert!(commands > 0, "the Session sent no command");
     assert_eq!(work.read(Row::CdpEncodes), commands);
     assert_eq!(work.read(Row::CdpSends), commands);
     assert_eq!(work.read(Row::CdpLogSendsOff), commands);
+    assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
     let opens = work.read(Row::CdpFileOpens);
     assert!(
         opens > 0 && opens <= 2 * commands,
@@ -43,6 +50,8 @@ fn a_session_counts_each_commands_work() {
 #[case::encodes(Row::CdpEncodes, 2)]
 #[case::sends(Row::CdpSends, 2)]
 #[case::log_sends(Row::CdpLogSendsOff, 2)]
+/// A page's walk is planted per command, at least one per page opened.
+#[case::pool_walks(Row::PoolWalks, 1)]
 fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64) {
     let Counted { commands, work, .. } = run(Some(row));
 

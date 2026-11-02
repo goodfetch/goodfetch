@@ -44,6 +44,10 @@
 
 #[path = "../benches/audit.rs"]
 mod audit;
+
+#[path = "../benches/governor.rs"]
+mod governor;
+
 #[path = "../benches/messages.rs"]
 #[expect(
     dead_code,
@@ -82,6 +86,17 @@ const PREPARE: &str = "sqlite3_prepare_v3";
 
 /// The row the counting VFS adds the Audit log's syncs to.
 const SYNCS: &str = "E2.syncs";
+
+/// The governor scenario's plant of the row named `name`, none for a row of
+/// another scenario's.
+fn governor_plant(name: &str) -> Option<governor::Plant> {
+    name.starts_with("E4.").then(|| {
+        Row::ALL
+            .into_iter()
+            .find(|row| row.name() == name)
+            .unwrap_or_else(|| panic!("no plant for the row {name}"))
+    })
+}
 
 /// The plant of the message row named `name`.
 fn plant(name: &str, work: &CountedWork) -> Plant {
@@ -215,6 +230,7 @@ enum Planted<'a> {
     Message(&'a str),
     Charge(&'a str),
     Audit(&'a str),
+    Governor(&'a str),
 }
 
 impl<'a> Planted<'a> {
@@ -223,6 +239,8 @@ impl<'a> Planted<'a> {
             Self::Charge(name)
         } else if name.starts_with("E2.") {
             Self::Audit(name)
+        } else if name.starts_with("E4.") {
+            Self::Governor(name)
         } else {
             Self::Message(name)
         }
@@ -235,11 +253,12 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
     let planted = planted.map(Planted::of);
-    let (message_plant, charge_plant, audit_planted) = match planted {
-        Some(Planted::Message(name)) => (Some(name), None, None),
-        Some(Planted::Charge(name)) => (None, Some(name), None),
-        Some(Planted::Audit(name)) => (None, None, Some(name)),
-        None => (None, None, None),
+    let (message_plant, charge_plant, audit_planted, governor_planted) = match planted {
+        Some(Planted::Message(name)) => (Some(name), None, None, None),
+        Some(Planted::Charge(name)) => (None, Some(name), None, None),
+        Some(Planted::Audit(name)) => (None, None, Some(name), None),
+        Some(Planted::Governor(name)) => (None, None, None, Some(name)),
+        None => (None, None, None, None),
     };
     let audit_prepares = audit_prepares(cell.name, audit_planted);
     let sent = messages::run(
@@ -248,6 +267,16 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         metrics,
         message_plant.map(|name| plant(name, &work)),
         home.path(),
+    );
+    let sampled = governor::run(
+        &home.path().join("governor"),
+        &work,
+        governor_planted.and_then(governor_plant),
+    );
+    assert_eq!(
+        sampled.samples,
+        governor::SAMPLES,
+        "the governor took its samples"
     );
     assert!(sent.event_batches > 0, "the Plugin's events went out");
     assert_eq!(
@@ -295,6 +324,8 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),
         ("audit_entries", entries),
+        ("samples", sampled.samples),
+        ("process_samples", sampled.process_samples),
     ]);
     let mut by_row = BTreeMap::from([
         (Row::ChargeStatements.name(), charged.statements),

@@ -143,6 +143,12 @@ fn each_row_counts_on_its_own() {
             ("C2.commands", 0),
             ("C2.world_creations", 0),
             ("C2.document_worlds", 0),
+            ("E4.configuration_reads", 0),
+            ("E4.meminfo_opens", 0),
+            ("E4.static_opens", 0),
+            ("E4.cpu_stat_opens", 0),
+            ("E4.process_reads", 0),
+            ("E4.pool_walks", 0),
         ]
     );
 }

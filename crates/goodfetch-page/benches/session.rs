@@ -98,6 +98,8 @@ pub(crate) struct Counted {
     pub(crate) documents: u64,
     /// The commands the browser read while the program read.
     pub(crate) read_commands: u64,
+    /// The pages the browser opened (`Target.createTarget`), each once.
+    pub(crate) pages_opened: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
     /// What [`READ_ROWS`] counted while the program read.
@@ -245,11 +247,14 @@ fn navigated(url: &str) -> Vec<Value> {
     ]
 }
 
-/// What the browser end counts: every command, and what the program's reads
-/// sent.
+/// What the browser end counts, from outside the connection: every command,
+/// the pages it opened, and what the program's reads sent.
 #[derive(Clone, Default)]
 struct Heard {
+    /// The commands it read, each once.
     commands: Arc<AtomicU64>,
+    /// The pages it opened, each once.
+    pages: Arc<AtomicU64>,
     reading: Arc<Reading>,
 }
 
@@ -276,6 +281,9 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
         let method = command["method"].as_str().unwrap_or_default();
         if seen.insert(id) {
             counts.commands.fetch_add(1, Ordering::Relaxed);
+            if method == "Target.createTarget" {
+                counts.pages.fetch_add(1, Ordering::Relaxed);
+            }
             let reading = &counts.reading;
             if reading.now.load(Ordering::Relaxed) {
                 reading.commands.fetch_add(1, Ordering::Relaxed);
@@ -527,6 +535,7 @@ pub(crate) fn counted(
         reads: reading.calls.load(Ordering::Relaxed),
         documents: u64::try_from(documents).expect("invariant: a few documents"),
         read_commands: reading.commands.load(Ordering::Relaxed),
+        pages_opened: heard.pages.load(Ordering::Relaxed),
         work,
         during_reads,
     }

@@ -169,6 +169,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "frontier_hop",
         "frontier_payload",
         "frontier_sitemap",
+        "governor_sample",
         "hook_stage",
         "json_rpc_message",
         "live_view_frame",
@@ -232,6 +233,11 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "commands",
         "world_creations",
         "document_worlds",
+        "meminfo_opens",
+        "static_opens",
+        "cpu_stat_opens",
+        "process_reads",
+        "pool_walks",
     ],
 };
 

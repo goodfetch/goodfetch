@@ -143,6 +143,11 @@ fn main() {
             "the cell {} read without a command",
             cell.name
         );
+        assert!(
+            session.pages_opened > 0,
+            "the cell {} opened no page",
+            cell.name
+        );
         for row in cell.removes {
             assert!(
                 session.count(*row) < default.count(*row),
@@ -153,7 +158,7 @@ fn main() {
         }
         for row in cell.counts_none_of {
             assert_eq!(
-                work.read(*row),
+                session.work.read(*row),
                 0,
                 "the cell {} counts {}",
                 cell.name,
@@ -168,6 +173,7 @@ fn main() {
             "commands": session.commands,
             "reads": session.reads,
             "documents": session.documents,
+            "pages_opened": session.pages_opened,
         });
         println!(
             "{}",

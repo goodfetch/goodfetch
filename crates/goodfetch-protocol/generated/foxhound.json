@@ -15587,6 +15587,7 @@
             "frontier_hop",
             "frontier_payload",
             "frontier_sitemap",
+            "governor_sample",
             "hook_stage",
             "json_rpc_message",
             "live_view_frame",
@@ -15646,7 +15647,12 @@
             "formatting_off",
             "commands",
             "world_creations",
-            "document_worlds"
+            "document_worlds",
+            "meminfo_opens",
+            "static_opens",
+            "cpu_stat_opens",
+            "process_reads",
+            "pool_walks"
           ]
         }
       ],

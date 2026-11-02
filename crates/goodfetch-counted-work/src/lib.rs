@@ -213,11 +213,26 @@ pub enum Row {
     /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
     /// sends, held per document and frame read.
     PageReadDocumentWorlds,
+    /// `E4.configuration_reads`: a settings file read for a governor sample.
+    GovernorConfigurationReads,
+    /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
+    GovernorMeminfoOpens,
+    /// `E4.static_opens`: `self/cgroup` or `self/mountinfo` opened for a
+    /// governor sample, which the engine's start could read once.
+    GovernorStaticOpens,
+    /// `E4.cpu_stat_opens`: the cgroup's `cpu.stat` opened for a governor
+    /// sample.
+    GovernorCpuStatOpens,
+    /// `E4.process_reads`: one process's memory read for a governor sample.
+    GovernorProcessReads,
+    /// `E4.pool_walks`: a browser's processes walked for their memory as a
+    /// page opens in the browser pool.
+    PoolWalks,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 75] = [
+    pub const ALL: [Self; 81] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -293,6 +308,12 @@ impl Row {
         Self::PageReadCommands,
         Self::PageReadWorldCreations,
         Self::PageReadDocumentWorlds,
+        Self::GovernorConfigurationReads,
+        Self::GovernorMeminfoOpens,
+        Self::GovernorStaticOpens,
+        Self::GovernorCpuStatOpens,
+        Self::GovernorProcessReads,
+        Self::PoolWalks,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -368,6 +389,12 @@ impl Row {
             Self::PageReadCommands
             | Self::PageReadWorldCreations
             | Self::PageReadDocumentWorlds => "page_read",
+            Self::GovernorConfigurationReads
+            | Self::GovernorMeminfoOpens
+            | Self::GovernorStaticOpens
+            | Self::GovernorCpuStatOpens
+            | Self::GovernorProcessReads
+            | Self::PoolWalks => "governor_sample",
         }
     }
 
@@ -398,7 +425,9 @@ impl Row {
             | Self::PolitenessOpens => "opens",
             Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
-            Self::ConfigurationReads | Self::AuditConfigurationReads => "configuration_reads",
+            Self::ConfigurationReads
+            | Self::AuditConfigurationReads
+            | Self::GovernorConfigurationReads => "configuration_reads",
             Self::Prunes | Self::AuditPrunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
             Self::PolitenessScriptSends => "script_sends",
@@ -440,6 +469,11 @@ impl Row {
             Self::PageReadCommands => "commands",
             Self::PageReadWorldCreations => "world_creations",
             Self::PageReadDocumentWorlds => "document_worlds",
+            Self::GovernorMeminfoOpens => "meminfo_opens",
+            Self::GovernorStaticOpens => "static_opens",
+            Self::GovernorCpuStatOpens => "cpu_stat_opens",
+            Self::GovernorProcessReads => "process_reads",
+            Self::PoolWalks => "pool_walks",
         }
     }
 
@@ -524,6 +558,12 @@ impl Row {
             Self::PageReadCommands => "C2.commands",
             Self::PageReadWorldCreations => "C2.world_creations",
             Self::PageReadDocumentWorlds => "C2.document_worlds",
+            Self::GovernorConfigurationReads => "E4.configuration_reads",
+            Self::GovernorMeminfoOpens => "E4.meminfo_opens",
+            Self::GovernorStaticOpens => "E4.static_opens",
+            Self::GovernorCpuStatOpens => "E4.cpu_stat_opens",
+            Self::GovernorProcessReads => "E4.process_reads",
+            Self::PoolWalks => "E4.pool_walks",
         }
     }
 

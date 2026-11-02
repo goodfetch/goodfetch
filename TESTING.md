@@ -1231,7 +1231,7 @@ Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-mod
 
 Until the gate's spec builds them, one thing this section names doesn't exist in full yet: the counters of counted work (`F1.parses` has its own; a row whose "Checked by" says none yet has none). Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
 
-**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1`, `--path F1` or `--row F1.parses` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives. Its Page analysis rows other than the parses count from the crawl's first page: what its start does once is no page's work.
+**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. `just counts --family B1`, `--path F1` or `--row F1.parses` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives. Its Page analysis rows other than the parses count from the crawl's first page: what its start does once is no page's work. Its Run-trace rows divide by the entries the crawl's Run trace holds, read from its files: a task counts on `E5.spawns` whether the engine's blocking policy runs it inline, as the benchmark's does, or on a thread, and while no kind of entry can be switched off `E5.formatting_off` divides by every entry and its only proof is its plant.
 
 ### Floor
 
@@ -1357,9 +1357,9 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | after #1583 | B3 | must not grow | none yet | none yet |
 | `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow | none yet | none yet |
 | `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow | none yet | none yet |
-| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
-| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
-| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
+| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | 2 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E5.spawns` | tasks spawned per Run-trace entry | 0 | 1 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | after #1583 | B1, B2 | must not grow | none yet | none yet |
 | `E6.opens` | opens and statement preparations per permit | 0 | after #1583 | B1, B2 | must not grow | none yet | none yet |
 | `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | after #1583 | B1 | must not grow | none yet | none yet |

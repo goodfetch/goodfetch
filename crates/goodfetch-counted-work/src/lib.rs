@@ -94,11 +94,22 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C4.detection_reads`: a detector's read of a navigation's document,
+    /// or the Consent prompt runner's start in it.
+    NavigationDetectionReads,
+    /// `C4.compilations`: a glob or a regular expression compiled to judge a
+    /// navigation.
+    NavigationCompilations,
+    /// `C4.script_compilations`: a script compiled for a navigation.
+    NavigationScriptCompilations,
+    /// `C4.provenance_entries`: a Provenance entry a navigation's judgement
+    /// writes.
+    NavigationProvenanceEntries,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 30] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -125,6 +136,10 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::NavigationDetectionReads,
+        Self::NavigationCompilations,
+        Self::NavigationScriptCompilations,
+        Self::NavigationProvenanceEntries,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -152,6 +167,10 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::NavigationDetectionReads
+            | Self::NavigationCompilations
+            | Self::NavigationScriptCompilations
+            | Self::NavigationProvenanceEntries => "navigation",
         }
     }
 
@@ -181,6 +200,10 @@ impl Row {
             Self::SinkTransactions | Self::RecordTransactions => "transactions",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::NavigationDetectionReads => "detection_reads",
+            Self::NavigationCompilations => "compilations",
+            Self::NavigationScriptCompilations => "script_compilations",
+            Self::NavigationProvenanceEntries => "provenance_entries",
         }
     }
 
@@ -214,6 +237,10 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::NavigationDetectionReads => "C4.detection_reads",
+            Self::NavigationCompilations => "C4.compilations",
+            Self::NavigationScriptCompilations => "C4.script_compilations",
+            Self::NavigationProvenanceEntries => "C4.provenance_entries",
         }
     }
 

@@ -1,6 +1,6 @@
 //! B2's counts cell (ADR 0140): runs `benches/session.rs`' Session once with
-//! its default features on and once per feature on its paths that can be
-//! switched off, and prints what each counted as one JSON line, which `xtask
+//! its default features on, once per feature on its paths that can be
+//! switched off, and once with a Page check, and prints what each counted as one JSON line, which `xtask
 //! counts` divides and holds to the Quality register's limits. An example and
 //! not a `[[bench]]`, as `xtask perf` runs every bench target under gungraun:
 //! counts need no Valgrind and no optimized build.
@@ -33,7 +33,7 @@ struct Cell {
     removes: &'static [Row],
 }
 
-fn cells() -> [Cell; 2] {
+fn cells() -> [Cell; 4] {
     [
         Cell {
             name: "default",
@@ -46,6 +46,20 @@ fn cells() -> [Cell; 2] {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
             removes: &[Row::CdpSends],
+        },
+        // The Consent prompt runner still starts and looks with its handling
+        // off (ADR 0048), so its reads and its entry stay.
+        Cell {
+            name: "consent_handling_off",
+            settings: json!({ "consent": { "handling": false } }),
+            removes: &[],
+        },
+        // Navigations with a Page check: it compiles its glob and reads its
+        // element, and the built-in detector's entry goes.
+        Cell {
+            name: "page_check",
+            settings: session::page_check(),
+            removes: &[Row::NavigationProvenanceEntries],
         },
     ]
 }
@@ -98,8 +112,13 @@ fn main() {
     });
     let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.session;
+        let session::Counted {
+            commands,
+            navigations,
+            work,
+        } = &cell.session;
         assert!(*commands > 0, "the cell {} sent no command", cell.name);
+        assert!(*navigations > 0, "the cell {} navigated nowhere", cell.name);
         for row in cell.removes {
             assert!(
                 work.read(*row) < default.work.read(*row),
@@ -114,7 +133,11 @@ fn main() {
             .collect();
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "commands": commands }, "counts": counts })
+            json!({
+                "cell": cell.name,
+                "units": { "commands": commands, "navigations": navigations },
+                "counts": counts,
+            })
         );
     }
 }

@@ -1757,7 +1757,9 @@
             "json_rpc_message",
             "page_analysis",
             "record",
-            "sink_delivery"
+            "sink_delivery",
+            "cdp_command",
+            "navigation"
           ]
         },
         {
@@ -1782,7 +1784,13 @@
             "validator_builds",
             "validations",
             "serializations",
-            "constant_lookups"
+            "constant_lookups",
+            "sends",
+            "log_sends_off",
+            "detection_reads",
+            "compilations",
+            "script_compilations",
+            "provenance_entries"
           ]
         }
       ],

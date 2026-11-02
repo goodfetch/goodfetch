@@ -94,6 +94,10 @@ fn each_row_counts_on_its_own() {
             ("C1.sends", 0),
             ("C1.file_opens", 0),
             ("C1.log_sends_off", 0),
+            ("C4.detection_reads", 0),
+            ("C4.compilations", 0),
+            ("C4.script_compilations", 0),
+            ("C4.provenance_entries", 0),
         ]
     );
 }

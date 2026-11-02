@@ -10814,12 +10814,15 @@
         {
           "name": "shared_path",
           "values": [
+            "json_rpc_message",
             "page_analysis"
           ]
         },
         {
           "name": "work",
           "values": [
+            "deep_copies",
+            "encodes",
             "parses",
             "selector_compilations",
             "readability_runs",

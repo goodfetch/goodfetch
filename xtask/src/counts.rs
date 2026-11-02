@@ -9,6 +9,11 @@
 //! `--plant <row>` has the benchmark do one extra unit of the row's work, as
 //! `--prove` does for every row and expects the failure: each counter proves
 //! it can fail (the register's rules).
+//!
+//! `--valgrind` runs the rows read under Valgrind in place of the counted ones
+//! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
+//! figure per unit is the difference between a scenario and the run of its
+//! benchmark that sends nothing, so no start-up cost hides a change.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -27,6 +32,7 @@ use crate::check::{self, Finding};
 use crate::console;
 use crate::environment::Environment;
 use crate::output;
+use crate::perf::{self, Figure, Measured};
 
 use register::Limit;
 
@@ -39,15 +45,55 @@ struct Family {
     /// Its example target: `<target> [--plant <row>]` prints one JSON line
     /// per cell.
     target: &'static str,
+    /// Whether its target's build embeds a Console build, as Foxhound's
+    /// executable does.
+    embeds_console: bool,
+    /// Its benchmark under Valgrind, if it has rows read there.
+    valgrind: Option<ValgrindBenchmark>,
+}
+
+/// A family's benchmark in its Callgrind and DHAT targets.
+struct ValgrindBenchmark {
+    /// The `#[library_benchmark]` function, which filters the run.
+    function: &'static str,
+    /// Its `#[bench::…]` that sends nothing, which each scenario is measured
+    /// against.
+    empty: &'static str,
+    /// The messages each of its scenarios dispatches beyond `empty`'s.
+    units: u64,
+    /// Each cell, by the suffix of its `#[bench::…]`s.
+    cells: &'static [(&'static str, &'static str)],
 }
 
 const B1: Family = Family {
     name: "B1",
     package: "goodfetch-foxhound",
     target: "counts",
+    embeds_console: true,
+    valgrind: None,
 };
 
-const FAMILIES: [Family; 1] = [B1];
+const B3: Family = Family {
+    name: "B3",
+    package: "goodfetch-engine",
+    target: "counts",
+    embeds_console: false,
+    valgrind: Some(ValgrindBenchmark {
+        function: "dispatch_messages",
+        empty: "no_messages",
+        units: 100,
+        cells: &[(DEFAULT_CELL, ""), ("log_off", "_log_off")],
+    }),
+};
+
+const FAMILIES: [Family; 2] = [B1, B3];
+
+/// The variable a Valgrind target reads its plant from: gungraun takes no
+/// argument for it.
+const PLANT_VARIABLE: &str = "GOODFETCH_COUNTS_PLANT";
+
+/// The folder under the workspace's `target/` of the Valgrind rows' reports.
+const VALGRIND_OUT: &str = "target/counts";
 
 /// One counted row of the register.
 struct Row {
@@ -63,58 +109,141 @@ struct Row {
     /// none of what its row counts proves nothing. A row whose contract is
     /// 0 says no; its plant still proves its counter.
     happens: bool,
+    /// Where a row read under Valgrind gets its figure.
+    valgrind: Option<ValgrindFigure>,
 }
+
+/// A figure read under Valgrind, of one scenario of its family's benchmark.
+#[derive(Clone, Copy)]
+struct ValgrindFigure {
+    /// The bench target that measures it: `instructions` under Callgrind,
+    /// `heap` under DHAT.
+    target: &'static str,
+    figure: Figure,
+    /// The `#[bench::…]`, its cell's suffix left out.
+    scenario: &'static str,
+}
+
+const fn message_row(
+    name: &'static str,
+    target: &'static str,
+    figure: Figure,
+    scenario: &'static str,
+) -> Row {
+    Row {
+        name,
+        family: "B3",
+        unit: "messages",
+        happens: true,
+        valgrind: Some(ValgrindFigure {
+            target,
+            figure,
+            scenario,
+        }),
+    }
+}
+
+/// The two scenarios of [`message_row`]s.
+const SMALL: &str = "small_params";
+const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 7] = [
+const ROWS: [Row; 15] = [
     Row {
         name: "F1.parses",
         family: "B1",
         unit: "pages",
         happens: true,
+        valgrind: None,
     },
     Row {
         name: "F1.selector_compilations",
         family: "B1",
         unit: "pages",
         happens: false,
+        valgrind: None,
     },
     Row {
         name: "F1.readability_runs",
         family: "B1",
         unit: "pages",
         happens: true,
+        valgrind: None,
     },
     Row {
         name: "F1.file_opens",
         family: "B1",
         unit: "pages",
         happens: false,
+        valgrind: None,
     },
     Row {
         name: "F1.locale_form_builds",
         family: "B1",
         unit: "pages",
         happens: false,
+        valgrind: None,
     },
     Row {
         name: "F1.plugin_serializations",
         family: "B1",
         unit: "pages",
         happens: false,
+        valgrind: None,
     },
     Row {
         name: "F1.plugin_answer_parses",
         family: "B1",
         unit: "pages",
         happens: false,
+        valgrind: None,
     },
+    Row {
+        name: "E1.deep_copies",
+        family: "B3",
+        unit: "incoming_messages",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E1.encodes",
+        family: "B3",
+        unit: "outgoing_messages",
+        happens: true,
+        valgrind: None,
+    },
+    message_row(
+        "E1.instructions",
+        "instructions",
+        Figure::Instructions,
+        SMALL,
+    ),
+    message_row(
+        "E1.instructions_large",
+        "instructions",
+        Figure::Instructions,
+        LARGE,
+    ),
+    message_row("E1.allocations", "heap", Figure::TotalAllocations, SMALL),
+    message_row(
+        "E1.allocations_large",
+        "heap",
+        Figure::TotalAllocations,
+        LARGE,
+    ),
+    message_row("E1.bytes_allocated", "heap", Figure::TotalBytes, SMALL),
+    message_row(
+        "E1.bytes_allocated_large",
+        "heap",
+        Figure::TotalBytes,
+        LARGE,
+    ),
 ];
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// Only this family's rows (B1).
+    /// Only this family's rows (B1, B3).
     #[arg(long)]
     family: Option<String>,
     /// Only this path's rows (F1).
@@ -134,6 +263,9 @@ pub(crate) struct Arguments {
     /// of building its target.
     #[arg(long, value_name = "FAMILY=PATH")]
     executable: Vec<String>,
+    /// Runs the rows read under Valgrind, in place of the counted ones.
+    #[arg(long, conflicts_with = "executable")]
+    valgrind: bool,
 }
 
 /// The cell that runs with every default feature on.
@@ -155,8 +287,16 @@ struct Cell {
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let root = environment.root.as_path();
     let limits = register::limits(root)?;
+    let named: Vec<&str> = arguments
+        .executable
+        .iter()
+        .filter_map(|named| named.split_once('=').map(|(family, _)| family))
+        .collect();
     let rows: Vec<&Row> = ROWS
         .iter()
+        .filter(|row| row.valgrind.is_some() == arguments.valgrind)
+        // A family named by its executable is what this run asks for.
+        .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| {
             arguments
                 .family
@@ -179,12 +319,29 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     {
         bail!("{planted} is no counted row of what runs");
     }
-    let executables = executables(arguments, environment, &rows)?;
+    let executables = if arguments.valgrind {
+        BTreeMap::new()
+    } else {
+        executables(arguments, environment, &rows)?
+    };
     if arguments.prove {
         let mut findings = Vec::new();
+        // A Valgrind plant does the same work whichever row it names, so one
+        // run of a family's targets proves all its rows.
+        let mut planted: BTreeMap<&str, Vec<Cell>> = BTreeMap::new();
         for row in &rows {
-            let cells = cells(&executables[row.family], Some(row.name))?;
-            let caught = verdict(&[row], &cells, &limits)?
+            if !planted.contains_key(row.family) || !arguments.valgrind {
+                let cells = family_cells(
+                    row.family,
+                    &rows,
+                    &executables,
+                    Some(row.name),
+                    arguments,
+                    environment,
+                )?;
+                planted.insert(row.family, cells);
+            }
+            let caught = verdict(&[row], &planted[row.family], &limits)?
                 .iter()
                 .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
             output::line(&format!(
@@ -206,7 +363,14 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let mut families: Vec<&str> = rows.iter().map(|row| row.family).collect();
     families.dedup();
     for family in families {
-        let cells = cells(&executables[family], arguments.plant.as_deref())?;
+        let cells = family_cells(
+            family,
+            &rows,
+            &executables,
+            arguments.plant.as_deref(),
+            arguments,
+            environment,
+        )?;
         let of_family: Vec<&Row> = rows
             .iter()
             .copied()
@@ -215,6 +379,124 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         findings.extend(verdict(&of_family, &cells, &limits)?);
     }
     Ok(check::report(&findings))
+}
+
+/// What `family`'s rows counted, each extra unit of `plant` done.
+fn family_cells(
+    family: &str,
+    rows: &[&Row],
+    executables: &BTreeMap<&'static str, PathBuf>,
+    plant: Option<&str>,
+    arguments: &Arguments,
+    environment: &Environment,
+) -> Result<Vec<Cell>> {
+    if arguments.valgrind {
+        valgrind_cells(family, rows, plant, environment)
+    } else {
+        cells(&executables[family], plant)
+    }
+}
+
+/// Runs `family`'s Valgrind targets for `rows` and answers each cell's
+/// figures, as a counted benchmark prints its own.
+fn valgrind_cells(
+    family: &str,
+    rows: &[&Row],
+    plant: Option<&str>,
+    environment: &Environment,
+) -> Result<Vec<Cell>> {
+    let Some(of_family) = FAMILIES.iter().find(|of| of.name == family) else {
+        bail!("no family {family}");
+    };
+    let Some(benchmark) = &of_family.valgrind else {
+        bail!("the family {family} has no benchmark under Valgrind");
+    };
+    let figures: Vec<(&Row, ValgrindFigure)> = rows
+        .iter()
+        .filter(|row| row.family == family)
+        .filter_map(|row| row.valgrind.map(|figure| (*row, figure)))
+        .collect();
+    let mut targets: Vec<&str> = figures.iter().map(|(_, figure)| figure.target).collect();
+    targets.sort_unstable();
+    targets.dedup();
+    let mut measured = Vec::new();
+    for target in targets {
+        measured.extend(run_valgrind_target(
+            of_family,
+            benchmark,
+            target,
+            plant,
+            environment,
+        )?);
+    }
+    let read = |target: &str, id: String, figure: Figure| {
+        let end = format!("{}/{id}", benchmark.function);
+        measured
+            .iter()
+            .find(|one: &&Measured| {
+                one.figure == figure
+                    && one.subject.ends_with(&end)
+                    && one.subject.contains(&format!("/{target}::"))
+            })
+            .map(|one| one.head)
+    };
+    Ok(benchmark
+        .cells
+        .iter()
+        .map(|(name, suffix)| Cell {
+            name: (*name).to_owned(),
+            units: BTreeMap::from([("messages".to_owned(), benchmark.units)]),
+            counts: figures
+                .iter()
+                .filter_map(|(row, figure)| {
+                    let scenario = read(
+                        figure.target,
+                        format!("{}{suffix}", figure.scenario),
+                        figure.figure,
+                    )?;
+                    let empty = read(
+                        figure.target,
+                        format!("{}{suffix}", benchmark.empty),
+                        figure.figure,
+                    )?;
+                    Some((row.name.to_owned(), scenario.saturating_sub(empty)))
+                })
+                .collect(),
+        })
+        .collect())
+}
+
+/// Runs one Valgrind target's benchmark, each extra unit of `plant` done, and
+/// answers its figures.
+fn run_valgrind_target(
+    family: &Family,
+    benchmark: &ValgrindBenchmark,
+    target: &str,
+    plant: Option<&str>,
+    environment: &Environment,
+) -> Result<Vec<Measured>> {
+    let out = environment.root.join(VALGRIND_OUT);
+    std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    let report = out.join(format!("{}-{target}.jsonl", family.name));
+    std::fs::File::create(&report).with_context(|| format!("creating {}", report.display()))?;
+    let mut command = Command::new(&environment.cargo);
+    command
+        .args(["bench", "--locked", "--package", family.package])
+        .args(["--bench", target, "--"])
+        .arg(format!("*::{}::*", benchmark.function))
+        .current_dir(&environment.root)
+        .env("GUNGRAUN_HOME", out.join("gungraun"))
+        .stderr(Stdio::inherit());
+    if let Some(plant) = plant {
+        command.env(PLANT_VARIABLE, plant);
+    }
+    let status = perf::gungraun_output(&mut command, &report)?
+        .status()
+        .with_context(|| format!("running {}'s {target} benchmark", family.name))?;
+    if !status.success() {
+        bail!("{}'s {target} benchmark failed", family.name);
+    }
+    perf::read_gungraun_summaries(&[&report])
 }
 
 /// Each family's executable: the one `--executable` names, else its built
@@ -253,11 +535,12 @@ struct Message {
 fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     // The package's dev-dependency on itself turns its executable on, which
     // embeds its Console build (ADR 0057).
-    if environment
-        .root
-        .join(console::PACKAGE)
-        .join("package.json")
-        .is_file()
+    if family.embeds_console
+        && environment
+            .root
+            .join(console::PACKAGE)
+            .join("package.json")
+            .is_file()
     {
         console::build(&environment.root)?;
     }
@@ -344,7 +627,12 @@ fn verdict(
                 cell.name,
                 row.unit.trim_end_matches('s'),
             ));
-            if limit.exceeded_by(*count, *units) {
+            let limit_held = if row.valgrind.is_some() {
+                limit.with_valgrind_tolerance()
+            } else {
+                *limit
+            };
+            if limit_held.exceeded_by(*count, *units) {
                 findings.push(Finding::new(
                     "over-limit",
                     row.name,

@@ -431,7 +431,7 @@ fn spawn_measured(command: &mut Command, report: &Path, what: &str) -> Result<Ch
 
 /// `command` set up to write gungraun's JSON summaries to the end of
 /// `report`.
-fn gungraun_output<'command>(
+pub(crate) fn gungraun_output<'command>(
     command: &'command mut Command,
     report: &Path,
 ) -> Result<&'command mut Command> {

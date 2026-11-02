@@ -299,6 +299,8 @@ struct Counted {
     run_state_prepares: Option<u64>,
     /// Whether it met the Frontier's outcomes beyond a links batch.
     frontier: bool,
+    /// Whether a handler served its pages, following no links.
+    handler: bool,
 }
 
 impl Counted {
@@ -440,7 +442,7 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         work,
         started,
         removes: cell.removes,
-        prepares: prepares(cell.name, cell.frontier.is_some(), planted),
+        prepares: prepares(cell.name, cell.frontier.is_some(), cell.handler, planted),
         attempts: crawled.attempts,
         syncs,
         removes_syncs: cell.removes_syncs,
@@ -448,6 +450,7 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
             .join()
             .expect("invariant: the run under Callgrind ended"),
         frontier: cell.frontier.is_some(),
+        handler: cell.handler,
     }
 }
 
@@ -482,12 +485,17 @@ fn run_state_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHan
 /// Each outcome's `F3.prepares` in the cell `cell`, side by side, the planted
 /// one's alone when a row is planted, and none when another row is. A cell
 /// with no `frontier` meets no hop and no sitemap: theirs are 0, once
-/// Valgrind ran.
+/// Valgrind ran. A handler's cell follows no links, so it admits no links
+/// batch either, and every outcome's is 0.
 fn prepares(
     cell: &'static str,
     frontier: bool,
+    handler: bool,
     planted: Option<&str>,
 ) -> BTreeMap<&'static str, u64> {
+    if handler {
+        return PREPARES.iter().map(|(row, _)| (*row, 0)).collect();
+    }
     let mut prepares: BTreeMap<&'static str, u64> = std::thread::scope(|scope| {
         let runs: Vec<_> = PREPARES
             .iter()
@@ -642,7 +650,7 @@ fn main() {
         let units = json!({
             "pages": cell.pages,
             "records": cell.pages,
-            "links_batches": cell.pages,
+            "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,
             "sitemaps": cell.sitemaps,
             "payloads": u64::from(cell.frontier),

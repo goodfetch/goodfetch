@@ -1311,7 +1311,7 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F3.compilations.hop` | glob and regex compilations and validator builds per redirect hop | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.compilations.sitemap` | glob and regex compilations and validator builds per sitemap read | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.compilations.payload` | glob and regex compilations and validator builds per URL with a payload | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
-| `F3.prepares` | statement preparations per links batch | 0 | 19.063 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.prepares` | statement preparations per links batch | 0 | 21.154 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.prepares.hop` | statement preparations per redirect hop | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.prepares.sitemap` | statement preparations per sitemap read | 0 | 10 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.transactions` | transactions of its own per links batch | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |

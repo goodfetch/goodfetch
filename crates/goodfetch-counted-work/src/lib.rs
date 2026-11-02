@@ -190,11 +190,25 @@ pub enum Row {
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff,
+    /// `E6.transactions`: a transaction on a Politeness file, as its commit
+    /// hook sees it.
+    PolitenessTransactions,
+    /// `E6.opens`: a Politeness file opened. Its statement preparations are
+    /// the benchmark's, read from Callgrind, as no wrapper sees them.
+    PolitenessOpens,
+    /// `E6.script_sends`: a script sent whole to Valkey or Redis, which no
+    /// code does until a Politeness store lands.
+    PolitenessScriptSends,
+    /// `E6.robots_parses`: a robots.txt parsed for the copy a user's runs
+    /// share.
+    RobotsParses,
+    /// `E6.robots_reads`: a read of that copy from the Politeness file.
+    RobotsReads,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 67] = [
+    pub const ALL: [Self; 72] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -262,6 +276,11 @@ impl Row {
         Self::RunTraceFileOpens,
         Self::RunTraceSpawns,
         Self::RunTraceFormattingOff,
+        Self::PolitenessTransactions,
+        Self::PolitenessOpens,
+        Self::PolitenessScriptSends,
+        Self::RobotsParses,
+        Self::RobotsReads,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -329,6 +348,11 @@ impl Row {
             Self::RunTraceFileOpens | Self::RunTraceSpawns | Self::RunTraceFormattingOff => {
                 "run_trace"
             }
+            Self::PolitenessTransactions
+            | Self::PolitenessOpens
+            | Self::PolitenessScriptSends
+            | Self::RobotsParses
+            | Self::RobotsReads => "politeness_permit",
         }
     }
 
@@ -352,14 +376,19 @@ impl Row {
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
-            Self::SinkOpens | Self::ChargeOpens | Self::WorkingCopyOpens | Self::AuditOpens => {
-                "opens"
-            }
+            Self::SinkOpens
+            | Self::ChargeOpens
+            | Self::WorkingCopyOpens
+            | Self::AuditOpens
+            | Self::PolitenessOpens => "opens",
             Self::ChargeStatements => "statements",
             Self::SinkWriterReads | Self::WriterReads => "writer_reads",
             Self::ConfigurationReads | Self::AuditConfigurationReads => "configuration_reads",
             Self::Prunes | Self::AuditPrunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
+            Self::PolitenessScriptSends => "script_sends",
+            Self::RobotsParses => "robots_parses",
+            Self::RobotsReads => "robots_reads",
             Self::RecordDeclarationReads => "declaration_reads",
             Self::RecordValidatorBuilds => "validator_builds",
             Self::RecordValidations | Self::PayloadValidations => "validations",
@@ -374,7 +403,8 @@ impl Row {
             | Self::RunTransactions
             | Self::ChargeTransactions
             | Self::WorkingCopyTransactions
-            | Self::AuditTransactions => "transactions",
+            | Self::AuditTransactions
+            | Self::PolitenessTransactions => "transactions",
             Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
                 "invariant_reads"
             }
@@ -468,6 +498,11 @@ impl Row {
             Self::RunTraceFileOpens => "E5.file_opens",
             Self::RunTraceSpawns => "E5.spawns",
             Self::RunTraceFormattingOff => "E5.formatting_off",
+            Self::PolitenessTransactions => "E6.transactions",
+            Self::PolitenessOpens => "E6.opens",
+            Self::PolitenessScriptSends => "E6.script_sends",
+            Self::RobotsParses => "E6.robots_parses",
+            Self::RobotsReads => "E6.robots_reads",
         }
     }
 

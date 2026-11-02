@@ -44,6 +44,14 @@
 //! The Run-trace rows count per entry: each cell prints, beside its pages,
 //! the entries its Run trace holds, read from the trace's files once its
 //! engine stopped, and fails if it wrote none.
+//!
+//! The site serves its robots.txt (E6). `E6.opens` is the Politeness file's
+//! opens after the first page and the statements Callgrind sees prepared
+//! beneath its functions in the `--callgrind` run, its opening's left out,
+//! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
+//! counters counted in the cell with Politeness and robots.txt off, over its
+//! attempts. An E6 row's plant runs in every cell, as its limit is its worst
+//! cell's.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -70,8 +78,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::CountingVfs;
-use goodfetch_test_support::callgrind;
-use plants::{Counted as PlantOn, run_state_plant};
+use goodfetch_test_support::callgrind::{self, Calls};
+use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
     Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries, page_analysis_plant,
     run_trace_plant,
@@ -108,10 +116,14 @@ fn planted_prepare(connection: &rusqlite::Connection) {
 }
 
 /// The plant of the row named `name`, a run-state row's on its own file
-/// through the VFS `vfs`.
+/// through the VFS `vfs`, a Politeness permit row's on a Politeness file of
+/// its own.
 fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     if name.starts_with("F2.") {
         return run_state_plant(name, &PlantOn { work, vfs });
+    }
+    if name.starts_with("E6.") {
+        return politeness_plant(name, work);
     }
     let work = work.clone();
     if name == "F1.parses" {
@@ -139,14 +151,16 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
         .unwrap_or_else(|| counting(work, row))
 }
 
-/// The rows counted from the crawl's first page on, not from its start.
-const FROM_FIRST_PAGE: [Row; 6] = [
+/// The rows counted from the crawl's first page on, not from its start: the
+/// Politeness file opens as the crawl starts.
+const FROM_FIRST_PAGE: [Row; 7] = [
     Row::PageSelectorCompilations,
     Row::PageReadabilityRuns,
     Row::PageFileOpens,
     Row::PageLocaleFormBuilds,
     Row::PagePluginSerializations,
     Row::PagePluginAnswerParses,
+    Row::PolitenessOpens,
 ];
 
 /// The field whose Value transform has the crawl build a locale's forms:
@@ -162,6 +176,33 @@ fn number_field() -> Map<String, Value> {
 
 /// The run-state row Callgrind reads over a whole cell.
 const RUN_STATE_PREPARES: &str = "F2.prepares";
+
+/// The row Callgrind adds the Politeness file's preparations to: those
+/// beneath its functions, but its opening's.
+const POLITENESS_OPENS: &str = "E6.opens";
+const POLITENESS: &str = "goodfetch_engine::politeness::";
+const OPENING: [&str; 2] = ["politeness::open_file", "politeness::create_tables"];
+
+/// How many callers up Callgrind looks for the Politeness file's functions:
+/// more than SQLite's wrapper, a contribution's rule and the file's actor take.
+const CALLERS: u32 = 32;
+
+/// The row of the cell with Politeness and robots.txt off, and that cell.
+const OFF_WORK: &str = "E6.off_work";
+const OFF_CELL: &str = "politeness_and_robots_txt_off";
+
+/// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
+/// is its work.
+const POLITENESS_ROWS: [Row; 5] = [
+    Row::PolitenessTransactions,
+    Row::PolitenessOpens,
+    Row::PolitenessScriptSends,
+    Row::RobotsParses,
+    Row::RobotsReads,
+];
+
+/// The origins the fixture's robots.txt is read for: the site's one.
+const ORIGINS: u64 = 1;
 
 /// The row the counting VFS reads.
 const SYNCS: &str = "F2.syncs";
@@ -205,7 +246,7 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-fn cells() -> [Cell; 8] {
+fn cells() -> [Cell; 10] {
     [
         Cell {
             name: "default",
@@ -286,6 +327,30 @@ fn cells() -> [Cell; 8] {
             handler: false,
             limit: false,
         },
+        // robots.txt off and Politeness off take none of E6's work away yet:
+        // ADR 0138's "cost nothing" is the Shared paths spec's, and X19 waives
+        // it meanwhile, so neither cell removes a row.
+        Cell {
+            name: "robots_txt_off",
+            settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: OFF_CELL,
+            settings: json!({
+                "politeness": { "domain": { "delay": 0, "concurrency": null } },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
     ]
 }
 
@@ -304,10 +369,13 @@ struct Counted {
     /// Each outcome's `F3.prepares`, when Valgrind ran.
     prepares: BTreeMap<&'static str, u64>,
     attempts: u64,
+    /// Every request the site was sent, each under a Politeness permit.
+    requests: u64,
     syncs: u64,
     removes_syncs: bool,
-    /// `F2.prepares`, when Valgrind ran.
-    run_state_prepares: Option<u64>,
+    /// `F2.prepares`, and those of its preparations beneath the Politeness
+    /// file's functions, when Valgrind ran.
+    prepare_calls: Option<Calls>,
     /// Whether it met the Frontier's outcomes beyond a links batch.
     frontier: bool,
     /// Whether a handler served its pages, following no links.
@@ -386,6 +454,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
             run_state_vfs: Some(vfs.name().to_owned()),
             largest_page: (pages == Pages::Callgrind).then_some(CALLGRIND_PAGE),
             limit: cell.limit.then_some(LIMIT),
+            robots_txt: true,
         },
     );
     Crawl {
@@ -399,7 +468,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
 
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row.
 fn run(cell: &Cell, planted: Option<&str>) -> Counted {
-    let run_state_prepares = run_state_prepares(cell.name, planted);
+    let prepare_calls = prepare_calls(cell.name, planted);
     let Crawl {
         crawled,
         work,
@@ -461,9 +530,10 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         removes: cell.removes,
         prepares: prepares(cell.name, cell.frontier.is_some(), cell.handler, planted),
         attempts: crawled.attempts,
+        requests: crawled.requests,
         syncs,
         removes_syncs: cell.removes_syncs,
-        run_state_prepares: run_state_prepares
+        prepare_calls: prepare_calls
             .join()
             .expect("invariant: the run under Callgrind ended"),
         frontier: cell.frontier.is_some(),
@@ -471,25 +541,33 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
     }
 }
 
-/// Starts `cell`'s run under Callgrind for `F2.prepares`, when this run
-/// reads its row: a plant of another row has no use for its figure and would
-/// wait for it.
-fn run_state_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<u64>> {
+/// Starts `cell`'s run under Callgrind for `F2.prepares` and `E6.opens`,
+/// when this run reads their rows: a plant of another row has no use for
+/// their figures and would wait for them.
+fn prepare_calls(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<Calls>> {
     let cell = cell.to_owned();
     let planted = planted.map(str::to_owned);
     std::thread::spawn(move || {
         if planted
             .as_deref()
-            .is_some_and(|row| row != RUN_STATE_PREPARES)
+            .is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
         {
             return None;
         }
         let executable = std::env::current_exe().expect("invariant: this process has a path");
         let mut arguments = vec!["--callgrind", cell.as_str()];
-        if planted.is_some() {
-            arguments.extend(["--plant", RUN_STATE_PREPARES]);
+        if let Some(row) = &planted {
+            arguments.extend(["--plant", row.as_str()]);
         }
-        match callgrind::calls(PREPARE, &executable, &arguments) {
+        let calls = callgrind::calls_beneath(
+            PREPARE,
+            CALLERS,
+            POLITENESS,
+            &OPENING,
+            &executable,
+            &arguments,
+        );
+        match calls {
             Ok(calls) => Some(calls),
             Err(error) => {
                 eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
@@ -626,11 +704,16 @@ fn main() {
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
     // so a family's rows stay within their minute. A plant needs the default
-    // cell alone, the one that proves its counter.
+    // cell alone, the one that proves its counter. An E6 row's plant runs in
+    // every cell: its Today is its worst cell's (`concurrency_1`), which a
+    // unit more per page in the default cell stays under, and `E6.off_work`
+    // is held in its off cell alone.
     let counted: Vec<Counted> = std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
-            .filter(|cell| planted.is_none() || cell.name == "default")
+            .filter(|cell| {
+                planted.is_none_or(|row| cell.name == "default" || row.starts_with("E6."))
+            })
             .map(|cell| scope.spawn(move || run(&cell, planted)))
             .collect();
         cells
@@ -661,9 +744,19 @@ fn main() {
             counts.insert((*row).to_owned(), json!(count));
         }
         counts.insert(SYNCS.to_owned(), json!(cell.syncs));
-        if let Some(prepares) = cell.run_state_prepares {
-            counts.insert(RUN_STATE_PREPARES.to_owned(), json!(prepares));
+        match cell.prepare_calls {
+            Some(calls) => {
+                counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.all));
+                let opens = cell.count(Row::PolitenessOpens) + calls.beneath;
+                counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
+            }
+            None => {
+                counts.remove(POLITENESS_OPENS);
+            }
         }
+        let off = cell.name == OFF_CELL;
+        let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
+        counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
         let units = json!({
             "pages": cell.pages,
             "records": cell.pages,
@@ -675,6 +768,10 @@ fn main() {
             "runs": RUNS,
             "effects": EFFECTS,
             "entries": cell.entries,
+            "permits": cell.requests,
+            "requests": cell.requests,
+            "origins": ORIGINS,
+            "off_attempts": if off { cell.attempts } else { 0 },
         });
         println!(
             "{}",

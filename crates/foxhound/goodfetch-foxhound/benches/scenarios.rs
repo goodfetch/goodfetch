@@ -74,6 +74,10 @@ const HOST: &str = "pages.test";
 /// The end of every page's body.
 const TAIL: &[u8] = b"</main></body></html>\n";
 
+/// The site's robots.txt, when it serves one: every page allowed, so the
+/// crawl reads it, parses it and obeys it without skipping a page.
+const ROBOTS_TXT: &str = "User-agent: *\nAllow: /\n";
+
 /// One page of the site: its head and how many paragraphs follow it.
 struct Page {
     head: String,
@@ -145,6 +149,10 @@ struct Site {
     sitemaps: Arc<AtomicU64>,
     /// The most paragraphs it serves a page.
     largest: Option<usize>,
+    /// Whether it serves [`ROBOTS_TXT`], else answers it 404.
+    robots_txt: bool,
+    /// Every request it was sent, each under a Politeness permit.
+    requests: Arc<AtomicU64>,
 }
 
 /// The seed that redirects, to [`MOVED_TO`].
@@ -191,6 +199,19 @@ pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
+        let path = hop.url.path();
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        if self.robots_txt && path == "/robots.txt" {
+            let headers = vec![
+                ("content-type".to_owned(), "text/plain".to_owned()),
+                ("content-length".to_owned(), ROBOTS_TXT.len().to_string()),
+            ];
+            return Box::pin(std::future::ready(Ok(plain(
+                200,
+                headers,
+                ROBOTS_TXT.to_owned(),
+            ))));
+        }
         let path = hop.url.path();
         if self.frontier && path == MOVED {
             self.hops.fetch_add(1, Ordering::Relaxed);
@@ -365,6 +386,8 @@ pub(crate) struct Crawled {
     /// The sitemaps it sent.
     pub(crate) sitemaps: u64,
     pub(crate) attempts: u64,
+    /// Every request the site was sent: its pages' and robots.txt's.
+    pub(crate) requests: u64,
 }
 
 /// The entries the Run traces under `home` hold once its crawl ended: one
@@ -439,6 +462,9 @@ pub(crate) struct Options {
     /// The most paragraphs a page holds, for a count that does not depend on
     /// a page's size and a tool too slow for the whole site (Callgrind).
     pub(crate) largest_page: Option<usize>,
+    /// The site serves a robots.txt, which the crawl parses and obeys (ADR
+    /// 0140's E6), in place of answering it 404.
+    pub(crate) robots_txt: bool,
     /// The amount of a Limit of `requests` on the install, which each
     /// request of the crawl charges (ADR 0140's E3).
     pub(crate) limit: Option<u64>,
@@ -493,30 +519,6 @@ fn foxhound(tiers: FetchTiers, metrics: Metrics) -> Engine {
         .with_metrics(metrics)
 }
 
-/// The crawl's dependencies: `home`, a clock paused at `start`, entropy of
-/// `seed` and the run file through `run_state_vfs`.
-fn dependencies(
-    home: &Path,
-    start: SystemTime,
-    seed: u64,
-    run_state_vfs: Option<String>,
-) -> Dependencies {
-    Dependencies {
-        environment: std::collections::BTreeMap::new(),
-        keychain: goodfetch_engine::secrets::Keychain::absent(),
-        home: Home::new(home.to_owned()),
-        clock: Clock::paused(start),
-        entropy: Entropy::seeded(seed),
-        blocking: BlockingPolicy::Inline,
-        run_state_location: RunStateLocation::PerMajor,
-        run_state: RunStateOptions {
-            vfs: run_state_vfs,
-            ..RunStateOptions::default()
-        },
-        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
-    }
-}
-
 /// [`crawl`], with `options`.
 pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Options) -> Crawled {
     let Options {
@@ -530,6 +532,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         run_state_vfs,
         largest_page,
         limit,
+        robots_txt,
     } = options;
     if let Some(amount) = limit {
         set_limit(home, start, amount);
@@ -537,6 +540,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     let sent = Arc::new(AtomicU64::new(0));
     let attempts = Arc::new(AtomicU64::new(0));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+    let requests = Arc::new(AtomicU64::new(0));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
@@ -546,6 +550,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         hops: Arc::clone(&hops),
         sitemaps: Arc::clone(&sitemaps),
         largest: largest_page,
+        robots_txt,
+        requests: Arc::clone(&requests),
     }));
     let engine = foxhound(tiers, metrics);
     let (records, handled) = goodfetch_test_support::runtime().block_on(async {
@@ -609,6 +615,32 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         hops: hops.load(Ordering::Relaxed),
         sitemaps: sitemaps.load(Ordering::Relaxed),
         attempts: attempts.load(Ordering::Relaxed),
+        requests: requests.load(Ordering::Relaxed),
+    }
+}
+
+/// What the engine runs on: the Goodfetch home `home`, a paused clock from
+/// `start`, entropy seeded with `seed`, blocking work inline and its run
+/// files opened through `run_state_vfs`.
+fn dependencies(
+    home: &Path,
+    start: SystemTime,
+    seed: u64,
+    run_state_vfs: Option<String>,
+) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
+        home: Home::new(home.to_owned()),
+        clock: Clock::paused(start),
+        entropy: Entropy::seeded(seed),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions {
+            vfs: run_state_vfs,
+            ..RunStateOptions::default()
+        },
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 

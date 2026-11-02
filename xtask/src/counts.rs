@@ -165,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 61] = [
+const ROWS: [Row; 67] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -487,6 +487,52 @@ const ROWS: [Row; 61] = [
         name: "E5.formatting_off",
         family: "B1",
         unit: "entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E6.transactions",
+        family: "B1",
+        unit: "attempts",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E6.opens",
+        family: "B1",
+        unit: "permits",
+        happens: false,
+        valgrind: None,
+    },
+    // No Politeness store sends a script until one lands: 0 passes and a
+    // planted one fails.
+    Row {
+        name: "E6.script_sends",
+        family: "B1",
+        unit: "permits",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E6.robots_parses",
+        family: "B1",
+        unit: "origins",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E6.robots_reads",
+        family: "B1",
+        unit: "requests",
+        happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell with Politeness and robots.txt
+    // off: none in any other cell, where its count is 0.
+    Row {
+        name: "E6.off_work",
+        family: "B1",
+        unit: "off_attempts",
         happens: false,
         valgrind: None,
     },

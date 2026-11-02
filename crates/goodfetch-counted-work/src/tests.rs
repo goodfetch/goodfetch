@@ -135,6 +135,11 @@ fn each_row_counts_on_its_own() {
             ("E5.file_opens", 0),
             ("E5.spawns", 0),
             ("E5.formatting_off", 0),
+            ("E6.transactions", 0),
+            ("E6.opens", 0),
+            ("E6.script_sends", 0),
+            ("E6.robots_parses", 0),
+            ("E6.robots_reads", 0),
         ]
     );
 }

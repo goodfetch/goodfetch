@@ -1,4 +1,4 @@
-//! The run-state rows' plants (ADR 0140): one extra unit of a row's work per
+//! The run-state and Politeness rows' plants (ADR 0140): one extra unit of a row's work per
 //! page served, done for real through the code that counts it, so a counter
 //! that stops seeing the work fails. A plant's run file, settings and Audit
 //! log are its own, beside the crawl's, and run on a runtime of their own: the
@@ -15,7 +15,10 @@ use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::audit::AuditLog;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::politeness::{Politeness, PolitenessOptions, PolitenessTables};
+use goodfetch_engine::robots_txt::{Answer, Copies as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::settings::{HostDefaults, Settings, SettingsFiles};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -142,6 +145,87 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
                 .prepare("SELECT 1")
                 .expect("invariant: a literal statement");
         }),
+        other => panic!("no plant for the row {other}"),
+    }
+}
+
+/// The table a Politeness plant writes, as a commit with nothing to write is
+/// not a transaction its commit hook sees.
+const PLANTED_POLITENESS: PolitenessTables = PolitenessTables {
+    name: "planted",
+    statements: &["CREATE TABLE IF NOT EXISTS planted (value INTEGER NOT NULL) STRICT"],
+};
+
+/// A Politeness file of its own, in memory, counting on `work`, opened before
+/// the crawl so its opening is no page's.
+fn politeness(work: &CountedWork) -> (&'static Runtime, Politeness) {
+    let (runtime, _) = beside_the_crawl();
+    let options = PolitenessOptions {
+        work: work.clone(),
+        ..PolitenessOptions::default()
+    };
+    let file = beside(runtime, async {
+        let owner: &'static TaskOwner =
+            Box::leak(Box::new(TaskOwner::root(BlockingPolicy::Inline)));
+        Politeness::in_memory(
+            &options,
+            vec![PLANTED_POLITENESS, goodfetch_frontier::ROBOTS_TXT_TABLES],
+            owner,
+        )
+        .await
+        .expect("invariant: SQLite opens a Politeness file in memory")
+    });
+    (runtime, file)
+}
+
+/// The plant of the row named `name`, one of the Politeness permit's (E6).
+pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
+    match name {
+        // One transaction more on a Politeness file, which Politeness off
+        // must not do either.
+        "E6.transactions" | "E6.off_work" => {
+            let (runtime, file) = politeness(work);
+            Arc::new(move |_: &str| {
+                let insert = |connection: &rusqlite::Connection| {
+                    connection.execute("INSERT INTO planted VALUES (1)", [])
+                };
+                beside(runtime, file.transact(insert))
+                    .expect("invariant: the planted file takes a write");
+            })
+        }
+        // One statement prepared more on a Politeness file's connection,
+        // which Callgrind sees beneath the file's own functions.
+        "E6.opens" => {
+            let (runtime, file) = politeness(work);
+            Arc::new(move |_: &str| {
+                let prepare =
+                    |connection: &rusqlite::Connection| connection.prepare("SELECT 1").map(drop);
+                beside(runtime, file.transact(prepare))
+                    .expect("invariant: the planted file prepares a statement");
+            })
+        }
+        // No Politeness store sends a script until one lands: its counted
+        // seam is the count alone.
+        "E6.script_sends" => {
+            let work = work.clone();
+            Arc::new(move |_: &str| work.count(Row::PolitenessScriptSends))
+        }
+        // One read more of a shared robots.txt copy, which parses it again.
+        "E6.robots_parses" | "E6.robots_reads" => {
+            let (runtime, file) = politeness(work);
+            // A paused Clock is made on the runtime it runs on.
+            let clock = beside(runtime, async { Clock::paused(std::time::UNIX_EPOCH) });
+            let copies = goodfetch_frontier::SharedRobotsTxt::new(file, clock);
+            let location = url::Url::parse("http://planted.test/robots.txt")
+                .expect("invariant: a literal URL");
+            Arc::new(move |_: &str| {
+                let fetch = Box::pin(std::future::ready(Answer::Response {
+                    status: 200,
+                    body: b"User-agent: *\nAllow: /\n".to_vec(),
+                }));
+                beside(runtime, copies.copy(&location, fetch));
+            })
+        }
         other => panic!("no plant for the row {other}"),
     }
 }

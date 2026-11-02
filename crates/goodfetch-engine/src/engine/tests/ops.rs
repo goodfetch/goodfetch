@@ -358,6 +358,18 @@ pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
         .collect()
 }
 
+/// `series` less what the run file and the Politeness file count, which is
+/// `xtask counts`' to hold, not this test's.
+fn beside_the_run_file(series: BTreeSet<String>) -> BTreeSet<String> {
+    series
+        .into_iter()
+        .filter(|line| {
+            !line.contains(r#"shared_path="run_state""#)
+                && !line.contains(r#"shared_path="politeness_permit""#)
+        })
+        .collect()
+}
+
 /// The meter the engine is given records each Client while it is
 /// connected, each Run while it is live and each Run's end by its three
 /// axes, and whether the Daemon drains; Prometheus renders them under
@@ -400,15 +412,8 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         },
     );
 
-    // What the run file does is `xtask counts`' to hold, not this test's.
     // Each Run's charging opens the ledger once, for the Limits its report
     // lists, and that open commits its set-up: a Usage charge's counts.
-    let beside_the_run_file = |series: BTreeSet<String>| -> BTreeSet<String> {
-        series
-            .into_iter()
-            .filter(|line| !line.contains(r#"shared_path="run_state""#))
-            .collect()
-    };
     assert_eq!(
         (
             beside_the_run_file(while_running),

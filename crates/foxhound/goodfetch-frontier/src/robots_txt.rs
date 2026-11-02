@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::url::Url;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{Politeness, PolitenessTables, milliseconds};
 use goodfetch_engine::robots_txt::{Answer, Copied, Copies, Fetch, Fetched, MAX_SIZE};
@@ -34,7 +35,7 @@ use tokio::sync::OnceCell;
 pub(crate) const FRESH_FOR: Duration = Duration::from_hours(24);
 
 /// The table the copies live in, in the per-user Politeness file.
-pub(crate) const TABLES: PolitenessTables = PolitenessTables {
+pub const TABLES: PolitenessTables = PolitenessTables {
     name: "goodfetch-frontier robots.txt",
     statements: &["CREATE TABLE IF NOT EXISTS robots_txt (
             location TEXT NOT NULL PRIMARY KEY,
@@ -240,6 +241,7 @@ impl SharedRobotsTxt {
     /// from what `fetch` answered.
     async fn fetched(&self, location: &Url, fetch: Fetch<'_>) -> Arc<Fetched> {
         let key = location.as_str().to_owned();
+        self.politeness.work().count(Row::RobotsReads);
         let copy = self
             .politeness
             .transact(move |connection| stored(connection, &key))
@@ -252,7 +254,7 @@ impl SharedRobotsTxt {
             .as_ref()
             .filter(|copy| fresh(Some(copy), milliseconds(self.clock.wall())))
         {
-            return Arc::new(copy.applies());
+            return self.parsed(copy.applies());
         }
         let answer = fetch.await;
         let applied = applies(copy.as_ref(), &answer);
@@ -268,7 +270,16 @@ impl SharedRobotsTxt {
                 tracing::warn!(%error, "the shared robots.txt copy was not kept; it is fetched again");
             }
         }
-        Arc::new(applied)
+        self.parsed(applied)
+    }
+
+    /// `fetched`, a file parsed counted as such (ADR 0140's E6): a robots.txt
+    /// is parsed exactly where a copy or an answer gives a file.
+    fn parsed(&self, fetched: Fetched) -> Arc<Fetched> {
+        if matches!(fetched, Fetched::File(_)) {
+            self.politeness.work().count(Row::RobotsParses);
+        }
+        Arc::new(fetched)
     }
 }
 

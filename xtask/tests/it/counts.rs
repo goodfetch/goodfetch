@@ -594,13 +594,20 @@ const OTHER_B1_ROWS: &str = "\
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.transactions` | Politeness-file transactions per attempt | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
+| `E6.opens` | opens and statement preparations per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.script_sends` | script sends per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
 /// readability run a page, one validation and one serialization a Record, one
 /// Payload serialized and validated over one links batch, one transaction,
-/// sync and configuration read over one attempt and one Run, over 13
+/// sync and configuration read over one attempt and one Run, two Politeness
+/// transactions an attempt and one robots.txt parse an origin, over 13
 /// Run-trace entries none of their rows' work, none of the other rows' work,
 /// then `extra` as it is, and 13 more of the row it is told to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
@@ -649,13 +656,19 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
         ("E5.formatting_off", 0),
+        ("E6.transactions", 2),
+        ("E6.opens", 0),
+        ("E6.script_sends", 0),
+        ("E6.robots_parses", 1),
+        ("E6.robots_reads", 0),
+        ("E6.off_work", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0,\"entries\":13}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

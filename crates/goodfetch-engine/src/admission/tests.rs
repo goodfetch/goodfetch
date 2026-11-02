@@ -27,7 +27,9 @@ use super::{
     Waiting,
 };
 use crate::clock::Clock;
-use crate::politeness::{Ending, Hold, Holder, PermitRule, Politeness, Taken, Verdict};
+use crate::politeness::{
+    Ending, Hold, Holder, PermitRule, Politeness, PolitenessOptions, Taken, Verdict,
+};
 use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -183,7 +185,9 @@ fn named(room: &Room, now: Instant) -> String {
 /// whose first request of `shop.test` already holds its Permit, taken
 /// before the delay began, under the rate cap `rate`.
 async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) -> SecondCopies {
-    let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+    let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
+        .await
+        .unwrap();
     let holder = Holder {
         run_id: "crawl".to_owned(),
         epoch: 1,
@@ -392,7 +396,9 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
         let gate = OneKey::default();
         let holds = Arc::clone(&gate.holds);
         let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
-        let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
+            .await
+            .unwrap();
         let holder = Holder {
             run_id: "crawl".to_owned(),
             epoch: 1,
@@ -521,7 +527,9 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
             holds: Arc::clone(&holds),
         };
         let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
-        let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
+            .await
+            .unwrap();
         let holder = Holder {
             run_id: "crawl".to_owned(),
             epoch: 1,

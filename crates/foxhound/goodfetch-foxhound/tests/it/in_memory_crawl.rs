@@ -14,7 +14,7 @@ use goodfetch_test_support::{CountingVfs, TestEnv};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::crawl_plants::{Counted, run_state_plant};
+use crate::crawl_plants::{Counted, politeness_plant, run_state_plant};
 use crate::crawl_scenario::{
     Frontier, Options, PAGES, Plant, body_bytes, crawl, crawl_with, entries, page_analysis_plant,
     run_trace_plant,
@@ -676,5 +676,84 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
         "{} at fast, {} at full",
         fast.syncs,
         full.syncs
+    );
+}
+
+/// What a crawl of the site serving its robots.txt, with `settings`, counted
+/// on the Politeness permit's rows (E6) and, when `planted`, with one extra
+/// unit of that row's work per page served; and the requests the site was
+/// sent.
+fn politeness_counts(settings: &Value, planted: Option<&str>) -> (CountedWork, u64) {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let plant = planted.map(|row| politeness_plant(row, &work));
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            settings: settings.as_object().unwrap().clone(),
+            plant,
+            robots_txt: true,
+            largest_page: Some(PAGES[0]),
+            ..Options::default()
+        },
+    );
+    assert_eq!(crawled.records.len(), PAGES.len() + 1);
+    (work, crawled.requests)
+}
+
+/// B1's counts cell (ADR 0140): the crawl takes a Permit per request in
+/// transactions of the Politeness file it opened, and reads and parses the
+/// robots.txt copy its user's runs share, which its site serves.
+#[test]
+fn the_crawl_does_the_politeness_work_its_rows_count() {
+    let (work, requests) = politeness_counts(&json!({}), None);
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(
+        requests > pages,
+        "{requests} requests: no robots.txt was sent"
+    );
+    assert!(
+        work.read(Row::PolitenessTransactions) >= requests,
+        "{} Politeness transactions for {requests} requests",
+        work.read(Row::PolitenessTransactions)
+    );
+    assert_eq!(work.read(Row::PolitenessOpens), 1, "the file opens once");
+    assert!(
+        work.read(Row::RobotsReads) > 0,
+        "the crawl read no robots.txt copy"
+    );
+    assert!(
+        work.read(Row::RobotsParses) > 0,
+        "the crawl parsed no robots.txt"
+    );
+    assert_eq!(work.read(Row::PolitenessScriptSends), 0);
+}
+
+/// B1's counts cell (ADR 0140): each counter of the Politeness permit sees one
+/// extra unit of its work per page, done for real where it can be. `E6.opens`'
+/// preparations are Callgrind's, which `xtask counts --prove` plants.
+#[rstest]
+#[case::transactions("E6.transactions", Row::PolitenessTransactions)]
+#[case::script_sends("E6.script_sends", Row::PolitenessScriptSends)]
+#[case::robots_parses("E6.robots_parses", Row::RobotsParses)]
+#[case::robots_reads("E6.robots_reads", Row::RobotsReads)]
+fn a_planted_unit_per_page_moves_its_politeness_row_by_a_page_each(
+    #[case] name: &str,
+    #[case] row: Row,
+) {
+    let (default, _) = politeness_counts(&json!({}), None);
+    let (planted, _) = politeness_counts(&json!({}), Some(name));
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert!(
+        planted.read(row) >= default.read(row) + pages,
+        "{name}: {} planted, {} not",
+        planted.read(row),
+        default.read(row)
     );
 }

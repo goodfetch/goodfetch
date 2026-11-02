@@ -55,7 +55,7 @@ pub use politeness::{
     start_after, start_after_robots_txt, started_again, started_at_send,
 };
 pub use queues::DomainQueues;
-pub use robots_txt::SharedRobotsTxt;
+pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };

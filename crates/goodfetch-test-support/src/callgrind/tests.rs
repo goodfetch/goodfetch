@@ -1,4 +1,4 @@
-use super::{Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in};
+use super::{Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, most_at_once};
 
 /// A piece of what Callgrind writes: two callers of the symbol, a call of
 /// another symbol between them, and the symbol's own cost line.
@@ -88,8 +88,7 @@ fn the_calls_beneath_an_owner_are_its_own_and_its_left_out_callers_are_not() {
 fn bounded_runs_at_most_half_the_cores_at_once_and_answers_each() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let most = std::thread::available_parallelism()
-        .map_or(1, |cores| (cores.get() / 2).clamp(1, MOST_AT_ONCE));
+    let most = most_at_once();
     let (running, highest) = (AtomicUsize::new(0), AtomicUsize::new(0));
 
     let answers: Vec<usize> = std::thread::scope(|scope| {

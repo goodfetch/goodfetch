@@ -250,8 +250,8 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
 
     let outcome = workspace.xtask(&[
         "counts",
-        "--family",
-        "B3",
+        "--path",
+        "E1",
         "--executable",
         &format!("B3={}", path.display()),
     ]);
@@ -587,6 +587,7 @@ const B2_ROWS: &str = "\
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |
 | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |
+| `E4.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 ";
 
 /// A plant reaches only its own row's family: B1's benchmark knows no plant of
@@ -607,7 +608,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n",
+        "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"pages_opened\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"E4.pool_walks\":0}}'\n",
     );
 
     let outcome = workspace.xtask(&[

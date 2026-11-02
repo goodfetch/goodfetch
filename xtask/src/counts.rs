@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 26] = [
+const ROWS: [Row; 31] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -328,6 +328,41 @@ const ROWS: [Row; 26] = [
         happens: false,
         valgrind: None,
     },
+    Row {
+        name: "E4.configuration_reads",
+        family: "B3",
+        unit: "samples",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.meminfo_opens",
+        family: "B3",
+        unit: "samples",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.static_opens",
+        family: "B3",
+        unit: "samples",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.process_reads",
+        family: "B3",
+        unit: "process_samples",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E4.pool_walks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: false,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -342,7 +377,7 @@ struct NotRunYet {
     builder: &'static str,
 }
 
-const NOT_RUN_YET: [NotRunYet; 6] = [
+const NOT_RUN_YET: [NotRunYet; 7] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -373,6 +408,11 @@ const NOT_RUN_YET: [NotRunYet; 6] = [
         family: "B1",
         builder: "#1121",
     },
+    NotRunYet {
+        name: "E4.cpu_stat_opens",
+        family: "B3",
+        builder: "#1306",
+    },
 ];
 
 #[derive(clap::Args)]
@@ -380,7 +420,7 @@ pub(crate) struct Arguments {
     /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1, C1).
+    /// Only this path's rows (F1, C1, E4).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -437,6 +477,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let not_run_yet: Vec<&NotRunYet> = NOT_RUN_YET
         .iter()
         .filter(|_| !arguments.valgrind)
+        .filter(|row| named.is_empty() || named.contains(&row.family))
         .filter(|row| arguments.asks_for(row.family, row.name))
         .collect();
     if rows.is_empty() && not_run_yet.is_empty() {

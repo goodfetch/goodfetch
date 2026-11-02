@@ -53,6 +53,7 @@ use goodfetch_cdp::{
     Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
     SubscriptionEnd,
 };
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::clock::Clock;
@@ -201,6 +202,8 @@ pub(crate) struct Browser {
     lease: Option<Arc<dyn LeaseCheck>>,
     /// Its Run's deadlines, which its commands wait under.
     deadlines: Arc<Deadlines>,
+    /// Where its pages' reads count their work (ADR 0140's C2).
+    work: CountedWork,
 }
 
 /// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
@@ -263,6 +266,7 @@ impl Browser {
                 action: Deadline::declared(&TIMEOUT_ACTION),
                 close: Deadline::declared(&TIMEOUT_CLOSE),
             }),
+            work: CountedWork::default(),
         }
     }
 }
@@ -498,6 +502,7 @@ impl Connect for BorrowedBrowser {
                     hidden: Arc::default(),
                     lease: None,
                     deadlines: Deadlines::of(&self.run),
+                    work: self.run.metrics().counted_work().clone(),
                 };
                 // The first answer says a browser speaks CDP there.
                 browser
@@ -663,6 +668,7 @@ impl Connect for LocalBrowser {
                     hidden: Arc::default(),
                     lease: None,
                     deadlines: Deadlines::of(&self.run),
+                    work: self.run.metrics().counted_work().clone(),
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -1438,16 +1444,30 @@ impl PageDriver {
     /// found by its name, outside any gesture's turn: the reads engine
     /// scripts make of a frame, such as live hiding's (ADR 0047). A frame
     /// gone, or a function that throws, answers none.
+    ///
+    /// The one way an engine read reaches a frame, so it counts C2's work
+    /// (ADR 0140): each command it sends, and the world it makes, which,
+    /// with no registry of each frame's document yet, it makes on every read
+    /// and so counts as one past its document's first (X10).
     pub(crate) async fn read_in_frame(
         &self,
         frame: &page::FrameId,
         function: &str,
         argument: serde_json::Value,
     ) -> Result<Option<serde_json::Value>, Failure> {
+        let work = &self.browser.work;
+        for row in [
+            Row::PageReadCommands,
+            Row::PageReadDocumentWorlds,
+            Row::PageReadWorldCreations,
+        ] {
+            work.count(row);
+        }
         let made = self
             .browser
             .try_send(Some(&self.session), &isolated_world(frame.clone()))
             .await?;
+        work.count(Row::PageReadCommands);
         let called = self
             .browser
             .try_send(

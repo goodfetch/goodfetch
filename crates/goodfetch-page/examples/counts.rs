@@ -5,6 +5,10 @@
 //! not a `[[bench]]`, as `xtask perf` runs every bench target under gungraun:
 //! counts need no Valgrind and no optimized build.
 //!
+//! Its units are the commands the browser read, the engine reads in a frame
+//! the program made, and the documents and frames those reads ran in. C2's
+//! rows count over those reads alone (`session::READ_ROWS`).
+//!
 //! `--plant <row>` does one extra unit of that row's work per command the
 //! browser reads. The run fails here if the work it counts did not happen, or
 //! if a feature off did not take its work away.
@@ -98,11 +102,25 @@ fn main() {
     });
     let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.session;
-        assert!(*commands > 0, "the cell {} sent no command", cell.name);
+        let session = &cell.session;
+        assert!(
+            session.commands > 0,
+            "the cell {} sent no command",
+            cell.name
+        );
+        assert!(
+            session.reads > 0 && session.documents > 0,
+            "the cell {} read no document",
+            cell.name
+        );
+        assert!(
+            session.read_commands >= session.reads,
+            "the cell {} read without a command",
+            cell.name
+        );
         for row in cell.removes {
             assert!(
-                work.read(*row) < default.work.read(*row),
+                session.count(*row) < default.count(*row),
                 "the cell {} leaves {} as it is",
                 cell.name,
                 row.name()
@@ -110,11 +128,16 @@ fn main() {
         }
         let counts: Map<String, Value> = Row::ALL
             .iter()
-            .map(|row| (row.name().to_owned(), json!(work.read(*row))))
+            .map(|row| (row.name().to_owned(), json!(session.count(*row))))
             .collect();
+        let units = json!({
+            "commands": session.commands,
+            "reads": session.reads,
+            "documents": session.documents,
+        });
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "commands": commands }, "counts": counts })
+            json!({ "cell": cell.name, "units": units, "counts": counts })
         );
     }
 }

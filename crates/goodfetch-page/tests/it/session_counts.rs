@@ -11,7 +11,7 @@ use goodfetch_engine::metrics::Metrics;
 use rstest::rstest;
 use serde_json::Map;
 
-use session::{Counted, counted, counting};
+use session::{Counted, READ_ROWS, counted, counting};
 
 fn run(planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
@@ -24,7 +24,7 @@ fn run(planted: Option<Row>) -> Counted {
 /// writer, which keeps its file open once per batch at most.
 #[test]
 fn a_session_counts_each_commands_work() {
-    let Counted { commands, work } = run(None);
+    let Counted { commands, work, .. } = run(None);
 
     assert!(commands > 0, "the Session sent no command");
     assert_eq!(work.read(Row::CdpEncodes), commands);
@@ -44,18 +44,51 @@ fn a_session_counts_each_commands_work() {
 #[case::sends(Row::CdpSends, 2)]
 #[case::log_sends(Row::CdpLogSendsOff, 2)]
 fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64) {
-    let Counted { commands, work } = run(Some(row));
+    let Counted { commands, work, .. } = run(Some(row));
 
     assert_eq!(work.read(row), per_command * commands, "{}", row.name());
 }
 
 #[test]
 fn a_planted_file_open_takes_the_row_past_two_a_command() {
-    let Counted { commands, work } = run(Some(Row::CdpFileOpens));
+    let Counted { commands, work, .. } = run(Some(Row::CdpFileOpens));
 
     assert!(
         work.read(Row::CdpFileOpens) > 2 * commands,
         "{} opens over {commands} commands",
         work.read(Row::CdpFileOpens)
+    );
+}
+
+/// Each engine read in a frame sends two commands, its isolated world's
+/// creation and its call, and makes its world again even in a document it
+/// read before (X10): every command sent while the program read is a read's,
+/// and two reads ran in each of the two documents.
+#[test]
+fn each_read_counts_its_commands_and_its_world() {
+    let counted = run(None);
+
+    assert_eq!((counted.reads, counted.documents), (4, 2));
+    assert_eq!(
+        READ_ROWS.map(|row| counted.count(row)),
+        [2 * counted.reads, counted.reads, counted.reads]
+    );
+    assert_eq!(counted.read_commands, counted.count(Row::PageReadCommands));
+}
+
+/// A plant runs once per command the browser reads, two per read, so each of
+/// C2's rows gains two units a read.
+#[rstest]
+#[case::commands(Row::PageReadCommands, 2)]
+#[case::world_creations(Row::PageReadWorldCreations, 1)]
+#[case::document_worlds(Row::PageReadDocumentWorlds, 1)]
+fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
+    let counted = run(Some(row));
+
+    assert_eq!(
+        counted.count(row),
+        (per_read + 2) * counted.reads,
+        "{}",
+        row.name()
     );
 }

@@ -91,6 +91,11 @@ impl CommandLog {
         }
     }
 
+    /// The Counted work of the Run whose commands it records.
+    pub(crate) fn work(&self) -> &CountedWork {
+        &self.work
+    }
+
     /// Records that `method` is being sent.
     ///
     /// # Cancel safety

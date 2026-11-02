@@ -1,11 +1,13 @@
 //! B2 (ADR 0140): a Session against the scripted browser counts each CDP
-//! command's work and each intercepted request's, and a plant of one extra
-//! unit shows in the count. Its
-//! figures against the register's limits are `xtask counts`', and `--prove`
-//! runs the plant through it.
+//! command's work, each intercepted request's and each guarded action's, and
+//! a plant of one extra unit shows in the count. Its figures against the
+//! register's limits are `xtask counts`', and `--prove` runs the plant
+//! through it.
 
 #[path = "../../benches/session.rs"]
 mod session;
+
+use std::collections::BTreeMap;
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::metrics::Metrics;
@@ -42,6 +44,41 @@ fn a_session_counts_each_commands_work() {
     assert!(
         opens > 0 && opens <= 2 * commands,
         "{opens} opens over {commands} commands"
+    );
+}
+
+/// On each of the two documents, a click, a fill and a press each wait for
+/// one check, which sends one command and `check.js`'s source with it (X11).
+/// Each kind's commands: the click makes the guard's world in its document,
+/// checks, moves, presses and releases the pointer and disarms; the fill
+/// checks and inserts its text; the press checks, sends its key down and up,
+/// and waits for the renderer. On the second document the click's first
+/// check finds the first document's world gone, a check of its own, and the
+/// world is made again exactly once.
+#[test]
+fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
+    let Counted {
+        checks,
+        attempts,
+        work,
+        ..
+    } = run(None);
+
+    assert_eq!(
+        attempts,
+        BTreeMap::from([("click", 2), ("fill", 2), ("press", 2)])
+    );
+    assert_eq!(checks, 7);
+    assert_eq!(work.read(Row::ActionScriptSends), checks);
+    assert_eq!(work.read(Row::ActionCheckCommands), checks);
+    assert_eq!(
+        [
+            Row::ActionClickCommands,
+            Row::ActionFillCommands,
+            Row::ActionPressCommands,
+        ]
+        .map(|row| work.read(row)),
+        [13, 4, 8]
     );
 }
 
@@ -98,6 +135,29 @@ fn a_planted_unit_adds_two_a_read(#[case] row: Row, #[case] per_read: u64) {
     assert_eq!(
         counted.count(row),
         (per_read + 2) * counted.reads,
+        "{}",
+        row.name()
+    );
+}
+
+/// An action's row counts per check or per attempt, each of which sends at
+/// least one command, so a plant of one unit per command adds at least one
+/// per check and per attempt, past each row's limit.
+#[rstest]
+#[case::script_sends(Row::ActionScriptSends)]
+#[case::check_commands(Row::ActionCheckCommands)]
+#[case::click_commands(Row::ActionClickCommands)]
+#[case::fill_commands(Row::ActionFillCommands)]
+#[case::press_commands(Row::ActionPressCommands)]
+fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
+    let unplanted = run(None);
+
+    let planted = run(Some(row));
+
+    assert_eq!(planted.commands, unplanted.commands);
+    assert_eq!(
+        planted.work.read(row),
+        unplanted.work.read(row) + planted.commands,
         "{}",
         row.name()
     );

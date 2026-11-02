@@ -119,6 +119,16 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
+    ActionScriptSends,
+    /// `C3.check_commands`: a CDP command a guard's check sent.
+    ActionCheckCommands,
+    /// `C3.commands`, of a click: a CDP command a click's attempt sent.
+    ActionClickCommands,
+    /// `C3.commands`, of a fill: a CDP command a fill's attempt sent.
+    ActionFillCommands,
+    /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
+    ActionPressCommands,
     /// `F2.transactions`: a transaction on a run file: a commit its commit
     /// hook saw, and each job the writer folded into a commit's group, so the
     /// count does not depend on how commits group (ADR 0138's note).
@@ -250,7 +260,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 88] = [
+    pub const ALL: [Self; 93] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -289,6 +299,11 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::ActionScriptSends,
+        Self::ActionCheckCommands,
+        Self::ActionClickCommands,
+        Self::ActionFillCommands,
+        Self::ActionPressCommands,
         Self::RunTransactions,
         Self::WriterReads,
         Self::ConfigurationReads,
@@ -379,6 +394,11 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::ActionScriptSends
+            | Self::ActionCheckCommands
+            | Self::ActionClickCommands
+            | Self::ActionFillCommands
+            | Self::ActionPressCommands => "action",
             Self::RunTransactions
             | Self::WriterReads
             | Self::ConfigurationReads
@@ -453,6 +473,10 @@ impl Row {
             Self::InterceptedMatches => "matches",
             Self::InterceptedAnswers => "answers",
             Self::InterceptedEntries => "entries",
+            Self::ActionCheckCommands => "check_commands",
+            Self::ActionClickCommands => "click_commands",
+            Self::ActionFillCommands => "fill_commands",
+            Self::ActionPressCommands => "press_commands",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
@@ -468,7 +492,7 @@ impl Row {
             | Self::GovernorConfigurationReads => "configuration_reads",
             Self::Prunes | Self::AuditPrunes => "prunes",
             Self::EffectSyncs => "effect_syncs",
-            Self::PolitenessScriptSends => "script_sends",
+            Self::PolitenessScriptSends | Self::ActionScriptSends => "script_sends",
             Self::RobotsParses => "robots_parses",
             Self::RobotsReads => "robots_reads",
             Self::RecordDeclarationReads => "declaration_reads",
@@ -560,6 +584,11 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::ActionScriptSends => "C3.script_sends",
+            Self::ActionCheckCommands => "C3.check_commands",
+            Self::ActionClickCommands => "C3.commands.click",
+            Self::ActionFillCommands => "C3.commands.fill",
+            Self::ActionPressCommands => "C3.commands.press",
             Self::RunTransactions => "F2.transactions",
             Self::WriterReads => "F2.writer_reads",
             Self::ConfigurationReads => "F2.configuration_reads",

@@ -245,6 +245,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The Response cache, recording or WARC, and charset rows are not run yet** (#793, #1291, #1783): no code holds their work, so each starts at its Contract and fails as soon as B2 counts any of it.
 > - **B2's documents answer `304`:** a Collie page's robots.txt reading starts on each other document's response and fetches through a second page this scripted browser does not play. Its pages' TEST-NET range is in the Run's `egress.private_ranges`, as a program against a local site does; the image each page loads, at another TEST-NET address, is the refused request.
 
+> Note (agent decisions of #1865, pending owner review), 2026-11-02, on C3's rows:
+> - **An attempt's commands are those its page's handle sends while it runs:** the guard's `attempt` takes a copy of its page's driver that counts every command it sends on the attempt's kind, its checks, input, disarm and the round trip after a navigation the gesture started alike. Commands other modules send meanwhile, on their own handles, are not the attempt's.
+> - **A check's command is the call that carries `check.js`,** counted with its source's send. The guard's world a check makes first is its document's, made once there, so it counts in the attempt's kind and not as the check's; a locator wait's check makes its world each time, so both its commands count as the check's (X11). A check refused because a navigation left its world behind is a check of its own, as the browser saw `check.js` sent.
+> - **`C3.commands` holds one figure per kind** (`click 6.5, fill 2, press 4`), read by `xtask counts` as the rows `C3.commands.click` and so on, each its own limit. The click's half is the second document's: its first check finds the first document's world gone, and the world is made again exactly once.
+> - **The stealth kinds are not run yet:** human-like input (#1018) and typing (#1022) are not built, and no Access mode setting exists to switch on, so B2 has no stealth cell. Each of those tickets adds its kind and its cell.
+> - **No switch found on C3's path:** the one off cell stays `filter_lists_off`, which leaves C3's figures as they are.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

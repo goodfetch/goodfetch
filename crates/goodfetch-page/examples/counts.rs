@@ -178,15 +178,22 @@ fn main() {
             .iter()
             .map(|row| (row.name().to_owned(), json!(session.count(*row))))
             .collect();
-        let units = json!({
-            "commands": session.commands,
-            "reads": session.reads,
-            "documents": session.documents,
-            "pages_opened": session.pages_opened,
-            "requests": session.requests,
-            "pauses": session.paused,
-            "refusals": session.refused,
-        });
+        let mut units = Map::from_iter([
+            ("commands".to_owned(), json!(session.commands)),
+            ("reads".to_owned(), json!(session.reads)),
+            ("documents".to_owned(), json!(session.documents)),
+            ("pages_opened".to_owned(), json!(session.pages_opened)),
+            ("requests".to_owned(), json!(session.requests)),
+            ("pauses".to_owned(), json!(session.paused)),
+            ("refusals".to_owned(), json!(session.refused)),
+            ("checks".to_owned(), json!(session.checks)),
+        ]);
+        units.extend(
+            session
+                .attempts
+                .iter()
+                .map(|(kind, count)| (format!("{kind}_attempts"), json!(count))),
+        );
         println!(
             "{}",
             json!({ "cell": cell.name, "units": units, "counts": counts })

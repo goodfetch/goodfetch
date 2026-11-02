@@ -95,6 +95,10 @@ const PLANT_VARIABLE: &str = "GOODFETCH_COUNTS_PLANT";
 /// The folder under the workspace's `target/` of the Valgrind rows' reports.
 const VALGRIND_OUT: &str = "target/counts";
 
+/// The folder under the workspace's `target/` of each family's own copy of its
+/// built benchmark.
+const BUILT_OUT: &str = "target/counts/bin";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -627,7 +631,7 @@ fn executables(
         }
         let executable = match named.get(family.name) {
             Some(path) => environment.path(Path::new(path)),
-            None => build(&family, environment)?,
+            None => own_copy(&family, &build(&family, environment)?, environment)?,
         };
         executables.insert(family.name, executable);
     }
@@ -668,6 +672,18 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
         .filter_map(|line| serde_json::from_str::<Message>(line).ok())
         .find_map(|message| message.executable)
         .with_context(|| format!("cargo build reported no executable for {}", family.name))
+}
+
+/// A copy of `family`'s built `executable` that no other family's build
+/// replaces: Cargo puts every package's example of one name at one path, and
+/// each family's is `counts`.
+fn own_copy(family: &Family, executable: &Path, environment: &Environment) -> Result<PathBuf> {
+    let folder = environment.root.join(BUILT_OUT);
+    std::fs::create_dir_all(&folder).with_context(|| format!("creating {}", folder.display()))?;
+    let copy = folder.join(format!("{}-{}", family.name, family.target));
+    std::fs::copy(executable, &copy)
+        .with_context(|| format!("copying {} to {}", executable.display(), copy.display()))?;
+    Ok(copy)
 }
 
 /// What `executable` counted, each extra unit of `plant` done.

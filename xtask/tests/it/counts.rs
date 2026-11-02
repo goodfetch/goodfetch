@@ -310,6 +310,56 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     );
 }
 
+/// Page analysis's rows, as the register holds them.
+const F1_ROWS: &str = "\
+| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `just counts` | implementer done |
+| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow | `just counts` | implementer done |
+| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done |
+| `F1.plugin_serializations` | serializations per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.plugin_answer_parses` | answer parses per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+";
+
+/// Two families' examples share one name, `counts`, so Cargo puts both at one
+/// path: each family's run reads its own benchmark all the same.
+#[test]
+fn a_whole_run_reads_each_familys_benchmark_though_their_examples_share_a_name() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{B3_REGISTER}{F1_ROWS}{NOT_RUN_YET}").as_bytes(),
+    );
+    let b1 = r#"{"cell":"default","units":{"pages":13},"counts":{"F1.parses":104,"F1.selector_compilations":0,"F1.readability_runs":13,"F1.file_opens":0,"F1.locale_form_builds":0,"F1.plugin_serializations":0,"F1.plugin_answer_parses":0}}"#;
+    let b3 = r#"{"cell":"default","units":{"incoming_messages":10,"outgoing_messages":10},"counts":{"E1.deep_copies":11,"E1.encodes":20}}"#;
+    let cargo = executable_script(
+        &workspace,
+        "cargo.sh",
+        &format!(
+            "#!/bin/sh\nexample=\"$PWD/target/debug/examples/counts\"\nmkdir -p \"${{example%/*}}\"\n\
+             case \"$*\" in\n  *goodfetch-foxhound*) line='{b1}' ;;\n  *) line='{b3}' ;;\nesac\n\
+             printf '#!/bin/sh\\necho %s\\n' \"'$line'\" > \"$example\"\nchmod +x \"$example\"\n\
+             echo \"{{\\\"executable\\\":\\\"$example\\\"}}\"\n"
+        ),
+    );
+
+    let outcome = workspace.xtask_with_env(&["counts"], &[("CARGO", cargo.as_os_str())]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}\n{}",
+        outcome.stdout,
+        outcome.stderr
+    );
+    for line in [
+        "F1.parses [default]: 8 per page",
+        "E1.encodes [default]: 2 per outgoing_message",
+    ] {
+        assert!(outcome.stdout.contains(line), "{}", outcome.stdout);
+    }
+}
+
 /// One bench target's gungraun summaries: for each cell, `no_messages` at 500
 /// and each scenario `per_message` over it per message of a hundred.
 fn summaries(bench: &str, metrics: &[&str], small: u64, large: u64) -> String {

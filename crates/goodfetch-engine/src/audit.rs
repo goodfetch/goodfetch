@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{
     AUDIT_LOG_ANCHOR, AUDIT_LOG_PRUNED, AUDIT_RETENTION, Actor, AuditEntry, AuditVerified,
     ExportedAuditEntry,
@@ -161,6 +162,7 @@ pub struct AuditLog {
     events: Option<AuditEvents>,
     /// The Runs whose entries are written unchained, shared by its clones.
     unchained: Arc<Mutex<BTreeSet<RunId>>>,
+    work: CountedWork,
 }
 
 impl AuditLog {
@@ -174,7 +176,15 @@ impl AuditLog {
             retained_under: None,
             events: None,
             unchained: Arc::default(),
+            work: CountedWork::default(),
         }
+    }
+
+    /// The same, each prune pass counted on `work` (ADR 0140).
+    #[must_use]
+    pub fn counting_on(mut self, work: CountedWork) -> Self {
+        self.work = work;
+        self
     }
 
     /// Writes every later entry of `run_id` unchained, as a Run whose
@@ -322,6 +332,7 @@ impl AuditLog {
         layer: Option<SettingsLayer>,
         now: Timestamp,
     ) -> Result<Option<AuditEntry>, AuditError> {
+        self.work.count(Row::Prunes);
         let cutoff = SignedDuration::try_from(retention)
             .ok()
             .and_then(|retention| now.checked_sub(retention).ok());

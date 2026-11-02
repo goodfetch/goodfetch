@@ -1,9 +1,11 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
 browsers = ["env", "variables"]
+callgrind = []
 canaries = ["proving_ground", "seeded"]
 cli = ["daemon", "env", "exercise", "locales", "snapshot"]
 colour = ["env", "pty"]
+counting_vfs = []
 crash_dumps = []
 crash_vfs = ["seeded"]
 daemon = ["env", "process", "runtime_file", "tools"]

@@ -18,6 +18,11 @@
 //! fixture, so serving a page allocates only its head. `pages.source.toml`
 //! records the bodies' total bytes, which `xtask perf` divides the crawl's
 //! total bytes by (ADR 0134's 2× ceiling).
+//!
+//! [`Frontier`] adds the outcomes the Frontier's rows count beyond a links
+//! batch, for the counts cell alone, so the heap benchmark's crawl stays as it
+//! is: a seed that redirects, a sitemap seed and a seed with a Payload under
+//! its Label's schema, each reaching one small page more.
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -36,6 +41,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
@@ -44,6 +50,9 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::run::{LimitScope, LimitSetter};
+use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -124,8 +133,56 @@ pub(crate) fn body_bytes() -> u64 {
 /// The site, served from memory, counting the body bytes it sends.
 struct Site {
     sent: Arc<AtomicU64>,
+    /// The attempts it served a page to.
+    attempts: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
+    /// Whether it also serves [`Frontier`]'s paths.
+    frontier: bool,
+    /// Whether each page has no paragraphs, as [`Options::small_pages`] says.
+    small_pages: bool,
+    hops: Arc<AtomicU64>,
+    sitemaps: Arc<AtomicU64>,
+    /// The most paragraphs it serves a page.
+    largest: Option<usize>,
+}
+
+/// The seed that redirects, to [`MOVED_TO`].
+const MOVED: &str = "/moved";
+/// Where [`MOVED`] leads.
+const MOVED_TO: &str = "/moved-to";
+/// The sitemap seed, whose one entry is [`FROM_SITEMAP`].
+const SITEMAP: &str = "/sitemap.xml";
+/// The sitemap's entry.
+const FROM_SITEMAP: &str = "/from-sitemap";
+/// The seed with a Payload.
+const WITH_PAYLOAD: &str = "/with-payload";
+
+/// The page at one of the paths only [`Frontier`] serves.
+fn frontier_page(path: &str) -> Option<Page> {
+    [MOVED_TO, FROM_SITEMAP, WITH_PAYLOAD]
+        .contains(&path)
+        .then(|| Page {
+            head: head(path, ""),
+            paragraphs: 0,
+        })
+}
+
+/// One answer of no paragraphs: a redirect, or a sitemap.
+fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
+    Sent {
+        status,
+        headers,
+        body: Box::new(Chunks {
+            head: Some(Bytes::from(body)),
+            left: 0,
+            tail: false,
+            sent: Arc::new(AtomicU64::new(0)),
+        }),
+        reused: false,
+        decoded: false,
+        certificate_exception: None,
+    }
 }
 
 /// One extra unit of a row's Counted work, done once per page served with
@@ -134,8 +191,49 @@ pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        let sent = Arc::clone(&self.sent);
-        let page = page(hop.url.path());
+        let path = hop.url.path();
+        if self.frontier && path == MOVED {
+            self.hops.fetch_add(1, Ordering::Relaxed);
+            let location = ("location".to_owned(), MOVED_TO.to_owned());
+            return Box::pin(std::future::ready(Ok(plain(
+                302,
+                vec![location, ("content-length".to_owned(), "0".to_owned())],
+                String::new(),
+            ))));
+        }
+        if self.frontier && path == SITEMAP {
+            self.sitemaps.fetch_add(1, Ordering::Relaxed);
+            let body = format!(
+                "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
+            );
+            let headers = vec![
+                ("content-type".to_owned(), "application/xml".to_owned()),
+                ("content-length".to_owned(), body.len().to_string()),
+            ];
+            return Box::pin(std::future::ready(Ok(plain(200, headers, body))));
+        }
+        // [`body_bytes`] holds the site's own pages, not [`Frontier`]'s.
+        let page = page(path);
+        let sent = if page.is_some() {
+            Arc::clone(&self.sent)
+        } else {
+            Arc::new(AtomicU64::new(0))
+        };
+        let page = page
+            .or_else(|| self.frontier.then(|| frontier_page(path)).flatten())
+            .map(|page| Page {
+                paragraphs: if self.small_pages { 0 } else { page.paragraphs },
+                ..page
+            })
+            .map(|page| {
+                self.attempts.fetch_add(1, Ordering::Relaxed);
+                Page {
+                    paragraphs: self
+                        .largest
+                        .map_or(page.paragraphs, |largest| page.paragraphs.min(largest)),
+                    ..page
+                }
+            });
         if let (Some(plant), Some(page)) = (&self.plant, &page) {
             plant(&page.head);
         }
@@ -237,11 +335,17 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
 }
 
 /// What the crawl answered: each Record of `pages`, how many requests a
-/// handler handled, and the body bytes the site sent.
+/// handler handled, the body bytes the site sent and the attempts it served
+/// a page to.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) handled: u64,
     pub(crate) body_bytes: u64,
+    /// The redirects the site answered.
+    pub(crate) hops: u64,
+    /// The sitemaps it sent.
+    pub(crate) sitemaps: u64,
+    pub(crate) attempts: u64,
 }
 
 /// `hello`'s line.
@@ -270,22 +374,53 @@ pub(crate) struct Options {
     /// code-free extraction: it waits on the page's `h1` as attached, then as
     /// visible, which the tier answers from the page's own document.
     pub(crate) handler: bool,
+    /// The Frontier's outcomes beyond a links batch.
+    pub(crate) frontier: Option<Frontier>,
+    /// Every page without its paragraphs: the same batches, hops and sitemaps
+    /// in less time, for a run under Callgrind, which counts what admission
+    /// does and not the size of a page.
+    pub(crate) small_pages: bool,
+    /// The VFS its run file opens through (ADR 0140's sync counts).
+    pub(crate) run_state_vfs: Option<String>,
+    /// The most paragraphs a page holds, for a count that does not depend on
+    /// a page's size and a tool too slow for the whole site (Callgrind).
+    pub(crate) largest_page: Option<usize>,
+    /// The amount of a Limit of `requests` on the install, which each
+    /// request of the crawl charges (ADR 0140's E3).
+    pub(crate) limit: Option<u64>,
 }
 
-/// [`crawl`], with `options`.
-pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Options) -> Crawled {
-    let Options {
-        metrics,
-        settings,
-        plant,
-        fields,
-        handler,
-    } = options;
-    let sent = Arc::new(AtomicU64::new(0));
-    let tiers = FetchTiers::serving(Arc::new(Site {
-        sent: Arc::clone(&sent),
-        plant,
-    }));
+/// How the crawl meets the Frontier's outcomes beyond a links batch.
+#[derive(Clone, Copy)]
+pub(crate) struct Frontier {
+    /// Whether the seed's Payload has a schema to fit.
+    pub(crate) schema: bool,
+}
+
+/// A Limit of `amount` `requests` on the install, set in `home`'s ledger at
+/// `start`, which each request of the crawl charges (ADR 0140's E3).
+fn set_limit(home: &Path, start: SystemTime, amount: u64) {
+    Ledger::at(Home::new(home.to_owned()).usage_ledger(), None)
+        .add_limit(
+            &Limit {
+                scope: LimitScope {
+                    kind: INSTALL.to_owned(),
+                    id: String::new(),
+                },
+                usage_kind: REQUESTS.to_owned(),
+                currency: None,
+                period: None,
+                amount,
+                must_understand: true,
+                set_by: LimitSetter::Person,
+            },
+            Timestamp::try_from(start).expect("invariant: the fixture's start"),
+        )
+        .expect("invariant: a new home's ledger is writable");
+}
+
+/// Foxhound's engine on `tiers`, counting on `metrics`.
+fn foxhound(tiers: FetchTiers, metrics: Metrics) -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").expect("invariant: a literal version"),
@@ -299,9 +434,66 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution())
         .with(goodfetch_crawl::contribution(tiers));
-    let engine = Engine::new(identity, &composition)
+    Engine::new(identity, &composition)
         .expect("invariant: one handler each")
-        .with_metrics(metrics);
+        .with_metrics(metrics)
+}
+
+/// The crawl's dependencies: `home`, a clock paused at `start`, entropy of
+/// `seed` and the run file through `run_state_vfs`.
+fn dependencies(
+    home: &Path,
+    start: SystemTime,
+    seed: u64,
+    run_state_vfs: Option<String>,
+) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
+        home: Home::new(home.to_owned()),
+        clock: Clock::paused(start),
+        entropy: Entropy::seeded(seed),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions {
+            vfs: run_state_vfs,
+            ..RunStateOptions::default()
+        },
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
+    }
+}
+
+/// [`crawl`], with `options`.
+pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Options) -> Crawled {
+    let Options {
+        metrics,
+        settings,
+        plant,
+        fields,
+        handler,
+        frontier,
+        small_pages,
+        run_state_vfs,
+        largest_page,
+        limit,
+    } = options;
+    if let Some(amount) = limit {
+        set_limit(home, start, amount);
+    }
+    let sent = Arc::new(AtomicU64::new(0));
+    let attempts = Arc::new(AtomicU64::new(0));
+    let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+    let tiers = FetchTiers::serving(Arc::new(Site {
+        sent: Arc::clone(&sent),
+        attempts: Arc::clone(&attempts),
+        plant,
+        frontier: frontier.is_some(),
+        small_pages,
+        hops: Arc::clone(&hops),
+        sitemaps: Arc::clone(&sitemaps),
+        largest: largest_page,
+    }));
+    let engine = foxhound(tiers, metrics);
     let (records, handled) = goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
@@ -314,7 +506,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             send(&mut writer, HELLO).await;
             send(
                 &mut writer,
-                &crawl_start(settings, fields, handler).to_string(),
+                &crawl_start(settings, fields, handler, frontier).to_string(),
             )
             .await;
             let mut records = Vec::new();
@@ -346,19 +538,11 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             while let Ok(Some(_)) = lines.next_line().await {}
             (records, waits.answered)
         };
-        let dependencies = Dependencies {
-            environment: std::collections::BTreeMap::new(),
-            keychain: goodfetch_engine::secrets::Keychain::absent(),
-            home: Home::new(home.to_owned()),
-            clock: Clock::paused(start),
-            entropy: Entropy::seeded(seed),
-            blocking: BlockingPolicy::Inline,
-            run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions::default(),
-            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
-        };
         let (served, read) = tokio::join!(
-            engine.run_attached(Network::InMemory(network), dependencies),
+            engine.run_attached(
+                Network::InMemory(network),
+                dependencies(home, start, seed, run_state_vfs)
+            ),
             client
         );
         served.expect("invariant: the engine got its Connection");
@@ -368,6 +552,9 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         records,
         handled,
         body_bytes: sent.load(Ordering::Relaxed),
+        hops: hops.load(Ordering::Relaxed),
+        sitemaps: sitemaps.load(Ordering::Relaxed),
+        attempts: attempts.load(Ordering::Relaxed),
     }
 }
 
@@ -386,13 +573,15 @@ const CREDITS: &str =
 /// The code-free `crawl.start` from the site's index: every in-scope link
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
-/// through, which no connection reaches.
+/// through, which no connection reaches. A cell's own settings, `cell`,
+/// replace a key of these whole.
 fn crawl_start(
-    mut settings: serde_json::Map<String, Value>,
+    cell: serde_json::Map<String, Value>,
     mut fields: serde_json::Map<String, Value>,
     handler: bool,
+    frontier: Option<Frontier>,
 ) -> Value {
-    settings.extend([
+    let mut settings = serde_json::Map::from_iter([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
@@ -401,15 +590,41 @@ fn crawl_start(
         ),
         ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
     ]);
+    settings.extend(cell);
+    let mut seeds = Vec::new();
+    let mut labels = json!({});
+    if let Some(frontier) = frontier {
+        seeds.extend([
+            json!({ "url": format!("http://{HOST}{MOVED}"), "label": "page" }),
+            json!({
+                "sitemap": format!("http://{HOST}{SITEMAP}"),
+                "rules": [{ "pattern": "**", "label": "page" }],
+            }),
+            json!({
+                "url": format!("http://{HOST}{WITH_PAYLOAD}"),
+                "label": "typed",
+                "payload": { "isbn": "1" },
+            }),
+        ]);
+        if frontier.schema {
+            labels = json!({ "typed": { "payload": {
+                "type": "object",
+                "required": ["isbn"],
+                "properties": { "isbn": { "type": "string" } },
+            } } });
+        }
+    }
     if handler {
         settings.insert(
             "crawl".to_owned(),
             json!({ "handler": { "concurrency": 1 } }),
         );
-        let seeds: Vec<Value> = std::iter::once("/".to_owned())
+        let pages: Vec<Value> = std::iter::once("/".to_owned())
             .chain((0..PAGES.len()).map(|number| format!("/page-{number}")))
             .map(|path| json!({ "url": format!("http://{HOST}{path}"), "label": "page" }))
             .collect();
+        seeds.splice(0..0, pages);
+        labels["page"] = json!({});
         return json!({
             "jsonrpc": "2.0",
             "id": "start",
@@ -417,7 +632,7 @@ fn crawl_start(
             "params": {
                 "run_id": "pages",
                 "seeds": seeds,
-                "labels": { "page": {} },
+                "labels": labels,
                 "settings": settings,
             },
         });
@@ -426,13 +641,18 @@ fn crawl_start(
         "title".to_owned(),
         json!({ "locator": { "kind": "css", "selector": "h1" } }),
     );
+    seeds.insert(
+        0,
+        json!({ "url": format!("http://{HOST}/"), "label": "page" }),
+    );
     json!({
         "jsonrpc": "2.0",
         "id": "start",
         "method": "crawl.start",
         "params": {
             "run_id": "pages",
-            "seeds": [{ "url": format!("http://{HOST}/"), "label": "page" }],
+            "seeds": seeds,
+            "labels": labels,
             "datasets": [],
             "extraction": {
                 "formats": {},

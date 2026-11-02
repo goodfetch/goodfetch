@@ -84,6 +84,31 @@ pub enum Row {
     RecordConstantLookups,
     /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
     RecordTransactions,
+    /// `F3.invariant_reads`: a read of the Scope, Payload rules or Fragments
+    /// from the run file, admitting a links batch.
+    BatchInvariantReads,
+    /// `F3.compilations`: a glob compiled to admit a links batch.
+    BatchCompilations,
+    /// `F3.transactions`: a write of its own a links batch asks the writer for.
+    BatchTransactions,
+    /// `F3.invariant_reads`, of a redirect hop.
+    HopInvariantReads,
+    /// `F3.compilations`, of a redirect hop.
+    HopCompilations,
+    /// `F3.transactions`, of a redirect hop.
+    HopTransactions,
+    /// `F3.invariant_reads`, of a sitemap's read.
+    SitemapInvariantReads,
+    /// `F3.compilations`, of a sitemap's read.
+    SitemapCompilations,
+    /// `F3.transactions`, of a sitemap's read.
+    SitemapTransactions,
+    /// `F3.compilations`: a validator built for one URL's Payload.
+    PayloadCompilations,
+    /// `F3.payload_serializations`: one URL's Payload serialized.
+    PayloadSerializations,
+    /// `F3.validations`: one URL's Payload validated against its Label's schema.
+    PayloadValidations,
     /// `C1.encodes`: a CDP command written into the bytes its pipe carries.
     CdpEncodes,
     /// `C1.sends`: a CDP command's bytes written to its pipe.
@@ -104,11 +129,31 @@ pub enum Row {
     ActionFillCommands,
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
     ActionPressCommands,
+    /// `F2.transactions`: a transaction on a run file: a commit its commit
+    /// hook saw, and each job the writer folded into a commit's group, so the
+    /// count does not depend on how commits group (ADR 0138's note).
+    RunTransactions,
+    /// `F2.writer_reads`: a read through a run file's writer.
+    WriterReads,
+    /// `F2.configuration_reads`: a read of the machine's settings files.
+    ConfigurationReads,
+    /// `F2.prunes`: a prune pass.
+    Prunes,
+    /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
+    /// does until the journal lands (#1550).
+    EffectSyncs,
+    /// `E3.statements`: a SQL statement a Usage charge reads its Limits with.
+    ChargeStatements,
+    /// `E3.slice_transactions`: a transaction committed on the ledger's
+    /// connections a charge goes through.
+    ChargeTransactions,
+    /// `E3.opens`: a connection opened to the ledger for a charge.
+    ChargeOpens,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 51] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -131,6 +176,18 @@ impl Row {
         Self::RecordDeepCopies,
         Self::RecordConstantLookups,
         Self::RecordTransactions,
+        Self::BatchInvariantReads,
+        Self::BatchCompilations,
+        Self::BatchTransactions,
+        Self::HopInvariantReads,
+        Self::HopCompilations,
+        Self::HopTransactions,
+        Self::SitemapInvariantReads,
+        Self::SitemapCompilations,
+        Self::SitemapTransactions,
+        Self::PayloadCompilations,
+        Self::PayloadSerializations,
+        Self::PayloadValidations,
         Self::CdpEncodes,
         Self::CdpSends,
         Self::CdpFileOpens,
@@ -140,6 +197,14 @@ impl Row {
         Self::ActionClickCommands,
         Self::ActionFillCommands,
         Self::ActionPressCommands,
+        Self::RunTransactions,
+        Self::WriterReads,
+        Self::ConfigurationReads,
+        Self::Prunes,
+        Self::EffectSyncs,
+        Self::ChargeStatements,
+        Self::ChargeTransactions,
+        Self::ChargeOpens,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -164,6 +229,18 @@ impl Row {
             | Self::RecordDeepCopies
             | Self::RecordConstantLookups
             | Self::RecordTransactions => "record",
+            Self::BatchInvariantReads | Self::BatchCompilations | Self::BatchTransactions => {
+                "frontier_admission"
+            }
+            Self::HopInvariantReads | Self::HopCompilations | Self::HopTransactions => {
+                "frontier_hop"
+            }
+            Self::SitemapInvariantReads | Self::SitemapCompilations | Self::SitemapTransactions => {
+                "frontier_sitemap"
+            }
+            Self::PayloadCompilations | Self::PayloadSerializations | Self::PayloadValidations => {
+                "frontier_payload"
+            }
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
@@ -172,6 +249,12 @@ impl Row {
             | Self::ActionClickCommands
             | Self::ActionFillCommands
             | Self::ActionPressCommands => "action",
+            Self::RunTransactions
+            | Self::WriterReads
+            | Self::ConfigurationReads
+            | Self::Prunes
+            | Self::EffectSyncs => "run_state",
+            Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
         }
     }
 
@@ -182,34 +265,53 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
+            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::HookMessagesNoHook => "messages_no_hook",
-            Self::HookCalls => "calls",
-            Self::HookBuilds => "builds",
-            Self::SinkOpens => "opens",
-            Self::SinkWriterReads => "writer_reads",
-            Self::RecordDeclarationReads => "declaration_reads",
-            Self::RecordValidatorBuilds => "validator_builds",
-            Self::RecordValidations => "validations",
-            Self::RecordSerializations => "serializations",
-            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
-            Self::RecordConstantLookups => "constant_lookups",
-            Self::SinkTransactions | Self::RecordTransactions => "transactions",
             Self::MessageEncodes | Self::CdpEncodes => "encodes",
             Self::CdpSends => "sends",
-            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
             Self::CdpLogSendsOff => "log_sends_off",
             Self::ActionScriptSends => "script_sends",
             Self::ActionCheckCommands => "check_commands",
             Self::ActionClickCommands => "click_commands",
             Self::ActionFillCommands => "fill_commands",
             Self::ActionPressCommands => "press_commands",
+            Self::HookMessagesNoHook => "messages_no_hook",
+            Self::HookCalls => "calls",
+            Self::HookBuilds => "builds",
+            Self::SinkOpens | Self::ChargeOpens => "opens",
+            Self::ChargeStatements => "statements",
+            Self::SinkWriterReads | Self::WriterReads => "writer_reads",
+            Self::ConfigurationReads => "configuration_reads",
+            Self::Prunes => "prunes",
+            Self::EffectSyncs => "effect_syncs",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations | Self::PayloadValidations => "validations",
+            Self::RecordSerializations | Self::PayloadSerializations => "serializations",
+            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::SinkTransactions
+            | Self::RecordTransactions
+            | Self::BatchTransactions
+            | Self::HopTransactions
+            | Self::SitemapTransactions
+            | Self::RunTransactions
+            | Self::ChargeTransactions => "transactions",
+            Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
+                "invariant_reads"
+            }
+            Self::BatchCompilations
+            | Self::HopCompilations
+            | Self::SitemapCompilations
+            | Self::PayloadCompilations => "compilations",
         }
     }
 
-    /// Its name in the Quality register.
+    /// Its name in what a benchmark prints: the Quality register's row, and
+    /// for a hop's, a sitemap's or a Payload's own count of a row that has
+    /// several outcomes, the row with its outcome (`F3.compilations.hop`).
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -235,6 +337,18 @@ impl Row {
             Self::RecordDeepCopies => "F4.deep_copies",
             Self::RecordConstantLookups => "F4.constant_lookups",
             Self::RecordTransactions => "F4.transactions",
+            Self::BatchInvariantReads => "F3.invariant_reads",
+            Self::BatchCompilations => "F3.compilations",
+            Self::BatchTransactions => "F3.transactions",
+            Self::HopInvariantReads => "F3.invariant_reads.hop",
+            Self::HopCompilations => "F3.compilations.hop",
+            Self::HopTransactions => "F3.transactions.hop",
+            Self::SitemapInvariantReads => "F3.invariant_reads.sitemap",
+            Self::SitemapCompilations => "F3.compilations.sitemap",
+            Self::SitemapTransactions => "F3.transactions.sitemap",
+            Self::PayloadCompilations => "F3.compilations.payload",
+            Self::PayloadSerializations => "F3.payload_serializations",
+            Self::PayloadValidations => "F3.validations",
             Self::CdpEncodes => "C1.encodes",
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
@@ -244,6 +358,14 @@ impl Row {
             Self::ActionClickCommands => "C3.commands.click",
             Self::ActionFillCommands => "C3.commands.fill",
             Self::ActionPressCommands => "C3.commands.press",
+            Self::RunTransactions => "F2.transactions",
+            Self::WriterReads => "F2.writer_reads",
+            Self::ConfigurationReads => "F2.configuration_reads",
+            Self::Prunes => "F2.prunes",
+            Self::EffectSyncs => "F2.effect_syncs",
+            Self::ChargeStatements => "E3.statements",
+            Self::ChargeTransactions => "E3.slice_transactions",
+            Self::ChargeOpens => "E3.opens",
         }
     }
 
@@ -257,13 +379,25 @@ impl Row {
 #[derive(Clone, Debug, Default)]
 pub struct CountedWork(Arc<Counts>);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Counts([Count; Row::ALL.len()]);
+
+// By hand: the standard library derives `Default` for arrays of at most 32.
+impl Default for Counts {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| Count::default()))
+    }
+}
 
 impl CountedWork {
     /// Counts one unit of `row`'s work.
     pub fn count(&self, row: Row) {
         self.0.0[row.index()].add_one();
+    }
+
+    /// Counts `units` units of `row`'s work.
+    pub fn count_many(&self, row: Row, units: u64) {
+        self.0.0[row.index()].add(units);
     }
 
     /// The units of `row`'s work counted so far.

@@ -165,11 +165,17 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     values: &[
         "action",
         "cdp_command",
+        "frontier_admission",
+        "frontier_hop",
+        "frontier_payload",
+        "frontier_sitemap",
         "hook_stage",
         "json_rpc_message",
         "page_analysis",
         "record",
+        "run_state",
         "sink_delivery",
+        "usage_charge",
     ],
 };
 
@@ -198,6 +204,8 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "validations",
         "serializations",
         "constant_lookups",
+        "invariant_reads",
+        "compilations",
         "sends",
         "log_sends_off",
         "script_sends",
@@ -205,6 +213,10 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "click_commands",
         "fill_commands",
         "press_commands",
+        "configuration_reads",
+        "prunes",
+        "effect_syncs",
+        "statements",
     ],
 };
 

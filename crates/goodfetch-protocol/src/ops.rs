@@ -163,6 +163,7 @@ pub const DAEMON_DRAINING: Metric = Metric {
 const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     name: "shared_path",
     values: &[
+        "action",
         "cdp_command",
         "hook_stage",
         "json_rpc_message",
@@ -199,6 +200,11 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "constant_lookups",
         "sends",
         "log_sends_off",
+        "script_sends",
+        "check_commands",
+        "click_commands",
+        "fill_commands",
+        "press_commands",
     ],
 };
 

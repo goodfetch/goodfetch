@@ -53,6 +53,7 @@ use goodfetch_cdp::{
     Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
     SubscriptionEnd,
 };
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::clock::Clock;
@@ -201,6 +202,10 @@ pub(crate) struct Browser {
     lease: Option<Arc<dyn LeaseCheck>>,
     /// Its Run's deadlines, which its commands wait under.
     deadlines: Arc<Deadlines>,
+    /// The row each command it sends counts on as well: a guarded action's
+    /// attempt, by its kind (ADR 0140's C3), or a guard's check; none on
+    /// every other handle.
+    counting: Option<Row>,
 }
 
 /// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
@@ -258,6 +263,7 @@ impl Browser {
             popups: Arc::default(),
             hidden: Arc::default(),
             lease: None,
+            counting: None,
             deadlines: Arc::new(Deadlines {
                 navigation: Deadline::declared(&TIMEOUT_NAVIGATION),
                 action: Deadline::declared(&TIMEOUT_ACTION),
@@ -309,6 +315,7 @@ impl Browser {
         {
             return Err(Failure::Withheld { method: C::METHOD });
         }
+        self.counted();
         self.log.record(C::METHOD).await;
         self.connection.send(session, params, limit).await
     }
@@ -320,10 +327,18 @@ impl Browser {
         session: Option<&TargetSession>,
         params: &C,
     ) -> Result<C::Returns, Failure> {
+        self.counted();
         self.log.record(C::METHOD).await;
         self.connection
             .send(session, params, self.deadlines.navigation.duration())
             .await
+    }
+
+    /// Counts one command it sends on the row it counts its commands on.
+    fn counted(&self) {
+        if let Some(row) = self.counting {
+            self.log.work().count(row);
+        }
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser
@@ -497,6 +512,7 @@ impl Connect for BorrowedBrowser {
                     popups: Arc::default(),
                     hidden: Arc::default(),
                     lease: None,
+                    counting: None,
                     deadlines: Deadlines::of(&self.run),
                 };
                 // The first answer says a browser speaks CDP there.
@@ -662,6 +678,7 @@ impl Connect for LocalBrowser {
                     popups: Arc::default(),
                     hidden: Arc::default(),
                     lease: None,
+                    counting: None,
                     deadlines: Deadlines::of(&self.run),
                 };
                 // The first answer says the browser is up.
@@ -1049,6 +1066,33 @@ impl Turn<'_> {
         argument: serde_json::Value,
     ) -> Result<serde_json::Value, Unanswered> {
         let context = self.world().await?;
+        self.called(function, argument, context).await
+    }
+
+    /// Calls the guard's check `check`, a JavaScript function's source, with
+    /// `argument`, as [`call`](Self::call) does, counting the command it sends
+    /// and the source it carries (ADR 0140's C3). The world it may make
+    /// first is its document's, made once there, so no check's own.
+    pub(crate) async fn check(
+        &mut self,
+        check: &str,
+        argument: serde_json::Value,
+    ) -> Result<serde_json::Value, Unanswered> {
+        let context = self.world().await?;
+        let work = self.page.work();
+        work.count(Row::ActionCheckCommands);
+        work.count(Row::ActionScriptSends);
+        self.called(check, argument, context).await
+    }
+
+    /// Calls `function` with `argument` in the guard's world, whose context
+    /// is `context`, and answers its value.
+    async fn called(
+        &mut self,
+        function: &str,
+        argument: serde_json::Value,
+        context: runtime::ExecutionContextId,
+    ) -> Result<serde_json::Value, Unanswered> {
         let called = self.send(&world::call(function, argument, context)).await?;
         if let Some(thrown) = called.exception_details {
             return Err(Unanswered::Failed(CallError::protocol(
@@ -1569,6 +1613,20 @@ impl PageDriver {
                 &page::RemoveScriptToEvaluateOnNewDocumentParams { identifier },
             )
             .await;
+    }
+
+    /// This page's driver with each command it sends counted on `row` as
+    /// well, as a guarded action's attempt counts its commands by its kind
+    /// and a guard's check its own (ADR 0140's C3).
+    pub(crate) fn counting(&self, row: Row) -> Self {
+        let mut page = self.clone();
+        page.browser.counting = Some(row);
+        page
+    }
+
+    /// The Counted work of the page's Run.
+    pub(crate) fn work(&self) -> &CountedWork {
+        self.browser.log.work()
     }
 
     /// Waits for the page's turn, in arrival order, for the gesture

@@ -98,7 +98,12 @@ fn main() {
     });
     let default = &counted[0].session;
     for cell in &counted {
-        let session::Counted { commands, work } = &cell.session;
+        let session::Counted {
+            commands,
+            checks,
+            attempts,
+            work,
+        } = &cell.session;
         assert!(*commands > 0, "the cell {} sent no command", cell.name);
         for row in cell.removes {
             assert!(
@@ -112,9 +117,18 @@ fn main() {
             .iter()
             .map(|row| (row.name().to_owned(), json!(work.read(*row))))
             .collect();
+        let mut units = Map::from_iter([
+            ("commands".to_owned(), json!(commands)),
+            ("checks".to_owned(), json!(checks)),
+        ]);
+        units.extend(
+            attempts
+                .iter()
+                .map(|(kind, count)| (format!("{kind}_attempts"), json!(count))),
+        );
         println!(
             "{}",
-            json!({ "cell": cell.name, "units": { "commands": commands }, "counts": counts })
+            json!({ "cell": cell.name, "units": units, "counts": counts })
         );
     }
 }

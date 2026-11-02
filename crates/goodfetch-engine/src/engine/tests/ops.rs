@@ -383,6 +383,11 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="check_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="click_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="fill_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="press_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="script_sends"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="encodes"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="file_opens"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="log_sends_off"} 0"#.to_owned(),
@@ -415,6 +420,11 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
             ]),
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="check_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="click_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="fill_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="press_commands"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="action",work="script_sends"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="encodes"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="file_opens"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="cdp_command",work="log_sends_off"} 0"#.to_owned(),

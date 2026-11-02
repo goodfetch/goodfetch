@@ -17,12 +17,15 @@
 //!
 //! Each new outcome of a family's rows (a read, an action, a request) is a
 //! step of [`program`]'s and, where it needs one, an answer of [`answered`].
+//! The browser counts each guard's check, as a call of `check.js`'s source,
+//! and the program each action it asked for and the engine answered, by
+//! kind: C3's units.
 #![expect(
     clippy::disallowed_types,
     reason = "a benchmark's browser end listens on its own socket, and counts its commands on an atomic no behaviour reads (ADR 0071)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -71,18 +74,54 @@ const QUIET: Duration = Duration::from_millis(100);
 /// Session's life. Literal addresses with no network: the browser answers.
 const PAGES: [&str; 2] = ["http://192.0.2.1/first", "http://192.0.2.1/second"];
 
+/// The guard's check and its disarm, as the engine sends them: the browser
+/// answers each by its source.
+const CHECK: &str = include_str!("../src/guard/check.js");
+const DISARM: &str = include_str!("../src/guard/disarm.js");
+
+/// The element each action of the program acts on, which the browser's
+/// answers make ready at once.
+const FIELD: &str = "#field";
+
+/// Each guarded action of the program on each page, by its kind: C3's.
+const ACTIONS: [(&str, &str); 3] = [
+    ("click", "locator.click"),
+    ("fill", "locator.fill"),
+    ("press", "locator.press"),
+];
+
 /// What one run of the scenario counted.
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
     pub(crate) commands: u64,
+    /// The guard's checks the browser was asked for, each once.
+    pub(crate) checks: u64,
+    /// The guarded actions the engine answered, by kind.
+    pub(crate) attempts: BTreeMap<&'static str, u64>,
     /// Its Counted work.
     pub(crate) work: CountedWork,
 }
 
+/// What the browser counts, from outside the connection.
+#[derive(Default)]
+struct Read {
+    /// Each command, by its ID.
+    commands: AtomicU64,
+    /// Each call of the guard's check, by its command's ID.
+    checks: AtomicU64,
+}
+
 /// The `result` of `method` as the browser answers it, and the events it
-/// sends right after.
-fn answered(method: &str, params: &Value) -> (Value, Vec<Value>) {
-    match method {
+/// sends right after, or the error it answers instead. `document` counts the
+/// page's documents: each has a world of its own, whose context is its
+/// number, and a call in an earlier document's world finds no context, as
+/// a navigation leaves the guard's world behind (ADR 0140's B2).
+fn answered(
+    method: &str,
+    params: &Value,
+    document: &mut u64,
+) -> Result<(Value, Vec<Value>), Value> {
+    Ok(match method {
         "Browser.getVersion" => (
             json!({
                 "protocolVersion": "1.3",
@@ -115,17 +154,43 @@ fn answered(method: &str, params: &Value) -> (Value, Vec<Value>) {
             } } }),
             Vec::new(),
         ),
-        "Page.createIsolatedWorld" => (json!({ "executionContextId": 7 }), Vec::new()),
+        "Page.createIsolatedWorld" => (json!({ "executionContextId": *document }), Vec::new()),
         "Page.addScriptToEvaluateOnNewDocument" => (json!({ "identifier": "script" }), Vec::new()),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => {
-            (json!({ "result": { "type": "undefined" } }), Vec::new())
+        "Runtime.callFunctionOn" => {
+            if params["executionContextId"].as_u64() != Some(*document) {
+                return Err(
+                    json!({ "code": -32000, "message": "Cannot find context with specified id" }),
+                );
+            }
+            (called(params), Vec::new())
         }
+        "Runtime.evaluate" => (json!({ "result": { "type": "undefined" } }), Vec::new()),
         "Page.navigate" => {
+            *document += 1;
             let url = params["url"].as_str().unwrap_or_default();
             (json!({ "frameId": FRAME, "loaderId": url }), navigated(url))
         }
         _ => (json!({}), Vec::new()),
-    }
+    })
+}
+
+/// The answer to a call in an isolated world: the guard's check finds its
+/// target ready at once, its disarm says the gesture landed, and any other
+/// function returns nothing.
+fn called(params: &Value) -> Value {
+    let declaration = params["functionDeclaration"].as_str().unwrap_or_default();
+    let value = if declaration == CHECK {
+        match params["arguments"][0]["value"]["action"].as_str() {
+            Some("pointer") => json!({ "state": "armed", "x": 10.0, "y": 10.0 }),
+            Some("fill" | "text") => json!({ "state": "focused" }),
+            _ => json!({ "state": "ready" }),
+        }
+    } else if declaration == DISARM {
+        json!({ "state": "landed" })
+    } else {
+        return json!({ "result": { "type": "undefined" } });
+    };
+    json!({ "result": { "type": "object", "value": value } })
 }
 
 /// The events of a navigation to `url` that committed and loaded.
@@ -169,11 +234,12 @@ fn navigated(url: &str) -> Vec<Value> {
 
 /// The browser: reads each command of its one connection, does `plant`,
 /// answers at once, until the engine closes it.
-async fn browser(stream: TcpStream, commands: Arc<AtomicU64>, plant: Option<Plant>) {
+async fn browser(stream: TcpStream, read: Arc<Read>, plant: Option<Plant>) {
     let mut socket = tokio_tungstenite::accept_async(stream)
         .await
         .expect("invariant: the engine speaks WebSocket");
     let mut seen = BTreeSet::new();
+    let mut document = 1;
     while let Some(Ok(message)) = socket.next().await {
         let Message::Text(text) = message else {
             continue;
@@ -183,15 +249,22 @@ async fn browser(stream: TcpStream, commands: Arc<AtomicU64>, plant: Option<Plan
         let id = command["id"]
             .as_u64()
             .expect("invariant: a command has an ID");
+        let method = command["method"].as_str().unwrap_or_default();
         if seen.insert(id) {
-            commands.fetch_add(1, Ordering::Relaxed);
+            read.commands.fetch_add(1, Ordering::Relaxed);
+            if method == "Runtime.callFunctionOn"
+                && command["params"]["functionDeclaration"].as_str() == Some(CHECK)
+            {
+                read.checks.fetch_add(1, Ordering::Relaxed);
+            }
         }
         if let Some(plant) = &plant {
             plant();
         }
-        let method = command["method"].as_str().unwrap_or_default();
-        let (result, events) = answered(method, &command["params"]);
-        let mut answer = json!({ "id": id, "result": result });
+        let (mut answer, events) = match answered(method, &command["params"], &mut document) {
+            Ok((result, events)) => (json!({ "id": id, "result": result }), events),
+            Err(error) => (json!({ "id": id, "error": error }), Vec::new()),
+        };
         if let Some(session) = command.get("sessionId") {
             answer["sessionId"] = session.clone();
         }
@@ -250,8 +323,14 @@ impl Client {
 }
 
 /// What a program does on a Session: opens a page and navigates it, twice, so
-/// a navigation sits in the middle. Answers once the browser heard all of it.
-async fn program(client: &mut Client, cdp_url: &str, settings: Map<String, Value>) {
+/// a navigation sits in the middle, and on each page clicks, fills and
+/// presses. Answers once the browser heard all of it, with the actions the
+/// engine answered, by kind.
+async fn program(
+    client: &mut Client,
+    cdp_url: &str,
+    settings: Map<String, Value>,
+) -> BTreeMap<&'static str, u64> {
     client
         .call(
             "hello",
@@ -273,6 +352,8 @@ async fn program(client: &mut Client, cdp_url: &str, settings: Map<String, Value
             &json!({ "session_id": session["session_id"] }),
         )
         .await;
+    let locator = json!({ "page_id": opened["page_id"], "selector": FIELD });
+    let mut attempts = BTreeMap::new();
     for url in PAGES {
         client
             .call(
@@ -280,15 +361,25 @@ async fn program(client: &mut Client, cdp_url: &str, settings: Map<String, Value
                 &json!({ "page_id": opened["page_id"], "url": url }),
             )
             .await;
+        for (kind, operation) in ACTIONS {
+            let params = match kind {
+                "fill" => json!({ "locator": locator, "value": "typed" }),
+                "press" => json!({ "locator": locator, "key": "Enter" }),
+                _ => json!({ "locator": locator }),
+            };
+            client.call(operation, &params).await;
+            *attempts.entry(kind).or_insert(0) += 1;
+        }
     }
+    attempts
 }
 
 /// Waits until nothing is counted or sent any more, as the engine still sends
 /// what no call waits for.
-async fn quiet(commands: &AtomicU64, work: &CountedWork) {
+async fn quiet(read: &Read, work: &CountedWork) {
     let reading = || {
         let counts: Vec<u64> = Row::ALL.iter().map(|row| work.read(*row)).collect();
-        (commands.load(Ordering::Relaxed), counts)
+        (read.commands.load(Ordering::Relaxed), counts)
     };
     let mut last = reading();
     loop {
@@ -327,7 +418,7 @@ pub(crate) fn counted(
     let engine = Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics);
-    let commands = Arc::new(AtomicU64::new(0));
+    let read = Arc::new(Read::default());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -339,7 +430,7 @@ pub(crate) fn counted(
         let address = listener.local_addr().expect("invariant: it is bound");
         let cdp_url = format!("ws://{address}/devtools/browser/scripted");
         let (network, dialer) = transport::in_memory();
-        let served = browser_end(listener, Arc::clone(&commands), plant);
+        let served = browser_end(listener, Arc::clone(&read), plant);
         let client = async {
             let (reader, writer) = dialer
                 .connect()
@@ -351,14 +442,15 @@ pub(crate) fn counted(
                 writer,
                 next_id: 0,
             };
-            program(&mut client, &cdp_url, settings).await;
-            quiet(&commands, &work).await;
+            let attempts = program(&mut client, &cdp_url, settings).await;
+            quiet(&read, &work).await;
             client
                 .writer
                 .shutdown()
                 .await
                 .expect("invariant: in memory");
             while let Ok(Some(_)) = client.lines.next_line().await {}
+            attempts
         };
         let dependencies = Dependencies {
             environment: std::collections::BTreeMap::new(),
@@ -371,24 +463,26 @@ pub(crate) fn counted(
             run_state: RunStateOptions::default(),
             politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
-        let (engine_ended, (), ()) = tokio::join!(
+        let (engine_ended, attempts, ()) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),
             client,
             served,
         );
         engine_ended.expect("invariant: the engine got its Connection");
-    });
-    Counted {
-        commands: commands.load(Ordering::Relaxed),
-        work,
-    }
+        Counted {
+            commands: read.commands.load(Ordering::Relaxed),
+            checks: read.checks.load(Ordering::Relaxed),
+            attempts,
+            work,
+        }
+    })
 }
 
 /// Accepts the engine's one connection and plays the browser on it.
-async fn browser_end(listener: TcpListener, commands: Arc<AtomicU64>, plant: Option<Plant>) {
+async fn browser_end(listener: TcpListener, read: Arc<Read>, plant: Option<Plant>) {
     let (stream, _) = listener
         .accept()
         .await
         .expect("invariant: the engine connects");
-    browser(stream, commands, plant).await;
+    browser(stream, read, plant).await;
 }

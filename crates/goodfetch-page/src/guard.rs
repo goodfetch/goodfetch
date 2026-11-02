@@ -30,6 +30,7 @@ use std::time::Duration;
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_cdp::generated::input::DispatchKeyEventParams;
 use goodfetch_cdp::generated::runtime::ExecutionContextId;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Surface};
@@ -86,6 +87,16 @@ impl Action {
             Self::Click => "pointer",
             Self::Fill(_) => "fill",
             Self::Press(_) => "text",
+        }
+    }
+
+    /// The row its attempt's commands count on: `C3.commands` of its kind
+    /// (ADR 0140).
+    const fn commands(&self) -> Row {
+        match self {
+            Self::Click => Row::ActionClickCommands,
+            Self::Fill(_) => Row::ActionFillCommands,
+            Self::Press(_) => Row::ActionPressCommands,
         }
     }
 }
@@ -173,6 +184,9 @@ pub(crate) async fn act(
 /// Performs `request` on `page` through the guard, as [`act`] does, until
 /// it lands, fails or its deadline passes between two checks.
 async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Result<(), CallError> {
+    // Every command the attempt sends counts on its kind's row: its checks,
+    // its input, its disarm and its wait for a navigation it started alike.
+    let page = &page.counting(request.action.commands());
     let started = clock.now();
     let end = started + request.window.duration;
     let mut turn = page.turn(request.operation).await;
@@ -202,7 +216,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         // go of when the target is not ready, so the Consent prompt
         // runner's clicks come between two checks.
         let gesture = page.gesture().await;
-        let seen = match turn.call(CHECK, argument).await {
+        let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
             Err(Unanswered::Failed(error)) => return Err(error),
@@ -313,7 +327,9 @@ pub(crate) async fn check_element(
     slice: Duration,
 ) -> Readiness {
     let argument = check::argument(Target::Handle(element.handle), "pointer", slice);
+    page.work().count(Row::ActionScriptSends);
     let Ok(value) = page
+        .counting(Row::ActionCheckCommands)
         .call_in(element.session, element.context, CHECK, argument)
         .await
     else {
@@ -519,7 +535,14 @@ pub(crate) async fn wait(
             return Err(at_deadline(asked, last, clock.now() - started));
         }
         let argument = check::wait_argument(wait.selector, &state, bounds, remaining.min(SLICE));
-        let Some(value) = page.read_in_page(CHECK, argument, wait.operation).await? else {
+        // Each of a wait's checks makes the guard's world again, a command of
+        // its own (X11).
+        page.work().count(Row::ActionScriptSends);
+        let checking = page.counting(Row::ActionCheckCommands);
+        let Some(value) = checking
+            .read_in_page(CHECK, argument, wait.operation)
+            .await?
+        else {
             // The document went, or is not yet: checked again in the next.
             clock.sleep(remaining.min(RECHECK)).await;
             continue;

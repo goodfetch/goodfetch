@@ -94,11 +94,21 @@ pub enum Row {
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
     CdpLogSendsOff,
+    /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
+    ActionScriptSends,
+    /// `C3.check_commands`: a CDP command a guard's check sent.
+    ActionCheckCommands,
+    /// `C3.commands`, of a click: a CDP command a click's attempt sent.
+    ActionClickCommands,
+    /// `C3.commands`, of a fill: a CDP command a fill's attempt sent.
+    ActionFillCommands,
+    /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
+    ActionPressCommands,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 31] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -125,6 +135,11 @@ impl Row {
         Self::CdpSends,
         Self::CdpFileOpens,
         Self::CdpLogSendsOff,
+        Self::ActionScriptSends,
+        Self::ActionCheckCommands,
+        Self::ActionClickCommands,
+        Self::ActionFillCommands,
+        Self::ActionPressCommands,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -152,6 +167,11 @@ impl Row {
             Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
                 "cdp_command"
             }
+            Self::ActionScriptSends
+            | Self::ActionCheckCommands
+            | Self::ActionClickCommands
+            | Self::ActionFillCommands
+            | Self::ActionPressCommands => "action",
         }
     }
 
@@ -181,6 +201,11 @@ impl Row {
             Self::CdpSends => "sends",
             Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
             Self::CdpLogSendsOff => "log_sends_off",
+            Self::ActionScriptSends => "script_sends",
+            Self::ActionCheckCommands => "check_commands",
+            Self::ActionClickCommands => "click_commands",
+            Self::ActionFillCommands => "fill_commands",
+            Self::ActionPressCommands => "press_commands",
         }
     }
 
@@ -214,6 +239,11 @@ impl Row {
             Self::CdpSends => "C1.sends",
             Self::CdpFileOpens => "C1.file_opens",
             Self::CdpLogSendsOff => "C1.log_sends_off",
+            Self::ActionScriptSends => "C3.script_sends",
+            Self::ActionCheckCommands => "C3.check_commands",
+            Self::ActionClickCommands => "C3.commands.click",
+            Self::ActionFillCommands => "C3.commands.fill",
+            Self::ActionPressCommands => "C3.commands.press",
         }
     }
 

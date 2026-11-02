@@ -15581,6 +15581,7 @@
         {
           "name": "shared_path",
           "values": [
+            "action",
             "cdp_command",
             "hook_stage",
             "json_rpc_message",
@@ -15613,7 +15614,12 @@
             "serializations",
             "constant_lookups",
             "sends",
-            "log_sends_off"
+            "log_sends_off",
+            "script_sends",
+            "check_commands",
+            "click_commands",
+            "fill_commands",
+            "press_commands"
           ]
         }
       ],

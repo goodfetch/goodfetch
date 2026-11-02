@@ -69,6 +69,7 @@ mod pre_merge;
 mod quarantine;
 mod received_requests;
 mod refusals;
+mod register;
 mod release_suite;
 mod repeat;
 mod rss;

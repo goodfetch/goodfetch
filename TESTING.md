@@ -1228,7 +1228,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
 
-Until the gate's spec builds them, three things this section names don't exist yet: the counters of counted work, the floor guard and the register check. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
+Until the gate's spec builds them, two things this section names don't exist yet: the counters of counted work and the floor guard. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
 
 ### Floor
 
@@ -1270,6 +1270,7 @@ Limits that fail the merge gate. Every row has a number and a command.
 | Workflow security | 0 findings | `zizmor` and `actionlint` (`just lint`) | merge gate |
 | Generated code | current | `xtask codegen --check` (`just lint`) | merge gate |
 | Feature declarations | inventory current, every declaration known | `xtask features check` (Quick) and `just features-tests` (Pre-merge), [Feature coverage](#feature-coverage) | merge gate |
+| Quality register | no drift from ADR 0140 or `xtask perf`'s ceilings ([Rules](#rules)) | `xtask register check` (`just lint`) | merge gate |
 
 ### Measured, not yet enforced
 
@@ -1293,7 +1294,7 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow |
 | `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow |
 | `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.compilations` | glob, regex and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
+| `F3.compilations` | glob and regex compilations and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
 | `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow |
 | `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow |
 | `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow |
@@ -1315,7 +1316,7 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow |
 | `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow |
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow |
-| `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow |
+| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow |
 | `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow |
@@ -1332,6 +1333,7 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | after #1583 | B2 | must not grow |
 | `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | after #1583 | B2 | must not grow |
 | `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | after #1583 | B2 | must not grow |
+| `E1.decodes` | decodes per request, straight into typed params | 1 | after #1583 | B3 | must not grow |
 | `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow |
 | `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow |
 | `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
@@ -1383,6 +1385,10 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow |
 | `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow |
 | `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
+| `console.collie_brotli` | Collie's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/collie-console` | must not grow |
+| `console.collie_initial_route_brotli` | Collie's Console's initial route, bytes brotli | ≤ 139,779 (ADR 0071) | after #1583 | `size-limit/collie-console-initial-route` | must not grow |
+| `console.foxhound_brotli` | Foxhound's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console` | must not grow |
+| `console.foxhound_initial_route_brotli` | Foxhound's Console's initial route, bytes brotli | ≤ 161,174 (ADRs 0071, 0087) | after #1583 | `size-limit/foxhound-console-initial-route` | must not grow |
 | `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) |
 
 Some tickets name a row by what it counts: Hook stages are `F5.*`, the Politeness path `E6.*`, Sink delivery `F6.*`, an Extractor Plugin `F1.plugin_*`, Live view reads `C2.live_view_commands`, closed shadow roots `C2.closed_root_commands`, cache hits `C5.cache_lookups` and `C5.cache_file_opens`, record mode `C5.body_reads`, the second GET `C5.charset_refetches`, and validations and serializations `F4.validations` and `F4.serializations`.
@@ -1456,11 +1462,13 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 - **No gate is informational without an owner and an expiry.** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends (ADR 0134, as ADR 0140 amends it).
 - **Drift has a fixed baseline.** No counted figure passes 1.10 times its pinned reference build, #1577's tuned build and then each release tag, without an amendment the owner approves (ADR 0071, as ADR 0140 amends it).
 - **The register is the source of the numbers.** The gate's code reads the register, or the register check compares the two and fails on a difference, as for `xtask perf`'s ceilings.
-- **The register check runs with the merge gate.** It fails when:
-  - an enforced row's command does not exist;
+- **The register check, `xtask register check`, runs with the merge gate through `just lint`.** It fails when:
+  - an enforced row's command does not exist: each code span of its "Checked by" must be a recipe of the justfile, a command of `xtask`, a file of the repository, or text a recipe runs;
   - an Exception has expired;
-  - a path of ADR 0140 has no row, or a count in a Cost contract has no row;
-  - a row allows more than its contract's cap.
+  - a path of ADR 0140 has no row, or a count in a Cost contract has no row: a row holds a count when its Metric names every word of the count, the words after the count's number up to the first word that says where or when it applies;
+  - a row allows more than its contract's cap, or its Today figure is over its Contract with no Exception naming it;
+  - a ceiling of `xtask perf` differs from the row whose Benchmark names it, or either has no counterpart;
+  - a table it reads is missing or empty.
 - **Each counter proves it can fail.** A benchmark's own tests plant one extra unit of each counted work it gates and expect a failure.
 - **A row changes in the pull request that lowers its figure, raises it within its contract as its spec names, or amends ADR 0140.** Nothing waits for a separate maintenance task.
 

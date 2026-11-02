@@ -48,6 +48,7 @@ pinned = ["check", "github"]
 quarantine = ["check", "environment", "github", "issues", "output"]
 rate = []
 received_requests = ["check", "tree"]
+register = ["check", "environment", "perf"]
 release_suite = ["check", "environment", "github", "issues", "output", "rate", "workflow"]
 repeat = ["environment", "output", "quarantine"]
 results = ["github", "junit", "release_suite"]
@@ -65,6 +66,12 @@ tree = []
 watchlist = ["environment", "github", "issues", "output"]
 wording = ["check", "tree"]
 workflow = []
+
+# Which of `register`'s own modules may import which.
+[submodules.register]
+commands = []
+contract = ["document"]
+document = []
 
 # Which of `budgets`'s own modules may import which.
 [submodules.budgets]

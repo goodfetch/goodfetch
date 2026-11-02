@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -196,12 +197,16 @@ pub struct Driver<R, W> {
     subscribers: Shared,
     /// The longest message it reads: [`MAX_FRAME`].
     frame_limit: usize,
+    /// Where each command's encode and send are counted (ADR 0140's C1): the
+    /// one seam every command crosses.
+    work: CountedWork,
 }
 
 impl Connection {
     /// A connection over the browser's end of the pipe `reader` (what it
-    /// writes) and `writer` (what it reads), and its driver.
-    pub fn new<R, W>(reader: R, writer: W) -> (Self, Driver<R, W>)
+    /// writes) and `writer` (what it reads), and its driver, which counts
+    /// each command's work on `work`.
+    pub fn new<R, W>(reader: R, writer: W, work: CountedWork) -> (Self, Driver<R, W>)
     where
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
@@ -219,6 +224,7 @@ impl Connection {
                 requests: receiver,
                 subscribers,
                 frame_limit: MAX_FRAME,
+                work,
             },
         )
     }
@@ -374,7 +380,10 @@ where
                         message["sessionId"] = Value::String(session.0.clone());
                     }
                     tracing::trace!(target: "goodfetch::cdp::command", method, id, "sending");
-                    if let Err(error) = self.writer.write_all(&frame(&message)).await {
+                    self.work.count(Row::CdpEncodes);
+                    let bytes = frame(&message);
+                    self.work.count(Row::CdpSends);
+                    if let Err(error) = self.writer.write_all(&bytes).await {
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
                     }

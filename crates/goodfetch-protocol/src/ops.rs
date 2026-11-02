@@ -168,6 +168,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "page_analysis",
         "record",
         "sink_delivery",
+        "cdp_command",
     ],
 };
 
@@ -196,6 +197,8 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "validations",
         "serializations",
         "constant_lookups",
+        "sends",
+        "log_sends_off",
     ],
 };
 

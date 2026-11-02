@@ -1317,10 +1317,10 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `F4.deep_copies` | deep copies of a Record's data | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow | `just counts` | implementer done, merge gate |
-| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow | none yet | none yet |
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |

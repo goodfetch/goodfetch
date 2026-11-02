@@ -50,7 +50,7 @@ fn workspace(today: &str, script: &str) -> (Workspace, String) {
 fn a_figure_at_its_limit_passes_and_is_printed() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -73,6 +73,8 @@ fn a_planted_parse_fails_naming_the_row_its_figure_and_its_limit() {
 
     let outcome = workspace.xtask(&[
         "counts",
+        "--path",
+        "F1",
         "--executable",
         &executable,
         "--plant",
@@ -106,7 +108,7 @@ fn the_limit_is_todays_figure_else_the_contract(
 ) {
     let (workspace, executable) = workspace(today, &benchmark(&[("default", count)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
 }
@@ -118,7 +120,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
         &benchmark(&[("default", 104), ("a_feature_off", 105)], false),
     );
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.findings(), vec![finding("over-limit", "F1.parses")]);
     assert!(
@@ -132,7 +134,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
 fn a_benchmark_that_did_none_of_the_work_fails() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 0)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(
         outcome.findings(),
@@ -144,7 +146,14 @@ fn a_benchmark_that_did_none_of_the_work_fails() {
 fn proving_passes_when_each_counter_sees_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -158,7 +167,14 @@ fn proving_passes_when_each_counter_sees_its_plant() {
 fn proving_fails_a_counter_blind_to_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], true));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         outcome.findings(),
@@ -171,7 +187,81 @@ fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
     workspace.write("TESTING.md", b"# Testing\n\n## Quality register\n");
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+}
+
+/// A register of F2's rows, each of contract 1, and a benchmark printing them
+/// with no Effect, whose plant of `F2.effect_syncs` counts one each page.
+fn effectless() -> (Workspace, String) {
+    let rows = [
+        "transactions",
+        "syncs",
+        "prepares",
+        "writer_reads",
+        "configuration_reads",
+        "prunes",
+        "effect_syncs",
+    ]
+    .iter()
+    .map(|work| format!("| `F2.{work}` | it, per unit | 1 | after #1583 | B1 | must not grow | `xtask counts` | implementer done |"))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let register = format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    );
+    let line = "{\"cell\":\"default\",\"units\":{\"pages\":13,\"attempts\":13,\"runs\":1,\"effects\":0},\"counts\":{\"F2.transactions\":13,\"F2.syncs\":13,\"F2.prepares\":0,\"F2.writer_reads\":0,\"F2.configuration_reads\":1,\"F2.prunes\":0,\"F2.effect_syncs\":'$extra'}}";
+    let script =
+        format!("#!/bin/sh\nextra=0\n[ \"$2\" = F2.effect_syncs ] && extra=13\necho '{line}'\n");
+    let (workspace, executable) = workspace("8", &script);
+    workspace.write("TESTING.md", register.as_bytes());
+    (workspace, executable)
+}
+
+/// A row whose unit the fixture has none of, such as an Effect's until the
+/// Effect journal lands: nothing done passes and says so, and a planted unit
+/// still fails, naming the row.
+#[test]
+fn a_row_with_no_units_passes_at_zero_and_fails_when_planted() {
+    let (workspace, executable) = effectless();
+
+    let clean = workspace.xtask(&["counts", "--path", "F2", "--executable", &executable]);
+    let planted = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F2",
+        "--plant",
+        "F2.effect_syncs",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(
+        (clean.code, clean.findings()),
+        (0, vec![]),
+        "{}",
+        clean.stderr
+    );
+    assert!(
+        clean
+            .stdout
+            .contains("F2.effect_syncs [default]: no effects in this cell"),
+        "{}",
+        clean.stdout
+    );
+    assert_eq!(planted.code, 1, "{}", planted.stderr);
+    assert_eq!(
+        planted.findings(),
+        vec![finding("over-limit", "F2.effect_syncs")]
+    );
+    assert!(
+        planted
+            .stdout
+            .contains("13 with no effects in the cell `default`, over its limit of 1"),
+        "{}",
+        planted.stdout
+    );
 }

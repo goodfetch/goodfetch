@@ -9,6 +9,7 @@
 //! pull request that records it (TESTING.md: only that writes a Today value);
 //! it never lowers the row.
 
+use std::fmt::Write as _;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -210,14 +211,13 @@ fn first_body(figure: f64, reports: &[Report]) -> String {
 }
 
 fn table(reports: &[Report]) -> String {
-    let rows: String = reports
-        .iter()
-        .map(|report| {
-            format!(
-                "| {} | {} | {} |\n",
-                report.language, report.lines.hit, report.lines.found
-            )
-        })
-        .collect();
-    format!("| Language | Lines run | Lines |\n|---|---|---|\n{rows}")
+    let mut table = "| Language | Lines run | Lines |\n|---|---|---|\n".to_owned();
+    for report in reports {
+        let _ = writeln!(
+            table,
+            "| {} | {} | {} |",
+            report.language, report.lines.hit, report.lines.found
+        );
+    }
+    table
 }

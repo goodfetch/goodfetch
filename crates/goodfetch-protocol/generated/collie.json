@@ -10814,13 +10814,22 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "frontier_admission",
+            "frontier_hop",
+            "frontier_sitemap",
+            "frontier_payload"
           ]
         },
         {
           "name": "work",
           "values": [
-            "parses"
+            "parses",
+            "invariant_reads",
+            "compilations",
+            "transactions",
+            "serializations",
+            "validations"
           ]
         }
       ],

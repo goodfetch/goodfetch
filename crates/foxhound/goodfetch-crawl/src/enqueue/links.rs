@@ -20,6 +20,7 @@
 //! is not suspected and reaches a marked request again clears its mark; a
 //! revealable one leaves it marked as revealable.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace;
 use goodfetch_engine::runs::Run;
@@ -199,6 +200,10 @@ pub(crate) async fn enqueue_links(
     else {
         return Err(attempt.ended());
     };
+    let work = run.metrics().counted_work().clone();
+    for _ in params.include.iter().chain(&params.exclude) {
+        work.count(Row::BatchCompilations);
+    }
     let (served, base) = served(&tiers, &params.locator).await?;
     if let Some(payloads) = &params.payloads
         && payloads.len() != served.elements.len()
@@ -231,6 +236,7 @@ pub(crate) async fn enqueue_links(
         .collect();
     let request = params.clone();
     let encoding = served.encoding;
+    work.count(Row::BatchTransactions);
     let answered = run
         .state()
         .write(move |connection| {
@@ -254,6 +260,7 @@ pub(crate) async fn enqueue_links(
                                 include: &include,
                                 exclude: &exclude,
                             },
+                            work: &work,
                         },
                     )
                 },
@@ -403,6 +410,7 @@ struct Batch<'a> {
     base: &'a Url,
     encoding: &'static goodfetch_frontier::Encoding,
     narrowing: Narrowing<'a>,
+    work: &'a CountedWork,
 }
 
 impl Batch<'_> {
@@ -449,15 +457,23 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
+    positions.counting(batch.work);
+    batch.work.count(Row::BatchInvariantReads);
     let rules = PayloadRules::read(connection)?;
     for link in batch.links {
         if let (Some(_), Chosen::Payload(payload)) = (&link.href, &link.payload)
-            && let Err(refused) = rules.check(&params.label, payload.as_ref())
+            && let Err(refused) = rules.check(&params.label, payload.as_ref(), batch.work)
         {
             return Ok(Some(Err(refused)));
         }
     }
-    let scope = Scope::read(connection)?;
+    let scope = Scope::read_counted(
+        connection,
+        batch.work,
+        Row::BatchInvariantReads,
+        Row::BatchCompilations,
+    )?;
+    batch.work.count(Row::BatchInvariantReads);
     let keeps_fragment = Fragments::read(connection)?.keeps(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());

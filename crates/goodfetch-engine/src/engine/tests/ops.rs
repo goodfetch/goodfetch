@@ -73,6 +73,21 @@ fn health_of(env: &TestEnv, options: DaemonOptions) -> Value {
     health
 }
 
+/// `series`, and each Counted work row's, at 0.
+fn with_counted_work<const N: usize>(series: [String; N]) -> BTreeSet<String> {
+    goodfetch_counted_work::Row::ALL
+        .map(|row| {
+            format!(
+                r#"goodfetch_counted_work_total{{shared_path="{}",work="{}"}} 0"#,
+                row.path(),
+                row.work()
+            )
+        })
+        .into_iter()
+        .chain(series)
+        .collect()
+}
+
 /// `goodfetch.counted_work`'s labels take exactly the values of the rows it
 /// counts (ADR 0140), so a new row declares its path and its work.
 #[test]
@@ -376,16 +391,14 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
     assert_eq!(
         (while_running, series(&registry)),
         (
-            BTreeSet::from([
+            with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ]),
-            BTreeSet::from([
+            with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

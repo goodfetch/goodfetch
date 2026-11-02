@@ -18,6 +18,11 @@
 //! fixture, so serving a page allocates only its head. `pages.source.toml`
 //! records the bodies' total bytes, which `xtask perf` divides the crawl's
 //! total bytes by (ADR 0134's 2× ceiling).
+//!
+//! [`Frontier`] adds the outcomes the Frontier's rows count beyond a links
+//! batch, for the counts cell alone, so the heap benchmark's crawl stays as it
+//! is: a seed that redirects, a sitemap seed and a seed with a Payload under
+//! its Label's schema, each reaching one small page more.
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -123,6 +128,50 @@ struct Site {
     sent: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
+    /// Whether it also serves [`Frontier`]'s paths.
+    frontier: bool,
+    /// Whether each page has no paragraphs, as [`Options::small_pages`] says.
+    small_pages: bool,
+    hops: Arc<AtomicU64>,
+    sitemaps: Arc<AtomicU64>,
+}
+
+/// The seed that redirects, to [`MOVED_TO`].
+const MOVED: &str = "/moved";
+/// Where [`MOVED`] leads.
+const MOVED_TO: &str = "/moved-to";
+/// The sitemap seed, whose one entry is [`FROM_SITEMAP`].
+const SITEMAP: &str = "/sitemap.xml";
+/// The sitemap's entry.
+const FROM_SITEMAP: &str = "/from-sitemap";
+/// The seed with a Payload.
+const WITH_PAYLOAD: &str = "/with-payload";
+
+/// The page at one of the paths only [`Frontier`] serves.
+fn frontier_page(path: &str) -> Option<Page> {
+    [MOVED_TO, FROM_SITEMAP, WITH_PAYLOAD]
+        .contains(&path)
+        .then(|| Page {
+            head: head(path, ""),
+            paragraphs: 0,
+        })
+}
+
+/// One answer of no paragraphs: a redirect, or a sitemap.
+fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
+    Sent {
+        status,
+        headers,
+        body: Box::new(Chunks {
+            head: Some(Bytes::from(body)),
+            left: 0,
+            tail: false,
+            sent: Arc::new(AtomicU64::new(0)),
+        }),
+        reused: false,
+        decoded: false,
+        certificate_exception: None,
+    }
 }
 
 /// One extra unit of a row's Counted work, done once per page served with
@@ -131,8 +180,40 @@ pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        let sent = Arc::clone(&self.sent);
-        let page = page(hop.url.path());
+        let path = hop.url.path();
+        if self.frontier && path == MOVED {
+            self.hops.fetch_add(1, Ordering::Relaxed);
+            let location = ("location".to_owned(), MOVED_TO.to_owned());
+            return Box::pin(std::future::ready(Ok(plain(
+                302,
+                vec![location, ("content-length".to_owned(), "0".to_owned())],
+                String::new(),
+            ))));
+        }
+        if self.frontier && path == SITEMAP {
+            self.sitemaps.fetch_add(1, Ordering::Relaxed);
+            let body = format!(
+                "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
+            );
+            let headers = vec![
+                ("content-type".to_owned(), "application/xml".to_owned()),
+                ("content-length".to_owned(), body.len().to_string()),
+            ];
+            return Box::pin(std::future::ready(Ok(plain(200, headers, body))));
+        }
+        // [`body_bytes`] holds the site's own pages, not [`Frontier`]'s.
+        let page = page(path);
+        let sent = if page.is_some() {
+            Arc::clone(&self.sent)
+        } else {
+            Arc::new(AtomicU64::new(0))
+        };
+        let page = page
+            .or_else(|| self.frontier.then(|| frontier_page(path)).flatten())
+            .map(|page| Page {
+                paragraphs: if self.small_pages { 0 } else { page.paragraphs },
+                ..page
+            });
         if let (Some(plant), Some(page)) = (&self.plant, &page) {
             plant(&page.head);
         }
@@ -215,6 +296,10 @@ impl Body for Chunks {
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
     pub(crate) body_bytes: u64,
+    /// The redirects the site answered.
+    pub(crate) hops: u64,
+    /// The sitemaps it sent.
+    pub(crate) sitemaps: u64,
 }
 
 /// `hello`'s line.
@@ -237,6 +322,19 @@ pub(crate) struct Options {
     pub(crate) settings: serde_json::Map<String, Value>,
     /// One extra unit of work per page served.
     pub(crate) plant: Option<Plant>,
+    /// The Frontier's outcomes beyond a links batch.
+    pub(crate) frontier: Option<Frontier>,
+    /// Every page without its paragraphs: the same batches, hops and sitemaps
+    /// in less time, for a run under Callgrind, which counts what admission
+    /// does and not the size of a page.
+    pub(crate) small_pages: bool,
+}
+
+/// How the crawl meets the Frontier's outcomes beyond a links batch.
+#[derive(Clone, Copy)]
+pub(crate) struct Frontier {
+    /// Whether the seed's Payload has a schema to fit.
+    pub(crate) schema: bool,
 }
 
 /// [`crawl`], with `options`.
@@ -245,11 +343,18 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         metrics,
         settings,
         plant,
+        frontier,
+        small_pages,
     } = options;
     let sent = Arc::new(AtomicU64::new(0));
+    let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),
         plant,
+        frontier: frontier.is_some(),
+        small_pages,
+        hops: Arc::clone(&hops),
+        sitemaps: Arc::clone(&sitemaps),
     }));
     let identity = Identity {
         product: Product::Foxhound,
@@ -277,7 +382,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, HELLO).await;
-            send(&mut writer, &crawl_start(settings).to_string()).await;
+            send(&mut writer, &crawl_start(settings, frontier).to_string()).await;
             let mut records = Vec::new();
             while let Ok(Some(line)) = lines.next_line().await {
                 let message: Value =
@@ -321,6 +426,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     Crawled {
         records,
         body_bytes: sent.load(Ordering::Relaxed),
+        hops: hops.load(Ordering::Relaxed),
+        sitemaps: sitemaps.load(Ordering::Relaxed),
     }
 }
 
@@ -340,7 +447,7 @@ const CREDITS: &str =
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
 /// through, which no connection reaches.
-fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
+fn crawl_start(mut settings: serde_json::Map<String, Value>, frontier: Option<Frontier>) -> Value {
     settings.extend([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
@@ -350,13 +457,37 @@ fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
         ),
         ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
     ]);
+    let mut seeds = vec![json!({ "url": format!("http://{HOST}/"), "label": "page" })];
+    let mut labels = json!({});
+    if let Some(frontier) = frontier {
+        seeds.extend([
+            json!({ "url": format!("http://{HOST}{MOVED}"), "label": "page" }),
+            json!({
+                "sitemap": format!("http://{HOST}{SITEMAP}"),
+                "rules": [{ "pattern": "**", "label": "page" }],
+            }),
+            json!({
+                "url": format!("http://{HOST}{WITH_PAYLOAD}"),
+                "label": "typed",
+                "payload": { "isbn": "1" },
+            }),
+        ]);
+        if frontier.schema {
+            labels = json!({ "typed": { "payload": {
+                "type": "object",
+                "required": ["isbn"],
+                "properties": { "isbn": { "type": "string" } },
+            } } });
+        }
+    }
     json!({
         "jsonrpc": "2.0",
         "id": "start",
         "method": "crawl.start",
         "params": {
             "run_id": "pages",
-            "seeds": [{ "url": format!("http://{HOST}/"), "label": "page" }],
+            "seeds": seeds,
+            "labels": labels,
             "datasets": [],
             "extraction": {
                 "formats": {},

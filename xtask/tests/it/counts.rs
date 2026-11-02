@@ -50,7 +50,7 @@ fn workspace(today: &str, script: &str) -> (Workspace, String) {
 fn a_figure_at_its_limit_passes_and_is_printed() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -73,6 +73,8 @@ fn a_planted_parse_fails_naming_the_row_its_figure_and_its_limit() {
 
     let outcome = workspace.xtask(&[
         "counts",
+        "--path",
+        "F1",
         "--executable",
         &executable,
         "--plant",
@@ -106,7 +108,7 @@ fn the_limit_is_todays_figure_else_the_contract(
 ) {
     let (workspace, executable) = workspace(today, &benchmark(&[("default", count)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
 }
@@ -118,7 +120,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
         &benchmark(&[("default", 104), ("a_feature_off", 105)], false),
     );
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.findings(), vec![finding("over-limit", "F1.parses")]);
     assert!(
@@ -132,7 +134,7 @@ fn a_cell_with_a_feature_off_is_held_to_the_same_limit() {
 fn a_benchmark_that_did_none_of_the_work_fails() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 0)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(
         outcome.findings(),
@@ -144,7 +146,14 @@ fn a_benchmark_that_did_none_of_the_work_fails() {
 fn proving_passes_when_each_counter_sees_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         (outcome.code, outcome.findings()),
@@ -158,7 +167,14 @@ fn proving_passes_when_each_counter_sees_its_plant() {
 fn proving_fails_a_counter_blind_to_its_plant() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], true));
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable, "--prove"]);
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--path",
+        "F1",
+        "--executable",
+        &executable,
+        "--prove",
+    ]);
 
     assert_eq!(
         outcome.findings(),
@@ -171,7 +187,116 @@ fn a_register_without_the_row_reaches_no_verdict() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
     workspace.write("TESTING.md", b"# Testing\n\n## Quality register\n");
 
-    let outcome = workspace.xtask(&["counts", "--executable", &executable]);
+    let outcome = workspace.xtask(&["counts", "--path", "F1", "--executable", &executable]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+}
+
+/// The register's six F3 rows, each with the limit `limit`.
+fn frontier_register(limit: &str) -> String {
+    let rows: String = [
+        "invariant_reads",
+        "compilations",
+        "prepares",
+        "transactions",
+        "payload_serializations",
+        "validations",
+    ]
+    .iter()
+    .map(|work| {
+        format!(
+            "| `F3.{work}` | its work | 99 | {limit} | B1 | must not grow | `xtask counts` | implementer done |\n"
+        )
+    })
+    .collect();
+    format!(
+        "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
+         | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
+         |---|---|---|---|---|---|---|---|\n{rows}"
+    )
+}
+
+/// A benchmark that prints every F3 count, each outcome one unit and each
+/// count 1, except `counted`, whose count is 5.
+fn frontier_benchmark(counted: &str) -> String {
+    let counts: Vec<String> = [
+        "F3.invariant_reads",
+        "F3.invariant_reads.hop",
+        "F3.invariant_reads.sitemap",
+        "F3.compilations",
+        "F3.compilations.hop",
+        "F3.compilations.sitemap",
+        "F3.compilations.payload",
+        "F3.prepares",
+        "F3.prepares.hop",
+        "F3.prepares.sitemap",
+        "F3.transactions",
+        "F3.transactions.hop",
+        "F3.transactions.sitemap",
+        "F3.payload_serializations",
+        "F3.validations",
+    ]
+    .iter()
+    .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
+    .collect();
+    format!(
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}}}}}'\n",
+        counts.join(",")
+    )
+}
+
+/// A hop's work is its own outcome: over the row's limit it fails the row,
+/// divided by its hops and not by the batches, and printed under its outcome.
+#[test]
+fn each_outcome_of_a_row_is_its_own_figure_under_the_rows_limit() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("F3.compilations.hop"));
+    workspace.write("TESTING.md", frontier_register("1").as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("over-limit", "F3.compilations")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F3.compilations.hop [default]: 5 per hop, limit 1 (5 over 1)"),
+        "{}",
+        outcome.stdout
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("5 per hop in the cell `default`, over its limit of 1"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// Every outcome at its limit passes, and each of the six rows is printed.
+#[test]
+fn the_frontiers_rows_pass_at_their_limit_and_each_is_printed() {
+    let (workspace, executable) = workspace("1", &frontier_benchmark("none"));
+    workspace.write("TESTING.md", frontier_register("1").as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--path", "F3", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+    for row in [
+        "F3.invariant_reads [default]",
+        "F3.compilations [default]",
+        "F3.prepares [default]",
+        "F3.transactions [default]",
+        "F3.payload_serializations [default]",
+        "F3.validations [default]",
+    ] {
+        assert!(outcome.stdout.contains(row), "{row}: {}", outcome.stdout);
+    }
 }

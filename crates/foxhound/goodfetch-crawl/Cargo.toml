@@ -14,6 +14,7 @@ fixed_decimal.workspace = true
 # `join_all`: the delivery settles the attempts that ended together, so
 # their run-state writes queue as one group.
 futures-util = { workspace = true, features = ["alloc"] }
+goodfetch-counted-work.workspace = true
 goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true

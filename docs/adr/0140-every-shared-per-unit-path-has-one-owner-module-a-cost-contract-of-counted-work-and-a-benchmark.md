@@ -133,6 +133,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The metric's labels are `shared_path` and `work`,** not `path` and `work`: the protocol's metric test refuses a label named `path`, which elsewhere holds a URL's, and every label's value is a lowercase word, so `shared_path` takes the path's name, `page_analysis`, and not `F1`.
 > - **Which parses count:** the eight sites B1 reaches. Every other raw parse carries an `#[expect]` naming this ADR, so it counts once the Shared paths audit, or a ticket extending B1 to its outcome, moves it onto the counted function. A row's figure sees only what its fixture reaches.
 
+> Note (agent decisions of #1850, pending owner review), 2026-11-02, on Frontier admission's rows:
+> - **A row several outcomes do has one limit and a figure per outcome.** A links batch, a redirect hop, a sitemap's read and a URL's Payload each divide by their own units (`F3.compilations.hop`), so a rare outcome is not averaged away. Each outcome holds to the row's one limit, the worst of them until the Exception goes, so a hop rising from 1 read to 2 passes under a limit of 6 until then; the Contract of 0 closes this.
+> - **`F3.transactions` counts the writes an outcome asks the writer for, at each outcome's call, not a commit hook.** A commit hook sees a commit, which groups several writes, so it cannot say whose it was. It therefore counts one for a links batch's staging, which rolls back, as for a hop and a sitemap. X6 gains the row.
+> - **`F3.prepares` runs under Callgrind with `--zero-before` and `--dump-after` on the one function of each outcome, not `--toggle-collect`:** Callgrind's call counts ignore its collection state, so a toggle counts the whole process. This names Rust functions (`links::add`, `identity::admit_hop`, `work_items::read_sitemap`) only to bound what is counted, and the count itself is still of SQLite's C symbol; the benchmark fails if a named function is never entered. `just counts` therefore needs Valgrind, and takes about two minutes on a loaded server for this family, over the one minute user story 12 asks.
+> - **The prepares row is not a series of `goodfetch.counted_work`:** the Daemon runs under no Callgrind, and a series that stays 0 would say something false.
+> - **A Payload reaches B1 on a seed,** as a code-free crawl's links carry none: its validator, validation and serializations are counted on `frontier_payload`, whoever checks it. The batch's own Payload cost is reached once B1 has a handler.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

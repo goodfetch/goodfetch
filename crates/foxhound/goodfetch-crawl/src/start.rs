@@ -186,9 +186,14 @@ async fn start(
     let found =
         schema_unchanged(&context, run_id.as_ref(), &payloads, &fragments, &datasets).await?;
     if !found {
-        work_items::check_seeds(&payloads, params.seeds.iter())?;
+        work_items::check_seeds(
+            &payloads,
+            params.seeds.iter(),
+            context.runs().metrics().counted_work(),
+        )?;
     }
     let seeding = egress.clone();
+    let work = context.runs().metrics().counted_work().clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = BTreeMap::from([(
         StartInput::Seeds,
@@ -215,9 +220,11 @@ async fn start(
                 fragments.record(connection)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
+                let mut positions = work_items::Positions::of(connection)?;
+                positions.counting(&work);
                 let answers = work_items::admit_seeds(
                     connection,
-                    &mut work_items::Positions::of(connection)?,
+                    &mut positions,
                     &scope,
                     &seeding,
                     &admitted,

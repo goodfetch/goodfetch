@@ -21,6 +21,7 @@
 
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -109,6 +110,7 @@ async fn add_seed(
         attempt,
     } = params;
     let bound = attempt.clone();
+    let work = run.metrics().counted_work().clone();
     let answered = run
         .state()
         .write(move |connection| {
@@ -118,13 +120,19 @@ async fn add_seed(
                     &attempt.crawl_request_id.clone(),
                     attempt.lease_epoch,
                     move |connection, positions| {
-                        admit_within(connection, positions, &egress, &seed, Some(&attempt))
+                        admit_within(
+                            connection,
+                            positions,
+                            (&egress, &work),
+                            &seed,
+                            Some(&attempt),
+                        )
                     },
                 ),
                 None => admit_within(
                     connection,
                     &mut Positions::of(connection)?,
-                    &egress,
+                    (&egress, &work),
                     &seed,
                     None,
                 ),
@@ -155,17 +163,18 @@ async fn add_seed(
 fn admit_within(
     connection: &Connection,
     positions: &mut Positions,
-    egress: &Policy,
+    (egress, work): (&Policy, &CountedWork),
     seed: &Seed,
     attempt: Option<&SeedAttempt>,
 ) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
+    positions.counting(work);
     if let Some(attempt) = attempt
         && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
             .is_none()
     {
         return Ok(None);
     }
-    if let Err(refused) = refused(connection, std::slice::from_ref(seed))? {
+    if let Err(refused) = refused(connection, std::slice::from_ref(seed), work)? {
         return Ok(Some(Err(refused)));
     }
     let mut answers = work_items::admit_seeds(
@@ -182,11 +191,15 @@ fn admit_within(
 
 /// `payload_invalid` for the first of `seeds` whose Payload does not fit
 /// its Label's schema or the cap the run file `connection` holds.
-fn refused(connection: &Connection, seeds: &[Seed]) -> rusqlite::Result<Result<(), CallError>> {
+fn refused(
+    connection: &Connection,
+    seeds: &[Seed],
+    work: &CountedWork,
+) -> rusqlite::Result<Result<(), CallError>> {
     let rules = PayloadRules::read(connection)?;
     Ok(seeds
         .iter()
-        .try_for_each(|seed| work_items::check_seed(&rules, seed)))
+        .try_for_each(|seed| work_items::check_seed(&rules, seed, work)))
 }
 
 async fn add_seeds(
@@ -290,15 +303,18 @@ async fn admit_batch(
     }
     let egress = Arc::clone(egress);
     let intake = intake.clone();
+    let work = run.metrics().counted_work().clone();
     run.state()
         .write(move |connection| {
             intake.admitting(|| {
-                if let Err(refused) = refused(connection, &seeds)? {
+                if let Err(refused) = refused(connection, &seeds, &work)? {
                     return Ok(Err(refused));
                 }
+                let mut positions = Positions::of(connection)?;
+                positions.counting(&work);
                 work_items::admit_seeds(
                     connection,
-                    &mut Positions::of(connection)?,
+                    &mut positions,
                     &Scope::read(connection)?,
                     &egress,
                     &seeds,

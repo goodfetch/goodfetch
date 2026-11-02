@@ -53,12 +53,14 @@ if [[ "$(uname -s)" != Linux ]]; then
     "$CI_IMAGE" ci/perf.sh ${requested:+"$requested"}
 fi
 
-# The rows of counted work need no Valgrind (ADR 0140): each run against its
-# limit, then each counter against a planted unit of its work.
+command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
+
+# The rows of counted work (ADR 0140), whose statement preparations are
+# Callgrind's call count: each run against its limit, then each counter against
+# a planted unit of its work.
 cargo run --quiet -p xtask -- counts
 cargo run --quiet -p xtask -- counts --prove
 
-command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
 command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
 
 selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")

@@ -12,6 +12,10 @@
 //! are borrowed from a static fixture, so serving them allocates nothing.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 
+#[expect(
+    dead_code,
+    reason = "the counts cell's outcomes, which this benchmark's crawl does not meet"
+)]
 mod scenarios;
 
 use std::hint::black_box;

@@ -29,6 +29,9 @@ use goodfetch_engine::metrics::Metrics;
 use scenarios::{Options, PAGES, Plant, body_bytes, crawl_with};
 use serde_json::{Map, Value, json};
 
+/// The Limit of `requests` the crawl meets, far above what it charges.
+const LIMIT: u64 = 1_000_000;
+
 /// The plant of the row named `name`.
 fn plant(name: &str, work: &CountedWork) -> Plant {
     let work = work.clone();
@@ -91,7 +94,12 @@ fn run(cell: Cell, planted: Option<&str>) -> Counted {
             metrics,
             settings,
             plant: planted.map(|name| plant(name, &work)),
+            limit: Some(LIMIT),
         },
+    );
+    assert!(
+        work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0,
+        "the crawl charged nothing against its Limit"
     );
     assert_eq!(
         crawled.body_bytes,

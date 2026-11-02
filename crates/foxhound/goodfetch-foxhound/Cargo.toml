@@ -71,6 +71,8 @@ zstd.workspace = true
 # (examples/counts.rs).
 goodfetch-counted-work.workspace = true
 gungraun.workspace = true
+# The moment a benchmark's Limit is set at (benches/scenarios.rs).
+jiff.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true
 # The run-state and Politeness file corpus writers (examples/compat-*.rs):

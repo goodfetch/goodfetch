@@ -33,6 +33,7 @@ use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
@@ -41,6 +42,9 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::run::{LimitScope, LimitSetter};
+use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -237,6 +241,9 @@ pub(crate) struct Options {
     pub(crate) settings: serde_json::Map<String, Value>,
     /// One extra unit of work per page served.
     pub(crate) plant: Option<Plant>,
+    /// The amount of a Limit of `requests` on the install, which each
+    /// request of the crawl charges (ADR 0140's E3).
+    pub(crate) limit: Option<u64>,
 }
 
 /// [`crawl`], with `options`.
@@ -245,7 +252,27 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         metrics,
         settings,
         plant,
+        limit,
     } = options;
+    if let Some(amount) = limit {
+        Ledger::at(Home::new(home.to_owned()).usage_ledger(), None)
+            .add_limit(
+                &Limit {
+                    scope: LimitScope {
+                        kind: INSTALL.to_owned(),
+                        id: String::new(),
+                    },
+                    usage_kind: REQUESTS.to_owned(),
+                    currency: None,
+                    period: None,
+                    amount,
+                    must_understand: true,
+                    set_by: LimitSetter::Person,
+                },
+                Timestamp::try_from(start).expect("invariant: the fixture's start"),
+            )
+            .expect("invariant: a new home's ledger is writable");
+    }
     let sent = Arc::new(AtomicU64::new(0));
     let tiers = FetchTiers::serving(Arc::new(Site {
         sent: Arc::clone(&sent),

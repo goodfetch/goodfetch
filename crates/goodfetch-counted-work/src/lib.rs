@@ -35,11 +35,31 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `F2.transactions`: a transaction on a run file: a commit its commit
+    /// hook saw, and each job the writer folded into a commit's group, so the
+    /// count does not depend on how commits group (ADR 0138's note).
+    RunTransactions,
+    /// `F2.writer_reads`: a read through a run file's writer.
+    WriterReads,
+    /// `F2.configuration_reads`: a read of the machine's settings files.
+    ConfigurationReads,
+    /// `F2.prunes`: a prune pass.
+    Prunes,
+    /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
+    /// does until the journal lands (#1550).
+    EffectSyncs,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 6] = [
+        Self::PageParses,
+        Self::RunTransactions,
+        Self::WriterReads,
+        Self::ConfigurationReads,
+        Self::Prunes,
+        Self::EffectSyncs,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +67,11 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::RunTransactions
+            | Self::WriterReads
+            | Self::ConfigurationReads
+            | Self::Prunes
+            | Self::EffectSyncs => "run_state",
         }
     }
 
@@ -55,6 +80,11 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::RunTransactions => "transactions",
+            Self::WriterReads => "writer_reads",
+            Self::ConfigurationReads => "configuration_reads",
+            Self::Prunes => "prunes",
+            Self::EffectSyncs => "effect_syncs",
         }
     }
 
@@ -63,6 +93,11 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::RunTransactions => "F2.transactions",
+            Self::WriterReads => "F2.writer_reads",
+            Self::ConfigurationReads => "F2.configuration_reads",
+            Self::Prunes => "F2.prunes",
+            Self::EffectSyncs => "F2.effect_syncs",
         }
     }
 
@@ -83,6 +118,11 @@ impl CountedWork {
     /// Counts one unit of `row`'s work.
     pub fn count(&self, row: Row) {
         self.0.0[row.index()].add_one();
+    }
+
+    /// Counts `units` units of `row`'s work.
+    pub fn count_many(&self, row: Row, units: u64) {
+        self.0.0[row.index()].add(units);
     }
 
     /// The units of `row`'s work counted so far.

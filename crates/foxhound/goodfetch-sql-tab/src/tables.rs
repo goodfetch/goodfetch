@@ -144,7 +144,7 @@ struct Scan {
 enum Cursor {
     Unopened,
     Reading {
-        connection: Connection,
+        connection: Box<Connection>,
         after: Option<Vec<rusqlite::types::Value>>,
     },
     Done,
@@ -204,7 +204,7 @@ impl VTab for RunTableFunction {
                 Some(connection) if holds(&connection, &bound.table)? => {
                     connection.execute_batch("BEGIN")?;
                     Cursor::Reading {
-                        connection,
+                        connection: Box::new(connection),
                         after: None,
                     }
                 }

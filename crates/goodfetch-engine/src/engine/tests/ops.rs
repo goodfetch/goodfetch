@@ -373,8 +373,18 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         },
     );
 
+    // What the run file does is `xtask counts`' to hold, not this test's.
+    let beside_the_run_file = |series: BTreeSet<String>| -> BTreeSet<String> {
+        series
+            .into_iter()
+            .filter(|line| !line.contains(r#"shared_path="run_state""#))
+            .collect()
+    };
     assert_eq!(
-        (while_running, series(&registry)),
+        (
+            beside_the_run_file(while_running),
+            beside_the_run_file(series(&registry)),
+        ),
         (
             BTreeSet::from([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),

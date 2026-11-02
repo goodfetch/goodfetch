@@ -324,7 +324,7 @@ const F1_ROWS: &str = "\
 /// Two families' examples share one name, `counts`, so Cargo puts both at one
 /// path: each family's run reads its own benchmark all the same.
 #[test]
-fn a_whole_run_reads_each_familys_benchmark_though_their_examples_share_a_name() {
+fn a_whole_run_reads_each_family_its_own_benchmark_though_their_examples_share_a_name() {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
         "TESTING.md",

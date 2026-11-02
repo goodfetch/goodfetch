@@ -65,10 +65,13 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
     let masks = Masks::new();
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets
-            .check(vec![PushedRecord {
-                dataset: "books".to_owned(),
-                data: value,
-            }])
+            .check(
+                vec![PushedRecord {
+                    dataset: "books".to_owned(),
+                    data: value,
+                }],
+                &goodfetch_counted_work::CountedWork::default(),
+            )
             .expect("invariant: each Record holds");
         let id = request.to_string();
         let provenance = RecordProvenance {
@@ -92,6 +95,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
                 at: &at,
                 provenance: &provenance,
                 masks: &masks,
+                work: &goodfetch_counted_work::CountedWork::default(),
             },
             &checked,
         )

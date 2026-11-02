@@ -58,6 +58,8 @@ disallowed-methods = [
   { path = "scraper::Html::parse_document", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "scraper::Html::parse_fragment", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "lol_html::rewrite_str", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  # A validator build goes through one counted function (ADR 0140).
+  { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },

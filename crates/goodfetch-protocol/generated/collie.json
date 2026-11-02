@@ -10814,13 +10814,21 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "record"
           ]
         },
         {
           "name": "work",
           "values": [
-            "parses"
+            "parses",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "deep_copies",
+            "constant_lookups",
+            "transactions"
           ]
         }
       ],

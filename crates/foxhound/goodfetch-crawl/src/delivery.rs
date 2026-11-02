@@ -281,6 +281,7 @@ fn wall_ms(run: &Run) -> u64 {
 fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
+        .counting_on(run.metrics().counted_work().clone())
 }
 
 /// The delivery's loop, which returns once the Run ended or stopped.

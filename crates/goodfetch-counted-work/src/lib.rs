@@ -35,11 +35,34 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
+    RecordDeclarationReads,
+    /// `F4.validator_builds`: a validator built to check a Record.
+    RecordValidatorBuilds,
+    /// `F4.validations`: a validation of a Record against its Dataset's schema.
+    RecordValidations,
+    /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
+    RecordSerializations,
+    /// `F4.deep_copies`: a deep copy of a Record's data.
+    RecordDeepCopies,
+    /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
+    RecordConstantLookups,
+    /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
+    RecordTransactions,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 8] = [
+        Self::PageParses,
+        Self::RecordDeclarationReads,
+        Self::RecordValidatorBuilds,
+        Self::RecordValidations,
+        Self::RecordSerializations,
+        Self::RecordDeepCopies,
+        Self::RecordConstantLookups,
+        Self::RecordTransactions,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +70,13 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::RecordDeclarationReads
+            | Self::RecordValidatorBuilds
+            | Self::RecordValidations
+            | Self::RecordSerializations
+            | Self::RecordDeepCopies
+            | Self::RecordConstantLookups
+            | Self::RecordTransactions => "record",
         }
     }
 
@@ -55,6 +85,13 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations => "validations",
+            Self::RecordSerializations => "serializations",
+            Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::RecordTransactions => "transactions",
         }
     }
 
@@ -63,6 +100,13 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::RecordDeclarationReads => "F4.declaration_reads",
+            Self::RecordValidatorBuilds => "F4.validator_builds",
+            Self::RecordValidations => "F4.validations",
+            Self::RecordSerializations => "F4.serializations",
+            Self::RecordDeepCopies => "F4.deep_copies",
+            Self::RecordConstantLookups => "F4.constant_lookups",
+            Self::RecordTransactions => "F4.transactions",
         }
     }
 

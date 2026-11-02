@@ -1195,6 +1195,7 @@ dependencies = [
  "arrow-schema",
  "data-encoding",
  "flate2",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-protocol",
  "jiff",

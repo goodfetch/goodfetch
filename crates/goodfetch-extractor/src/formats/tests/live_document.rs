@@ -117,6 +117,10 @@ struct AdSlots {
 }
 
 impl CleanUp for AdSlots {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn remove(&self, html: &str, url: &str) -> String {
         assert_eq!(url, URL);
         self.given.borrow_mut().push(html.to_owned());

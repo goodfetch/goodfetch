@@ -282,6 +282,10 @@ struct Reader {
 }
 
 impl Reader {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn new() -> Self {
         let pattern = |pattern: &str| Regex::new(pattern).expect("invariant: a valid pattern");
         Self {

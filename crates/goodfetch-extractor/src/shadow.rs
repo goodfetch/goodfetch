@@ -41,6 +41,10 @@ pub(crate) fn composed(html: &str) -> Cow<'_, str> {
 
 /// Every shadow root's template: those of the document in document order,
 /// then those of each shadow root's content, breadth first.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn templates(document: &ParsedHtml) -> Vec<NodeRef<'_>> {
     let matcher = Matcher::new(SHADOW_ROOT).expect("invariant: the shadow root selector is CSS");
     let mut found: Vec<NodeRef<'_>> = Selection::from(document.root())
@@ -76,6 +80,10 @@ fn contents<'a>(document: &'a ParsedHtml, template: &NodeRef<'a>) -> Option<Node
 
 /// Puts the content of the shadow root `template` holds in its host's
 /// place, its slots filled with the host's children.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn compose(document: &ParsedHtml, template: &NodeRef<'_>) {
     let (Some(host), Some(contents)) = (template.parent(), contents(document, template)) else {
         return;

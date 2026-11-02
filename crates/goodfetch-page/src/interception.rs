@@ -753,6 +753,7 @@ impl Interception {
                     run.owner().child(),
                     run.folder(),
                     run.secrets().mask().clone(),
+                    run.metrics().counted_work().clone(),
                 ));
                 let driver = driver.with_egress(egress).with_value(value, run.clock());
                 let events = driver.events();

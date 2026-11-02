@@ -35,6 +35,10 @@ pub(crate) fn same_text(expected: &str, submitted: &str) -> bool {
 }
 
 /// The text of each block of `html`, in document order.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn blocks(html: &str) -> Vec<String> {
     let document = Document::from(html);
     let mut blocks = Blocks::default();

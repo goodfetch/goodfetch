@@ -519,6 +519,7 @@ impl PageEvents {
                 run.owner().child(),
                 run.folder(),
                 run.secrets().mask().clone(),
+                run.metrics().counted_work().clone(),
             )),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),

@@ -176,6 +176,10 @@ async fn written(
 /// # Cancel safety
 ///
 /// Dropping the future stops the chunks; those sent stay sent.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub async fn send_kept(
     context: &CallContext,
     folder: &Path,

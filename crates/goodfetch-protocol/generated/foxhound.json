@@ -15587,7 +15587,13 @@
         {
           "name": "work",
           "values": [
-            "parses"
+            "parses",
+            "selector_compilations",
+            "readability_runs",
+            "file_opens",
+            "locale_form_builds",
+            "plugin_serializations",
+            "plugin_answer_parses"
           ]
         }
       ],

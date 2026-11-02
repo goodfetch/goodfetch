@@ -23,13 +23,16 @@
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
 )]
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use bytes::Bytes;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -210,10 +213,34 @@ impl Body for Chunks {
     }
 }
 
-/// What the crawl answered: each Record of `pages`, and the body bytes the
-/// site sent.
+/// The plant of a Page analysis row `row` other than its parses, its work
+/// done through its one counted function, or counted at the seam a run of
+/// it crosses; none for any other row.
+pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant> {
+    let work = work.clone();
+    let plant: Plant = match row {
+        Row::PageSelectorCompilations => Arc::new(move |_: &str| {
+            let _ = work.compile_selector(row, "h1");
+        }),
+        Row::PageFileOpens => Arc::new(move |_: &str| {
+            let exe = std::env::current_exe().expect("invariant: a running executable has a path");
+            work.open_file(row, OpenOptions::new().read(true), &exe)
+                .expect("invariant: a running executable can be read");
+        }),
+        Row::PageReadabilityRuns
+        | Row::PageLocaleFormBuilds
+        | Row::PagePluginSerializations
+        | Row::PagePluginAnswerParses => Arc::new(move |_: &str| work.count(row)),
+        _ => return None,
+    };
+    Some(plant)
+}
+
+/// What the crawl answered: each Record of `pages`, how many requests a
+/// handler handled, and the body bytes the site sent.
 pub(crate) struct Crawled {
     pub(crate) records: Vec<Value>,
+    pub(crate) handled: u64,
     pub(crate) body_bytes: u64,
 }
 
@@ -237,6 +264,12 @@ pub(crate) struct Options {
     pub(crate) settings: serde_json::Map<String, Value>,
     /// One extra unit of work per page served.
     pub(crate) plant: Option<Plant>,
+    /// The fields the crawl reads beside `title`.
+    pub(crate) fields: serde_json::Map<String, Value>,
+    /// A handler serves each page, on its document tier, in place of the
+    /// code-free extraction: it waits on the page's `h1` as attached, then as
+    /// visible, which the tier answers from the page's own document.
+    pub(crate) handler: bool,
 }
 
 /// [`crawl`], with `options`.
@@ -245,6 +278,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         metrics,
         settings,
         plant,
+        fields,
+        handler,
     } = options;
     let sent = Arc::new(AtomicU64::new(0));
     let tiers = FetchTiers::serving(Arc::new(Site {
@@ -267,7 +302,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     let engine = Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics);
-    let records = goodfetch_test_support::runtime().block_on(async {
+    let (records, handled) = goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, mut writer) = dialer
@@ -277,16 +312,27 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, HELLO).await;
-            send(&mut writer, &crawl_start(settings).to_string()).await;
+            send(
+                &mut writer,
+                &crawl_start(settings, fields, handler).to_string(),
+            )
+            .await;
             let mut records = Vec::new();
+            let mut waits = Waits::default();
             while let Ok(Some(line)) = lines.next_line().await {
                 let message: Value =
                     serde_json::from_str(&line).expect("invariant: the engine writes JSON");
+                if waits.read(&message, &mut writer).await {
+                    continue;
+                }
                 if message["id"] == "start" {
                     assert!(message.get("result").is_some(), "{message}");
                     send(&mut writer, FINISH).await;
                 } else if message["id"] == "finish" {
                     assert!(message.get("result").is_some(), "{message}");
+                    if handler {
+                        break;
+                    }
                     send(&mut writer, RECORDS).await;
                     send(&mut writer, CREDITS).await;
                 } else if message["method"] == "$/record" {
@@ -298,7 +344,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             }
             writer.shutdown().await.expect("invariant: in memory");
             while let Ok(Some(_)) = lines.next_line().await {}
-            records
+            (records, waits.answered)
         };
         let dependencies = Dependencies {
             environment: std::collections::BTreeMap::new(),
@@ -311,15 +357,16 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             run_state: RunStateOptions::default(),
             politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
-        let (served, records) = tokio::join!(
+        let (served, read) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),
             client
         );
         served.expect("invariant: the engine got its Connection");
-        records
+        read
     });
     Crawled {
         records,
+        handled,
         body_bytes: sent.load(Ordering::Relaxed),
     }
 }
@@ -340,7 +387,11 @@ const CREDITS: &str =
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
 /// through, which no connection reaches.
-fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
+fn crawl_start(
+    mut settings: serde_json::Map<String, Value>,
+    mut fields: serde_json::Map<String, Value>,
+    handler: bool,
+) -> Value {
     settings.extend([
         ("fetch".to_owned(), json!({ "tier": "http" })),
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
@@ -350,6 +401,31 @@ fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
         ),
         ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
     ]);
+    if handler {
+        settings.insert(
+            "crawl".to_owned(),
+            json!({ "handler": { "concurrency": 1 } }),
+        );
+        let seeds: Vec<Value> = std::iter::once("/".to_owned())
+            .chain((0..PAGES.len()).map(|number| format!("/page-{number}")))
+            .map(|path| json!({ "url": format!("http://{HOST}{path}"), "label": "page" }))
+            .collect();
+        return json!({
+            "jsonrpc": "2.0",
+            "id": "start",
+            "method": "crawl.start",
+            "params": {
+                "run_id": "pages",
+                "seeds": seeds,
+                "labels": { "page": {} },
+                "settings": settings,
+            },
+        });
+    }
+    fields.insert(
+        "title".to_owned(),
+        json!({ "locator": { "kind": "css", "selector": "h1" } }),
+    );
     json!({
         "jsonrpc": "2.0",
         "id": "start",
@@ -361,11 +437,68 @@ fn crawl_start(mut settings: serde_json::Map<String, Value>) -> Value {
             "extraction": {
                 "formats": {},
                 "follow": "scope",
-                "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+                "fields": fields,
             },
             "settings": settings,
         },
     })
+}
+
+/// The handler of a crawl: on each `crawl_request.handle`, waits on its page's
+/// `h1` as attached, then as visible, then answers no Record.
+#[derive(Default)]
+struct Waits {
+    /// Each request a wait is out for: its ID and its page's.
+    waiting: BTreeMap<String, (Value, Value)>,
+    answered: u64,
+}
+
+impl Waits {
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        let id = message["id"].as_str().unwrap_or_default();
+        if message["method"] == "crawl_request.handle" {
+            let key = self.waiting.len().to_string();
+            let page = message["params"]["page_id"].clone();
+            send(
+                writer,
+                &wait_for(&format!("attached-{key}"), &page, "attached"),
+            )
+            .await;
+            self.waiting.insert(key, (message["id"].clone(), page));
+        } else if let Some(key) = id.strip_prefix("attached-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let (_, page) = &self.waiting[key];
+            send(
+                writer,
+                &wait_for(&format!("visible-{key}"), page, "visible"),
+            )
+            .await;
+        } else if let Some(key) = id.strip_prefix("visible-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let (request, _) = &self.waiting[key];
+            let answer = json!({ "jsonrpc": "2.0", "id": request, "result": { "records": [] } });
+            send(writer, &answer.to_string()).await;
+            self.answered += 1;
+        } else {
+            return false;
+        }
+        true
+    }
+}
+
+/// `locator.wait_for` on the served page `page`'s `h1`, reaching `state`.
+fn wait_for(id: &str, page: &Value, state: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "locator.wait_for",
+        "params": {
+            "locator": { "page_id": page, "selector": "h1" },
+            "state": state,
+        },
+    })
+    .to_string()
 }
 
 /// Writes `line` and its newline.

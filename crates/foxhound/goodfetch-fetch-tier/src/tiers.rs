@@ -2174,7 +2174,8 @@ fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
 /// The `href` of the document's first `<base>` element that has one.
 fn base_href(html: &str, work: &CountedWork) -> Option<String> {
     let document = work.parse_html(Row::PageParses, html);
-    let base = document.select("base[href]");
+    let base = document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "base[href]"));
     base.attr("href").map(|href| href.to_string())
 }
 

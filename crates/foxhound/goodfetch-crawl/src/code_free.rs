@@ -23,6 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_fetch_tier::FetchTiers;
@@ -298,9 +299,14 @@ impl CodeFree {
         extraction: Option<CrawlExtraction>,
         crawls: &Crawls,
         tiers: &FetchTiers,
+        work: &CountedWork,
     ) -> Option<Self> {
         extraction.map(|extraction| Self {
-            readers: extraction.fields.values().map(fields::Reader::of).collect(),
+            readers: extraction
+                .fields
+                .values()
+                .map(|field| fields::Reader::of(field, work))
+                .collect(),
             extraction,
             crawls: crawls.clone(),
             tiers: tiers.clone(),

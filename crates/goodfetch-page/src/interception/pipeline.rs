@@ -209,6 +209,7 @@ impl PageContext {
                 run.owner().child(),
                 run.folder(),
                 run.secrets().mask().clone(),
+                run.metrics().counted_work().clone(),
             )),
             run,
         }

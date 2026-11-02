@@ -40,6 +40,7 @@ pub async fn provenance(run: &Run, entry: &serde_json::Value) {
         run.owner(),
         run.folder(),
         run.secrets().mask(),
+        run.metrics().counted_work(),
         entry,
     )
     .await;

@@ -104,7 +104,9 @@ impl Selectors {
                 if let Some(matcher) = parsed.get(selector) {
                     return matcher.clone();
                 }
-                let matcher = Matcher::new(selector).ok();
+                let matcher = self
+                    .work
+                    .compile_selector(Row::PageSelectorCompilations, selector);
                 parsed.insert(selector.to_owned(), matcher.clone());
                 matcher
             })
@@ -234,6 +236,10 @@ pub fn remove(
     clippy::disallowed_types,
     reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
 )]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub fn remove_selected(removal: Removal, selectors: &[String]) -> Removal {
     let matchers: Vec<(&str, Matcher)> = selectors
         .iter()
@@ -297,6 +303,10 @@ fn untouched(html: &str) -> Removal {
 
 /// The document's root, then each shadow root with the `<template>` that
 /// holds it, breadth first in document order.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn roots(document: &ParsedHtml) -> Vec<(NodeRef<'_>, Option<NodeRef<'_>>)> {
     static SHADOW: LazyLock<Matcher> = LazyLock::new(|| {
         Matcher::new("template[shadowrootmode]")

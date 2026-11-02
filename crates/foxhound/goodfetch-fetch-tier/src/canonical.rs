@@ -18,7 +18,9 @@ pub(crate) fn canonical(
 ) -> Option<Url> {
     let document = work.parse_html(Row::PageParses, html);
     let in_head = document
-        .select("head link[rel][href]")
+        .select_matcher(
+            &work.literal_selector(Row::PageSelectorCompilations, "head link[rel][href]"),
+        )
         .nodes()
         .iter()
         .find(|link| link.attr("rel").is_some_and(|rel| has_canonical(&rel)))

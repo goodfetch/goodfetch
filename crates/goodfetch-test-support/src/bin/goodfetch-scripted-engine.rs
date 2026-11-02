@@ -220,6 +220,10 @@ struct Daemon {
 impl Daemon {
     /// Listens, writes the runtime file and prints the line saying a Client
     /// can find it.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn publish(home: &Path, arguments: &Arguments, ready: Ready) -> Result<Self, Failure> {
         let runtime_file = RuntimeFile::path(home, &arguments.product_version);
         let folder = runtime_file

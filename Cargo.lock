@@ -2421,6 +2421,9 @@ name = "goodfetch-counted-work"
 version = "0.0.0"
 dependencies = [
  "dom_query 0.28.0",
+ "glob",
+ "regex",
+ "tempfile",
 ]
 
 [[package]]
@@ -2430,6 +2433,7 @@ dependencies = [
  "encoding_rs",
  "fixed_decimal",
  "futures-util",
+ "goodfetch-counted-work",
  "goodfetch-dataset",
  "goodfetch-engine",
  "goodfetch-fetch-tier",

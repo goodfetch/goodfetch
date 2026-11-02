@@ -169,7 +169,15 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
 /// count.
 const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
     name: "work",
-    values: &["parses"],
+    values: &[
+        "parses",
+        "selector_compilations",
+        "readability_runs",
+        "file_opens",
+        "locale_form_builds",
+        "plugin_serializations",
+        "plugin_answer_parses",
+    ],
 };
 
 /// `goodfetch.counted_work`: the Counted work of each Shared path (ADR 0140).

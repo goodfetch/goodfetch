@@ -20,7 +20,15 @@ fn read(
     element: Option<&FieldElement>,
     base_url: &str,
 ) -> Read {
-    super::read(name, (field, &Reader::of(field)), element, base_url)
+    super::read(
+        name,
+        (
+            field,
+            &Reader::of(field, &goodfetch_counted_work::CountedWork::default()),
+        ),
+        element,
+        base_url,
+    )
 }
 
 fn field(value: Value) -> ExtractionField {

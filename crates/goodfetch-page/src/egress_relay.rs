@@ -426,6 +426,7 @@ impl EgressRelay {
                 run.owner().child(),
                 run.folder(),
                 run.secrets().mask().clone(),
+                run.metrics().counted_work().clone(),
             )),
             met,
             refusals: Mutex::new(VecDeque::new()),
@@ -698,6 +699,7 @@ impl Observe for Record {
                 run.owner(),
                 run.folder(),
                 run.secrets().mask(),
+                run.metrics().counted_work(),
                 &entry,
             )
             .await

@@ -9,6 +9,10 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 /// Appends `text` to the file at `path`, creating it when it does not exist.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn append(path: &Path, text: &str) -> Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .create(true)

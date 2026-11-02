@@ -167,6 +167,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "json_rpc_message",
         "page_analysis",
         "sink_delivery",
+        "working_copy_update",
     ],
 };
 
@@ -190,6 +191,11 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "opens",
         "transactions",
         "writer_reads",
+        "merge_round_trips",
+        "document_loads",
+        "document_encodes",
+        "prepares",
+        "syncs",
     ],
 };
 

@@ -15584,7 +15584,8 @@
             "hook_stage",
             "json_rpc_message",
             "page_analysis",
-            "sink_delivery"
+            "sink_delivery",
+            "working_copy_update"
           ]
         },
         {
@@ -15604,7 +15605,12 @@
             "messages_no_hook",
             "opens",
             "transactions",
-            "writer_reads"
+            "writer_reads",
+            "merge_round_trips",
+            "document_loads",
+            "document_encodes",
+            "prepares",
+            "syncs"
           ]
         }
       ],

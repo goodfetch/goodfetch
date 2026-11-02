@@ -1,6 +1,8 @@
 //! Each counted row's limit, read from the Measured table of `TESTING.md`'s
 //! Quality register: its "Today" figure once measured, else its "Contract",
 //! when that holds a plain number (`1.10 × the figure after #1577` holds none).
+//! A row measured per kind holds a figure for each, as `click 6, fill 2`, and
+//! each kind's limit goes by `<row>.<kind>`, as `C3.commands.click`.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -108,16 +110,43 @@ fn parse(text: &str) -> Result<BTreeMap<String, Limit>> {
         else {
             bail!("the Quality register's row \"{line}\" is short of columns");
         };
+        let name = name.trim_matches('`');
+        if let Some(kinds) = per_kind(today) {
+            for (kind, limit) in kinds {
+                limits.insert(format!("{name}.{kind}"), limit);
+            }
+            continue;
+        }
         let limit = measured(today).or_else(|| {
             (!contract.contains('×'))
                 .then(|| Limit::first_number(contract))
                 .flatten()
         });
         if let Some(limit) = limit {
-            limits.insert(name.trim_matches('`').to_owned(), limit);
+            limits.insert(name.to_owned(), limit);
         }
     }
     Ok(limits)
+}
+
+/// Each kind's figure a "Today" cell holds before any `;`, as `click 6, fill
+/// 2, press 4; human-like input not run yet`: none unless every part is a
+/// lowercase kind and its figure.
+fn per_kind(today: &str) -> Option<Vec<(&str, Limit)>> {
+    let figures = today.split(';').next()?;
+    figures
+        .split(',')
+        .map(|part| {
+            let (kind, figure) = part.trim().split_once(' ')?;
+            let named = !kind.is_empty()
+                && kind.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                && figure.starts_with(|c: char| c.is_ascii_digit());
+            named
+                .then(|| Limit::first_number(figure))
+                .flatten()
+                .map(|limit| (kind, limit))
+        })
+        .collect()
 }
 
 /// The figure a "Today" cell holds; `after #1583` and the like hold none.

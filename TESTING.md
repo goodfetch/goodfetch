@@ -1326,9 +1326,9 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow | none yet | none yet |
-| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow | none yet | none yet |
-| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow | none yet | none yet |
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | click 6.5, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |
 | `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | none yet | none yet |

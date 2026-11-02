@@ -596,7 +596,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     let (workspace, b1) = whole_b1(104, "");
     workspace.write(
         "TESTING.md",
-        format!("{}{OTHER_B1_ROWS}{B2_ROWS}", register("8")).as_bytes(),
+        format!("{}{OTHER_B1_ROWS}{B2_ROWS}{C3_ROWS}", register("8")).as_bytes(),
     );
     let script = std::fs::read_to_string(workspace.path().join("benchmark.sh")).unwrap();
     workspace.write(
@@ -608,7 +608,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4}}'\n",
+        "#!/bin/sh\nextra=0\n[ \"$2\" = C1.sends ] && extra=4\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1},\"counts\":{\"C1.encodes\":4,\"C1.sends\":'$((4 + extra))',\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4}}'\n",
     );
 
     let outcome = workspace.xtask(&[
@@ -623,4 +623,66 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// C3's rows as the register holds them: `C3.commands` carries a figure per
+/// action kind, each its own limit.
+const C3_ROWS: &str = "\
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C3.commands` | CDP commands per attempt, per action kind | no cap yet (ADR 0140, open question 2) | click 6, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done |
+";
+
+/// A B2 benchmark over 3 checks and one attempt of each kind, its click's
+/// commands `click`.
+fn c3_benchmark(workspace: &Workspace, click: u64) -> String {
+    let path = executable_script(
+        workspace,
+        "B2.sh",
+        &format!(
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"checks\":3,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1}},\"counts\":{{\"C3.script_sends\":3,\"C3.check_commands\":3,\"C3.commands.click\":{click},\"C3.commands.fill\":2,\"C3.commands.press\":4}}}}'\n"
+        ),
+    );
+    format!("B2={}", path.display())
+}
+
+/// Each action kind's figure of `C3.commands` is held to its own first
+/// figure, and named by its kind.
+#[rstest]
+#[case::each_kind_at_its_figure(6, 0, &[])]
+#[case::a_click_over_its_figure(7, 1, &["C3.commands.click"])]
+fn each_action_kind_is_held_to_its_own_figure(
+    #[case] click: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{C3_ROWS}", register("8")).as_bytes(),
+    );
+    let executable = c3_benchmark(&workspace, click);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "C3.commands",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("C3.commands.fill [default]: 2 per fill_attempt, limit 2 (2 over 1)"),
+        "{}",
+        outcome.stdout
+    );
 }

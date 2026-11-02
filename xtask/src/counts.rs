@@ -161,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 26] = [
+const ROWS: [Row; 31] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -328,6 +328,41 @@ const ROWS: [Row; 26] = [
         happens: false,
         valgrind: None,
     },
+    Row {
+        name: "C3.script_sends",
+        family: "B2",
+        unit: "checks",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C3.check_commands",
+        family: "B2",
+        unit: "checks",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C3.commands.click",
+        family: "B2",
+        unit: "click_attempts",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C3.commands.fill",
+        family: "B2",
+        unit: "fill_attempts",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C3.commands.press",
+        family: "B2",
+        unit: "press_attempts",
+        happens: true,
+        valgrind: None,
+    },
 ];
 
 /// A row of a Shared path whose code does not exist yet: it holds its limit
@@ -383,7 +418,8 @@ pub(crate) struct Arguments {
     /// Only this path's rows (F1, C1).
     #[arg(long)]
     path: Option<String>,
-    /// Only this row, by its name in the register (F1.parses).
+    /// Only this row, by its name in the register (F1.parses), each of its
+    /// kinds for a row with a figure per kind (C3.commands).
     #[arg(long)]
     row: Option<String>,
     /// Has the benchmark do one extra unit of this row's work.
@@ -665,7 +701,12 @@ impl Arguments {
                 .path
                 .as_deref()
                 .is_none_or(|path| name.split('.').next() == Some(path))
-            && self.row.as_deref().is_none_or(|asked| asked == name)
+            && self.row.as_deref().is_none_or(|asked| {
+                asked == name
+                    || name
+                        .strip_prefix(asked)
+                        .is_some_and(|kind| kind.starts_with('.'))
+            })
     }
 }
 

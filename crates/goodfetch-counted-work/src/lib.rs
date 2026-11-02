@@ -35,11 +35,27 @@ pub type ParsedHtml = dom_query::Document;
 pub enum Row {
     /// `F1.parses`: an HTML parse of a fetched page.
     PageParses,
+    /// `C1.encodes`: a CDP command written into the bytes its pipe carries.
+    CdpEncodes,
+    /// `C1.sends`: a CDP command's bytes written to its pipe.
+    CdpSends,
+    /// `C1.file_opens`: a directory created or a file opened for a CDP
+    /// command, as the CDP command log's writer does.
+    CdpFileOpens,
+    /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
+    /// log's writer. The log has no off yet, so every send counts (X9).
+    CdpLogSendsOff,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 1] = [Self::PageParses];
+    pub const ALL: [Self; 5] = [
+        Self::PageParses,
+        Self::CdpEncodes,
+        Self::CdpSends,
+        Self::CdpFileOpens,
+        Self::CdpLogSendsOff,
+    ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
     /// metric label's value is, so `page_analysis` for the register's F1.
@@ -47,6 +63,9 @@ impl Row {
     pub const fn path(self) -> &'static str {
         match self {
             Self::PageParses => "page_analysis",
+            Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
+                "cdp_command"
+            }
         }
     }
 
@@ -55,6 +74,10 @@ impl Row {
     pub const fn work(self) -> &'static str {
         match self {
             Self::PageParses => "parses",
+            Self::CdpEncodes => "encodes",
+            Self::CdpSends => "sends",
+            Self::CdpFileOpens => "file_opens",
+            Self::CdpLogSendsOff => "log_sends_off",
         }
     }
 
@@ -63,6 +86,10 @@ impl Row {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
+            Self::CdpEncodes => "C1.encodes",
+            Self::CdpSends => "C1.sends",
+            Self::CdpFileOpens => "C1.file_opens",
+            Self::CdpLogSendsOff => "C1.log_sends_off",
         }
     }
 

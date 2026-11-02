@@ -10814,13 +10814,18 @@
         {
           "name": "shared_path",
           "values": [
-            "page_analysis"
+            "page_analysis",
+            "cdp_command"
           ]
         },
         {
           "name": "work",
           "values": [
-            "parses"
+            "parses",
+            "encodes",
+            "sends",
+            "file_opens",
+            "log_sends_off"
           ]
         }
       ],

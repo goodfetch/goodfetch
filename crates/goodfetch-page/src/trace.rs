@@ -20,6 +20,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::TaskOwner;
 use tokio::sync::mpsc;
@@ -55,27 +56,38 @@ const QUEUE: usize = 1024;
 #[derive(Clone, Debug)]
 pub(crate) struct CommandLog {
     methods: mpsc::Sender<&'static str>,
+    /// Where each send to its writer is counted (ADR 0140's C1).
+    work: CountedWork,
 }
 
 impl CommandLog {
     /// The log of the Run whose folder is `run_folder`, written by an actor
-    /// of `owner`, which waits for it once every handle is gone.
-    pub(crate) fn start(owner: &TaskOwner, run_folder: &Path) -> io::Result<Self> {
+    /// of `owner`, which waits for it once every handle is gone, counting
+    /// what it does on `work`.
+    pub(crate) fn start(
+        owner: &TaskOwner,
+        run_folder: &Path,
+        work: CountedWork,
+    ) -> io::Result<Self> {
         let (methods, mailbox) = mpsc::channel(QUEUE);
         let file: PathBuf = run_folder.join(FILE);
+        let writer_work = work.clone();
         owner.actor("cdp command log", mailbox, move |methods: Vec<&'static str>| {
-            if let Err(error) = append(&file, &methods) {
+            if let Err(error) = append(&file, &methods, &writer_work) {
                 tracing::warn!(%error, file = %file.display(), "the CDP command log cannot be written");
             }
         })?;
-        Ok(Self { methods })
+        Ok(Self { methods, work })
     }
 
     /// A log that writes nothing, for a test's browser that no Run holds.
     #[cfg(test)]
     pub(crate) fn unwritten() -> Self {
         let (methods, _) = mpsc::channel(1);
-        Self { methods }
+        Self {
+            methods,
+            work: CountedWork::default(),
+        }
     }
 
     /// Records that `method` is being sent.
@@ -84,12 +96,14 @@ impl CommandLog {
     ///
     /// Dropping the future may lose the line.
     pub(crate) async fn record(&self, method: &'static str) {
+        self.work.count(Row::CdpLogSendsOff);
         let _ = self.methods.send(method).await;
     }
 }
 
-fn append(file: &Path, methods: &[&'static str]) -> io::Result<()> {
+fn append(file: &Path, methods: &[&'static str], work: &CountedWork) -> io::Result<()> {
     if let Some(folder) = file.parent() {
+        work.count(Row::CdpFileOpens);
         std::fs::create_dir_all(folder)?;
     }
     let mut lines = Vec::new();
@@ -97,6 +111,7 @@ fn append(file: &Path, methods: &[&'static str]) -> io::Result<()> {
         serde_json::to_writer(&mut lines, &serde_json::json!({ "method": method }))?;
         lines.push(b'\n');
     }
+    work.count(Row::CdpFileOpens);
     OpenOptions::new()
         .create(true)
         .append(true)

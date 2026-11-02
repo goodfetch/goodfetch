@@ -469,13 +469,29 @@ const OTHER_B1_ROWS: &str = "\
 | `F4.deep_copies` | deep copies per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.constant_lookups` | constant lookups per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.transactions` | transactions per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.invariant_reads.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.compilations.payload` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.prepares.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions.hop` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.transactions.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.payload_serializations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.validations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
-/// readability run a page, one validation and one serialization a Record, none
-/// of the other rows' work, then `extra` as it is, and 13 more of the row
-/// it is told to plant.
+/// readability run a page, one validation and one serialization a Record, one
+/// Payload serialized and validated over one links batch, none of the other
+/// rows' work, then `extra` as it is, and 13 more of the row it is told to
+/// plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -497,13 +513,28 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F4.deep_copies", 0),
         ("F4.constant_lookups", 0),
         ("F4.transactions", 0),
+        ("F3.invariant_reads", 0),
+        ("F3.invariant_reads.hop", 0),
+        ("F3.invariant_reads.sitemap", 0),
+        ("F3.compilations", 0),
+        ("F3.compilations.hop", 0),
+        ("F3.compilations.sitemap", 0),
+        ("F3.compilations.payload", 0),
+        ("F3.prepares", 0),
+        ("F3.prepares.hop", 0),
+        ("F3.prepares.sitemap", 0),
+        ("F3.transactions", 0),
+        ("F3.transactions.hop", 0),
+        ("F3.transactions.sitemap", 0),
+        ("F3.payload_serializations", 1),
+        ("F3.validations", 1),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

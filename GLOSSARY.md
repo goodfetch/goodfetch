@@ -41,7 +41,7 @@ The web interface for operating a Product, served locally by its engine or by Go
 _Avoid_: dashboard, inspector, app
 
 **Kennel**:
-The owner's own local tool for watching and controlling the runs of their machine's Daemon while testing the Products; part of no Product.
+Goodfetch's local tool for watching and controlling the runs of a machine's Daemon, published apart from the Products under its own version; part of no Product.
 _Avoid_: Console, dashboard, tray app, monitor
 
 **Needs you**:

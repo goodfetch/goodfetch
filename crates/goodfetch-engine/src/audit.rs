@@ -334,6 +334,7 @@ impl AuditLog {
         layer: Option<SettingsLayer>,
         now: Timestamp,
     ) -> Result<Option<AuditEntry>, AuditError> {
+        self.work.count(Row::Prunes);
         self.work.count(Row::AuditPrunes);
         let cutoff = SignedDuration::try_from(retention)
             .ok()

@@ -31,7 +31,11 @@ pub(super) fn connected() -> (Client, Played) {
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
     (
-        Connection::new(reader, writer),
+        Connection::new(
+            reader,
+            writer,
+            goodfetch_counted_work::CountedWork::default(),
+        ),
         Played {
             pipe: browser,
             framer: Framer::default(),

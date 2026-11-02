@@ -31,6 +31,7 @@ static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
 #[expect(dead_code, reason = "what only the counts cell reads of the scenario")]
 mod audit_scenario;
 mod certificates;
+mod charge_counts;
 mod children;
 mod client_certificates;
 mod counted_audit;

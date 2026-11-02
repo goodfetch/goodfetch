@@ -25,6 +25,7 @@ mod values;
 
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{ProjectSettings, RecipeManifest, RunOrigin, SettingsLayer};
 use serde_json::{Map, Value};
@@ -62,6 +63,7 @@ struct Inner {
     files: SettingsFiles,
     product: Product,
     owner: TaskOwner,
+    work: CountedWork,
     host: Host,
 }
 
@@ -99,23 +101,25 @@ impl Settings {
     /// reading them on `owner`'s blocking policy, with the catalog's
     /// defaults.
     pub fn new(files: SettingsFiles, product: Product, owner: TaskOwner) -> Self {
-        Self::with_host(files, product, owner, || {
+        Self::with_host(files, product, owner, CountedWork::default(), || {
             Box::pin(std::future::ready(HostDefaults::default()))
         })
     }
 
     /// The same, with the defaults `find` gives for this host, which it
-    /// calls once, on first use.
+    /// calls once, on first use, each read of its layers counted on `work`.
     pub fn with_host(
         files: SettingsFiles,
         product: Product,
         owner: TaskOwner,
+        work: CountedWork,
         find: impl Fn() -> Finding + Send + Sync + 'static,
     ) -> Self {
         Self(Arc::new(Inner {
             files,
             product,
             owner,
+            work,
             host: Host {
                 find: Box::new(find),
                 found: tokio::sync::OnceCell::new(),
@@ -143,6 +147,7 @@ impl Settings {
     ///
     /// Dropping the future leaves the read to finish on its own.
     pub async fn machine(&self) -> Result<MachineLayers, SettingsError> {
+        self.0.work.count(Row::ConfigurationReads);
         let files = self.0.files.clone();
         let product = self.0.product;
         self.0.owner.blocking(move || files.load(product)).await

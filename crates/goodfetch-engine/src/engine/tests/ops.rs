@@ -72,6 +72,28 @@ fn health_of(env: &TestEnv, options: DaemonOptions) -> Value {
     health
 }
 
+/// `series`, and each Counted work row `series` does not name, at 0.
+fn with_counted_work<const N: usize>(series: [String; N]) -> BTreeSet<String> {
+    let named = |line: &str| {
+        line.rsplit_once(' ')
+            .map_or(line, |(name, _)| name)
+            .to_owned()
+    };
+    let given: BTreeSet<String> = series.iter().map(|line| named(line)).collect();
+    goodfetch_counted_work::Row::ALL
+        .map(|row| {
+            format!(
+                r#"goodfetch_counted_work_total{{shared_path="{}",work="{}"}} 0"#,
+                row.path(),
+                row.work()
+            )
+        })
+        .into_iter()
+        .filter(|line| !given.contains(&named(line)))
+        .chain(series)
+        .collect()
+}
+
 /// `goodfetch.counted_work`'s labels take exactly the values of the rows it
 /// counts (ADR 0140), so a new row declares its path and its work.
 #[test]
@@ -336,47 +358,6 @@ pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
         .collect()
 }
 
-/// The Counted work series the Daemon's traffic in
-/// [`the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics`]
-/// leaves at 0, by `shared_path` and `work`.
-const ZERO_COUNTED_WORK: [(&str, &str); 25] = [
-    ("audit_entry", "configuration_reads"),
-    ("audit_entry", "opens"),
-    ("audit_entry", "prunes"),
-    ("audit_entry", "syncs"),
-    ("audit_entry", "transactions"),
-    ("hook_stage", "builds"),
-    ("hook_stage", "calls"),
-    ("hook_stage", "messages_no_hook"),
-    ("page_analysis", "file_opens"),
-    ("page_analysis", "locale_form_builds"),
-    ("page_analysis", "parses"),
-    ("page_analysis", "plugin_answer_parses"),
-    ("page_analysis", "plugin_serializations"),
-    ("page_analysis", "readability_runs"),
-    ("page_analysis", "selector_compilations"),
-    ("record", "constant_lookups"),
-    ("record", "declaration_reads"),
-    ("record", "deep_copies"),
-    ("record", "serializations"),
-    ("record", "transactions"),
-    ("record", "validations"),
-    ("record", "validator_builds"),
-    ("sink_delivery", "opens"),
-    ("sink_delivery", "transactions"),
-    ("sink_delivery", "writer_reads"),
-];
-
-/// `series` and every series of [`ZERO_COUNTED_WORK`].
-fn with_zero_counts<const N: usize>(series: [String; N]) -> BTreeSet<String> {
-    series
-        .into_iter()
-        .chain(ZERO_COUNTED_WORK.iter().map(|(path, work)| {
-            format!(r#"goodfetch_counted_work_total{{shared_path="{path}",work="{work}"}} 0"#)
-        }))
-        .collect()
-}
-
 /// The meter the engine is given records each Client while it is
 /// connected, each Run while it is live and each Run's end by its three
 /// axes, and whether the Daemon drains; Prometheus renders them under
@@ -419,26 +400,42 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         },
     );
 
+    // What the run file does is `xtask counts`' to hold, not this test's.
+    // Each Run's charging opens the ledger once, for the Limits its report
+    // lists, and that open commits its set-up: a Usage charge's counts.
+    let beside_the_run_file = |series: BTreeSet<String>| -> BTreeSet<String> {
+        series
+            .into_iter()
+            .filter(|line| !line.contains(r#"shared_path="run_state""#))
+            .collect()
+    };
     assert_eq!(
-        (while_running, series(&registry)),
         (
-            with_zero_counts([
+            beside_the_run_file(while_running),
+            beside_the_run_file(series(&registry)),
+        ),
+        (
+            beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 1"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
-            ]),
-            with_zero_counts([
+            ])),
+            beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="opens"} 2"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="usage_charge",work="transactions"} 2"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="incomplete",lifecycle="stopped",run_kind="collie",verdict="verified"} 1"#.to_owned(),
-            ]),
+            ])),
         )
     );
 }

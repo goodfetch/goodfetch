@@ -71,6 +71,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
             &every_host,
             &params,
             None,
+            &goodfetch_counted_work::CountedWork::default(),
         )
         .unwrap()
         .unwrap()

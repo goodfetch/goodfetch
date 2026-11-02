@@ -68,6 +68,7 @@ use std::collections::BTreeSet;
 use std::time::SystemTime;
 
 use futures_util::future::join_all;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -1569,10 +1570,12 @@ async fn read_sitemap(run: &Run, resolved: &Resolved, attempt: Attempt) {
     };
     let egress = resumed_domain_policy(resolved, run.id());
     let (id, epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let work = run.metrics().counted_work().clone();
+    work.count(Row::SitemapTransactions);
     let written = run
         .state()
         .write(move |connection| {
-            work_items::read_sitemap(connection, &egress, (&id, epoch), &document)
+            work_items::read_sitemap(connection, &egress, (&id, epoch), &document, &work)
         })
         .await;
     lease.release();

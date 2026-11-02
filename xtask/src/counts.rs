@@ -14,6 +14,10 @@
 //! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
 //! figure per unit is the difference between a scenario and the run of its
 //! benchmark that sends nothing, so no start-up cost hides a change.
+//!
+//! Size: one concern, the command's one register of counted rows (`ROWS`, a
+//! row per counted work of every family) and the run, verdict and proof that
+//! hold them to the register; the rows' table is most of its length.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"

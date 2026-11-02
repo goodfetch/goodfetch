@@ -397,6 +397,72 @@ pub(crate) struct Frontier {
     pub(crate) schema: bool,
 }
 
+/// A Limit of `amount` `requests` on the install, set in `home`'s ledger at
+/// `start`, which each request of the crawl charges (ADR 0140's E3).
+fn set_limit(home: &Path, start: SystemTime, amount: u64) {
+    Ledger::at(Home::new(home.to_owned()).usage_ledger(), None)
+        .add_limit(
+            &Limit {
+                scope: LimitScope {
+                    kind: INSTALL.to_owned(),
+                    id: String::new(),
+                },
+                usage_kind: REQUESTS.to_owned(),
+                currency: None,
+                period: None,
+                amount,
+                must_understand: true,
+                set_by: LimitSetter::Person,
+            },
+            Timestamp::try_from(start).expect("invariant: the fixture's start"),
+        )
+        .expect("invariant: a new home's ledger is writable");
+}
+
+/// Foxhound's engine on `tiers`, counting on `metrics`.
+fn foxhound(tiers: FetchTiers, metrics: Metrics) -> Engine {
+    let identity = Identity {
+        product: Product::Foxhound,
+        product_version: ProductVersion::parse("1.4.0").expect("invariant: a literal version"),
+        channel: Channel::CratesIo,
+    };
+    // Foxhound's composition (`composition::composition`), its tiers
+    // serving from memory: Collie's, whose page crate reads a served
+    // page's formats, then the crawl's crates.
+    let composition = goodfetch_collie::composition_with(tiers.clone())
+        .with(goodfetch_frontier::contribution())
+        .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_dataset::contribution())
+        .with(goodfetch_crawl::contribution(tiers));
+    Engine::new(identity, &composition)
+        .expect("invariant: one handler each")
+        .with_metrics(metrics)
+}
+
+/// The crawl's dependencies: `home`, a clock paused at `start`, entropy of
+/// `seed` and the run file through `run_state_vfs`.
+fn dependencies(
+    home: &Path,
+    start: SystemTime,
+    seed: u64,
+    run_state_vfs: Option<String>,
+) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
+        home: Home::new(home.to_owned()),
+        clock: Clock::paused(start),
+        entropy: Entropy::seeded(seed),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions {
+            vfs: run_state_vfs,
+            ..RunStateOptions::default()
+        },
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
+    }
+}
+
 /// [`crawl`], with `options`.
 pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Options) -> Crawled {
     let Options {
@@ -412,23 +478,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         limit,
     } = options;
     if let Some(amount) = limit {
-        Ledger::at(Home::new(home.to_owned()).usage_ledger(), None)
-            .add_limit(
-                &Limit {
-                    scope: LimitScope {
-                        kind: INSTALL.to_owned(),
-                        id: String::new(),
-                    },
-                    usage_kind: REQUESTS.to_owned(),
-                    currency: None,
-                    period: None,
-                    amount,
-                    must_understand: true,
-                    set_by: LimitSetter::Person,
-                },
-                Timestamp::try_from(start).expect("invariant: the fixture's start"),
-            )
-            .expect("invariant: a new home's ledger is writable");
+        set_limit(home, start, amount);
     }
     let sent = Arc::new(AtomicU64::new(0));
     let attempts = Arc::new(AtomicU64::new(0));
@@ -443,22 +493,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         sitemaps: Arc::clone(&sitemaps),
         largest: largest_page,
     }));
-    let identity = Identity {
-        product: Product::Foxhound,
-        product_version: ProductVersion::parse("1.4.0").expect("invariant: a literal version"),
-        channel: Channel::CratesIo,
-    };
-    // Foxhound's composition (`composition::composition`), its tiers
-    // serving from memory: Collie's, whose page crate reads a served
-    // page's formats, then the crawl's crates.
-    let composition = goodfetch_collie::composition_with(tiers.clone())
-        .with(goodfetch_frontier::contribution())
-        .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
-        .with(goodfetch_crawl::contribution(tiers));
-    let engine = Engine::new(identity, &composition)
-        .expect("invariant: one handler each")
-        .with_metrics(metrics);
+    let engine = foxhound(tiers, metrics);
     let (records, handled) = goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
@@ -503,22 +538,11 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             while let Ok(Some(_)) = lines.next_line().await {}
             (records, waits.answered)
         };
-        let dependencies = Dependencies {
-            environment: std::collections::BTreeMap::new(),
-            keychain: goodfetch_engine::secrets::Keychain::absent(),
-            home: Home::new(home.to_owned()),
-            clock: Clock::paused(start),
-            entropy: Entropy::seeded(seed),
-            blocking: BlockingPolicy::Inline,
-            run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions {
-                vfs: run_state_vfs,
-                ..RunStateOptions::default()
-            },
-            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
-        };
         let (served, read) = tokio::join!(
-            engine.run_attached(Network::InMemory(network), dependencies),
+            engine.run_attached(
+                Network::InMemory(network),
+                dependencies(home, start, seed, run_state_vfs)
+            ),
             client
         );
         served.expect("invariant: the engine got its Connection");

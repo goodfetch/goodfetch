@@ -181,7 +181,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),
     ]);
-    let charges = BTreeMap::from([
+    let by_row = BTreeMap::from([
         (Row::ChargeStatements.name(), charged.statements),
         (
             Row::ChargeTransactions.name(),
@@ -194,7 +194,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         cell,
         units,
         work,
-        charges,
+        charges: by_row,
     }
 }
 

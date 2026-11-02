@@ -14,4 +14,5 @@ mod navigation_gate;
 mod page_navigation;
 mod page_request;
 mod robots_txt;
+mod session_counts;
 mod url_pattern;

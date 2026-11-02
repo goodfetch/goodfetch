@@ -86,7 +86,15 @@ const B3: Family = Family {
     }),
 };
 
-const FAMILIES: [Family; 2] = [B1, B3];
+const B2: Family = Family {
+    name: "B2",
+    package: "goodfetch-page",
+    target: "counts",
+    embeds_console: false,
+    valgrind: None,
+};
+
+const FAMILIES: [Family; 3] = [B1, B2, B3];
 
 /// The variable a Valgrind target reads its plant from: gungraun takes no
 /// argument for it.
@@ -153,7 +161,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 37] = [
+const ROWS: [Row; 41] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -218,6 +226,34 @@ const ROWS: [Row; 37] = [
     b1("F3.transactions.sitemap", SITEMAPS, false),
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
+    Row {
+        name: "C1.encodes",
+        family: "B2",
+        unit: "commands",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.sends",
+        family: "B2",
+        unit: "commands",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.file_opens",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.log_sends_off",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
     Row {
         name: "E1.deep_copies",
         family: "B3",
@@ -375,10 +411,10 @@ const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// Only this family's rows (B1, B3).
+    /// Only this family's rows (B1, B2, B3).
     #[arg(long)]
     family: Option<String>,
-    /// Only this path's rows (F1).
+    /// Only this path's rows (F1, C1).
     #[arg(long)]
     path: Option<String>,
     /// Only this row, by its name in the register (F1.parses).
@@ -470,14 +506,6 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     families.sort_unstable();
     families.dedup();
     for family in families {
-        let cells = family_cells(
-            family,
-            &rows,
-            &executables,
-            arguments.plant.as_deref(),
-            arguments,
-            environment,
-        )?;
         let of_family: Vec<&Row> = rows
             .iter()
             .copied()
@@ -491,6 +519,12 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                     .is_none_or(|plant| plant == row.name)
             })
             .collect();
+        // A family's benchmark plants only its own rows.
+        let plant = arguments
+            .plant
+            .as_deref()
+            .filter(|planted| of_family.iter().any(|row| row.name == *planted));
+        let cells = family_cells(family, &rows, &executables, plant, arguments, environment)?;
         findings.extend(verdict(&of_family, &cells, &limits)?);
         findings.extend(
             not_run_yet

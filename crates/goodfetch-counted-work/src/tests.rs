@@ -102,6 +102,10 @@ fn each_row_counts_on_its_own() {
             ("F3.compilations.payload", 0),
             ("F3.payload_serializations", 0),
             ("F3.validations", 0),
+            ("C1.encodes", 0),
+            ("C1.sends", 0),
+            ("C1.file_opens", 0),
+            ("C1.log_sends_off", 0),
         ]
     );
 }

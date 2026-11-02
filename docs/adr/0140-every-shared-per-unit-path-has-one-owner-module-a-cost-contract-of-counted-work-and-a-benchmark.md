@@ -173,6 +173,13 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The prepares row is not a series of `goodfetch.counted_work`:** the Daemon runs under no Callgrind, and a series that stays 0 would say something false.
 > - **A Payload reaches B1 on a seed,** as a code-free crawl's links carry none: its validator, validation and serializations are counted on `frontier_payload`, whoever checks it. The batch's own Payload cost is reached once B1 has a handler.
 
+> Note (agent decisions of #1861, pending owner review), 2026-11-02, on how B2's tracer builds "The benchmarks" and C1's rows:
+> - **B2 reaches its browser through a Borrowed browser's WebSocket on loopback,** not by handing the driver the in-memory pipe straight. The driver's `Browser` is the crate's own, and `TESTING.md` allows no `pub` item for a test, so the whole engine drives the Session through the protocol. The connection still runs over the in-memory pipe `check_and_arm` uses, which the engine bridges to the socket. A launched browser's opening commands are not in B2 until a scripted end covers the debugging pipe.
+> - **`goodfetch-cdp` is given `CountedWork` itself,** the observer the ticket asks for, with no trait of its own: one implementation, and the crate holding it depends on no Goodfetch crate.
+> - **An encode is a command written into the pipe's bytes,** counted at `frame`. `Connection::send`'s `serde_json::to_value` first makes an intermediate `Value`, which C1's contract does not name as E1's does, so no row counts it; the first figure of 1 does not say it is free.
+> - **`C1.file_opens`' Today of 2 is a bound, not a figure.** The command log's writer does 2 opens per batch, and a batch holds at least one command, so 2 per command is the most it can cost. The printed figure follows the socket's timing (48 or 50 over 35 commands in 66 runs, and 40 over 21 with the Filter lists off), so holding it to a measured figure would fail at random. The other three rows repeat exactly. #1881 keeps the 2, and #1891 and #1890 replace the writer it describes.
+> - **`C1.log_sends_off` counts in every cell** until #1891 gives the log an off, as the log has none: its Today of 1 is X9's gap, and #1891 adds the off cell the row names.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

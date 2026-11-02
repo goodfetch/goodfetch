@@ -1753,6 +1753,7 @@
         {
           "name": "shared_path",
           "values": [
+            "cdp_command",
             "frontier_admission",
             "frontier_hop",
             "frontier_payload",
@@ -1788,7 +1789,9 @@
             "serializations",
             "constant_lookups",
             "invariant_reads",
-            "compilations"
+            "compilations",
+            "sends",
+            "log_sends_off"
           ]
         }
       ],

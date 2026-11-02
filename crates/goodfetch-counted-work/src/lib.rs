@@ -149,21 +149,19 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageDeepCopies => "deep_copies",
             Self::MessageEncodes => "encodes",
             Self::HookMessagesNoHook => "messages_no_hook",
             Self::HookCalls => "calls",
             Self::HookBuilds => "builds",
             Self::SinkOpens => "opens",
-            Self::SinkTransactions => "transactions",
             Self::SinkWriterReads => "writer_reads",
             Self::RecordDeclarationReads => "declaration_reads",
             Self::RecordValidatorBuilds => "validator_builds",
             Self::RecordValidations => "validations",
             Self::RecordSerializations => "serializations",
-            Self::RecordDeepCopies => "deep_copies",
+            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
             Self::RecordConstantLookups => "constant_lookups",
-            Self::RecordTransactions => "transactions",
+            Self::SinkTransactions | Self::RecordTransactions => "transactions",
         }
     }
 

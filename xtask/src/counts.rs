@@ -429,39 +429,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         executables(arguments, environment, &rows)?
     };
     if arguments.prove {
-        let mut findings = Vec::new();
-        // A Valgrind plant does the same work whichever row it names, so one
-        // run of a family's targets proves all its rows.
-        let mut planted: BTreeMap<&str, Vec<Cell>> = BTreeMap::new();
-        for row in &rows {
-            if !planted.contains_key(row.family) || !arguments.valgrind {
-                let cells = family_cells(
-                    row.family,
-                    &rows,
-                    &executables,
-                    Some(row.name),
-                    arguments,
-                    environment,
-                )?;
-                planted.insert(row.family, cells);
-            }
-            let caught = verdict(&[row], &planted[row.family], &limits)?
-                .iter()
-                .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
-            output::line(&format!(
-                "{}: one planted unit {}",
-                row.name,
-                if caught { "fails" } else { "passes unseen" }
-            ));
-            if !caught {
-                findings.push(Finding::new(
-                    "counter-blind",
-                    row.name,
-                    "one planted unit of its work did not fail it",
-                ));
-            }
-        }
-        return Ok(check::report(&findings));
+        return prove(&rows, &executables, &limits, arguments, environment);
     }
     let mut findings = Vec::new();
     let mut families: Vec<&str> = rows.iter().map(|row| row.family).collect();
@@ -488,6 +456,50 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
                 .filter(|row| row.family == family)
                 .filter_map(|row| done_though_not_run(row, &cells)),
         );
+    }
+    Ok(check::report(&findings))
+}
+
+/// Plants one extra unit of each of `rows`' work in turn and fails each
+/// counter that does not see it.
+fn prove(
+    rows: &[&Row],
+    executables: &BTreeMap<&'static str, PathBuf>,
+    limits: &BTreeMap<String, Limit>,
+    arguments: &Arguments,
+    environment: &Environment,
+) -> Result<ExitCode> {
+    let mut findings = Vec::new();
+    // A Valgrind plant does the same work whichever row it names, so one
+    // run of a family's targets proves all its rows.
+    let mut planted: BTreeMap<&str, Vec<Cell>> = BTreeMap::new();
+    for row in rows {
+        if !planted.contains_key(row.family) || !arguments.valgrind {
+            let cells = family_cells(
+                row.family,
+                rows,
+                executables,
+                Some(row.name),
+                arguments,
+                environment,
+            )?;
+            planted.insert(row.family, cells);
+        }
+        let caught = verdict(&[row], &planted[row.family], limits)?
+            .iter()
+            .any(|finding| finding.kind == "over-limit" && finding.subject == row.name);
+        output::line(&format!(
+            "{}: one planted unit {}",
+            row.name,
+            if caught { "fails" } else { "passes unseen" }
+        ));
+        if !caught {
+            findings.push(Finding::new(
+                "counter-blind",
+                row.name,
+                "one planted unit of its work did not fail it",
+            ));
+        }
     }
     Ok(check::report(&findings))
 }

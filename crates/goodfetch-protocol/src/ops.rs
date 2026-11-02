@@ -171,6 +171,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "frontier_sitemap",
         "hook_stage",
         "json_rpc_message",
+        "live_view_frame",
         "page_analysis",
         "record",
         "run_state",
@@ -218,6 +219,9 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "document_encodes",
         "prepares",
         "syncs",
+        "spawns",
+        "acknowledgements",
+        "seals",
     ],
 };
 

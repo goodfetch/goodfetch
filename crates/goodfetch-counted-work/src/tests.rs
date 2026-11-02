@@ -127,6 +127,11 @@ fn each_row_counts_on_its_own() {
             ("E2.prunes", 0),
             ("E2.transactions", 0),
             ("E2.syncs", 0),
+            ("C6.file_opens", 0),
+            ("C6.compilations", 0),
+            ("C6.spawns", 0),
+            ("C6.acknowledgements", 0),
+            ("C6.seals", 0),
         ]
     );
 }

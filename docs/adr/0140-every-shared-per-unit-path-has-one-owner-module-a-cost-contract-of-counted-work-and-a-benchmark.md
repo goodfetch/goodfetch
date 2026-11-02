@@ -206,6 +206,10 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Configuration reads, opens, prune passes and head-file writes count at the Audit log's seams;** transactions through a commit hook on each of its connections, so the schema set-up's commit counts beside the append's; the store's syncs through the counting VFS it opens with in the cell, added to its head-file writes for `E2.syncs`; statement preparations from Callgrind's count of `sqlite3_prepare_v3` over the scenario alone. The metric shows the in-process counts only.
 > - **X15 also covers `E2.transactions`,** whose 3.95 against a contract of 1 has its cause: each open commits its schema set-up, and a prune its own transaction.
 
+> Note (agent decisions of #2036, pending owner review), 2026-11-02, on C6's rows before the Live view exists:
+> - **C6's five rows start at this ADR's values and say they have not run,** as F5's and F6's do: `xtask counts --path C6` prints each limit and "not run yet, until #959 builds its path", and fails, naming the row, once B2 counts any of its work. Their counters exist now, on the `live_view_frame` path label, so #959 counts at its seams and moves the rows to `xtask counts`' counted rows with their plants.
+> - **B2's viewer-off cell is `no_viewer`, and its default cell is the viewer-on one.** Today neither has a viewer, as no Live view exists, so the two run the same Session; `no_viewer` already checks that a Session with no viewer counts none of C6's work ("with no viewer, 0 work"), a check that holds whatever #959 builds. #959 gives the default cell its viewer, and its frames are the unit C6's rows divide by.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

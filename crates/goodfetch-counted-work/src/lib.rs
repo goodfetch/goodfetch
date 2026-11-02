@@ -170,11 +170,23 @@ pub enum Row {
     /// `E2.syncs`: a write of the Audit log's head file; the store's own
     /// syncs are seen by a counting VFS, which no production store has.
     AuditSyncs,
+    /// `C6.file_opens`: a file opened or a folder created for a Live view
+    /// frame.
+    LiveViewFileOpens,
+    /// `C6.compilations`: a selector, glob or regular expression compiled for
+    /// a Live view frame.
+    LiveViewCompilations,
+    /// `C6.spawns`: a task spawned for a Live view frame.
+    LiveViewSpawns,
+    /// `C6.acknowledgements`: a Live view frame's acknowledgement command.
+    LiveViewAcknowledgements,
+    /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
+    LiveViewSeals,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 59] = [
+    pub const ALL: [Self; 64] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -234,6 +246,11 @@ impl Row {
         Self::AuditPrunes,
         Self::AuditTransactions,
         Self::AuditSyncs,
+        Self::LiveViewFileOpens,
+        Self::LiveViewCompilations,
+        Self::LiveViewSpawns,
+        Self::LiveViewAcknowledgements,
+        Self::LiveViewSeals,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -292,6 +309,11 @@ impl Row {
             | Self::AuditPrunes
             | Self::AuditTransactions
             | Self::AuditSyncs => "audit_entry",
+            Self::LiveViewFileOpens
+            | Self::LiveViewCompilations
+            | Self::LiveViewSpawns
+            | Self::LiveViewAcknowledgements
+            | Self::LiveViewSeals => "live_view_frame",
         }
     }
 
@@ -302,7 +324,7 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens | Self::CdpFileOpens => "file_opens",
+            Self::PageFileOpens | Self::CdpFileOpens | Self::LiveViewFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
@@ -341,12 +363,16 @@ impl Row {
             Self::BatchCompilations
             | Self::HopCompilations
             | Self::SitemapCompilations
-            | Self::PayloadCompilations => "compilations",
+            | Self::PayloadCompilations
+            | Self::LiveViewCompilations => "compilations",
             Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
             Self::WorkingCopyDocumentLoads => "document_loads",
             Self::WorkingCopyDocumentEncodes => "document_encodes",
             Self::WorkingCopyPrepares => "prepares",
             Self::WorkingCopySyncs | Self::AuditSyncs => "syncs",
+            Self::LiveViewSpawns => "spawns",
+            Self::LiveViewAcknowledgements => "acknowledgements",
+            Self::LiveViewSeals => "seals",
         }
     }
 
@@ -415,6 +441,11 @@ impl Row {
             Self::AuditPrunes => "E2.prunes",
             Self::AuditTransactions => "E2.transactions",
             Self::AuditSyncs => "E2.syncs",
+            Self::LiveViewFileOpens => "C6.file_opens",
+            Self::LiveViewCompilations => "C6.compilations",
+            Self::LiveViewSpawns => "C6.spawns",
+            Self::LiveViewAcknowledgements => "C6.acknowledgements",
+            Self::LiveViewSeals => "C6.seals",
         }
     }
 

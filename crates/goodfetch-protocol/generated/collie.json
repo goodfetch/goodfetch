@@ -10822,6 +10822,7 @@
             "frontier_sitemap",
             "hook_stage",
             "json_rpc_message",
+            "live_view_frame",
             "page_analysis",
             "record",
             "run_state",
@@ -10865,7 +10866,10 @@
             "document_loads",
             "document_encodes",
             "prepares",
-            "syncs"
+            "syncs",
+            "spawns",
+            "acknowledgements",
+            "seals"
           ]
         }
       ],

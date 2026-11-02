@@ -19,6 +19,11 @@ const NOT_RUN_YET: &str = "\
 | `F6.opens` | store opens per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.transactions` | transactions per delivered batch | 1 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
 | `F6.writer_reads` | writer reads per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done |
+| `C6.file_opens` | files opened per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.compilations` | compilations per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.acknowledgements` | acknowledgements per Live view frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
+| `C6.seals` | seals per fragment of a relayed viewer's frame | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done |
 ";
 
 /// A register whose `F1.parses` holds `today` under a contract of 1.
@@ -521,6 +526,13 @@ fn proving_fails_a_valgrind_row_blind_to_its_plant() {
     "E7.syncs: not run yet, limit 0, until #1689 builds its path",
     "E7.encodes: not run yet, limit 1, until #1689 builds its path",
 ])]
+#[case::live_view_frame("C6", &[
+    "C6.file_opens: not run yet, limit 0, until #959 builds its path",
+    "C6.compilations: not run yet, limit 0, until #959 builds its path",
+    "C6.spawns: not run yet, limit 0, until #959 builds its path",
+    "C6.acknowledgements: not run yet, limit 1, until #959 builds its path",
+    "C6.seals: not run yet, limit 1, until #959 builds its path",
+])]
 fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] lines: &[&str]) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -854,6 +866,53 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(outcome.findings(), vec![finding("over-limit", "C1.sends")]);
+}
+
+/// B2's counted rows, as the register holds them.
+const C1_ROWS: &str = "\
+| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
+| `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+";
+
+/// B2's benchmark holds the Live view frame's rows as not run, so the ticket
+/// that gives B2 its viewer cannot leave them saying so.
+#[test]
+fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{C1_ROWS}", register("8")).as_bytes(),
+    );
+    let b2 = executable_script(
+        &workspace,
+        "B2.sh",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C6.acknowledgements\":1}}'\n",
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--family",
+        "B2",
+        "--executable",
+        &format!("B2={}", b2.display()),
+    ]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("row-listed-as-not-run", "C6.acknowledgements")],
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("C6.acknowledgements: not run yet, limit 1, until #959 builds its path"),
+        "{}",
+        outcome.stdout
+    );
 }
 
 /// A register of F2's rows, each of contract 1, and a benchmark printing them

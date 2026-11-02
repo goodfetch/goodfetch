@@ -19,6 +19,9 @@
     reason = "the benchmark's one output, which `xtask counts` reads"
 )]
 
+#[path = "../benches/governor.rs"]
+mod governor;
+
 #[path = "../benches/messages.rs"]
 #[expect(
     dead_code,
@@ -42,7 +45,18 @@ const TRAFFIC: Traffic = Traffic {
     plugin: 10,
 };
 
-/// The plant of the row named `name`.
+/// The governor scenario's plant of the row named `name`, none for a row of
+/// another scenario's.
+fn governor_plant(name: &str) -> Option<governor::Plant> {
+    name.starts_with("E4.").then(|| {
+        Row::ALL
+            .into_iter()
+            .find(|row| row.name() == name)
+            .unwrap_or_else(|| panic!("no plant for the row {name}"))
+    })
+}
+
+/// The message scenario's plant of the row named `name`.
 fn plant(name: &str, work: &CountedWork) -> Plant {
     let work = work.clone();
     match name {
@@ -99,8 +113,20 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         TRAFFIC,
         cell.logs,
         metrics,
-        planted.map(|name| plant(name, &work)),
+        planted
+            .filter(|name| governor_plant(name).is_none())
+            .map(|name| plant(name, &work)),
         home.path(),
+    );
+    let sampled = governor::run(
+        &home.path().join("governor"),
+        &work,
+        planted.and_then(governor_plant),
+    );
+    assert_eq!(
+        sampled.samples,
+        governor::SAMPLES,
+        "the governor took its samples"
     );
     assert!(sent.event_batches > 0, "the Plugin's events went out");
     assert_eq!(
@@ -115,6 +141,8 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
         ("outgoing_messages", count(sent.outgoing)),
+        ("samples", sampled.samples),
+        ("process_samples", sampled.process_samples),
     ]);
     Counted { cell, units, work }
 }

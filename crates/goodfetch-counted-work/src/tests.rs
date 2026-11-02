@@ -94,6 +94,12 @@ fn each_row_counts_on_its_own() {
             ("C1.sends", 0),
             ("C1.file_opens", 0),
             ("C1.log_sends_off", 0),
+            ("E4.configuration_reads", 0),
+            ("E4.meminfo_opens", 0),
+            ("E4.static_opens", 0),
+            ("E4.cpu_stat_opens", 0),
+            ("E4.process_reads", 0),
+            ("E4.pool_walks", 0),
         ]
     );
 }

@@ -164,6 +164,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     name: "shared_path",
     values: &[
         "cdp_command",
+        "governor_sample",
         "hook_stage",
         "json_rpc_message",
         "page_analysis",
@@ -199,6 +200,12 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "constant_lookups",
         "sends",
         "log_sends_off",
+        "configuration_reads",
+        "meminfo_opens",
+        "static_opens",
+        "cpu_stat_opens",
+        "process_reads",
+        "pool_walks",
     ],
 };
 

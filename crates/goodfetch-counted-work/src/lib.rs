@@ -182,11 +182,19 @@ pub enum Row {
     LiveViewAcknowledgements,
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
     LiveViewSeals,
+    /// `E5.file_opens`: a file opened or a folder created for a Run-trace
+    /// entry.
+    RunTraceFileOpens,
+    /// `E5.spawns`: a task spawned for a Run-trace entry.
+    RunTraceSpawns,
+    /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
+    /// switched off.
+    RunTraceFormattingOff,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 64] = [
+    pub const ALL: [Self; 67] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -251,10 +259,14 @@ impl Row {
         Self::LiveViewSpawns,
         Self::LiveViewAcknowledgements,
         Self::LiveViewSeals,
+        Self::RunTraceFileOpens,
+        Self::RunTraceSpawns,
+        Self::RunTraceFormattingOff,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
-    /// metric label's value is, so `page_analysis` for the register's F1.
+    /// metric label's value is, so `page_analysis` for the register's F1 and
+    /// `run_trace` for its E5.
     #[must_use]
     pub const fn path(self) -> &'static str {
         match self {
@@ -314,6 +326,9 @@ impl Row {
             | Self::LiveViewSpawns
             | Self::LiveViewAcknowledgements
             | Self::LiveViewSeals => "live_view_frame",
+            Self::RunTraceFileOpens | Self::RunTraceSpawns | Self::RunTraceFormattingOff => {
+                "run_trace"
+            }
         }
     }
 
@@ -324,7 +339,10 @@ impl Row {
             Self::PageParses => "parses",
             Self::PageSelectorCompilations => "selector_compilations",
             Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens | Self::CdpFileOpens | Self::LiveViewFileOpens => "file_opens",
+            Self::PageFileOpens
+            | Self::CdpFileOpens
+            | Self::LiveViewFileOpens
+            | Self::RunTraceFileOpens => "file_opens",
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
@@ -370,9 +388,10 @@ impl Row {
             Self::WorkingCopyDocumentEncodes => "document_encodes",
             Self::WorkingCopyPrepares => "prepares",
             Self::WorkingCopySyncs | Self::AuditSyncs => "syncs",
-            Self::LiveViewSpawns => "spawns",
+            Self::LiveViewSpawns | Self::RunTraceSpawns => "spawns",
             Self::LiveViewAcknowledgements => "acknowledgements",
             Self::LiveViewSeals => "seals",
+            Self::RunTraceFormattingOff => "formatting_off",
         }
     }
 
@@ -446,6 +465,9 @@ impl Row {
             Self::LiveViewSpawns => "C6.spawns",
             Self::LiveViewAcknowledgements => "C6.acknowledgements",
             Self::LiveViewSeals => "C6.seals",
+            Self::RunTraceFileOpens => "E5.file_opens",
+            Self::RunTraceSpawns => "E5.spawns",
+            Self::RunTraceFormattingOff => "E5.formatting_off",
         }
     }
 

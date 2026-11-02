@@ -40,6 +40,10 @@
 //! charged through the counted ledger (E3), and fails if nothing was; B3
 //! holds E3's rows. The other cells meet none, so the ledger's prepares stay
 //! out of the run-state cells' `F2.prepares`.
+//!
+//! The Run-trace rows count per entry: each cell prints, beside its pages,
+//! the entries its Run trace holds, read from the trace's files once its
+//! engine stopped, and fails if it wrote none.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -68,7 +72,10 @@ use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, run_state_plant};
-use scenarios::{Frontier, Options, PAGES, Plant, body_bytes, crawl_with, page_analysis_plant};
+use scenarios::{
+    Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries, page_analysis_plant,
+    run_trace_plant,
+};
 use serde_json::{Map, Value, json};
 
 /// The Limit of `requests` the default cell's crawl meets, far above what it
@@ -127,7 +134,9 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     let Some(row) = Row::ALL.into_iter().find(|row| row.name() == name) else {
         panic!("no plant for the row {name}");
     };
-    page_analysis_plant(row, &work).unwrap_or_else(|| counting(work, row))
+    page_analysis_plant(row, &work)
+        .or_else(|| run_trace_plant(row, &work))
+        .unwrap_or_else(|| counting(work, row))
 }
 
 /// The rows counted from the crawl's first page on, not from its start.
@@ -286,6 +295,8 @@ struct Counted {
     pages: u64,
     hops: u64,
     sitemaps: u64,
+    /// The entries its Run trace holds, read from its files.
+    entries: u64,
     work: CountedWork,
     /// What [`FROM_FIRST_PAGE`] held when the first page was asked for.
     started: Arc<OnceLock<Vec<u64>>>,
@@ -315,12 +326,14 @@ impl Counted {
 }
 
 /// What a crawl of a cell answered and counted, what [`FROM_FIRST_PAGE`]
-/// held when its first page was asked for, and its run file's syncs.
+/// held when its first page was asked for, its run file's syncs and the
+/// entries its Run trace holds.
 struct Crawl {
     crawled: scenarios::Crawled,
     work: CountedWork,
     started: Arc<OnceLock<Vec<u64>>>,
     syncs: u64,
+    entries: u64,
 }
 
 /// The pages a crawl serves: whole, each without its paragraphs (a
@@ -380,6 +393,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, pages: Pages) -> Crawl {
         work,
         started,
         syncs: vfs.syncs(),
+        entries: entries(home.path()),
     }
 }
 
@@ -391,7 +405,9 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         work,
         started,
         syncs,
+        entries,
     } = crawl(cell, planted, Pages::Whole);
+    assert!(entries > 0, "the crawl wrote no Run-trace entry");
     assert!(
         !cell.limit || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
         "the crawl charged nothing against its Limit"
@@ -439,6 +455,7 @@ fn run(cell: &Cell, planted: Option<&str>) -> Counted {
         pages: u64::try_from(pages).expect("invariant: a dozen pages"),
         hops: crawled.hops,
         sitemaps: crawled.sitemaps,
+        entries,
         work,
         started,
         removes: cell.removes,
@@ -657,6 +674,7 @@ fn main() {
             "attempts": cell.attempts,
             "runs": RUNS,
             "effects": EFFECTS,
+            "entries": cell.entries,
         });
         println!(
             "{}",

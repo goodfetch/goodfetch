@@ -1765,6 +1765,7 @@
             "page_analysis",
             "record",
             "run_state",
+            "run_trace",
             "sink_delivery",
             "usage_charge",
             "working_copy_update"
@@ -1808,7 +1809,8 @@
             "syncs",
             "spawns",
             "acknowledgements",
-            "seals"
+            "seals",
+            "formatting_off"
           ]
         }
       ],

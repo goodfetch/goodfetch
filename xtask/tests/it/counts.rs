@@ -591,15 +591,18 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.transactions.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.payload_serializations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.validations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
 /// readability run a page, one validation and one serialization a Record, one
 /// Payload serialized and validated over one links batch, one transaction,
-/// sync and configuration read over one attempt and one Run, none of the
-/// other rows' work, then `extra` as it is, and 13 more of the row it is told
-/// to plant.
+/// sync and configuration read over one attempt and one Run, over 13
+/// Run-trace entries none of their rows' work, none of the other rows' work,
+/// then `extra` as it is, and 13 more of the row it is told to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -643,13 +646,16 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.transactions.sitemap", 0),
         ("F3.payload_serializations", 1),
         ("F3.validations", 1),
+        ("E5.file_opens", 0),
+        ("E5.spawns", 0),
+        ("E5.formatting_off", 0),
     ]
     .iter()
     .map(|(row, count)| format!("\"{row}\":'$(({count} + $(planted {row})))'"))
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0,\"entries\":13}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);

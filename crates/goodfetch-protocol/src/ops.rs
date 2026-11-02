@@ -175,6 +175,7 @@ const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
         "page_analysis",
         "record",
         "run_state",
+        "run_trace",
         "sink_delivery",
         "usage_charge",
         "working_copy_update",
@@ -222,6 +223,7 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "spawns",
         "acknowledgements",
         "seals",
+        "formatting_off",
     ],
 };
 

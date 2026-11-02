@@ -102,11 +102,7 @@ impl RequestLog {
         self.mask.masks().apply_value(&mut entry, Scope::KeptOutput);
         let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');
-        let file = Arc::clone(&self.file);
-        let work = self.work.clone();
-        self.owner
-            .blocking(move || append(&file, &line, &work))
-            .await
+        write(&self.owner, Arc::clone(&self.file), line, &self.work).await
     }
 }
 
@@ -136,17 +132,36 @@ pub async fn provenance(
     mask.masks().apply_value(&mut entry, Scope::KeptOutput);
     let mut line = serde_json::to_vec(&entry)?;
     line.push(b'\n');
-    let file = run_folder.join(PROVENANCE);
+    write(owner, run_folder.join(PROVENANCE).into(), line, work).await
+}
+
+/// Appends `line`, one entry, to `file` on a blocking task of `owner`'s,
+/// counted on `E5.spawns` whatever `owner`'s policy, as a Run's runs one in
+/// production (ADR 0140, Exception X2).
+async fn write(
+    owner: &TaskOwner,
+    file: Arc<Path>,
+    line: Vec<u8>,
+    work: &CountedWork,
+) -> io::Result<()> {
+    work.count(Row::RunTraceSpawns);
     let work = work.clone();
     owner.blocking(move || append(&file, &line, &work)).await
 }
 
+/// Appends `line` to `file`, creating its folder: each counted on
+/// `E5.file_opens`, the entry's work, and on `F1.file_opens`, the work of
+/// the page whose entry it is (Exception X2). An entry of no fetched page,
+/// such as a browser page's, counts there too until the Run-trace writer
+/// holds its handles.
 fn append(file: &Path, line: &[u8], work: &CountedWork) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        work.create_dir_all(Row::PageFileOpens, folder)?;
+        work.count(Row::PageFileOpens);
+        work.create_dir_all(Row::RunTraceFileOpens, folder)?;
     }
+    work.count(Row::PageFileOpens);
     work.open_file(
-        Row::PageFileOpens,
+        Row::RunTraceFileOpens,
         OpenOptions::new().create(true).append(true),
         file,
     )?

@@ -210,6 +210,12 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **C6's five rows start at this ADR's values and say they have not run,** as F5's and F6's do: `xtask counts --path C6` prints each limit and "not run yet, until #959 builds its path", and fails, naming the row, once B2 counts any of its work. Their counters exist now, on the `live_view_frame` path label, so #959 counts at its seams and moves the rows to `xtask counts`' counted rows with their plants.
 > - **B2's viewer-off cell is `no_viewer`, and its default cell is the viewer-on one.** Today neither has a viewer, as no Live view exists, so the two run the same Session; `no_viewer` already checks that a Session with no viewer counts none of C6's work ("with no viewer, 0 work"), a check that holds whatever #959 builds. #959 gives the default cell its viewer, and its frames are the unit C6's rows divide by.
 
+> Note (agent decisions of #1856, pending owner review), 2026-11-02, on the Run-trace rows:
+> - **An entry's folder and file count on `E5.file_opens` and on `F1.file_opens` alike:** the same opens are the entry's work and its page's, as Exception X2 names both rows. The engine's `run_trace` writer counts both, so an entry of no fetched page, such as a browser page's, also counts on F1 until the writer holds its handles; B2 has no cell yet to see it.
+> - **A task counts on `E5.spawns` at the writer's seam, whatever the blocking policy:** B1 runs blocking work inline, as the Simulation does, while production spawns a tracked blocking task per entry, so the count is the work the code asks for, not what one policy does with it.
+> - **B1 divides its Run-trace rows by the entries its Run trace holds, read from the trace's files once the engine stops,** so the unit is an outcome seen from outside the writer.
+> - **`E5.formatting_off` has no production site yet:** no kind of entry B1 writes (Provenance, the request log) has a setting that switches it off, and the CDP command log's setting, the one ADR 0140 decides, is the Shared paths spec's, as are the CDP command log's entries, which B1 does not reach. The row divides by every entry, its figure is 0 and only its plant proves its counter; the ticket that adds an off switch counts at its seam and adds its cell.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

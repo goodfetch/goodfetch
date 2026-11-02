@@ -132,6 +132,9 @@ fn each_row_counts_on_its_own() {
             ("C6.spawns", 0),
             ("C6.acknowledgements", 0),
             ("C6.seals", 0),
+            ("E5.file_opens", 0),
+            ("E5.spawns", 0),
+            ("E5.formatting_off", 0),
         ]
     );
 }

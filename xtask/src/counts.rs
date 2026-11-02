@@ -165,7 +165,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 58] = [
+const ROWS: [Row; 61] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -466,6 +466,27 @@ const ROWS: [Row; 58] = [
         name: "F4.transactions",
         family: "B1",
         unit: "records",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.file_opens",
+        family: "B1",
+        unit: "entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.spawns",
+        family: "B1",
+        unit: "entries",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.formatting_off",
+        family: "B1",
+        unit: "entries",
         happens: false,
         valgrind: None,
     },
@@ -1005,6 +1026,7 @@ fn one_of(unit: &str) -> &str {
     match unit {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
+        "entries" => "entry",
         unit => unit.trim_end_matches('s'),
     }
 }

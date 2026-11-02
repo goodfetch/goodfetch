@@ -336,6 +336,47 @@ pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
         .collect()
 }
 
+/// The Counted work series the Daemon's traffic in
+/// [`the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics`]
+/// leaves at 0, by `shared_path` and `work`.
+const ZERO_COUNTED_WORK: [(&str, &str); 25] = [
+    ("audit_entry", "configuration_reads"),
+    ("audit_entry", "opens"),
+    ("audit_entry", "prunes"),
+    ("audit_entry", "syncs"),
+    ("audit_entry", "transactions"),
+    ("hook_stage", "builds"),
+    ("hook_stage", "calls"),
+    ("hook_stage", "messages_no_hook"),
+    ("page_analysis", "file_opens"),
+    ("page_analysis", "locale_form_builds"),
+    ("page_analysis", "parses"),
+    ("page_analysis", "plugin_answer_parses"),
+    ("page_analysis", "plugin_serializations"),
+    ("page_analysis", "readability_runs"),
+    ("page_analysis", "selector_compilations"),
+    ("record", "constant_lookups"),
+    ("record", "declaration_reads"),
+    ("record", "deep_copies"),
+    ("record", "serializations"),
+    ("record", "transactions"),
+    ("record", "validations"),
+    ("record", "validator_builds"),
+    ("sink_delivery", "opens"),
+    ("sink_delivery", "transactions"),
+    ("sink_delivery", "writer_reads"),
+];
+
+/// `series` and every series of [`ZERO_COUNTED_WORK`].
+fn with_zero_counts<const N: usize>(series: [String; N]) -> BTreeSet<String> {
+    series
+        .into_iter()
+        .chain(ZERO_COUNTED_WORK.iter().map(|(path, work)| {
+            format!(r#"goodfetch_counted_work_total{{shared_path="{path}",work="{work}"}} 0"#)
+        }))
+        .collect()
+}
+
 /// The meter the engine is given records each Client while it is
 /// connected, each Run while it is live and each Run's end by its three
 /// axes, and whether the Daemon drains; Prometheus renders them under
@@ -381,42 +422,18 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
     assert_eq!(
         (while_running, series(&registry)),
         (
-            BTreeSet::from([
+            with_zero_counts([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="configuration_reads"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="prunes"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="syncs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="transactions"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="locale_form_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_answer_parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="readability_runs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="selector_compilations"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ]),
-            BTreeSet::from([
+            with_zero_counts([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="configuration_reads"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="prunes"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="syncs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="audit_entry",work="transactions"} 0"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="deep_copies"} 4"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="file_opens"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="locale_form_builds"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_answer_parses"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="plugin_serializations"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="readability_runs"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="page_analysis",work="selector_compilations"} 0"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

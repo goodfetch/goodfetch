@@ -56,6 +56,34 @@ pub enum Row {
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
     MessageEncodes,
+    /// `F5.messages_no_hook`: a message or its formatting for a stage with no
+    /// Hook on it.
+    HookMessagesNoHook,
+    /// `F5.calls`: a request out to a Hook called.
+    HookCalls,
+    /// `F5.builds`: a Hook chain's build or compilation at a stage.
+    HookBuilds,
+    /// `F6.opens`: a store open or statement preparation for a delivered batch.
+    SinkOpens,
+    /// `F6.transactions`: a transaction for a delivered batch.
+    SinkTransactions,
+    /// `F6.writer_reads`: a read through the run file's writer for a delivered
+    /// batch.
+    SinkWriterReads,
+    /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
+    RecordDeclarationReads,
+    /// `F4.validator_builds`: a validator built to check a Record.
+    RecordValidatorBuilds,
+    /// `F4.validations`: a validation of a Record against its Dataset's schema.
+    RecordValidations,
+    /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
+    RecordSerializations,
+    /// `F4.deep_copies`: a deep copy of a Record's data.
+    RecordDeepCopies,
+    /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
+    RecordConstantLookups,
+    /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
+    RecordTransactions,
     /// `E2.configuration_reads`: a read of the machine's settings files for
     /// an Audit entry.
     AuditConfigurationReads,
@@ -72,7 +100,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 27] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -82,6 +110,19 @@ impl Row {
         Self::PagePluginAnswerParses,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
+        Self::HookMessagesNoHook,
+        Self::HookCalls,
+        Self::HookBuilds,
+        Self::SinkOpens,
+        Self::SinkTransactions,
+        Self::SinkWriterReads,
+        Self::RecordDeclarationReads,
+        Self::RecordValidatorBuilds,
+        Self::RecordValidations,
+        Self::RecordSerializations,
+        Self::RecordDeepCopies,
+        Self::RecordConstantLookups,
+        Self::RecordTransactions,
         Self::AuditConfigurationReads,
         Self::AuditOpens,
         Self::AuditPrunes,
@@ -102,6 +143,15 @@ impl Row {
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
+            Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
+            Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
+            Self::RecordDeclarationReads
+            | Self::RecordValidatorBuilds
+            | Self::RecordValidations
+            | Self::RecordSerializations
+            | Self::RecordDeepCopies
+            | Self::RecordConstantLookups
+            | Self::RecordTransactions => "record",
             Self::AuditConfigurationReads
             | Self::AuditOpens
             | Self::AuditPrunes
@@ -121,12 +171,23 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::MessageDeepCopies => "deep_copies",
             Self::MessageEncodes => "encodes",
+            Self::HookMessagesNoHook => "messages_no_hook",
+            Self::HookCalls => "calls",
+            Self::HookBuilds => "builds",
+            Self::SinkOpens | Self::AuditOpens => "opens",
+            Self::SinkWriterReads => "writer_reads",
+            Self::RecordDeclarationReads => "declaration_reads",
+            Self::RecordValidatorBuilds => "validator_builds",
+            Self::RecordValidations => "validations",
+            Self::RecordSerializations => "serializations",
+            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
+            Self::RecordConstantLookups => "constant_lookups",
+            Self::SinkTransactions | Self::RecordTransactions | Self::AuditTransactions => {
+                "transactions"
+            }
             Self::AuditConfigurationReads => "configuration_reads",
-            Self::AuditOpens => "opens",
             Self::AuditPrunes => "prunes",
-            Self::AuditTransactions => "transactions",
             Self::AuditSyncs => "syncs",
         }
     }
@@ -144,6 +205,19 @@ impl Row {
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
+            Self::HookMessagesNoHook => "F5.messages_no_hook",
+            Self::HookCalls => "F5.calls",
+            Self::HookBuilds => "F5.builds",
+            Self::SinkOpens => "F6.opens",
+            Self::SinkTransactions => "F6.transactions",
+            Self::SinkWriterReads => "F6.writer_reads",
+            Self::RecordDeclarationReads => "F4.declaration_reads",
+            Self::RecordValidatorBuilds => "F4.validator_builds",
+            Self::RecordValidations => "F4.validations",
+            Self::RecordSerializations => "F4.serializations",
+            Self::RecordDeepCopies => "F4.deep_copies",
+            Self::RecordConstantLookups => "F4.constant_lookups",
+            Self::RecordTransactions => "F4.transactions",
             Self::AuditConfigurationReads => "E2.configuration_reads",
             Self::AuditOpens => "E2.opens",
             Self::AuditPrunes => "E2.prunes",

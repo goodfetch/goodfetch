@@ -18,6 +18,7 @@ arrow-schema.workspace = true
 data-encoding.workspace = true
 # The gzip form of an Export (ADR 0103), on the workspace's Rust backend.
 flate2.workspace = true
+goodfetch-counted-work.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 # A feed's dates: RFC 3339 read, RFC 2822 written for RSS.

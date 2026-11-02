@@ -7,7 +7,8 @@
 //! the base's and to its ceiling, and writes one table. Until M1's
 //! optimization pass a figure past either is a note that fails nothing
 //! (`budget::GATING`, ADR 0134 as amended on 2026-10-22); a broken
-//! measurement still fails.
+//! measurement still fails. Each figure is also held to a pinned reference
+//! build, which fails whatever `GATING` says (`reference`, ADR 0140).
 
 mod admission;
 mod budget;
@@ -20,6 +21,7 @@ mod figures;
 mod gungraun;
 mod measure;
 mod pull_request;
+mod reference;
 mod table;
 
 use std::fmt::Write as _;
@@ -47,6 +49,7 @@ pub(crate) use figure::{Figure, Measured};
 pub(crate) use figures::{Figures, Recorded};
 pub(crate) use gungraun::read as read_gungraun_summaries;
 pub(crate) use measure::gungraun_output;
+pub(crate) use reference::PIN_FILE as REFERENCE_FILE;
 
 /// The file that holds the absolute ceilings, relative to the repository.
 pub(crate) const BUDGET_FILE: &str = "xtask/src/perf/budget.rs";
@@ -143,6 +146,14 @@ pub(crate) struct Reports {
     /// none, every tripped figure is reported, as `budget::GATING` decides.
     #[arg(long)]
     pull_request: Option<PathBuf>,
+    /// gungraun's JSON summaries of the pinned reference build (repeatable);
+    /// with neither this nor `--reference-size`, `drift.reference` reports
+    /// that it has not run.
+    #[arg(long)]
+    reference_gungraun: Vec<PathBuf>,
+    /// size-limit's `--json` report of the pinned reference build.
+    #[arg(long)]
+    reference_size: Option<PathBuf>,
     /// The job's summary page (`GITHUB_STEP_SUMMARY`), which gets the
     /// table too.
     #[arg(long)]
@@ -178,6 +189,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 size_base: measured.size_base,
                 size_head: measured.size_head,
                 admission: measured.admission,
+                reference_gungraun: measured.reference.into_iter().collect(),
+                reference_size: measured.size_reference,
                 pull_request,
                 summary,
                 save: Some(PathBuf::from("target/junit").join(figures::FILE_NAME)),
@@ -236,9 +249,10 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
         None => Vec::new(),
     };
     let ceilings = ceilings::check(root, &rows, &base_measured)?;
+    let reference = reference::check(&rows, reference_figures(root, reports)?);
     let gating = budget::GATING;
     let mut text = format!(
-        "### Performance budget\n\n{}{}\n#### Absolute ceilings\n\n{}",
+        "### Performance budget\n\n{}{}\n#### Absolute ceilings\n\n{}\n#### Reference build\n\n{}",
         match gating {
             Gating::Informational => {
                 "Until M1's optimization pass, a figure past its threshold or over its ceiling is noted and fails nothing (ADR 0134, as amended on 2026-10-22).\n\n"
@@ -246,7 +260,8 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
             Gating::Enforced => "",
         },
         table::render(&rows),
-        ceilings::render(&ceilings)
+        ceilings::render(&ceilings),
+        reference::render(&reference)
     );
     if !admissions.is_empty() {
         let _ = write!(
@@ -266,11 +281,31 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
     // A broken measurement fails whatever the gating.
     let mut findings = ceilings::not_measured(&ceilings);
     findings.extend(admission::findings(&admissions));
+    // ADR 0140: this row gates from its own pull request, whatever `GATING`.
+    findings.extend(reference::findings(&reference));
     match gating {
         Gating::Informational => check::note(&budget_findings),
         Gating::Enforced => findings.extend(budget_findings),
     }
     Ok(check::report(&findings))
+}
+
+/// The reference build's figures, as the reports hold them, when any report
+/// is given.
+fn reference_figures(root: &Path, reports: &Reports) -> Result<Option<Vec<figure::Measured>>> {
+    if reports.reference_gungraun.is_empty() && reports.reference_size.is_none() {
+        return Ok(None);
+    }
+    let paths: Vec<PathBuf> = reports
+        .reference_gungraun
+        .iter()
+        .map(|path| root.join(path))
+        .collect();
+    let mut figures = gungraun::read(&paths)?;
+    if let Some(size) = &reports.reference_size {
+        figures.extend(bundle::read(None, &root.join(size))?);
+    }
+    Ok(Some(figures))
 }
 
 fn finding(row: &Row, gating: Gating) -> Option<Finding> {

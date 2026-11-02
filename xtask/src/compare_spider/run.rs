@@ -1,6 +1,7 @@
 //! `run`: the declared trials of both tools in a random order, each against
 //! a fresh Proving ground whose observations then say what the trial did,
-//! written to the trials file.
+//! then the Callgrind cell's runs of each tool in the same way, written to
+//! the trials file.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -9,12 +10,13 @@ use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
 use crate::output;
-use crate::rss::crawl::{HOST, serve};
+use crate::rss::crawl::{HOST, Serving, serve};
 
-use super::same_work;
+use super::same_work::{self, Work};
+use super::trial::{callgrind_missing, instructions_of};
 use super::trials::{
-    CONCURRENCY, Comparison, Declared, Machine, SITE_PAGES, SPIDER_VERSION, STATISTIC, TRIALS,
-    Tool, Trial,
+    CONCURRENCY, Comparison, Declared, INSTRUCTION_RUNS, INSTRUCTION_SCENARIO, InstructionCell,
+    InstructionRun, Machine, SITE_PAGES, SPIDER_VERSION, STATISTIC, TRIALS, Tool, Trial,
 };
 
 /// The executables a run takes.
@@ -92,21 +94,27 @@ fn machine() -> Machine {
 }
 
 /// Runs one trial through `xtask compare-spider trial` and returns its
-/// seconds and peak.
+/// seconds and peak. With `callgrind`, the tool runs under Callgrind, which
+/// writes its output there.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
 )]
-fn trial(tool: Tool, executable: &Path, address: &str, pages: u64) -> Result<(f64, u64)> {
+fn trial(
+    tool: Tool,
+    executable: &Path,
+    address: &str,
+    pages: u64,
+    callgrind: Option<&Path>,
+) -> Result<(f64, u64)> {
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
-    let output = Command::new(probe)
-        .args([
-            "compare-spider",
-            "trial",
-            "--tool",
-            tool.name(),
-            "--executable",
-        ])
+    let mut command = Command::new(probe);
+    command.args(["compare-spider", "trial"]);
+    if let Some(output) = callgrind {
+        command.arg("--callgrind").arg(output);
+    }
+    let output = command
+        .args(["--tool", tool.name(), "--executable"])
         .arg(executable)
         .args(["--address", address, "--pages", &pages.to_string()])
         .args(["--concurrency", &CONCURRENCY.to_string()])
@@ -140,6 +148,81 @@ fn drawn_seed() -> u64 {
     now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32
 }
 
+/// What the Proving ground `serving` saw a trial do on the site of `pages`.
+fn observed(serving: &Serving, pages: u64) -> Result<Work> {
+    let observations: Value = ureq::get(&format!("http://{}/observations", serving.address))
+        .call()
+        .context("reading the Proving ground's observations")?
+        .body_mut()
+        .with_config()
+        .limit(u64::MAX)
+        .read_json()
+        .context("parsing the Proving ground's observations")?;
+    // Another site's pages are no pages of this one: give its own
+    // prefix, so the check sees what that trial really fetched.
+    same_work::work_of(&observations, HOST, &format!("/sites/{pages}/"))
+}
+
+/// Runs the Callgrind cell, when this host can.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: it reads Callgrind's output with a blocking call (STYLE.md)"
+)]
+fn instruction_cell(
+    executables: &Executables<'_>,
+    spider_pages: Option<u64>,
+) -> Result<InstructionCell> {
+    if let Some(reason) = callgrind_missing() {
+        output::line(&format!("The Callgrind cell does not run: {reason}."));
+        return Ok(InstructionCell::NotRun { reason });
+    }
+    let folder = tempfile::tempdir().context("creating Callgrind's folder")?;
+    let mut runs = Vec::new();
+    for tool in Tool::ALL {
+        for number in 1..=INSTRUCTION_RUNS {
+            let (executable, pages) = side(executables, tool, spider_pages);
+            let out = folder.path().join(format!("{}-{number}.out", tool.name()));
+            let serving = serve(executables.proving_ground)?;
+            trial(tool, executable, &serving.address, pages, Some(&out))?;
+            let work = observed(&serving, pages)?;
+            drop(serving);
+            let text = std::fs::read_to_string(&out)
+                .with_context(|| format!("reading {}", out.display()))?;
+            let instructions = instructions_of(&text)?;
+            output::line(&format!(
+                "{} under Callgrind {number}: {} pages, {instructions} instructions",
+                tool.name(),
+                work.pages.len()
+            ));
+            runs.push(InstructionRun {
+                tool,
+                number,
+                instructions,
+                pages: work.pages.into_iter().collect(),
+                requests: work.requests,
+                bytes: work.bytes,
+            });
+        }
+    }
+    Ok(InstructionCell::Measured {
+        scenario: INSTRUCTION_SCENARIO.to_owned(),
+        trials: INSTRUCTION_RUNS,
+        runs,
+    })
+}
+
+/// `tool`'s executable and the pages of the site it crawls.
+fn side<'a>(
+    executables: &Executables<'a>,
+    tool: Tool,
+    spider_pages: Option<u64>,
+) -> (&'a Path, u64) {
+    match tool {
+        Tool::Foxhound => (executables.foxhound, SITE_PAGES),
+        Tool::Spider => (executables.spider, spider_pages.unwrap_or(SITE_PAGES)),
+    }
+}
+
 /// Runs every declared trial and returns the trials file's contents.
 /// `spider_pages` gives Spider a site of another size, which the same-work
 /// check must refuse.
@@ -152,24 +235,11 @@ pub(crate) fn run(
     let site = format!("/sites/{SITE_PAGES}/");
     let mut trials = Vec::new();
     for (tool, number) in order(order_seed) {
-        let (executable, pages) = match tool {
-            Tool::Foxhound => (executables.foxhound, SITE_PAGES),
-            Tool::Spider => (executables.spider, spider_pages.unwrap_or(SITE_PAGES)),
-        };
+        let (executable, pages) = side(executables, tool, spider_pages);
         let serving = serve(executables.proving_ground)?;
-        let (seconds, peak_bytes) = trial(tool, executable, &serving.address, pages)?;
-        let observations: Value = ureq::get(&format!("http://{}/observations", serving.address))
-            .call()
-            .context("reading the Proving ground's observations")?
-            .body_mut()
-            .with_config()
-            .limit(u64::MAX)
-            .read_json()
-            .context("parsing the Proving ground's observations")?;
+        let (seconds, peak_bytes) = trial(tool, executable, &serving.address, pages, None)?;
+        let work = observed(&serving, pages)?;
         drop(serving);
-        // Another site's pages are no pages of this one: give its own
-        // prefix, so the check sees what that trial really fetched.
-        let work = same_work::work_of(&observations, HOST, &format!("/sites/{pages}/"))?;
         output::line(&format!(
             "{} trial {number}: {} pages in {seconds:.3} s, peak {peak_bytes} bytes",
             tool.name(),
@@ -197,5 +267,6 @@ pub(crate) fn run(
         commit,
         order_seed,
         trials,
+        instructions: instruction_cell(executables, spider_pages)?,
     })
 }

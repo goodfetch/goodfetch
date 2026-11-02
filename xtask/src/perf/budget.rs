@@ -193,8 +193,13 @@ pub(crate) const ADMISSION_RUNS: usize = 20;
 pub(crate) const ADMISSION_SPREAD_BASIS_POINTS: u64 = 50;
 
 /// ADR 0071: the drift check flags a figure up more than 10% since the last
-/// release.
+/// release. ADR 0140: no figure passes 1.10 times its pinned reference build.
 pub(crate) const DRIFT_PERCENT: u64 = 10;
+
+/// Whether `value` is past `DRIFT_PERCENT` over `earlier`.
+pub(crate) fn drifted(earlier: u64, value: u64) -> bool {
+    u128::from(value) * 100 > u128::from(earlier) * u128::from(100 + DRIFT_PERCENT)
+}
 
 /// ADR 0071: the drift check flags a resident-memory peak within 10% of its
 /// ceiling.

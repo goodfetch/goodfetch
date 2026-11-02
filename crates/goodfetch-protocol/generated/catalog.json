@@ -1754,8 +1754,11 @@
           "name": "shared_path",
           "values": [
             "audit_entry",
+            "hook_stage",
             "json_rpc_message",
-            "page_analysis"
+            "page_analysis",
+            "record",
+            "sink_delivery"
           ]
         },
         {
@@ -1770,10 +1773,19 @@
             "locale_form_builds",
             "plugin_serializations",
             "plugin_answer_parses",
-            "configuration_reads",
+            "builds",
+            "calls",
+            "messages_no_hook",
             "opens",
-            "prunes",
             "transactions",
+            "writer_reads",
+            "declaration_reads",
+            "validator_builds",
+            "validations",
+            "serializations",
+            "constant_lookups",
+            "configuration_reads",
+            "prunes",
             "syncs"
           ]
         }

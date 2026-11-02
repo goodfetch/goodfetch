@@ -58,9 +58,24 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
             declared.key.clone(),
             record["status"].clone(),
             record["fetched_at"].clone(),
-            datasets.check(pushed(record)).is_ok(),
-            datasets.check(pushed(without_links)).is_ok(),
-            datasets.check(pushed(with_html)).is_ok(),
+            datasets
+                .check(
+                    pushed(record),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
+                .is_ok(),
+            datasets
+                .check(
+                    pushed(without_links),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
+                .is_ok(),
+            datasets
+                .check(
+                    pushed(with_html),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
+                .is_ok(),
         ),
         (
             "pages",
@@ -174,14 +189,28 @@ fn the_pages_schema_holds_each_fields_type() {
         (
             declared.schema.as_ref().unwrap()["properties"]["price"].clone(),
             datasets
-                .check(pushed(with(json!("Delta kite"), json!(1099.98))))
+                .check(
+                    pushed(with(json!("Delta kite"), json!(1099.98))),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
                 .is_ok(),
             datasets
-                .check(pushed(with(Value::Null, Value::Null)))
+                .check(
+                    pushed(with(Value::Null, Value::Null)),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
                 .is_ok(),
-            datasets.check(pushed(without_price)).is_ok(),
             datasets
-                .check(pushed(with(json!("Delta kite"), json!("1099.98"))))
+                .check(
+                    pushed(without_price),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
+                .is_ok(),
+            datasets
+                .check(
+                    pushed(with(json!("Delta kite"), json!("1099.98"))),
+                    &goodfetch_counted_work::CountedWork::default()
+                )
                 .is_ok(),
         ),
         (

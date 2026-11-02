@@ -1228,7 +1228,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
 
-Until the gate's spec builds them, two things this section names don't exist yet: the counters of counted work and the floor guard. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
+Until the gate's spec builds them, one thing this section names doesn't exist yet: the counters of counted work. Until then, `code-review`'s Standards axis checks the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
 
 ### Floor
 
@@ -1239,19 +1239,19 @@ Always enforced on the diff. A breach is a hard violation in `code-review`.
   - a test run as a child process by another test: `#[ignore = "run as a child by <test>"]`;
   - the SDKs' type tests: `@ts-expect-error` and `# type: ignore[code]` ([SDKs](#sdks));
   - Python: `# pyright: ignore[rule]`;
-  - TypeScript: `oxlint-disable-next-line <rule>` with its reason, in the syntax the gate's spec takes from oxlint's documentation.
+  - TypeScript: `oxlint-disable-next-line <rule> -- <reason>`. [Oxlint's documentation](https://oxc.rs/docs/guide/usage/linter/ignore-comments) gives the comment and its rules and no reason syntax; its parser takes what follows ` -- ` as the description, so the guard asks for that form.
 - **No unimplemented stub, or empty catch, standing in for the work.**
 - **No skipped or deleted test without a `Quality-change` trailer.** A test replaced at a deepened module's interface names its replacement.
 - **No secret in source.**
 - **No register row weakened outside the rules below.**
-- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer.
+- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer. The guard reads them from this line, at the merge base; a new file of the gate adds to the bar and passes: `xtask/src/floor_guard.rs`, `xtask/src/floor_guard/`, `xtask/tests/it/floor_guard.rs`, `xtask/src/register.rs`, `xtask/src/register/`, `xtask/tests/it/register.rs`, `xtask/src/counts.rs`, `xtask/src/counts/`, `xtask/tests/it/counts.rs`, `crates/foxhound/goodfetch-foxhound/benches/`, `crates/goodfetch-page/benches/`, `crates/goodfetch-engine/benches/`.
 
 _Why:_ the floor is diff-scoped, so the suppressions the code already holds (412 `#[expect]`, 28 `#[ignore]`, 51 `oxlint-disable` on 2026-11-01) fail nothing, while a new bare one does.
 
 ### Recorded changes
 
 - **A change the Floor would flag but these rules allow carries a commit trailer:** `Quality-change: <file or row>: <reason>`. That covers a test removed with its replacement named, a row raised within its Cost contract, and an edit to the gate's own files.
-- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140.
+- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140. A file's trailer names its path, a row's its name (`F1.parses`, `X1`), and a change to a section of rules names that section (`Floor`, `Recorded changes`, `Rules`). The guard reads the trailers of every commit from the merge base to the head, and lists what each accepted as a `note[quality-change]` line.
 
 ### Enforced
 

@@ -95,6 +95,10 @@ const PLANT_VARIABLE: &str = "GOODFETCH_COUNTS_PLANT";
 /// The folder under the workspace's `target/` of the Valgrind rows' reports.
 const VALGRIND_OUT: &str = "target/counts";
 
+/// The folder under the workspace's `target/` of each family's built
+/// benchmark, under its family's name.
+const EXECUTABLES_OUT: &str = "target/counts/executables";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -461,6 +465,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     }
     let mut findings = Vec::new();
     let mut families: Vec<&str> = rows.iter().map(|row| row.family).collect();
+    families.sort_unstable();
     families.dedup();
     for family in families {
         let cells = family_cells(
@@ -690,11 +695,24 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     if !output.status.success() {
         bail!("cargo build of {}'s benchmark failed", family.name);
     }
-    String::from_utf8_lossy(&output.stdout)
+    let built = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| serde_json::from_str::<Message>(line).ok())
         .find_map(|message| message.executable)
-        .with_context(|| format!("cargo build reported no executable for {}", family.name))
+        .with_context(|| format!("cargo build reported no executable for {}", family.name))?;
+    // Every family's example is `counts`, which Cargo leaves at one path, so
+    // the next family's build would replace this one before it runs.
+    let own = environment
+        .root
+        .join(EXECUTABLES_OUT)
+        .join(format!("{}-{}", family.name, family.target));
+    if let Some(folder) = own.parent() {
+        std::fs::create_dir_all(folder)
+            .with_context(|| format!("creating {}", folder.display()))?;
+    }
+    std::fs::copy(&built, &own)
+        .with_context(|| format!("copying {} to {}", built.display(), own.display()))?;
+    Ok(own)
 }
 
 /// What `executable` counted, each extra unit of `plant` done.

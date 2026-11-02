@@ -93,11 +93,55 @@ fn window_ends() {
     std::hint::black_box(2);
 }
 
+/// ADR 0059's test `Clock` start, at which every charge is placed.
+fn start() -> Timestamp {
+    "2026-01-05T09:00:00Z"
+        .parse()
+        .expect("invariant: a literal moment")
+}
+
+fn install() -> LimitScope {
+    LimitScope {
+        kind: INSTALL.to_owned(),
+        id: String::new(),
+    }
+}
+
+/// The Limit of `requests` on the install that holds a limited cell's run.
+fn limit() -> Limit {
+    Limit {
+        scope: install(),
+        usage_kind: REQUESTS.to_owned(),
+        currency: None,
+        period: None,
+        amount: AMOUNT,
+        must_understand: true,
+        set_by: LimitSetter::Person,
+    }
+}
+
+/// The one run's charging on `ledger`, standing on the install.
+fn run_charging(ledger: &Ledger, folder: &Path) -> Charging {
+    Charging::new(
+        ledger.clone(),
+        Holder {
+            run_id: "run".to_owned(),
+            epoch: 1,
+            folder: folder.join("run"),
+        },
+        Placement {
+            product: Product::Foxhound,
+            scopes: vec![install()],
+        },
+        SliceSizing::default(),
+    )
+}
+
 /// One cell of the scenario, in the folder `folder`: under a Limit when
 /// `limited`, with one extra unit of `planted`'s work where it belongs, and
 /// the charges of the outcome `window` between [`window_starts`] and
-/// [`window_ends`]. Fails here if
-/// a charge's outcome is not the one its Slice's size predicts.
+/// [`window_ends`]. Fails here if a charge's outcome is not the one its
+/// Slice's size predicts.
 pub(crate) fn charges(
     folder: &Path,
     limited: bool,
@@ -110,43 +154,16 @@ pub(crate) fn charges(
         .to_string_lossy()
         .into_owned();
     let vfs = CrashVfs::register(&name, 0).expect("invariant: a new folder's name is new");
-    let now: Timestamp = "2026-01-05T09:00:00Z"
-        .parse()
-        .expect("invariant: ADR 0059's test Clock start");
-    let scope = LimitScope {
-        kind: INSTALL.to_owned(),
-        id: String::new(),
-    };
+    let now = start();
     let work = CountedWork::default();
     let setting = Ledger::at(folder.join("usage-ledger.sqlite"), Some(name.clone()));
     if limited {
-        let limit = Limit {
-            scope: scope.clone(),
-            usage_kind: REQUESTS.to_owned(),
-            currency: None,
-            period: None,
-            amount: AMOUNT,
-            must_understand: true,
-            set_by: LimitSetter::Person,
-        };
         setting
-            .add_limit(&limit, now)
+            .add_limit(&limit(), now)
             .expect("invariant: the ledger is writable");
     }
     let ledger = setting.counting(work.clone());
-    let mut charging = Charging::new(
-        ledger.clone(),
-        Holder {
-            run_id: "run".to_owned(),
-            epoch: 1,
-            folder: folder.join("run"),
-        },
-        Placement {
-            product: Product::Foxhound,
-            scopes: vec![scope],
-        },
-        SliceSizing::default(),
-    );
+    let mut charging = run_charging(&ledger, folder);
     let spare = Connection::open_with_flags_and_vfs(
         folder.join("spare.sqlite"),
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,

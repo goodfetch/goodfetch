@@ -18,6 +18,9 @@
 //! under this module's target.
 //!
 //! Its calls block: callers run them under their owner's blocking policy.
+//!
+//! Size: one concern, every statement of the one ledger file, so its
+//! transactions read side by side.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

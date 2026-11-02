@@ -1,5 +1,6 @@
 //! Each counted row's limit, read from the Measured table of `TESTING.md`'s
-//! Quality register: its "Today" figure once measured, else its "Contract".
+//! Quality register: its "Today" figure once measured, else its "Contract",
+//! when that holds a plain number (`1.10 × the figure after #1577` holds none).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -47,6 +48,12 @@ impl Limit {
     /// tolerance, as counted work has none.
     pub(super) fn exceeded_by(self, count: u64, units: u64) -> bool {
         u128::from(count) * SCALE > self.0 * u128::from(units)
+    }
+
+    /// This limit with the 0.5 % a figure read under Valgrind may vary by
+    /// (the register's ratchet).
+    pub(super) const fn with_valgrind_tolerance(self) -> Self {
+        Self(self.0 * 1_005 / 1_000)
     }
 
     /// `count` over `units`, as the limit is written: rounded up to
@@ -101,7 +108,11 @@ fn parse(text: &str) -> Result<BTreeMap<String, Limit>> {
         else {
             bail!("the Quality register's row \"{line}\" is short of columns");
         };
-        let limit = measured(today).or_else(|| Limit::first_number(contract));
+        let limit = measured(today).or_else(|| {
+            (!contract.contains('×'))
+                .then(|| Limit::first_number(contract))
+                .flatten()
+        });
         if let Some(limit) = limit {
             limits.insert(name.trim_matches('`').to_owned(), limit);
         }

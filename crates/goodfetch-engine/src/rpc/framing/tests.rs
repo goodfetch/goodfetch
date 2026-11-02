@@ -1,7 +1,11 @@
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use rstest::rstest;
 
-use super::{Frame, Framer, Incoming, MAX_DEPTH, decode};
+use super::{DecodeError, Frame, Framer, Incoming, MAX_DEPTH};
+
+fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
+    super::decode(line, &goodfetch_counted_work::CountedWork::default())
+}
 
 fn frames(chunks: &[&[u8]], limit: usize) -> Vec<Frame> {
     let mut framer = Framer::new(limit);

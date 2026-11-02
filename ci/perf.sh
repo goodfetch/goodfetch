@@ -61,6 +61,11 @@ cargo run --quiet -p xtask -- counts --prove
 command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
 command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
 
+# The rows read under Valgrind (ADR 0140): each against its limit, then each
+# against a planted unit of work.
+cargo run --quiet -p xtask -- counts --valgrind
+cargo run --quiet -p xtask -- counts --valgrind --prove
+
 selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
 targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")
 cargo run --quiet -p xtask -- perf build --base "$base" --bench-targets "$targets"

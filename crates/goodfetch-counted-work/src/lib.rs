@@ -51,11 +51,16 @@ pub enum Row {
     PagePluginSerializations,
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
     PagePluginAnswerParses,
+    /// `E1.deep_copies`: a whole copy of what a Client's message carries.
+    MessageDeepCopies,
+    /// `E1.encodes`: an encode of what the engine sends, into bytes or into
+    /// a `Value` that is encoded again.
+    MessageEncodes,
 }
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -63,6 +68,8 @@ impl Row {
         Self::PageLocaleFormBuilds,
         Self::PagePluginSerializations,
         Self::PagePluginAnswerParses,
+        Self::MessageDeepCopies,
+        Self::MessageEncodes,
     ];
 
     /// Its Shared path by name, the metric's `shared_path` label: a word, as every
@@ -77,6 +84,7 @@ impl Row {
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
+            Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
         }
     }
 
@@ -91,6 +99,8 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
+            Self::MessageDeepCopies => "deep_copies",
+            Self::MessageEncodes => "encodes",
         }
     }
 
@@ -105,6 +115,8 @@ impl Row {
             Self::PageLocaleFormBuilds => "F1.locale_form_builds",
             Self::PagePluginSerializations => "F1.plugin_serializations",
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
+            Self::MessageDeepCopies => "E1.deep_copies",
+            Self::MessageEncodes => "E1.encodes",
         }
     }
 

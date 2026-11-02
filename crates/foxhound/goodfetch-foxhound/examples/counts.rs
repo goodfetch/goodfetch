@@ -142,7 +142,7 @@ fn main() {
         }
         let counts: Map<String, Value> = Row::ALL
             .iter()
-            .map(|row| (row.name(), json!(cell.work.read(*row))))
+            .map(|row| (row.name().to_owned(), json!(cell.work.read(*row))))
             .collect();
         println!(
             "{}",

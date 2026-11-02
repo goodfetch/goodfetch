@@ -162,7 +162,7 @@ pub const DAEMON_DRAINING: Metric = Metric {
 /// (ADR 0140) with a counted row so far.
 const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
     name: "path",
-    values: &["F1"],
+    values: &["page_analysis"],
 };
 
 /// The values of `goodfetch.counted_work`'s `work` label: what those rows

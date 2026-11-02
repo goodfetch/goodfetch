@@ -46,7 +46,8 @@
 //! beneath its functions in the `--callgrind` run, its opening's left out,
 //! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
 //! counters counted in the cell with Politeness and robots.txt off, over its
-//! attempts; its plant runs in that cell beside the default.
+//! attempts. An E6 row's plant runs in every cell, as its limit is its worst
+//! cell's.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 #![expect(
     clippy::print_stderr,
@@ -686,15 +687,15 @@ fn main() {
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
     // so a family's rows stay within their minute. A plant needs the default
-    // cell alone, the one that proves its counter, and `E6.off_work`'s the
-    // cell its work is held in.
+    // cell alone, the one that proves its counter. An E6 row's plant runs in
+    // every cell: its Today is its worst cell's (`concurrency_1`), which a
+    // unit more per page in the default cell stays under, and `E6.off_work`
+    // is held in its off cell alone.
     let counted: Vec<Counted> = std::thread::scope(|scope| {
         let cells: Vec<_> = cells()
             .into_iter()
             .filter(|cell| {
-                planted.is_none()
-                    || cell.name == "default"
-                    || (planted == Some(OFF_WORK) && cell.name == OFF_CELL)
+                planted.is_none_or(|row| cell.name == "default" || row.starts_with("E6."))
             })
             .map(|cell| scope.spawn(move || run(&cell, planted)))
             .collect();

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use super::RepoPath;
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
-use crate::{foxhound_side, perf, screenshots, tlc};
+use crate::{counts, foxhound_side, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -113,7 +113,7 @@ const CATALOG_CRATE: &str = "crates/goodfetch-protocol";
 const PROMPT_SEGMENTS: [&str; 2] = ["prompts", "request-snapshots"];
 
 /// Paths no test reads: the Quick suite, which always runs, checks them.
-fn needs_no_tests(path: &RepoPath) -> bool {
+pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
     let top_level_markdown = !path.as_str().contains('/')
         && Path::new(path.as_str())
             .extension()
@@ -473,7 +473,12 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
                 .map(|bench| format!("{}/{bench}", krate.name))
         })
         .collect();
-    if !bench_targets.is_empty() {
+    // `xtask counts`, in the perf job, holds the counted rows to the
+    // register's limits, so a changed register is counted at once.
+    let register_moved = paths
+        .iter()
+        .any(|path| path.as_str() == counts::REGISTER_FILE);
+    if !bench_targets.is_empty() || register_moved {
         jobs.insert(Job::Perf);
     }
     let every_model = paths

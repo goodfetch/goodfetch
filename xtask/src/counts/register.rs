@@ -16,7 +16,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 /// The file holding the register, from the workspace's folder.
-const TESTING: &str = "TESTING.md";
+pub(crate) const TESTING: &str = "TESTING.md";
 
 /// The section and header the table is found by.
 const SECTION: &str = "## Quality register";

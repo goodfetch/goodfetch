@@ -2,7 +2,7 @@
 [modules]
 acceptance = ["github"]
 advisories = ["check", "environment", "github", "pinned"]
-affected = ["console", "environment", "foxhound_side", "metadata", "output", "package_dependencies", "perf", "screenshots", "tlc"]
+affected = ["console", "counts", "environment", "foxhound_side", "metadata", "output", "package_dependencies", "perf", "screenshots", "tlc"]
 all_green = ["affected", "check", "environment", "github", "workflow"]
 allure = ["results"]
 axe_exceptions = ["check", "environment", "github", "issues"]

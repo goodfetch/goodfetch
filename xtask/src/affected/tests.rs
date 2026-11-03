@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use rstest::rstest;
 
-use super::selection::{Selection, select};
+use super::selection::{Job, Selection, select};
 use super::workspace::{Crate, Ecosystem, Embedded, Package, Workspace};
 use super::{RepoPath, WorkspaceMembers, select_with_readers};
 
@@ -259,7 +259,7 @@ fn value(selection: &Selection, key: &str) -> String {
 // The lab's own workflow runs on `rnd/` (ADR 0032); the tier selects nothing.
 #[case::nothing_for_rnd(&["rnd/lab/src/cli.ts"], "[]")]
 #[case::docs_jobs_only_for_docs(&["docs/collie/index.md", "website/index.html"], r#"["docs"]"#)]
-#[case::nothing_beyond_quick_for_top_level_markdown(&["TESTING.md"], "[]")]
+#[case::nothing_beyond_quick_for_top_level_markdown(&["GLOSSARY.md"], "[]")]
 #[case::pre_merge_and_sinks_for_a_crate(&["crates/foxhound/sinks/goodfetch-sink-s3/src/main.rs"], r#"["pre-merge","sinks"]"#)]
 #[case::pre_merge_and_sinks_for_a_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], r#"["pre-merge","sinks"]"#)]
 #[case::perf_for_a_crate_with_bench_targets(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], r#"["pre-merge","sinks","perf"]"#)]
@@ -294,7 +294,7 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 // The local gate runs its quick form only when no test, benchmark, model,
 // container or Evaluation reads the change (ADR 0135).
 #[rstest]
-#[case::top_level_markdown(&["TESTING.md", "AGENTS.md"], "quick")]
+#[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "quick")]
 #[case::an_adr(&["docs/adr/0135-local-gate.md"], "quick")]
 #[case::docs_and_website(&["docs/collie/index.md", "website/index.html"], "quick")]
 #[case::the_lab(&["rnd/lab/src/cli.ts"], "quick")]
@@ -325,24 +325,69 @@ fn write(root: &std::path::Path, path: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-/// A test that reads a file no member owns names it in a string literal, as
-/// `TESTING.md`'s drift check does: a change to that file alone selects the
-/// test's member and the full gate, and one no file names stays quick
-/// (finding 586-9).
+/// A test that reads a file no member owns names it in a string literal: a
+/// change to that file alone selects the test's member and the full gate
+/// (finding 586-9). A document the Quick suite alone checks (top-level
+/// Markdown, `docs/`, `rnd/`, `website/`) is read only by a literal naming
+/// the file itself: a literal naming one of its folders is a fixture path or
+/// a word (`"docs" =>`), and xtask's checks that walk those folders run in
+/// `just lint`, which the quick gate runs. A comment or a possessive names a
+/// file without reading it (#2041).
 #[rstest]
-#[case::a_test_names_it(r#"std::fs::read_to_string("../../TESTING.md")"#, "full", true)]
-#[case::no_test_names_it("// Reads nothing.", "quick", false)]
-fn a_file_only_a_tests_literal_names_selects_that_test(
+#[case::glossary_and_adrs_beside_a_folder_named_by_a_fixture(
+    r#"workspace.write("docs/adr/0135-local-gate.md", "");"#,
+    &["GLOSSARY.md", "docs/adr/0086-politeness.md", "docs/adr/0138-analysis.md"],
+    "quick",
+    false
+)]
+#[case::an_adr_beside_its_folder_as_a_word(
+    r#"match segment { "docs" => 1, _ => 0 }"#,
+    &["docs/adr/0086-politeness.md"],
+    "quick",
+    false
+)]
+#[case::research_beside_its_folder_as_a_word(
+    r#"const SKIPPED: [&str; 1] = ["rnd"];"#,
+    &["rnd/lab/src/cli.ts"],
+    "quick",
+    false
+)]
+#[case::a_comment_naming_the_file(
+    "/// `TESTING.md`'s path traversal cases.\n//! See TESTING.md\".\n",
+    &["GLOSSARY.md"],
+    "quick",
+    false
+)]
+#[case::a_possessive_in_a_string(
+    r#"#[expect(unused, reason = "GLOSSARY.md's terms")]"#,
+    &["GLOSSARY.md"],
+    "quick",
+    false
+)]
+#[case::an_adr_the_code_reads(
+    r#"const MATRIX: &str = "docs/adr/0037-v1-scope-matrix.md";"#,
+    &["GLOSSARY.md", "docs/adr/0037-v1-scope-matrix.md"],
+    "full",
+    true
+)]
+#[case::a_document_a_test_reads(
+    r#"let notes = include_str!("../../../NOTES.md"); // its rows"#,
+    &["NOTES.md"],
+    "full",
+    true
+)]
+fn a_document_is_read_only_where_code_names_the_file_itself(
     #[case] source: &str,
+    #[case] paths: &[&str],
     #[case] gate: &str,
     #[case] selected: bool,
 ) {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "crates/goodfetch-collie/tests/it.rs", source);
     let members = WorkspaceMembers::from_workspace(fixture());
+    let paths: Vec<RepoPath> = paths.iter().map(|path| RepoPath::new(*path)).collect();
 
-    let selection =
-        select_with_readers(root.path(), &members, &[RepoPath::new("TESTING.md")]).unwrap();
+    let selection = select_with_readers(root.path(), &members, &paths).unwrap();
 
     assert_eq!(
         (
@@ -353,6 +398,40 @@ fn a_file_only_a_tests_literal_names_selects_that_test(
         ),
         (gate.to_owned(), selected)
     );
+}
+
+/// xtask's commands run at the repository's root, so its literals naming a
+/// document there are its checks' inputs, which `just lint` and the floor
+/// guard run in the quick gate, or its fixture workspaces' files; its tests
+/// reach the repository's own documents from their folder, through `../`.
+#[rstest]
+#[case::a_fixture_file(r##"workspace.write("NOTES.md", b"# Notes\n");"##, "quick")]
+#[case::a_test_reading_the_repository_document(
+    r#"const NOTES: &str = include_str!("../../../NOTES.md");"#,
+    "full"
+)]
+fn xtask_reads_a_document_only_through_a_path_from_its_folder(
+    #[case] source: &str,
+    #[case] gate: &str,
+) {
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), "xtask/tests/it/notes.rs", source);
+    let members = WorkspaceMembers::from_workspace(fixture());
+
+    let selection =
+        select_with_readers(root.path(), &members, &[RepoPath::new("NOTES.md")]).unwrap();
+
+    assert_eq!(value(&selection, "gate"), gate);
+}
+
+/// `xtask counts`, in the perf job, holds the counted rows to the limits
+/// of `TESTING.md`'s Quality register, so a change to it runs perf whatever
+/// test reads it; the register check, in `just lint`, runs in either gate.
+#[test]
+fn a_change_to_the_register_runs_perf() {
+    let selection = select_paths(&["TESTING.md"]);
+
+    assert!(selection.selects(Job::Perf), "{selection}");
 }
 
 #[rstest]

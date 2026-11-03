@@ -1,21 +1,40 @@
 //! The Tray (ADR 0141): it draws the State's view with `tray-icon` and
-//! `muda` on the main thread. A left and a right click both open the menu,
-//! which is rebuilt in the click's mouse-down handler, before it opens, and
-//! again on each view change while it stays open. Menu choices reach the
-//! event loop through its proxy, as `UserEvent::Menu`.
+//! `muda` on the main thread. A left and a right click both open the menu.
 //!
-//! `muda`'s items are not `Send`, and the mouse-down handler is a `'static`
-//! callback that cannot reach the application, so the Tray lives in a
-//! thread-local of the main thread, where both run.
+//! - **Fresh when it opens.** The Tray keeps the latest view, and the
+//!   click's mouse-down handler rebuilds the menu from it before the menu
+//!   opens, then tells the State the menu opened.
+//! - **Live while open.** The State paces the redraws, and the Tray draws
+//!   the frames it gives: the icon when the verdict changed, the menu's
+//!   rows when they changed while it is open.
+//! - **Its closing.** On macOS the Tray learns it from `AppKit`
+//!   (`menu_closed`). `tray-icon` reports neither the opening nor the
+//!   closing elsewhere, so on Linux and Windows the menu counts as open
+//!   from launch: it applies every change, paced, and the State follows
+//!   the progress of the Runs it lists for as long as the Kennel runs.
+//!
+//! Menu choices reach the event loop through its proxy, as
+//! `UserEvent::Menu`. `muda`'s items are not `Send`, and the mouse-down
+//! handler is a `'static` callback that cannot reach the application, so
+//! the Tray lives in a thread-local of the main thread, where both run.
+
+#[cfg(target_os = "macos")]
+mod menu_closed;
 
 use std::cell::RefCell;
 
-use goodfetch_kennel::state::{Choice, Row, Verdict, View};
+use goodfetch_kennel::state::{Choice, Frame, Row, Verdict, View};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use winit::event_loop::EventLoopProxy;
 
 use crate::UserEvent;
+
+/// What a detail line starts with, under the line it details.
+const INDENT: &str = "    ";
+
+/// Whether the platform tells the Tray when its menu opens and closes.
+pub(crate) const FOLLOWS_THE_MENU: bool = cfg!(target_os = "macos");
 
 /// The icon in the menu bar and its menu.
 struct Tray {
@@ -23,30 +42,43 @@ struct Tray {
     menu: Menu,
     /// The id of each choice the menu shows now.
     choices: Vec<(MenuId, Choice)>,
-    /// The view drawn, which the mouse-down handler draws again.
-    view: View,
+    /// The latest view, which the mouse-down handler draws.
+    latest: View,
 }
 
 thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
 }
 
-/// Sends menu choices to the event loop, and rebuilds the menu on each
-/// click's mouse-down, before it opens.
+/// Sends menu choices to the event loop, rebuilds the menu from the
+/// latest view on each click's mouse-down, before it opens, and tells the
+/// event loop the menu opened and, on macOS, closed.
 pub(crate) fn listen(proxy: EventLoopProxy<UserEvent>) {
+    let choices = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         // The loop has stopped: the Kennel is quitting.
-        let _ = proxy.send_event(UserEvent::Menu(event.id));
+        let _ = choices.send_event(UserEvent::Menu(event.id));
     }));
-    TrayIconEvent::set_event_handler(Some(|event: TrayIconEvent| {
+    let opened = proxy.clone();
+    TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
         if let TrayIconEvent::Click {
             button_state: MouseButtonState::Down,
             ..
         } = event
         {
-            with_tray(Tray::draw_menu);
+            with_tray(|tray| {
+                let rows = tray.latest.rows.clone();
+                tray.draw_rows(&rows);
+            });
+            if FOLLOWS_THE_MENU {
+                let _ = opened.send_event(UserEvent::MenuOpened);
+            }
         }
     }));
+    #[cfg(target_os = "macos")]
+    menu_closed::observe(move || {
+        let _ = proxy.send_event(UserEvent::MenuClosed);
+    });
 }
 
 /// Puts the icon in the menu bar, drawing `view`. Call it once the event
@@ -64,25 +96,30 @@ pub(crate) fn install(view: View) -> tray_icon::Result<()> {
         icon,
         menu,
         choices: Vec::new(),
-        view,
+        latest: view,
     };
-    tray.draw_menu();
+    let rows = tray.latest.rows.clone();
+    tray.draw_rows(&rows);
     TRAY.with(|cell| *cell.borrow_mut() = Some(tray));
     Ok(())
 }
 
-/// Draws `view`, the icon only when its verdict changed.
-pub(crate) fn show(view: View) {
+/// Keeps `view` as the latest, which the menu draws as it opens; draws
+/// nothing.
+pub(crate) fn keep(view: View) {
+    with_tray(|tray| tray.latest = view);
+}
+
+/// Draws `frame`: the icon of its verdict, its rows into the menu.
+pub(crate) fn draw(frame: Frame) {
     with_tray(|tray| {
-        if tray.view.verdict != view.verdict
-            && let Err(error) = tray.icon.set_icon_templated(Some(icon(view.verdict)))
+        if let Some(verdict) = frame.verdict
+            && let Err(error) = tray.icon.set_icon_templated(Some(icon(verdict)))
         {
             tracing::warn!(%error, "the icon was not redrawn");
         }
-        let changed_rows = tray.view.rows != view.rows;
-        tray.view = view;
-        if changed_rows {
-            tray.draw_menu();
+        if let Some(rows) = frame.rows {
+            tray.draw_rows(&rows);
         }
     });
 }
@@ -108,15 +145,23 @@ fn with_tray(change: impl FnOnce(&mut Tray)) {
 }
 
 impl Tray {
-    /// Replaces the menu's items with the view's rows.
-    fn draw_menu(&mut self) {
+    /// Replaces the menu's items with `rows`.
+    fn draw_rows(&mut self, rows: &[Row]) {
         while self.menu.remove_at(0).is_some() {}
         self.choices.clear();
-        for row in &self.view.rows {
+        for row in rows {
             let appended = match row {
-                Row::Text(text) => self.menu.append(&MenuItem::new(text, false, None)),
-                Row::Choice { label, choice } => {
-                    let item = MenuItem::new(label, true, None);
+                Row::Text(text) => self.menu.append(&MenuItem::new(label(text), false, None)),
+                Row::Detail(text) => self.menu.append(&MenuItem::new(
+                    label(&format!("{INDENT}{text}")),
+                    false,
+                    None,
+                )),
+                Row::Choice {
+                    label: text,
+                    choice,
+                } => {
+                    let item = MenuItem::new(label(text), true, None);
                     self.choices.push((item.id().clone(), *choice));
                     self.menu.append(&item)
                 }
@@ -129,26 +174,43 @@ impl Tray {
     }
 }
 
+/// `text` as a `muda` label, which reads `&` as the mark of a mnemonic
+/// and `&&` as a plain `&`.
+fn label(text: &str) -> String {
+    text.replace('&', "&&")
+}
+
 /// The icon of `verdict`, drawn as a template image so the menu bar tints
-/// it, with no numbers: a filled disc for an idle Daemon, a ring for an
-/// unreachable one.
+/// it, with no numbers (ADR 0141):
+/// - unreachable: a ring;
+/// - a Needs you item: a disc with an exclamation mark cut out;
+/// - a Run failed or stopped by a Limit: a disc with a bar cut across it;
+/// - running: a ring with its left half filled;
+/// - idle: a filled disc.
 fn icon(verdict: Verdict) -> Icon {
     const SIZE: u32 = 32;
     let centre = (f64::from(SIZE) - 1.0) / 2.0;
     let outer = centre - 3.0;
-    let inner = match verdict {
-        Verdict::Idle => 0.0,
-        Verdict::Unreachable => outer - 4.0,
-    };
+    let ring = outer - 4.0;
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let distance = (f64::from(x) - centre).hypot(f64::from(y) - centre);
-            let alpha = if distance <= outer && distance >= inner {
-                255
-            } else {
-                0
+            let dx = f64::from(x) - centre;
+            let dy = f64::from(y) - centre;
+            let distance = dx.hypot(dy);
+            let disc = distance <= outer;
+            let filled = match verdict {
+                Verdict::Idle => disc,
+                Verdict::Unreachable => disc && distance >= ring,
+                Verdict::Running => disc && (distance >= ring || dx <= 0.0),
+                Verdict::Failed => disc && dy.abs() > 2.5,
+                Verdict::NeedsYou => {
+                    let stem = dx.abs() <= 2.0 && (-9.0..=3.0).contains(&dy);
+                    let dot = dx.abs() <= 2.0 && (6.0..=9.0).contains(&dy);
+                    disc && !stem && !dot
+                }
             };
+            let alpha = if filled { 255 } else { 0 };
             rgba.extend_from_slice(&[0, 0, 0, alpha]);
         }
     }

@@ -22,5 +22,11 @@ tracing-subscriber.workspace = true
 tray-icon.workspace = true
 winit.workspace = true
 
+# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
 {
-  "description": "The Kennel says hello to the Daemon as the kennel surface, with the runtime file's token, needing Collie and leaving the keep-alive flag out; a Foxhound Daemon accepts it, and the play ends once the Kennel closes the Connection.",
+  "description": "The Kennel says hello to the Daemon as the kennel surface, with the runtime file's token, needing Collie and leaving the keep-alive flag out; a Foxhound Daemon accepts it, and the Kennel subscribes to its events from a resync, with 64 credits. The play ends once the Kennel closes the Connection.",
   "steps": [
     {
       "expect": {
@@ -20,6 +20,26 @@
           "product": "foxhound",
           "product_version": "0.4.1",
           "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
         }
       }
     }

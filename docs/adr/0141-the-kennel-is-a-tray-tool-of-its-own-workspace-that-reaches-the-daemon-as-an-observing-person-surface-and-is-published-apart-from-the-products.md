@@ -42,6 +42,13 @@ The research behind the choices is kept in `rnd/research/2026-11-01-kennel-toolk
   - **Not a security boundary.** A surface is declared by the Client itself; the barrier stays the token.
 - **Reconnecting.** When the Daemon stops, the icon shows it stopped and offers Start. When `daemon.json` changes, the Kennel learns it from the platform's file notifications, not by polling, and reconnects. On a handover refusal it reconnects to the pick.
 - **Push, not poll.** The Kennel subscribes with `events.subscribe` (`run.axes_changed`, `needs_you.changed`) and grants about 64 credits, renewed as events are applied. A full queue falls back to `events.resync`, so no producer waits for the Kennel. It polls only `daemon.health`, on a slow timer. `engine.system_info` and `run.progress` are subscribed to only while the window shows them, `run.progress` for the Runs on screen.
+  > Note (agent decision, pending owner review), 2026-11-03, [#2055](https://github.com/goodfetch/goodfetch/issues/2055): the open menu counts as a view that shows the Runs, and the reads the menu needs stay within this budget.
+  > - **Counts and messages while the menu is open.** A crawl's succeeded, failed and pending counts exist only in `run.progress`, and `run.axes_changed` carries no progress message. While the menu is open, the Kennel follows `run.progress` for each Run the menu lists, at most 10. It reads each at once, then reads with `after` until the menu closes, which cancels the reads. While the menu is closed, it follows none. The menu is rebuilt from the latest data as the click starts and applies the fresh values within one round trip.
+  > - **Initial state.** Each subscription names a position ahead of any the engine gave, which starts it with `events.resync` (ADR 0031). The Kennel then starts from the Daemon's live Runs and Needs you items, with no gap before the stream.
+  > - **Rows and stop reasons.** The Kennel reads `run.list` of the running Runs after each resync, and when a Run it has no row for starts. That gives each Run's Recipe and progress message. It reads one `run.progress` of a Run that stopped, since `run.axes_changed` carries no stop reason and "stopped by a Limit" needs it.
+  > - **Other platforms.** On Linux and Windows, `tray-icon` reports neither the menu's opening nor its closing. There, the menu counts as open for as long as the Kennel runs.
+  >
+  > Rejected: following every live Run's progress at all times, which keeps a long poll per Run open with no one looking; and a read on each menu opening without `after`, whose open menu then does not stay live.
 
 ### Data, controls and features
 

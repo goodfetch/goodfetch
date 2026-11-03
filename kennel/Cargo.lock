@@ -818,7 +818,10 @@ name = "goodfetch-kennel-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "block2 0.6.2",
  "goodfetch-kennel",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "tokio",
  "tokio-util",
  "tracing",

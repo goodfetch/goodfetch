@@ -1,0 +1,88 @@
+{
+  "description": "The Kennel's subscription starts with events.resync, as a full queue's does too, then a Run's axes change; an event the Kennel does not read is skipped. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 2,
+            "events": [
+              {
+                "position": 41,
+                "event": "events.resync",
+                "data": {
+                  "runs": [
+                    {
+                      "run_id": "shop-crawl",
+                      "lifecycle": "running"
+                    }
+                  ],
+                  "needs_you": []
+                }
+              },
+              {
+                "position": 42,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "shop-crawl",
+                  "lifecycle": "failed"
+                }
+              },
+              {
+                "position": 43,
+                "event": "engine.system_info",
+                "data": {}
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

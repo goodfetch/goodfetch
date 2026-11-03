@@ -11,7 +11,23 @@ The Kennel is Goodfetch's local tool for watching and controlling the Runs of a 
   - The bundle identifier stays the same across builds, so a rebuild keeps the notice permission.
 - **On Linux and Windows** it builds and runs the executable.
 
-The icon shows one verdict for the Daemon, with no numbers: a ring while no Daemon is reachable, a filled disc when one is reached and idle. A left or a right click opens the menu, which shows the Daemon's state and Quit. With no Daemon running, the menu offers "Start Daemon".
+The icon shows one verdict for the Daemon, worst first, with no numbers:
+
+| Verdict | Icon |
+|---|---|
+| No Daemon is reachable | a ring |
+| A Needs you item waits | a disc with an exclamation mark cut out |
+| A Run failed or was stopped by a Limit | a disc with a bar cut across it |
+| A Run runs | a ring with its left half filled |
+| Idle | a filled disc |
+
+A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then Quit. With no Daemon running, the menu offers "Start Daemon".
+
+- **Each Run** shows its Recipe, or its Run ID when it ran none, and its Lifecycle. Its progress message goes on the line below. On a Foxhound Daemon, a crawl also shows its succeeded, failed and pending counts.
+- **What it lists.** The menu lists at most 10 Runs and counts the others. A Run that failed or was stopped by a Limit comes first. It stays in the menu and in the icon until the menu that showed it closes.
+- **Fresh and live.** The menu is rebuilt from the latest data when the click starts, before it opens, and it keeps updating while it stays open.
+- **Redraws.** There is at most one redraw a second, and no redraw of a hidden menu.
+- **Shown text.** Text from the Daemon, a Run's program or a crawled site is shown as plain text. Control and bidirectional characters are stripped and long text is truncated. Credentials are masked as `••••`: a URL's password, a credential's query parameter (`token`, `password`, `api_key`, a signed URL's signature) and the value after `Authorization:`. The engine already masks the Secret values a Run resolved.
 
 ## Which Daemon it reaches
 
@@ -21,6 +37,11 @@ The icon shows one verdict for the Daemon, with no numbers: a ring while no Daem
 - **Protocol version.** A Daemon of another protocol version is named in the menu, with the version the Kennel needs.
 - **The token.** The Kennel reads the Daemon's token from the runtime file at each connection and keeps it in memory only. It sends the token only in `hello` and never logs it.
 - **It observes.** The Kennel holds the Daemon neither awake nor back from a handover.
+- **What it reads.** The Kennel reads what changes as it is pushed, not by polling:
+  - **The subscription.** It subscribes with `events.subscribe` and grants 64 credits. It renews them, at least 32 at a time, once it has applied the events they took. Each subscription starts with `events.resync`, which gives the live Runs and the Needs you items. A queue that filled while the Kennel was slow also comes back as `events.resync`.
+  - **The live Runs' rows.** It reads `run.list` of the running Runs after each resync, and when a Run it has no row for starts. A row gives the Run's Recipe and progress message.
+  - **Stop reasons.** It reads one `run.progress` of each Run that stopped, to learn whether a Limit stopped it.
+  - **While the menu is open.** It follows `run.progress` of each Run the menu lists: one read at once, then reads that wait for the next change. Closing the menu cancels them. This is how a crawl's counts and a Run's progress message stay current. On Linux and Windows, `tray-icon` does not report when the menu opens or closes, so the menu counts as open for as long as the Kennel runs.
 - **Start Daemon.**
   - The action runs `daemon start` of an installed Product, with no shell.
   - It uses the absolute path that the Product's executable recorded in `<home>/installed-executables.json`. Foxhound is preferred, since it contains Collie.

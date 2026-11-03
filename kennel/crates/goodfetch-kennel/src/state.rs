@@ -1,22 +1,70 @@
-//! The Kennel's pure model (ADR 0141): connection changes, the settings and
-//! the Daemon start's outcomes go in; the view the Tray draws and the
-//! effects to carry out come out. It knows no toolkit, socket or clock, so
-//! its tests script the inputs and read the view.
+//! The Kennel's pure model (ADR 0141): the Client's reports, the settings,
+//! the Daemon start's outcomes and the menu's opening and closing go in;
+//! the view the Tray draws, when to draw it, the effects to carry out and
+//! the reads the view needs come out. It knows no toolkit, socket or
+//! clock: the instants it paces redraws by are given to it, so its tests
+//! script the inputs and read the outputs.
+//!
+//! - **The verdict**, worst first: the Daemon unreachable, a Needs you
+//!   item, a Run failed or stopped by a Limit, a Run running, idle.
+//! - **The live Runs**, from the subscription's events, with their Recipe
+//!   or Run ID, their Lifecycle, their progress message and, on a Foxhound
+//!   Daemon, a crawl's succeeded, failed and pending counts. A Run that
+//!   failed or was stopped by a Limit stays listed, and in the verdict,
+//!   until the menu that showed it closes.
+//! - **The reads the view needs** ([`Wanted`]): the live Runs' rows of the
+//!   Run index after each resync, which starts every Connection's
+//!   subscription, and when a Run the rows do not hold starts; the
+//!   progress of each stopped Run until
+//!   its stop reason is known; and, only while the menu is open, the
+//!   progress of each Run it shows.
+//! - **Redraws**: at most one a second, and none of the menu while it is
+//!   hidden, since the Tray draws the latest view as it opens.
+//!
+//! Every string shown passes through the Text function.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::progress::RequestProgress;
+use goodfetch_protocol::run::{
+    Lifecycle, RECIPE_TAG, RunAxes, RunId, RunIndexRow, RunProgress, StopReason,
+};
 
-use crate::client::{ConnectionChange, DaemonIdentity, Refusal};
+use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted};
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
+use crate::text;
 
 #[cfg(test)]
 mod tests;
+
+/// The most Runs the menu lists; the others are counted.
+const MENU_RUNS: usize = 10;
+
+/// The most characters of a Recipe's name in the menu.
+const NAME_MOST: usize = 40;
+
+/// The most characters of a menu line.
+const LINE_MOST: usize = 80;
+
+/// The shortest time between two redraws.
+pub const REDRAW_PERIOD: Duration = Duration::from_secs(1);
 
 /// What reaches the State.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Input {
     /// The Client's Connection to the Daemon changed.
     Connection(ConnectionChange),
+    /// Events of the Daemon's subscription, in order.
+    Events(Vec<DaemonEvent>),
+    /// The live Runs' rows of the Run index, as `run.list` answered.
+    LiveRuns(Vec<RunIndexRow>),
+    /// A Run's progress, as `run.progress` answered.
+    Progress(RunProgress),
+    /// The menu opened or closed.
+    Menu(MenuChange),
     /// The installed Product found at launch, whose `daemon start` the
     /// Kennel offers; none when no Product is installed.
     Installed(Option<InstalledProduct>),
@@ -25,6 +73,15 @@ pub enum Input {
     Settings(Result<Settings, SettingsError>),
     /// The `daemon start` the person chose has ended.
     StartEnded(Result<(), StartFailure>),
+}
+
+/// The menu opened or closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuChange {
+    /// It opened at this instant, drawing the latest view.
+    Opened(Instant),
+    /// It closed.
+    Closed,
 }
 
 /// What a person can choose in the menu.
@@ -45,12 +102,17 @@ pub enum Effect {
     Quit,
 }
 
-/// The one verdict the icon shows, worst first (ADR 0141); later tickets
-/// add the states between.
+/// The one verdict the icon shows, worst first (ADR 0141).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
     /// No Daemon this Kennel can talk to.
     Unreachable,
+    /// A Needs you item waits.
+    NeedsYou,
+    /// A Run failed or was stopped by a Limit.
+    Failed,
+    /// A Run runs.
+    Running,
     /// A Daemon is reached and nothing needs the person.
     Idle,
 }
@@ -60,6 +122,8 @@ pub enum Verdict {
 pub enum Row {
     /// A line the person reads.
     Text(String),
+    /// A line the person reads under the one above, drawn indented.
+    Detail(String),
     /// A line the person chooses.
     Choice {
         /// What the line says.
@@ -78,6 +142,47 @@ pub struct View {
     pub verdict: Verdict,
     /// The menu, top to bottom.
     pub rows: Vec<Row>,
+}
+
+impl View {
+    /// The view of `verdict` and `rows`, each row's text made safe to
+    /// show by the Text function.
+    fn new(verdict: Verdict, rows: Vec<Row>) -> Self {
+        let rows = rows
+            .into_iter()
+            .map(|row| match row {
+                Row::Text(line) => Row::Text(text::shown(&line, LINE_MOST)),
+                Row::Detail(line) => Row::Detail(text::shown(&line, LINE_MOST)),
+                Row::Choice { label, choice } => Row::Choice {
+                    label: text::shown(&label, LINE_MOST),
+                    choice,
+                },
+                Row::Separator => Row::Separator,
+            })
+            .collect();
+        Self { verdict, rows }
+    }
+}
+
+/// Whether the Tray redraws now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Redraw {
+    /// Draw this now.
+    Now(Frame),
+    /// A redraw is due at this instant, not before.
+    At(Instant),
+    /// Nothing to draw.
+    Nothing,
+}
+
+/// What a redraw draws.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frame {
+    /// The icon's new verdict, when it changed.
+    pub verdict: Option<Verdict>,
+    /// The menu's new rows, when they changed while it is open, or at the
+    /// first draw.
+    pub rows: Option<Vec<Row>>,
 }
 
 /// The Daemon as the Client last reported it.
@@ -107,6 +212,72 @@ enum Start {
     Failed(StartFailure),
 }
 
+/// Where a Run the State follows is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// It runs.
+    Running,
+    /// It stopped, and its stop reason is read.
+    Stopping,
+    /// It failed.
+    Failed,
+    /// It was stopped by a Limit.
+    StoppedByLimit,
+}
+
+impl Phase {
+    /// Whether it ended in a state that needs the person.
+    fn needs_a_look(self) -> bool {
+        matches!(self, Self::Failed | Self::StoppedByLimit)
+    }
+}
+
+/// A Run the State follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Run {
+    phase: Phase,
+    /// Its progress message, from its last progress read.
+    message: Option<String>,
+    /// A crawl's counts, from its last progress read.
+    counts: Option<Counts>,
+    /// Whether an open menu showed it since it ended.
+    seen: bool,
+}
+
+impl Run {
+    fn new(phase: Phase) -> Self {
+        Self {
+            phase,
+            message: None,
+            counts: None,
+            seen: false,
+        }
+    }
+}
+
+/// A crawl's requests the menu counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Counts {
+    succeeded: u64,
+    failed: u64,
+    pending: u64,
+}
+
+/// What the Run index's row says of a live Run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Facts {
+    recipe: Option<String>,
+    message: Option<String>,
+}
+
+/// What the Tray last drew.
+#[derive(Clone, Debug)]
+struct Drawn {
+    at: Instant,
+    verdict: Verdict,
+    rows: Vec<Row>,
+}
+
 /// The Kennel's model.
 #[derive(Debug)]
 pub struct State {
@@ -115,6 +286,17 @@ pub struct State {
     installed: Option<InstalledProduct>,
     settings: Settings,
     settings_error: Option<SettingsError>,
+    /// The Runs followed: the live ones, those that stopped for a reason
+    /// not yet read, and those that ended in a state that needs a look.
+    runs: BTreeMap<RunId, Run>,
+    /// The live Runs' rows, as `run.list` last answered.
+    facts: BTreeMap<RunId, Facts>,
+    /// The Needs you items listed, by ID.
+    needs_you: BTreeSet<String>,
+    /// Bumped each time the live Runs' rows are to be read again.
+    live_runs: u64,
+    menu_open: bool,
+    drawn: Option<Drawn>,
 }
 
 impl Default for State {
@@ -133,6 +315,12 @@ impl State {
             installed: None,
             settings: Settings::default(),
             settings_error: None,
+            runs: BTreeMap::new(),
+            facts: BTreeMap::new(),
+            needs_you: BTreeSet::new(),
+            live_runs: 0,
+            menu_open: false,
+            drawn: None,
         }
     }
 
@@ -140,20 +328,43 @@ impl State {
     /// since the Kennel never starts a Daemon by itself.
     pub fn apply(&mut self, input: Input) -> Vec<Effect> {
         match input {
-            Input::Connection(change) => {
-                self.daemon = match change {
-                    ConnectionChange::NoDaemon => Daemon::None,
-                    ConnectionChange::Connected(identity) => Daemon::Reached(identity),
-                    ConnectionChange::Refused(refusal) => Daemon::Refused(refusal),
-                };
-                // A start that ended well waits for the Client's next
-                // report; a reached Daemon makes a failed one moot.
-                let reached = matches!(self.daemon, Daemon::Reached(_));
-                if self.start == Start::Started
-                    || (reached && matches!(self.start, Start::Failed(_)))
-                {
-                    self.start = Start::Idle;
+            Input::Connection(change) => self.connection(change),
+            Input::Events(events) => {
+                for event in events {
+                    self.event(event);
                 }
+            }
+            Input::LiveRuns(rows) => {
+                self.facts = rows
+                    .into_iter()
+                    .map(|row| {
+                        let facts = Facts {
+                            recipe: row.tags.reserved(RECIPE_TAG).map(str::to_owned),
+                            message: row.progress_message,
+                        };
+                        (row.run_id, facts)
+                    })
+                    .collect();
+            }
+            Input::Progress(progress) => self.progress(&progress),
+            Input::Menu(MenuChange::Opened(at)) => {
+                self.menu_open = true;
+                let view = self.view();
+                let verdict = self
+                    .drawn
+                    .as_ref()
+                    .map_or(view.verdict, |drawn| drawn.verdict);
+                self.drawn = Some(Drawn {
+                    at,
+                    verdict,
+                    rows: view.rows,
+                });
+                self.mark_seen();
+            }
+            Input::Menu(MenuChange::Closed) => {
+                self.menu_open = false;
+                self.runs
+                    .retain(|_, run| !(run.phase.needs_a_look() && run.seen));
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
@@ -186,12 +397,31 @@ impl State {
         }
     }
 
+    /// The reads the view needs now.
+    pub fn wanted(&self) -> Wanted {
+        let mut progress: BTreeSet<RunId> = self
+            .runs
+            .iter()
+            .filter(|(_, run)| run.phase == Phase::Stopping)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if self.menu_open && matches!(self.daemon, Daemon::Reached(_)) {
+            progress.extend(
+                self.listed()
+                    .0
+                    .into_iter()
+                    .filter(|(_, run)| run.phase == Phase::Running)
+                    .map(|(id, _)| id.clone()),
+            );
+        }
+        Wanted {
+            live_runs: self.live_runs,
+            progress,
+        }
+    }
+
     /// What the Tray draws now.
     pub fn view(&self) -> View {
-        let verdict = match self.daemon {
-            Daemon::Reached(_) => Verdict::Idle,
-            Daemon::Looking | Daemon::None | Daemon::Refused(_) => Verdict::Unreachable,
-        };
         let mut rows = Vec::new();
         match (&self.start, &self.daemon) {
             (Start::Running | Start::Started, _) => {
@@ -227,12 +457,245 @@ impl State {
                 "kennel.toml cannot be read, so the defaults apply: {error}"
             )));
         }
+        if let Daemon::Reached(identity) = &self.daemon {
+            self.run_rows(identity.product, &mut rows);
+        }
         rows.push(Row::Separator);
         rows.push(Row::Choice {
             label: "Quit".to_owned(),
             choice: Choice::Quit,
         });
-        View { verdict, rows }
+        View::new(self.verdict(), rows)
+    }
+
+    /// Whether the Tray redraws at `now`: when the view changed since its
+    /// last draw, at most once each [`REDRAW_PERIOD`], and the menu's rows
+    /// only while the menu is open.
+    pub fn redraw(&mut self, now: Instant) -> Redraw {
+        let view = self.view();
+        let Some(drawn) = &self.drawn else {
+            self.drawn = Some(Drawn {
+                at: now,
+                verdict: view.verdict,
+                rows: view.rows.clone(),
+            });
+            return Redraw::Now(Frame {
+                verdict: Some(view.verdict),
+                rows: Some(view.rows),
+            });
+        };
+        let verdict = (drawn.verdict != view.verdict).then_some(view.verdict);
+        let rows = (self.menu_open && drawn.rows != view.rows).then_some(view.rows);
+        if verdict.is_none() && rows.is_none() {
+            return Redraw::Nothing;
+        }
+        let due = drawn.at + REDRAW_PERIOD;
+        if now < due {
+            return Redraw::At(due);
+        }
+        let drawn_rows = rows.clone().unwrap_or_else(|| drawn.rows.clone());
+        self.drawn = Some(Drawn {
+            at: now,
+            verdict: verdict.unwrap_or(drawn.verdict),
+            rows: drawn_rows,
+        });
+        if rows.is_some() {
+            self.mark_seen();
+        }
+        Redraw::Now(Frame { verdict, rows })
+    }
+
+    fn connection(&mut self, change: ConnectionChange) {
+        self.daemon = match change {
+            ConnectionChange::NoDaemon => Daemon::None,
+            ConnectionChange::Connected(identity) => Daemon::Reached(identity),
+            ConnectionChange::Refused(refusal) => Daemon::Refused(refusal),
+        };
+        // What the Daemon holds comes again with the resync that starts
+        // each Connection's subscription, after which the live Runs' rows
+        // are read; the Runs that need a look are the Kennel's own record.
+        self.runs.retain(|_, run| run.phase.needs_a_look());
+        self.needs_you.clear();
+        let reached = matches!(self.daemon, Daemon::Reached(_));
+        // A start that ended well waits for the Client's next report; a
+        // reached Daemon makes a failed one moot.
+        if self.start == Start::Started || (reached && matches!(self.start, Start::Failed(_))) {
+            self.start = Start::Idle;
+        }
+    }
+
+    fn event(&mut self, event: DaemonEvent) {
+        match event {
+            DaemonEvent::Resync(resync) => {
+                let live: BTreeSet<&RunId> = resync.runs.iter().map(|axes| &axes.run_id).collect();
+                // A Run held as running that the resync leaves out ended.
+                for (id, run) in &mut self.runs {
+                    if run.phase == Phase::Running && !live.contains(id) {
+                        run.phase = Phase::Stopping;
+                    }
+                }
+                for axes in resync.runs {
+                    self.axes(axes);
+                }
+                self.needs_you = resync.needs_you.into_iter().map(|item| item.id).collect();
+                self.live_runs += 1;
+            }
+            DaemonEvent::RunAxes(axes) => {
+                let known = self.facts.contains_key(&axes.run_id);
+                if axes.lifecycle == Lifecycle::Running && !known {
+                    self.live_runs += 1;
+                }
+                self.axes(axes);
+            }
+            DaemonEvent::NeedsYou(change) => match change {
+                goodfetch_protocol::needs_you::NeedsYouChange::Listed { item } => {
+                    self.needs_you.insert(item.id);
+                }
+                goodfetch_protocol::needs_you::NeedsYouChange::Removed { id, .. } => {
+                    self.needs_you.remove(&id);
+                }
+            },
+        }
+    }
+
+    /// A Run's axes as they are now.
+    fn axes(&mut self, axes: RunAxes) {
+        let phase = match axes.lifecycle {
+            Lifecycle::Running => Phase::Running,
+            Lifecycle::Failed => Phase::Failed,
+            // Its stop reason, which says whether a Limit stopped it, is
+            // read from its progress.
+            Lifecycle::Stopped => Phase::Stopping,
+            Lifecycle::Finished => {
+                self.runs.remove(&axes.run_id);
+                return;
+            }
+        };
+        let run = self
+            .runs
+            .entry(axes.run_id)
+            .or_insert_with(|| Run::new(phase));
+        if run.phase != phase {
+            run.phase = phase;
+            run.seen = false;
+        }
+    }
+
+    fn progress(&mut self, progress: &RunProgress) {
+        let Some(run) = self.runs.get_mut(&progress.run_id) else {
+            return;
+        };
+        if let Some(message) = &progress.message {
+            run.message = Some(message.as_str().to_owned());
+        }
+        if let Some(requests) = progress
+            .kind_parts
+            .get("requests")
+            .and_then(|requests| serde_json::from_value::<RequestProgress>(requests.clone()).ok())
+        {
+            run.counts = Some(Counts {
+                succeeded: requests.succeeded,
+                failed: requests.failed,
+                pending: requests.pending,
+            });
+        }
+        let phase = match (progress.lifecycle, &progress.stop_reason, progress.last) {
+            (Lifecycle::Running, _, _) => Phase::Running,
+            (Lifecycle::Failed, _, _) => Phase::Failed,
+            (Lifecycle::Stopped, Some(StopReason::Limit(_)), _) => Phase::StoppedByLimit,
+            (Lifecycle::Stopped, _, false) => Phase::Stopping,
+            (Lifecycle::Stopped, _, true) | (Lifecycle::Finished, _, _) => {
+                self.runs.remove(&progress.run_id);
+                return;
+            }
+        };
+        if run.phase != phase {
+            run.phase = phase;
+            run.seen = false;
+        }
+    }
+
+    /// The verdict, worst first.
+    fn verdict(&self) -> Verdict {
+        if !matches!(self.daemon, Daemon::Reached(_)) {
+            Verdict::Unreachable
+        } else if !self.needs_you.is_empty() {
+            Verdict::NeedsYou
+        } else if self.runs.values().any(|run| run.phase.needs_a_look()) {
+            Verdict::Failed
+        } else if self.runs.values().any(|run| run.phase == Phase::Running) {
+            Verdict::Running
+        } else {
+            Verdict::Idle
+        }
+    }
+
+    /// The Runs the menu lists, those that need a look first, then by Run
+    /// ID, and how many more it leaves out.
+    fn listed(&self) -> (Vec<(&RunId, &Run)>, usize) {
+        let mut listed: Vec<(&RunId, &Run)> = self
+            .runs
+            .iter()
+            .filter(|(_, run)| run.phase != Phase::Stopping)
+            .collect();
+        listed.sort_by_key(|(id, run)| (!run.phase.needs_a_look(), *id));
+        let more = listed.len().saturating_sub(MENU_RUNS);
+        listed.truncate(MENU_RUNS);
+        (listed, more)
+    }
+
+    /// The menu's rows of the Runs, under a Daemon of `product`.
+    fn run_rows(&self, product: Product, rows: &mut Vec<Row>) {
+        let (listed, more) = self.listed();
+        if listed.is_empty() {
+            return;
+        }
+        rows.push(Row::Separator);
+        for (id, run) in listed {
+            let facts = self.facts.get(id);
+            let name = facts.and_then(|facts| facts.recipe.as_deref()).map_or_else(
+                || id.as_str().to_owned(),
+                |recipe| text::shown(recipe, NAME_MOST),
+            );
+            rows.push(Row::Text(format!("{name} — {}", lifecycle(run.phase))));
+            let message = run
+                .message
+                .as_deref()
+                .or_else(|| facts.and_then(|facts| facts.message.as_deref()));
+            if let Some(message) = message {
+                rows.push(Row::Detail(message.to_owned()));
+            }
+            // A crawl's counts are Foxhound's.
+            if let (Product::Foxhound, Some(counts)) = (product, run.counts) {
+                rows.push(Row::Detail(format!(
+                    "{} succeeded, {} failed, {} pending",
+                    counts.succeeded, counts.failed, counts.pending
+                )));
+            }
+        }
+        if more > 0 {
+            rows.push(Row::Text(format!(
+                "{more} more {}",
+                if more == 1 { "Run" } else { "Runs" }
+            )));
+        }
+    }
+
+    /// Marks each Run that needs a look and that the open menu lists as
+    /// seen.
+    fn mark_seen(&mut self) {
+        let listed: Vec<RunId> = self
+            .listed()
+            .0
+            .into_iter()
+            .filter(|(_, run)| run.phase.needs_a_look())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in listed {
+            if let Some(run) = self.runs.get_mut(&id) {
+                run.seen = true;
+            }
+        }
     }
 
     /// The Product whose `daemon start` the menu offers now.
@@ -240,6 +703,15 @@ impl State {
         let idle = matches!(self.start, Start::Idle | Start::Failed(_));
         let offered = idle && self.daemon == Daemon::None && self.settings.controls;
         self.installed.as_ref().filter(|_| offered)
+    }
+}
+
+/// What the menu says of a Run's Lifecycle.
+fn lifecycle(phase: Phase) -> &'static str {
+    match phase {
+        Phase::Running | Phase::Stopping => "Running",
+        Phase::Failed => "Failed",
+        Phase::StoppedByLimit => "Stopped by a Limit",
     }
 }
 

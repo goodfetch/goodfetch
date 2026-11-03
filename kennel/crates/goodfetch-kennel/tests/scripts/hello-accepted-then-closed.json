@@ -1,5 +1,5 @@
 {
-  "description": "A Foxhound Daemon accepts the Kennel's hello, then closes the Connection, as a Daemon that stops does.",
+  "description": "A Foxhound Daemon accepts the Kennel's hello and its subscription, then closes the Connection, as a Daemon that stops does.",
   "steps": [
     {
       "expect": {
@@ -20,6 +20,26 @@
           "product": "foxhound",
           "product_version": "0.4.1",
           "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
         }
       }
     },

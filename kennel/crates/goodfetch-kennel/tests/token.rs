@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use goodfetch_kennel::client::{self, ConnectionChange};
+use goodfetch_kennel::client::{self, ConnectionChange, Report, Wanted};
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::tasks::Tasks;
 use tracing_subscriber::fmt::MakeWriter;
@@ -102,12 +102,16 @@ fn the_daemons_token_never_reaches_the_logs() {
     let tasks = Tasks::new(runtime.handle().clone());
     let (sender_of_changes, mut changes) = tokio::sync::mpsc::channel(4);
     let (_look_again, look_again) = tokio::sync::mpsc::channel(1);
+    let (_wanted, wanted) = tokio::sync::watch::channel(Wanted::default());
     tasks.spawn(client::follow(
         tasks.clone(),
         home,
         look_again,
-        move |change| {
-            let _ = sender_of_changes.try_send(change);
+        wanted,
+        move |report| {
+            if let Report::Connection(change) = report {
+                let _ = sender_of_changes.try_send(change);
+            }
         },
     ));
 

@@ -5,43 +5,84 @@
     reason = "the tests write a home's files on the test thread, outside any runtime"
 )]
 
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::path::Path;
 
-use goodfetch_kennel::client::{self, ConnectionChange, DaemonIdentity, Refusal};
+use goodfetch_kennel::client::{
+    self, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Report, Wanted,
+};
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonRuntimeFile, DaemonToken};
-use tokio::sync::mpsc;
+use goodfetch_protocol::run::{Lifecycle, RunId};
+use tokio::runtime::Runtime;
+use tokio::sync::{mpsc, watch};
 
 use crate::support::{ScriptedDaemon, next, reports, runtime, script, scripted_engine};
 
 const TOKEN: &str = "kennel-test-token";
 
-/// Follows the Daemon of `home` and returns its first `count` reports.
-fn first_reports(home: &Home, count: usize) -> Vec<ConnectionChange> {
-    let runtime = runtime();
-    let (tasks, report, mut reports) = reports(&runtime);
-    let (_look_again, look_again) = mpsc::channel(1);
-    tasks.spawn(client::follow(
-        tasks.clone(),
-        home.clone(),
-        look_again,
-        report,
-    ));
-    runtime.block_on(async {
-        let mut seen = Vec::new();
-        for _ in 0..count {
-            seen.push(next(&mut reports).await);
+/// The Client following the Daemon of a home, with the reads it is asked
+/// for.
+struct Following {
+    runtime: Runtime,
+    reports: mpsc::Receiver<Report>,
+    wanted: watch::Sender<Wanted>,
+    _look_again: mpsc::Sender<()>,
+}
+
+impl Following {
+    /// Follows the Daemon of `home`, asked first for `wanted`.
+    fn start(home: &Home, wanted: Wanted) -> Self {
+        let runtime = runtime();
+        let (tasks, report, reports) = reports(&runtime);
+        let (look_again, looks) = mpsc::channel(1);
+        let (wanted, wanted_now) = watch::channel(wanted);
+        tasks.spawn(client::follow(
+            tasks.clone(),
+            home.clone(),
+            looks,
+            wanted_now,
+            report,
+        ));
+        Self {
+            runtime,
+            reports,
+            wanted,
+            _look_again: look_again,
         }
-        seen
-    })
+    }
+
+    /// The next report.
+    fn next(&mut self) -> Report {
+        self.runtime.block_on(next(&mut self.reports))
+    }
+
+    /// The next report, which is a change of the Connection.
+    fn next_change(&mut self) -> ConnectionChange {
+        match self.next() {
+            Report::Connection(change) => change,
+            other => panic!("a change of the Connection, not {other:?}"),
+        }
+    }
+}
+
+/// Follows the Daemon of `home` and returns its first `count` changes of
+/// the Connection.
+fn first_changes(home: &Home, count: usize) -> Vec<ConnectionChange> {
+    let mut following = Following::start(home, Wanted::default());
+    (0..count).map(|_| following.next_change()).collect()
+}
+
+fn run_id(run: &str) -> RunId {
+    RunId::parse(run).unwrap()
 }
 
 #[test]
-fn a_kennel_says_hello_as_the_kennel_surface_and_reads_the_daemons_product() {
+fn a_kennel_says_hello_as_the_kennel_surface_reads_the_daemons_product_and_subscribes() {
     let Some(engine) = scripted_engine("a_kennel_says_hello_as_the_kennel_surface") else {
         return;
     };
@@ -54,7 +95,7 @@ fn a_kennel_says_hello_as_the_kennel_surface_and_reads_the_daemons_product() {
         TOKEN,
     );
 
-    let seen = first_reports(&home, 1);
+    let seen = first_changes(&home, 1);
 
     assert_eq!(
         seen,
@@ -65,7 +106,7 @@ fn a_kennel_says_hello_as_the_kennel_surface_and_reads_the_daemons_product() {
     );
     assert!(
         daemon.ended().success(),
-        "the Daemon saw the hello it expected"
+        "the Daemon saw the hello and the subscription it expected"
     );
 }
 
@@ -84,13 +125,141 @@ fn a_daemon_that_closes_the_connection_is_reported_gone() {
         TOKEN,
     );
 
-    let seen = first_reports(&home, 2);
+    let seen = first_changes(&home, 2);
 
     assert!(
         matches!(seen[0], ConnectionChange::Connected(_)),
         "{seen:?}"
     );
     assert_eq!(seen[1], ConnectionChange::NoDaemon);
+}
+
+#[test]
+fn the_subscriptions_resync_and_axes_reach_the_kennel_as_typed_events() {
+    let Some(engine) = scripted_engine("the_subscriptions_resync_and_axes_reach_the_kennel") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("events-resync-then-axes.json"),
+        TOKEN,
+    );
+    let mut following = Following::start(&home, Wanted::default());
+    following.next_change();
+
+    let Report::Events(batch) = following.next() else {
+        panic!("a batch of events");
+    };
+
+    let (events, _applied) = batch.into_parts();
+    let [DaemonEvent::Resync(resync), DaemonEvent::RunAxes(axes)] = events.as_slice() else {
+        panic!("a resync, then a Run's axes: {events:?}");
+    };
+    assert_eq!(resync.runs[0].run_id, run_id("shop-crawl"));
+    assert_eq!(
+        (&axes.run_id, axes.lifecycle),
+        (&run_id("shop-crawl"), Lifecycle::Failed)
+    );
+    assert_eq!(following.next_change(), ConnectionChange::NoDaemon);
+    assert!(daemon.ended().success());
+}
+
+#[test]
+fn the_kennel_renews_half_its_credits_once_it_has_applied_the_events_they_took() {
+    let Some(engine) = scripted_engine("the_kennel_renews_half_its_credits") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("credits-renewed-as-events-are-applied.json"),
+        TOKEN,
+    );
+    let mut following = Following::start(&home, Wanted::default());
+    following.next_change();
+    let mut sizes = Vec::new();
+
+    for _ in 0..2 {
+        let Report::Events(batch) = following.next() else {
+            panic!("a batch of events");
+        };
+        sizes.push(batch.events.len());
+        // Dropping the batch once its events are applied gives their
+        // credits back.
+        drop(batch);
+    }
+
+    assert_eq!(sizes, [31, 1]);
+    assert_eq!(following.next_change(), ConnectionChange::NoDaemon);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw one renewal of 32 credits"
+    );
+}
+
+#[test]
+fn asked_for_the_live_runs_rows_the_kennel_reads_the_running_runs_of_the_run_index() {
+    let Some(engine) = scripted_engine("asked_for_the_live_runs_rows") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(&engine, &home, &script("live-runs-read.json"), TOKEN);
+    let mut following = Following::start(&home, Wanted::default());
+    following.next_change();
+
+    following.wanted.send_modify(|wanted| wanted.live_runs += 1);
+
+    let Report::LiveRuns(rows) = following.next() else {
+        panic!("the live Runs' rows");
+    };
+    assert_eq!(rows[0].run_id, run_id("shop-crawl"));
+    assert_eq!(following.next_change(), ConnectionChange::NoDaemon);
+    assert!(daemon.ended().success());
+}
+
+#[test]
+fn a_runs_progress_is_followed_while_the_view_wants_it_and_its_read_cancelled_after() {
+    let Some(engine) = scripted_engine("a_runs_progress_is_followed_while_the_view_wants_it")
+    else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("progress-followed-then-cancelled.json"),
+        TOKEN,
+    );
+    let wanted = Wanted {
+        live_runs: 0,
+        progress: BTreeSet::from([run_id("shop-crawl")]),
+    };
+    let mut following = Following::start(&home, wanted);
+    following.next_change();
+    let Report::Progress(progress) = following.next() else {
+        panic!("the Run's progress");
+    };
+
+    following
+        .wanted
+        .send_modify(|wanted| wanted.progress.clear());
+
+    assert_eq!(
+        (&progress.run_id, progress.position),
+        (&run_id("shop-crawl"), 5)
+    );
+    assert_eq!(following.next_change(), ConnectionChange::NoDaemon);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw the read followed with after, then cancelled"
+    );
 }
 
 #[test]
@@ -107,7 +276,7 @@ fn a_daemon_of_another_protocol_version_is_reported_with_the_version_the_kennel_
         TOKEN,
     );
 
-    let seen = first_reports(&home, 1);
+    let seen = first_changes(&home, 1);
 
     assert_eq!(
         seen,
@@ -123,7 +292,7 @@ fn a_daemon_of_another_protocol_version_is_reported_with_the_version_the_kennel_
 fn an_empty_home_has_no_daemon() {
     let folder = tempfile::tempdir().unwrap();
 
-    let seen = first_reports(&Home::new(folder.path()), 1);
+    let seen = first_changes(&Home::new(folder.path()), 1);
 
     assert_eq!(seen, [ConnectionChange::NoDaemon]);
 }
@@ -154,7 +323,7 @@ fn a_runtime_file_whose_serving_lock_nobody_holds_is_no_daemon() {
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
     File::create(major.join("daemon.lock")).unwrap();
 
-    let seen = first_reports(&Home::new(folder.path()), 1);
+    let seen = first_changes(&Home::new(folder.path()), 1);
 
     assert_eq!(seen, [ConnectionChange::NoDaemon]);
 }
@@ -166,7 +335,7 @@ fn a_held_serving_lock_beside_a_socket_nothing_listens_on_is_no_daemon() {
     let lock = File::create(major.join("daemon.lock")).unwrap();
     lock.try_lock().unwrap();
 
-    let seen = first_reports(&Home::new(folder.path()), 1);
+    let seen = first_changes(&Home::new(folder.path()), 1);
 
     assert_eq!(seen, [ConnectionChange::NoDaemon]);
 }

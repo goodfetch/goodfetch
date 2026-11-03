@@ -9,7 +9,8 @@
 //!   change;
 //! - `daemon_start`: the installed Product's `daemon start`;
 //! - `home`: the Goodfetch home and the files the Kennel reads in it;
-//! - `tasks`: the one tracker every task starts through.
+//! - `tasks`: the one tracker every task starts through;
+//! - `text`: the Text function, through which every shown string passes.
 
 pub mod client;
 pub mod daemon_start;
@@ -17,3 +18,4 @@ pub mod home;
 pub mod settings;
 pub mod state;
 pub mod tasks;
+pub mod text;

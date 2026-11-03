@@ -6,19 +6,23 @@
 //! 0060). Every task starts through the `Tasks` tracker, and a task reaches
 //! the UI only through the event loop's proxy, so the UI thread makes no
 //! blocking call. On macOS the Kennel has no Dock icon (`.accessory`).
+//!
+//! The State paces the redraws: after each input the Tray keeps the latest
+//! view, which it draws as the menu opens, and draws what the State says is
+//! due, the loop waking at the instant a paced redraw falls due.
 
 mod tray;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use goodfetch_kennel::client::{self, ConnectionChange};
+use goodfetch_kennel::client::{self, Report, Wanted};
 use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
-use goodfetch_kennel::state::{Effect, Input, State};
+use goodfetch_kennel::state::{Effect, Input, MenuChange, Redraw, State};
 use goodfetch_kennel::tasks::Tasks;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tray_icon::menu::MenuId;
 use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
@@ -33,8 +37,14 @@ const STOP_GRACE: Duration = Duration::from_secs(1);
 pub(crate) enum UserEvent {
     /// An input for the State, from a task.
     Input(Input),
+    /// What the Client reports.
+    Client(Report),
     /// The person chose a menu item.
     Menu(MenuId),
+    /// The menu opened, drawing the latest view.
+    MenuOpened,
+    /// The menu closed.
+    MenuClosed,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -79,13 +89,16 @@ fn main() -> anyhow::Result<()> {
 
     let tasks = Tasks::new(runtime.handle().clone());
     let (look_again, looks) = mpsc::channel(1);
-    start_tasks(&tasks, &home, looks, &proxy);
+    let (wanted, wanted_now) = watch::channel(Wanted::default());
+    start_tasks(&tasks, &home, looks, wanted_now, &proxy);
     let mut kennel = Kennel {
         state: State::new(),
         tasks: tasks.clone(),
         proxy,
         look_again,
+        wanted,
         installed: false,
+        next_draw: None,
     };
     let ran = event_loop.run_app(&mut kennel);
     runtime.block_on(tasks.stop(STOP_GRACE));
@@ -99,13 +112,14 @@ fn start_tasks(
     tasks: &Tasks,
     home: &Home,
     looks: mpsc::Receiver<()>,
+    wanted: watch::Receiver<Wanted>,
     proxy: &EventLoopProxy<UserEvent>,
 ) {
     let to_ui = |proxy: &EventLoopProxy<UserEvent>| {
         let proxy = proxy.clone();
-        move |input: Input| {
+        move |event: UserEvent| {
             // The loop has stopped: the Kennel is quitting.
-            let _ = proxy.send_event(UserEvent::Input(input));
+            let _ = proxy.send_event(event);
         }
     };
     let report = to_ui(proxy);
@@ -113,20 +127,23 @@ fn start_tasks(
         tasks.clone(),
         home.clone(),
         looks,
-        move |change: ConnectionChange| report(Input::Connection(change)),
+        wanted,
+        move |client: Report| report(UserEvent::Client(client)),
     ));
     let report = to_ui(proxy);
     tasks.spawn(settings::follow(
         tasks.clone(),
         home.clone(),
-        move |settings: Result<Settings, SettingsError>| report(Input::Settings(settings)),
+        move |settings: Result<Settings, SettingsError>| {
+            report(UserEvent::Input(Input::Settings(settings)));
+        },
     ));
     let report = to_ui(proxy);
     let lookup = home.clone();
     let blocking = tasks.clone();
     tasks.spawn(async move {
         let installed = blocking.blocking(move || daemon_start::find(&lookup)).await;
-        report(Input::Installed(installed));
+        report(UserEvent::Input(Input::Installed(installed)));
     });
 }
 
@@ -137,12 +154,17 @@ struct Kennel {
     proxy: EventLoopProxy<UserEvent>,
     /// Asks the Client to look for the Daemon again.
     look_again: mpsc::Sender<()>,
+    /// The reads the State wants the Client to keep in step with.
+    wanted: watch::Sender<Wanted>,
     /// Whether the icon is in the menu bar.
     installed: bool,
+    /// When a paced redraw falls due.
+    next_draw: Option<Instant>,
 }
 
 impl Kennel {
-    /// Carries out the State's `effects`, then draws its view.
+    /// Carries out the State's `effects`, then keeps the Client's reads
+    /// and the Tray in step with the State.
     fn carry_out(&mut self, event_loop: &ActiveEventLoop, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -163,24 +185,71 @@ impl Kennel {
                 }
             }
         }
+        let wanted = self.state.wanted();
+        self.wanted.send_if_modified(|now| {
+            let changed = *now != wanted;
+            *now = wanted;
+            changed
+        });
         if self.installed {
-            tray::show(self.state.view());
+            tray::keep(self.state.view());
+            self.redraw();
         }
     }
+
+    /// Draws what the State says is due now, or wakes the loop when it is.
+    fn redraw(&mut self) {
+        self.next_draw = match self.state.redraw(now()) {
+            Redraw::Now(frame) => {
+                tray::draw(frame);
+                None
+            }
+            Redraw::At(due) => Some(due),
+            Redraw::Nothing => None,
+        };
+    }
+}
+
+/// The instant the State paces its redraws by.
+fn now() -> Instant {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the Tray's one clock read: the State takes the instant it paces redraws by, and reads no clock itself (ADR 0059)"
+    )]
+    Instant::now()
 }
 
 impl ApplicationHandler<UserEvent> for Kennel {
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        // On macOS the status item is made once the loop runs, not before.
-        if matches!(cause, StartCause::Init) {
-            match tray::install(self.state.view()) {
-                Ok(()) => self.installed = true,
+        match cause {
+            // On macOS the status item is made once the loop runs, not
+            // before.
+            StartCause::Init => match tray::install(self.state.view()) {
+                Ok(()) => {
+                    self.installed = true;
+                    if !tray::FOLLOWS_THE_MENU {
+                        // Nothing says when the menu opens or closes here,
+                        // so it counts as open from launch.
+                        let effects = self.state.apply(Input::Menu(MenuChange::Opened(now())));
+                        self.carry_out(event_loop, effects);
+                    }
+                    self.redraw();
+                }
                 Err(error) => {
                     tracing::error!(%error, "the icon could not be put in the menu bar");
                     event_loop.exit();
                 }
-            }
+            },
+            StartCause::ResumeTimeReached { .. } => self.redraw(),
+            StartCause::WaitCancelled { .. } | StartCause::Poll => {}
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(match self.next_draw {
+            Some(due) => ControlFlow::WaitUntil(due),
+            None => ControlFlow::Wait,
+        });
     }
 
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
@@ -196,6 +265,23 @@ impl ApplicationHandler<UserEvent> for Kennel {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         let effects = match event {
             UserEvent::Input(input) => self.state.apply(input),
+            UserEvent::Client(Report::Connection(change)) => {
+                self.state.apply(Input::Connection(change))
+            }
+            UserEvent::Client(Report::Events(batch)) => {
+                // Dropping `applied` once the events are applied gives
+                // their credits back to the subscription.
+                let (events, applied) = batch.into_parts();
+                let effects = self.state.apply(Input::Events(events));
+                drop(applied);
+                effects
+            }
+            UserEvent::Client(Report::LiveRuns(rows)) => self.state.apply(Input::LiveRuns(rows)),
+            UserEvent::Client(Report::Progress(progress)) => {
+                self.state.apply(Input::Progress(progress))
+            }
+            UserEvent::MenuOpened => self.state.apply(Input::Menu(MenuChange::Opened(now()))),
+            UserEvent::MenuClosed => self.state.apply(Input::Menu(MenuChange::Closed)),
             UserEvent::Menu(id) => match tray::choice(&id) {
                 Some(choice) => self.state.choose(choice),
                 None => Vec::new(),

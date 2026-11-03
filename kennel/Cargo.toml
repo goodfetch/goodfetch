@@ -49,6 +49,11 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # The Tray (ADR 0141), at the versions #1915 checked on the owner's Mac.
 tray-icon = { version = "=0.26.1" }
 winit = { version = "=0.30.13" }
+# The menu's closing on macOS, from AppKit's notification, at the versions
+# `tray-icon` already locks.
+block2 = { version = "0.6.2", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSMenu"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSString"] }
 
 # The root workspace's `[workspace.lints]`, copied (see above).
 [workspace.lints.rust]

@@ -1,5 +1,8 @@
-//! The State module through its interface: inputs in, the view and the
-//! effects out, with no toolkit and no socket.
+//! The State module through its interface: inputs in, the view, the
+//! redraws, the effects and the reads wanted out, with no toolkit and no
+//! socket.
+
+mod runs;
 
 use std::path::PathBuf;
 
@@ -41,7 +44,7 @@ fn texts(state: &State) -> Vec<String> {
         .into_iter()
         .filter_map(|row| match row {
             Row::Text(text) => Some(text),
-            Row::Choice { .. } | Row::Separator => None,
+            Row::Detail(_) | Row::Choice { .. } | Row::Separator => None,
         })
         .collect()
 }
@@ -53,7 +56,7 @@ fn choices(state: &State) -> Vec<(String, Choice)> {
         .into_iter()
         .filter_map(|row| match row {
             Row::Choice { label, choice } => Some((label, choice)),
-            Row::Text(_) | Row::Separator => None,
+            Row::Text(_) | Row::Detail(_) | Row::Separator => None,
         })
         .collect()
 }

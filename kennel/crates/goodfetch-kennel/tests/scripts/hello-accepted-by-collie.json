@@ -1,0 +1,27 @@
+{
+  "description": "A Collie Daemon of version 0.4.2 accepts the Kennel's hello, which leaves the keep-alive flag out; the play ends once the Kennel closes the Connection.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.4.2",
+          "engine_instance": "fedcba9876543210"
+        }
+      }
+    }
+  ]
+}

@@ -20,7 +20,9 @@ The icon shows one verdict for the Daemon, with no numbers: a ring while no Daem
 - **`hello`.** It connects to the Daemon's socket and says `hello` as the `kennel` surface, needing Collie, which both Products contain. It reads the Daemon's Product from the answer.
 - **Protocol version.** A Daemon of another protocol version is named in the menu, with the version the Kennel needs.
 - **The token.** The Kennel reads the Daemon's token from the runtime file at each connection and keeps it in memory only. It sends the token only in `hello` and never logs it.
-- **It observes.** The Kennel holds the Daemon neither awake nor back from a handover.
+- **It observes.** The Kennel holds the Daemon neither awake nor back from a handover, unless `keep_daemon_alive` is on.
+- **Reconnecting.** The Kennel watches the home and each per-major folder through the platform's file notifications, never by polling. When a runtime file appears, changes or goes, it looks again. So it reaches a Daemon started from the CLI, an SDK or its own "Start Daemon". After a handover refusal, it reaches the major's pick once the pick runs. While connected, it moves to a newer major's Daemon that starts. A lost Connection makes it look again at once. A home that does not exist yet is watched from the next look, such as after "Start Daemon".
+- **Health.** Its one poll is `daemon.health`, every 30 seconds while connected. The menu shows the answer under the Daemon: "Serving", "Draining", or why it takes no new Run.
 - **Start Daemon.**
   - The action runs `daemon start` of an installed Product, with no shell.
   - It uses the absolute path that the Product's executable recorded in `<home>/installed-executables.json`. Foxhound is preferred, since it contains Collie.
@@ -34,6 +36,7 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | Key | Default | Off |
 |---|---|---|
 | `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon" included |
+| `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 
 Later features each add a switch here.
 

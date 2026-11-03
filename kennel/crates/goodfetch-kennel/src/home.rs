@@ -9,7 +9,7 @@
     reason = "the home's files are read on the tracker's blocking threads, through `Tasks::blocking` (STYLE.md)"
 )]
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -71,12 +71,9 @@ impl Home {
     /// a file a dead Daemon left is passed over. When several run, the
     /// newest major's wins. Blocks.
     pub fn running_daemon(&self) -> Option<DaemonRuntimeFile> {
-        let entries = fs::read_dir(&self.0).ok()?;
-        entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let order = major_order(&entry.file_name().to_string_lossy())?;
-                let folder = entry.path();
+        major_folders(&self.0)
+            .into_iter()
+            .filter_map(|(order, folder)| {
                 if !serving_lock_held(&folder) {
                     return None;
                 }
@@ -87,6 +84,35 @@ impl Home {
             .max_by_key(|(order, _)| *order)
             .map(|(_, runtime)| runtime)
     }
+}
+
+/// The per-major folders in the home at `home`, each with its major's
+/// order; none when the home cannot be read. Blocks.
+pub(crate) fn major_folders(home: &Path) -> Vec<((u64, u64), PathBuf)> {
+    let Ok(entries) = fs::read_dir(home) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            Some((
+                major_order(&entry.file_name().to_string_lossy())?,
+                entry.path(),
+            ))
+        })
+        .collect()
+}
+
+/// Whether a change to the entry `name` of the home or of a per-major
+/// folder can change which Daemon runs: a per-major folder, or a runtime
+/// file, which a Daemon writes when it starts, by rename, and removes
+/// when it stops.
+pub(crate) fn names_a_daemons_file(name: &OsStr) -> bool {
+    name == RUNTIME_FILE
+        || name
+            .to_str()
+            .is_some_and(|name| major_order(name).is_some())
 }
 
 /// Whether a Daemon holds the serving lock in `folder`: taking it fails
@@ -115,6 +141,11 @@ fn major_order(name: &str) -> Option<(u64, u64)> {
             major => Some((major, 0)),
         },
     }
+}
+
+/// `folder`'s canonical path, or `folder` when it has none. Blocks.
+pub(crate) fn canonical(folder: &Path) -> PathBuf {
+    fs::canonicalize(folder).unwrap_or_else(|_| folder.to_owned())
 }
 
 /// Reads the file at `path`, or none when it does not exist. Blocks.

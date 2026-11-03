@@ -18,7 +18,7 @@ use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
 use goodfetch_kennel::state::{Effect, Input, State};
 use goodfetch_kennel::tasks::Tasks;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tray_icon::menu::MenuId;
 use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
@@ -108,18 +108,32 @@ fn start_tasks(
             let _ = proxy.send_event(UserEvent::Input(input));
         }
     };
+    let (keep_alive, keep_daemon_alive) = watch::channel(Settings::default().keep_daemon_alive);
     let report = to_ui(proxy);
     tasks.spawn(client::follow(
         tasks.clone(),
-        home.clone(),
-        looks,
+        client::Follow {
+            home: home.clone(),
+            look_again: looks,
+            keep_daemon_alive,
+            health_every: client::HEALTH_EVERY,
+        },
         move |change: ConnectionChange| report(Input::Connection(change)),
     ));
     let report = to_ui(proxy);
     tasks.spawn(settings::follow(
         tasks.clone(),
         home.clone(),
-        move |settings: Result<Settings, SettingsError>| report(Input::Settings(settings)),
+        move |settings: Result<Settings, SettingsError>| {
+            // An unreadable file gives the defaults, as the State shows.
+            let wanted = settings
+                .as_ref()
+                .map_or(Settings::default().keep_daemon_alive, |settings| {
+                    settings.keep_daemon_alive
+                });
+            keep_alive.send_if_modified(|kept| std::mem::replace(kept, wanted) != wanted);
+            report(Input::Settings(settings));
+        },
     ));
     let report = to_ui(proxy);
     let lookup = home.clone();

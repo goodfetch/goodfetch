@@ -102,10 +102,15 @@ fn the_daemons_token_never_reaches_the_logs() {
     let tasks = Tasks::new(runtime.handle().clone());
     let (sender_of_changes, mut changes) = tokio::sync::mpsc::channel(4);
     let (_look_again, look_again) = tokio::sync::mpsc::channel(1);
+    let (_keep_alive, keep_daemon_alive) = tokio::sync::watch::channel(false);
     tasks.spawn(client::follow(
         tasks.clone(),
-        home,
-        look_again,
+        client::Follow {
+            home,
+            look_again,
+            keep_daemon_alive,
+            health_every: client::HEALTH_EVERY,
+        },
         move |change| {
             let _ = sender_of_changes.try_send(change);
         },

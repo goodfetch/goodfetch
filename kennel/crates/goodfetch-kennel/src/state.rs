@@ -4,6 +4,7 @@
 //! its tests script the inputs and read the view.
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 
 use crate::client::{ConnectionChange, DaemonIdentity, Refusal};
 use crate::daemon_start::{InstalledProduct, StartFailure};
@@ -87,8 +88,8 @@ enum Daemon {
     Looking,
     /// None runs.
     None,
-    /// Reached.
-    Reached(DaemonIdentity),
+    /// Reached, with its last health reading on this Connection.
+    Reached(DaemonIdentity, Option<DaemonHealth>),
     /// One runs, and refused this Kennel.
     Refused(Refusal),
 }
@@ -143,12 +144,22 @@ impl State {
             Input::Connection(change) => {
                 self.daemon = match change {
                     ConnectionChange::NoDaemon => Daemon::None,
-                    ConnectionChange::Connected(identity) => Daemon::Reached(identity),
+                    // Each Connection starts with no reading: nothing the
+                    // last one showed carries over.
+                    ConnectionChange::Connected(identity) => Daemon::Reached(identity, None),
                     ConnectionChange::Refused(refusal) => Daemon::Refused(refusal),
+                    ConnectionChange::Health(reading) => {
+                        // A reading the Client sent before it lost the
+                        // Daemon is of no Daemon now.
+                        if let Daemon::Reached(_, health) = &mut self.daemon {
+                            *health = Some(reading);
+                        }
+                        return Vec::new();
+                    }
                 };
                 // A start that ended well waits for the Client's next
                 // report; a reached Daemon makes a failed one moot.
-                let reached = matches!(self.daemon, Daemon::Reached(_));
+                let reached = matches!(self.daemon, Daemon::Reached(..));
                 if self.start == Start::Started
                     || (reached && matches!(self.start, Start::Failed(_)))
                 {
@@ -189,7 +200,7 @@ impl State {
     /// What the Tray draws now.
     pub fn view(&self) -> View {
         let verdict = match self.daemon {
-            Daemon::Reached(_) => Verdict::Idle,
+            Daemon::Reached(..) => Verdict::Idle,
             Daemon::Looking | Daemon::None | Daemon::Refused(_) => Verdict::Unreachable,
         };
         let mut rows = Vec::new();
@@ -198,11 +209,16 @@ impl State {
                 rows.push(Row::Text("Starting the Daemon…".to_owned()));
             }
             (_, Daemon::Looking) => rows.push(Row::Text("Looking for the Daemon…".to_owned())),
-            (_, Daemon::Reached(identity)) => rows.push(Row::Text(format!(
-                "{} Daemon {}",
-                product_name(identity.product),
-                identity.product_version
-            ))),
+            (_, Daemon::Reached(identity, health)) => {
+                rows.push(Row::Text(format!(
+                    "{} Daemon {}",
+                    product_name(identity.product),
+                    identity.product_version
+                )));
+                if let Some(health) = health {
+                    rows.push(Row::Text(health_text(health)));
+                }
+            }
             (_, Daemon::Refused(refusal)) => rows.push(Row::Text(refused(refusal))),
             (start, Daemon::None) => {
                 rows.push(Row::Text("No Daemon".to_owned()));
@@ -251,6 +267,35 @@ fn refused(refusal: &Refusal) -> String {
         ),
         Refusal::HandOver => "The Daemon is handing over to its major's newer version".to_owned(),
         Refusal::Other { code } => format!("The Daemon refused this Kennel: {code}"),
+    }
+}
+
+/// What the menu says of the reached Daemon's health: serving, draining,
+/// or why it takes no new Run.
+fn health_text(health: &DaemonHealth) -> String {
+    if !health.live {
+        return "Not live: its Runs' registry does not respond".to_owned();
+    }
+    if health.ready {
+        return "Serving".to_owned();
+    }
+    let draining = health.unready.contains(&Unready::Draining);
+    let others: Vec<&str> = health
+        .unready
+        .iter()
+        .filter_map(|unready| match unready {
+            Unready::Draining => None,
+            Unready::RunStateNotWritable => Some("its run state cannot be written"),
+            Unready::BrowsersMissing => Some("a browser it uses is not installed"),
+            Unready::GovernorLastResort => Some("its Resource governor is at its last resort"),
+            Unready::StorageCritical => Some("its storage is at the critical level"),
+        })
+        .collect();
+    match (draining, others.is_empty()) {
+        (true, true) => "Draining: it takes no new Run".to_owned(),
+        (true, false) => format!("Draining: it takes no new Run; {}", others.join("; ")),
+        (false, true) => "Takes no new Run".to_owned(),
+        (false, false) => format!("Takes no new Run: {}", others.join("; ")),
     }
 }
 

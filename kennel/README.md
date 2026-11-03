@@ -13,6 +13,23 @@ The Kennel is Goodfetch's local tool for watching and controlling the Runs of a 
 
 The icon shows one verdict for the Daemon, with no numbers: a ring while no Daemon is reachable, a filled disc when one is reached and idle. A left or a right click opens the menu, which shows the Daemon's state and Quit. With no Daemon running, the menu offers "Start Daemon".
 
+## Release
+
+The Kennel is first published with the Products' first publish, never before, under its own version: `[workspace.package]`'s `version` in `Cargo.toml`, which `Kennel.app`'s `Info.plist` carries. It is built from the same commit as the Products, through its path dependency on `goodfetch-protocol`, so a Kennel released with a preview minor of the Products speaks that minor's protocol.
+
+`scripts/release.sh` holds the Kennel's part of a release, in ADR 0039's order. It publishes nothing: putting its folder's files beside the Products' is the release pipeline's step.
+
+| Part | What it does | Where it runs |
+|---|---|---|
+| `build <folder> [<target>]` | the release executable for a macOS target, this Mac's by default, in `<folder>/<target>/Kennel.app`, signed ad hoc | a build job, which sees no signing credential |
+| `sign <folder>` | each app signed with Developer ID and the hardened runtime, notarized, stapled and verified | the Products' signing job, with the `release` environment's credentials |
+| `package <folder> <base URL>` | each app in `goodfetch-kennel-<version>-<target>.zip`, and `install-kennel.sh`, the install script stamped with each archive's name and SHA-256 and the URL they are served from | after signing |
+| `verify <folder>` | the Platform signature gate: Developer ID, the hardened runtime, Gatekeeper's assessment and the stapled ticket; an app signed ad hoc fails it | before any publish |
+
+- **Signing stays inert until the accounts exist.** `sign` reads `GOODFETCH_DEVELOPER_ID_P12` (the Developer ID Application certificate's `.p12`, in base64), `GOODFETCH_DEVELOPER_ID_P12_PASSWORD`, `GOODFETCH_NOTARY_KEY` (the App Store Connect API key's `.p8` text), `GOODFETCH_NOTARY_KEY_ID` and `GOODFETCH_NOTARY_ISSUER_ID`. With none set, it says it is inert and leaves the ad hoc signature, which no release publishes. With some set but not all, it fails and names the missing ones. The Goodfetch entity's Apple Developer account, which ADR 0039 requires before the first public release, gives these values.
+- **The install script** downloads this Mac's archive, checks its SHA-256 and the app's signature, quits a running Kennel, installs `Kennel.app` into `~/Applications` by rename and opens it with `open`. It installs no login agent: start at login is a setting of the Kennel's own, off by default. `just kennel` installs its own build through the same script, with `--app`.
+- **`just kennel-release [folder]`** runs `build`, `sign` and `package` on this Mac, in `target/release-files` by default, serving the archives from that folder: `bash <folder>/install-kennel.sh` installs that build.
+
 ## Which Daemon it reaches
 
 - **Where it looks.** The Kennel reads the Goodfetch home: `GOODFETCH_HOME` when set, otherwise the `goodfetch` folder of the OS's data folder. On macOS that is `~/Library/Application Support/goodfetch`.
@@ -46,12 +63,13 @@ Later features each add a switch here.
 |---|---|
 | `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model), the settings, the Daemon start |
 | `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit` |
-| `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `measure.sh` |
-| `Info.plist` | The `.app`'s property list |
+| `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `release.sh` (`just kennel-release`), `bundle.sh` (assembles `Kennel.app`), `install-kennel.sh` (the install script a release publishes), `measure.sh` |
+| `Info.plist` | The `.app`'s property list, which `bundle.sh` stamps with the Kennel's version |
 
 - **A workspace of its own.** It has its own `Cargo.lock` and toolchain pin. Its only path dependency is `goodfetch-protocol`.
 - **Clippy.** Clippy reads the root `clippy.toml`, the nearest one in a parent folder, and the root's `[workspace.lints]` are copied into `Cargo.toml`.
 - **`just kennel-check`.** It runs Clippy and the tests. The Client's tests run `goodfetch-scripted-engine`, which the root workspace builds, as a process. Run straight from this folder without the test tool manifest that `just kennel-check` writes, those tests say they are skipped and pass.
+- **The release scripts' tests.** On macOS, `goodfetch-kennel-app`'s `tests/release.rs` runs `bundle.sh`, `release.sh` and the install script it writes on a stand-in executable, in a home of their own, with `open`, `pgrep` and `pkill` stood in.
 - **Which changes run it.** The merge gate runs `just kennel-check` for a change to `kennel/` or `goodfetch-protocol`.
 - **On every change.** `just lint` checks the formatting, the lockfile and the `cargo-deny` rules. `just audit` checks the advisories.
 

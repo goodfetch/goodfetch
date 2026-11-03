@@ -45,6 +45,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
+use goodfetch_protocol::checkpoint::{RUN_PAUSE, RUN_RESUME, RunResumeParams};
 use goodfetch_protocol::connection::{
     CANCEL, CancelParams, DaemonEndpoint, EngineInstance, HELLO, HelloParams, HelloResult,
     PROTOCOL_VERSION_UNSUPPORTED, ProductVersion, ProtocolVersionUnsupportedDetails, Surface,
@@ -54,6 +55,7 @@ use goodfetch_protocol::events::{
     CREDIT, CreditParams, EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope,
     EventsSubscribeParams, LastRead, Position, RESYNC, Resync,
 };
+use goodfetch_protocol::foxhound::outcomes::{RUN_RETRY_FAILED, RunRetryFailedParams};
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, Message, Notification, Request, RequestId, Response, Version,
 };
@@ -64,8 +66,9 @@ use goodfetch_protocol::needs_you::{
     NeedsYouRemoveRefetchDomainParams,
 };
 use goodfetch_protocol::run::{
-    Lifecycle, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RunAxes, RunId, RunIndexRow, RunList,
-    RunListParams, RunProgress, RunProgressParams,
+    Lifecycle, RUN_ABORT, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RUN_STOP, RunAbortParams,
+    RunAxes, RunId, RunIndexRow, RunList, RunListParams, RunParams, RunProgress, RunProgressParams,
+    RunWaitParams,
 };
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde::Serialize;
@@ -172,6 +175,17 @@ pub enum Call {
     RemoveRefetchDomain(NeedsYouRemoveRefetchDomainParams),
     /// `needs_you.dismiss`: hides a Needs you item for every Client.
     Dismiss(NeedsYouDismissParams),
+    /// `run.stop`, a Run's control: a Checkpoint, and the Run can resume.
+    Stop(RunWaitParams),
+    /// `run.abort`, a Run's control: no attempt in flight commits; not
+    /// immediate.
+    Abort(RunAbortParams),
+    /// `run.pause`, a Run's control: a Checkpoint and a stop.
+    Pause(RunParams),
+    /// `run.resume`, a Run's control, of a Run the engine can run itself.
+    Resume(RunResumeParams),
+    /// `run.retry_failed`, a Run's control, of a live crawl.
+    RetryFailed(RunRetryFailedParams),
 }
 
 impl Call {
@@ -183,6 +197,11 @@ impl Call {
             Self::DenyWallDomain(_) => NEEDS_YOU_DENY_WALL_DOMAIN.name,
             Self::RemoveRefetchDomain(_) => NEEDS_YOU_REMOVE_REFETCH_DOMAIN.name,
             Self::Dismiss(_) => NEEDS_YOU_DISMISS.name,
+            Self::Stop(_) => RUN_STOP.name,
+            Self::Abort(_) => RUN_ABORT.name,
+            Self::Pause(_) => RUN_PAUSE.name,
+            Self::Resume(_) => RUN_RESUME.name,
+            Self::RetryFailed(_) => RUN_RETRY_FAILED.name,
         }
     }
 
@@ -195,6 +214,11 @@ impl Call {
             Self::DenyWallDomain(params) => request(id, method, params),
             Self::RemoveRefetchDomain(params) => request(id, method, params),
             Self::Dismiss(params) => request(id, method, params),
+            Self::Stop(params) => request(id, method, params),
+            Self::Abort(params) => request(id, method, params),
+            Self::Pause(params) => request(id, method, params),
+            Self::Resume(params) => request(id, method, params),
+            Self::RetryFailed(params) => request(id, method, params),
         }
     }
 }

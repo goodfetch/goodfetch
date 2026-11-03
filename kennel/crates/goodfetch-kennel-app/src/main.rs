@@ -16,6 +16,7 @@
 //! the settings turn them on, waking the loop when a held summary falls
 //! due.
 
+mod ask;
 mod notices;
 mod tray;
 
@@ -227,6 +228,12 @@ impl Kennel {
                         effects.extend(self.state.apply(Input::Answered(call, Err(failure))));
                     }
                 }
+                Effect::Confirm(confirmation) => {
+                    if ask::confirmed(&confirmation) {
+                        effects.extend(self.state.confirmed(confirmation));
+                    }
+                }
+                Effect::Copy(text) => ask::copy(&text),
                 Effect::StartDaemon(product) => {
                     tracing::info!(path = %product.path.display(), "starting the Daemon");
                     let proxy = self.proxy.clone();

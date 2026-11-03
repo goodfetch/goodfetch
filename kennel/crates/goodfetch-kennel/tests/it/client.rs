@@ -23,7 +23,7 @@ use goodfetch_protocol::needs_you::{
     NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
     NeedsYouRemoveRefetchDomainParams,
 };
-use goodfetch_protocol::run::{Lifecycle, RunId};
+use goodfetch_protocol::run::{Lifecycle, RunAbortParams, RunId, RunParams};
 use goodfetch_protocol::usage::UsageRaiseParams;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
@@ -33,11 +33,11 @@ use crate::support::{ScriptedDaemon, next, reports, runtime, script, scripted_en
 const TOKEN: &str = "kennel-test-token";
 
 /// A health poll period no test waits for.
-const NEVER: Duration = Duration::from_secs(3600);
+pub(crate) const NEVER: Duration = Duration::from_secs(3600);
 
 /// A Kennel's Client following the Daemon of a home; dropping it stops
 /// the Client, which closes its Connection.
-struct Following {
+pub(crate) struct Following {
     runtime: Runtime,
     reports: mpsc::Receiver<Report>,
     keep_daemon_alive: watch::Sender<bool>,
@@ -49,7 +49,7 @@ struct Following {
 impl Following {
     /// Follows the Daemon of `home`, with the keep-alive setting
     /// `keep_daemon_alive` and a health poll every `health_every`.
-    fn start(home: &Home, keep_daemon_alive: bool, health_every: Duration) -> Self {
+    pub(crate) fn start(home: &Home, keep_daemon_alive: bool, health_every: Duration) -> Self {
         Self::wanting(home, keep_daemon_alive, health_every, Wanted::default())
     }
 
@@ -89,15 +89,18 @@ impl Following {
     }
 
     /// Makes `call` through the Client.
-    fn call(&self, call: Call) {
+    pub(crate) fn call(&self, call: Call) {
         self.calls.try_send(call).unwrap();
     }
 
-    /// The next report, which answers a call.
-    fn next_answer(&mut self) -> (Call, Result<(), CallFailure>) {
-        match self.next_report() {
-            Report::Answered(call, answer) => (call, answer),
-            other => panic!("a call's answer, not {other:?}"),
+    /// The next answer to a call, past the subscription's events.
+    pub(crate) fn next_answer(&mut self) -> (Call, Result<(), CallFailure>) {
+        loop {
+            match self.next_report() {
+                Report::Answered(call, answer) => return (call, answer),
+                Report::Events(_) => {}
+                other => panic!("a call's answer, not {other:?}"),
+            }
         }
     }
 
@@ -115,7 +118,7 @@ impl Following {
     }
 
     /// The next `count` reports, each a change of the Connection.
-    fn next(&mut self, count: usize) -> Vec<ConnectionChange> {
+    pub(crate) fn next(&mut self, count: usize) -> Vec<ConnectionChange> {
         (0..count).map(|_| self.next_change()).collect()
     }
 
@@ -714,4 +717,47 @@ fn a_call_whose_connection_closes_before_its_answer_fails() {
     assert_eq!(call, dismiss());
     assert_eq!(answer.unwrap_err().code, CONNECTION_LOST);
     assert!(daemon.ended().success());
+}
+
+#[test]
+fn a_runs_controls_are_sent_to_their_operations_and_their_answers_reported() {
+    let Some(engine) = scripted_engine("a_runs_controls_are_sent_to_their_operations") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("calls-answered-and-refused.json"),
+        TOKEN,
+    );
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+    let pause = Call::Pause(RunParams {
+        run_id: run_id("shop-crawl"),
+    });
+    let abort = Call::Abort(RunAbortParams {
+        run_id: run_id("shop-crawl"),
+        forwarded: false,
+    });
+
+    kennel.call(pause.clone());
+    let paused = kennel.next_answer();
+    kennel.call(abort.clone());
+    let aborted = kennel.next_answer();
+
+    assert_eq!(paused, (pause, Ok(())));
+    assert_eq!(
+        aborted,
+        (
+            abort,
+            Err(CallFailure {
+                code: "run_busy".to_owned(),
+                message: "Another engine holds the Run's writer lock.".to_owned(),
+            })
+        )
+    );
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(daemon.ended().success(), "the Daemon saw both calls");
 }

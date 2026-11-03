@@ -35,9 +35,26 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
   | Remove a domain from the refetch domains | `needs_you.remove_refetch_domain` | unless only `*` lists the domain, which takes the list of domains that replace `*`: the CLI changes it |
   | Dismiss | `needs_you.dismiss` | when the item allows it |
 
-  Resuming a Run, answering a changed certificate, answering a Human pause and reconciling are not offered from the menu. An action the engine refuses, or one no Daemon received, shows under the Daemon's state with the Error's message until the menu that showed it closes. An action that succeeds shows in the list: its item leaves it.
+  Answering a changed certificate, answering a Human pause and reconciling are not offered from the menu, nor is an item's resume: a Run resumes from its own submenu. An action the engine refuses, or one no Daemon received, shows under the Daemon's state with the Error's message until the menu that showed it closes. An action that succeeds shows in the list: its item leaves it.
 - **Fresh and live.** The menu is rebuilt from the latest data when the click starts, before it opens, and it keeps updating while it stays open.
 - **Redraws.** There is at most one redraw a second, and no redraw of a hidden menu.
+- **Run controls.** Each listed Run has a submenu of controls, each labelled with what it does:
+
+  | Control | What it does | Offered for | Asks first |
+  |---|---|---|---|
+  | Pause | `run.pause`: a Checkpoint and a stop | a running Run | never |
+  | Stop | `run.stop`: a Checkpoint, and the Run can resume | a running Run | by default (`confirm_stop`) |
+  | Abort | `run.abort`: no attempt in flight commits; not immediate | a running Run | always |
+  | Retry failed | `run.retry_failed`: the crawl's failed requests run again | a running crawl, on a Foxhound Daemon | always |
+  | Resume | `run.resume` on the Daemon | a paused Run, or one stopped by a Limit, that a Recipe runs | never |
+  | Copy resume command | copies `goodfetch-<product> run resume <run-id>`, for the Daemon's Product | a paused Run, or one stopped by a Limit, that a script runs: only its program can run it (ADR 0031) | never |
+
+  - A confirmation is the platform's own dialog, naming the Run and the consequence.
+  - A Run the person or a program paused stays in the menu as "Paused", with its Resume or "Copy resume command", until it runs again or ends. After a reconnection the Daemon lists only its live Runs, so a paused Run leaves the menu then.
+  - Retry failed is not offered on an ended crawl: the engine would make the Connection that retries serve the crawl's handlers, which the Kennel cannot.
+  - A failed Run offers no control.
+  - A control the Daemon refuses shows its reason under the Daemon's state, such as "Pausing nightly failed: …", as a Needs you action's does.
+  - Quitting the Kennel stops none of the Runs, those it resumed included.
 - **Shown text.** Text from the Daemon, a Run's program or a crawled site is shown as plain text. Control and bidirectional characters are stripped and long text is truncated. Credentials are masked as `••••`: a URL's password, a credential's query parameter (`token`, `password`, `api_key`, a signed URL's signature) and the value after `Authorization:`. The engine already masks the Secret values a Run resolved.
 
 ## Desktop notices
@@ -104,7 +121,8 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 
 | Key | Default | Off |
 |---|---|---|
-| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon" and the Needs you items' actions included |
+| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon", the Run controls and the Needs you items' actions included |
+| `confirm_stop` | `true` | Stop acts at once, without asking. Abort and Retry failed always ask, and Pause never does |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 | `notifications.enabled` | `true` | no desktop notice, and no notice code runs (see Desktop notices) |
 | `notifications.needs_you` | `true` | no notice of a new Needs you item |
@@ -135,7 +153,7 @@ Later features each add a switch here.
 
 - **A workspace of its own.** It has its own `Cargo.lock` and toolchain pin. Its only path dependency is `goodfetch-protocol`.
 - **Clippy.** Clippy reads the root `clippy.toml`, the nearest one in a parent folder, and the root's `[workspace.lints]` are copied into `Cargo.toml`.
-- **`just kennel-check`.** It runs Clippy and the tests. The Client's tests run `goodfetch-scripted-engine`, which the root workspace builds, as a process. Run straight from this folder without the test tool manifest that `just kennel-check` writes, those tests say they are skipped and pass.
+- **`just kennel-check`.** It runs Clippy and the tests. The Client's tests run `goodfetch-scripted-engine`, which the root workspace builds, as a process. One test runs a real Daemon of `goodfetch-collie`, also built by the root workspace with its Console build: a test program starts three Runs on its own Connection, and the Kennel's Client pauses one, stops one and aborts one from another Connection. Run straight from this folder without the test tool manifest that `just kennel-check` writes, those tests say they are skipped and pass.
 - **The release scripts' tests.** On macOS, `goodfetch-kennel-app`'s `tests/release.rs` runs `bundle.sh`, `release.sh` and the install script it writes on a stand-in executable, in a home of their own, with `open`, `pgrep` and `pkill` stood in.
 - **Which changes run it.** The merge gate runs `just kennel-check` for a change to `kennel/` or `goodfetch-protocol`.
 - **On every change.** `just lint` checks the formatting, the lockfile and the `cargo-deny` rules. `just audit` checks the advisories.

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The Kennel's checks (ADR 0141), `just kennel-check`, the gate's `kennel`
 # step: its workspace's Clippy, with `-D warnings`, and its tests. The
-# Client's tests run goodfetch-scripted-engine as a process (ADR 0069),
-# which the root workspace builds here with the tests' Cargo profile, and
-# find it through a test tool manifest of their own.
+# Client's tests run goodfetch-scripted-engine as a process (ADR 0069), and
+# the Run controls' test runs a real Daemon of goodfetch-collie; the root
+# workspace builds both here with the tests' Cargo profile, and the tests
+# find them through a test tool manifest of their own.
 #
 #   kennel/scripts/check.sh <cargo profile>
 #
@@ -30,11 +31,18 @@ skip() {
   echo "skipped: kennel/scripts/check.sh ($1)" >&2
 }
 
-engine=$(cargo build --quiet --locked --profile "$profile" -p goodfetch-test-support \
-  --bin goodfetch-scripted-engine --message-format json |
-  jq -r 'select(.reason == "compiler-artifact" and .target.name == "goodfetch-scripted-engine") | .executable')
+# Collie's executable embeds its Console build, made first (ADR 0057), and
+# needs its `executable` feature (ADR 0094), as `xtask test-tools` builds it.
+cargo run --quiet --locked -p xtask -- console build
+built=$(cargo build --quiet --locked --profile "$profile" -p goodfetch-test-support \
+  --bin goodfetch-scripted-engine -p goodfetch-collie --bin goodfetch-collie \
+  --features executable --message-format json)
+executable() {
+  jq -r --arg name "$1" 'select(.reason == "compiler-artifact" and .target.name == $name) | .executable' <<<"$built"
+}
 mkdir -p target
-jq -n --arg engine "$engine" '{scripted_engine: $engine}' >target/kennel-test-tools.json
+jq -n --arg engine "$(executable goodfetch-scripted-engine)" --arg collie "$(executable goodfetch-collie)" \
+  '{scripted_engine: $engine, collie: $collie}' >target/kennel-test-tools.json
 export GOODFETCH_TEST_TOOLS="$root/target/kennel-test-tools.json"
 
 # From its own folder, so rustup takes the Kennel's own toolchain pin.

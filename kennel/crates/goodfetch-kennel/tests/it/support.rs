@@ -62,6 +62,7 @@ pub(crate) fn script(name: &str) -> PathBuf {
 #[derive(Deserialize)]
 struct Tools {
     scripted_engine: Option<PathBuf>,
+    collie: Option<PathBuf>,
 }
 
 /// The Scripted engine the root workspace built, from the test tool
@@ -70,6 +71,27 @@ struct Tools {
 /// printed; in CI, and in `just kennel-check`, which writes the manifest,
 /// its absence fails.
 pub(crate) fn scripted_engine(name: &str) -> Option<PathBuf> {
+    Some(
+        tools(name)?
+            .scripted_engine
+            .expect("the test tool manifest names goodfetch-scripted-engine"),
+    )
+}
+
+/// Collie's executable the root workspace built, from the test tool
+/// manifest, for the test against a real Daemon; skipped, or failed, as
+/// [`scripted_engine`] says.
+pub(crate) fn collie(name: &str) -> Option<PathBuf> {
+    Some(
+        tools(name)?
+            .collie
+            .expect("the test tool manifest names goodfetch-collie"),
+    )
+}
+
+/// The test tool manifest, or `None` after saying the test `name` is
+/// skipped.
+fn tools(name: &str) -> Option<Tools> {
     let Some(manifest) = std::env::var_os(TOOLS_VARIABLE) else {
         assert!(
             std::env::var_os("CI").is_none(),
@@ -81,18 +103,13 @@ pub(crate) fn scripted_engine(name: &str) -> Option<PathBuf> {
         )]
         {
             eprintln!(
-                "skipped: {name}, {TOOLS_VARIABLE} is unset, so no goodfetch-scripted-engine was built (`just kennel-check` builds it)"
+                "skipped: {name}, {TOOLS_VARIABLE} is unset, so the root workspace built no test tool (`just kennel-check` builds them)"
             );
         }
         return None;
     };
     let text = std::fs::read_to_string(&manifest).unwrap();
-    let tools: Tools = serde_json::from_str(&text).unwrap();
-    Some(
-        tools
-            .scripted_engine
-            .expect("the test tool manifest names goodfetch-scripted-engine"),
-    )
+    Some(serde_json::from_str(&text).unwrap())
 }
 
 /// The Scripted engine playing a script as the Daemon of a home.

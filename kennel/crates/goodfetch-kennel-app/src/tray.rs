@@ -40,7 +40,7 @@ pub(crate) const FOLLOWS_THE_MENU: bool = cfg!(target_os = "macos");
 struct Tray {
     icon: TrayIcon,
     menu: Menu,
-    /// The id of each choice the menu shows now.
+    /// The id of each choice the menu shows now, its submenus' included.
     choices: Vec<(MenuId, Choice)>,
     /// The latest view, which the mouse-down handler draws.
     latest: View,

@@ -2,6 +2,7 @@
 //! redraws, the effects and the reads wanted out, with no toolkit and no
 //! socket.
 
+mod controls;
 mod needs_you;
 mod notices;
 mod runs;

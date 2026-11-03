@@ -643,3 +643,23 @@ fn a_run_is_named_by_its_recipe_in_its_notice() {
 
     assert_eq!(sent(&mut state, origin()), [notice("Run failed", "shop")]);
 }
+
+#[test]
+fn a_run_paused_or_stopped_for_another_reason_sends_nothing() {
+    let mut state = watching(&["paused-crawl", "aborted-crawl"]);
+
+    state.apply(Input::Events(vec![
+        axes("paused-crawl", "stopped"),
+        axes("aborted-crawl", "stopped"),
+    ]));
+    state.apply(Input::Progress(progress(
+        "paused-crawl",
+        &json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "pause"}}),
+    )));
+    state.apply(Input::Progress(progress(
+        "aborted-crawl",
+        &json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "abort", "by": "client"}}),
+    )));
+
+    assert_eq!(sent(&mut state, origin()), []);
+}

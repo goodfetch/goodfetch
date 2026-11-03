@@ -49,6 +49,11 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # The Tray (ADR 0141), at the versions #1915 checked on the owner's Mac.
 tray-icon = { version = "=0.26.1" }
 winit = { version = "=0.30.13" }
+# The Run controls' confirmations, a native message dialog (on Linux through
+# GTK 3, which `tray-icon` already links), and "Copy resume command"'s
+# clipboard, text only.
+rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
+arboard = { version = "3.7.0", default-features = false }
 # The menu's closing on macOS, from AppKit's notification, at the versions
 # `tray-icon` already locks.
 block2 = { version = "0.6.2", default-features = false, features = ["std"] }

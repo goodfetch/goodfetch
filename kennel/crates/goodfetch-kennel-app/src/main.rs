@@ -11,12 +11,13 @@
 //! view, which it draws as the menu opens, and draws what the State says is
 //! due, the loop waking at the instant a paced redraw falls due.
 
+mod ask;
 mod tray;
 
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use goodfetch_kennel::client::{self, Report, Wanted};
+use goodfetch_kennel::client::{self, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
@@ -31,6 +32,10 @@ use winit::window::WindowId;
 
 /// How long the Kennel waits for its tasks once it quits.
 const STOP_GRACE: Duration = Duration::from_secs(1);
+
+/// How many of the person's calls may wait for the Client: one choice each,
+/// so a few is plenty.
+const CALLS_WAITING: usize = 8;
 
 /// What reaches the UI loop from elsewhere.
 #[derive(Debug)]
@@ -90,13 +95,15 @@ fn main() -> anyhow::Result<()> {
     let tasks = Tasks::new(runtime.handle().clone());
     let (look_again, looks) = mpsc::channel(1);
     let (wanted, wanted_now) = watch::channel(Wanted::default());
-    start_tasks(&tasks, &home, looks, wanted_now, &proxy);
+    let (calls, calls_to_make) = mpsc::channel(CALLS_WAITING);
+    start_tasks(&tasks, &home, looks, wanted_now, calls_to_make, &proxy);
     let mut kennel = Kennel {
         state: State::new(),
         tasks: tasks.clone(),
         proxy,
         look_again,
         wanted,
+        calls,
         installed: false,
         next_draw: None,
     };
@@ -113,6 +120,7 @@ fn start_tasks(
     home: &Home,
     looks: mpsc::Receiver<()>,
     wanted: watch::Receiver<Wanted>,
+    calls: mpsc::Receiver<Call>,
     proxy: &EventLoopProxy<UserEvent>,
 ) {
     let to_ui = |proxy: &EventLoopProxy<UserEvent>| {
@@ -132,6 +140,7 @@ fn start_tasks(
             keep_daemon_alive,
             health_every: client::HEALTH_EVERY,
             wanted,
+            calls,
         },
         move |client: Report| report(UserEvent::Client(client)),
     ));
@@ -168,6 +177,8 @@ struct Kennel {
     look_again: mpsc::Sender<()>,
     /// The reads the State wants the Client to keep in step with.
     wanted: watch::Sender<Wanted>,
+    /// The calls the person's choices make, which the Client makes.
+    calls: mpsc::Sender<Call>,
     /// Whether the icon is in the menu bar.
     installed: bool,
     /// When a paced redraw falls due.
@@ -178,9 +189,30 @@ impl Kennel {
     /// Carries out the State's `effects`, then keeps the Client's reads
     /// and the Tray in step with the State.
     fn carry_out(&mut self, event_loop: &ActiveEventLoop, effects: Vec<Effect>) {
-        for effect in effects {
+        let mut effects = std::collections::VecDeque::from(effects);
+        while let Some(effect) = effects.pop_front() {
             match effect {
                 Effect::Quit => event_loop.exit(),
+                Effect::Call(call) => {
+                    if let Err(error) = self.calls.try_send(call) {
+                        // The Client answers each call: so many waiting
+                        // means it is stuck, and the menu says this one
+                        // was not made.
+                        tracing::warn!(%error, "a call was not made");
+                        let failure = CallFailure {
+                            code: "not_made".to_owned(),
+                            message: "The Kennel did not make the call".to_owned(),
+                        };
+                        let call = error.into_inner();
+                        effects.extend(self.state.apply(Input::Answered(call, Err(failure))));
+                    }
+                }
+                Effect::Confirm(confirmation) => {
+                    if ask::confirmed(&confirmation) {
+                        effects.extend(self.state.confirmed(confirmation));
+                    }
+                }
+                Effect::Copy(text) => ask::copy(&text),
                 Effect::StartDaemon(product) => {
                     tracing::info!(path = %product.path.display(), "starting the Daemon");
                     let proxy = self.proxy.clone();
@@ -291,6 +323,9 @@ impl ApplicationHandler<UserEvent> for Kennel {
             UserEvent::Client(Report::LiveRuns(rows)) => self.state.apply(Input::LiveRuns(rows)),
             UserEvent::Client(Report::Progress(progress)) => {
                 self.state.apply(Input::Progress(progress))
+            }
+            UserEvent::Client(Report::Answered(call, answer)) => {
+                self.state.apply(Input::Answered(call, answer))
             }
             UserEvent::MenuOpened => self.state.apply(Input::Menu(MenuChange::Opened(now()))),
             UserEvent::MenuClosed => self.state.apply(Input::Menu(MenuChange::Closed)),

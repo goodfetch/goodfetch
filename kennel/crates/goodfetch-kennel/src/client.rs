@@ -6,8 +6,9 @@
 //! later move into a shared client crate.
 //!
 //! Its interface is what it reports, [`Report`]: the Connection's changes,
-//! the subscription's events, and the answers to the reads the State wants,
-//! [`Wanted`], which it keeps in step with.
+//! the subscription's events, the answers to the reads the State wants,
+//! [`Wanted`], which it keeps in step with, and the answers to the calls
+//! the person's choices make, [`Call`].
 //!
 //! - **The Daemon's life.** It follows it without polling and without
 //!   holding it awake: the platform's file notifications on the runtime
@@ -30,6 +31,11 @@
 //!   [`Wanted::progress`]: read at once, then followed with `after` until
 //!   the Run leaves the set, when the read is cancelled, or its progress
 //!   is the last.
+//! - **The person's calls.** Each [`Call`] is made on the Connection it
+//!   finds, and its answer reported. With no Daemon reached it fails as
+//!   `no_daemon`; a Connection that closes before the answer fails it as
+//!   `connection_lost`, and it is not made again, since it may have taken
+//!   effect.
 //!
 //! The Daemon's token is read from the runtime file at each connection,
 //! held in memory only, sent only in `hello`, and never logged: the
@@ -42,6 +48,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
+use goodfetch_protocol::checkpoint::{RUN_PAUSE, RUN_RESUME, RunResumeParams};
 use goodfetch_protocol::connection::{
     CANCEL, CancelParams, DaemonEndpoint, EngineInstance, HELLO, HelloParams, HelloResult,
     PROTOCOL_VERSION_UNSUPPORTED, ProductVersion, ProtocolVersionUnsupportedDetails, Surface,
@@ -51,13 +58,15 @@ use goodfetch_protocol::events::{
     CREDIT, CreditParams, EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope,
     EventsSubscribeParams, LastRead, Position, RESYNC, Resync,
 };
+use goodfetch_protocol::foxhound::outcomes::{RUN_RETRY_FAILED, RunRetryFailedParams};
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, Message, Notification, Request, RequestId, Response, Version,
 };
 use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange};
 use goodfetch_protocol::run::{
-    Lifecycle, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RunAxes, RunId, RunIndexRow, RunList,
-    RunListParams, RunProgress, RunProgressParams,
+    Lifecycle, RUN_ABORT, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RUN_STOP, RunAbortParams,
+    RunAxes, RunId, RunIndexRow, RunList, RunListParams, RunParams, RunProgress, RunProgressParams,
+    RunWaitParams,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -200,6 +209,78 @@ pub enum Report {
     LiveRuns(Vec<RunIndexRow>),
     /// A Run's progress, as `run.progress` answered.
     Progress(RunProgress),
+    /// A call the Kennel made was answered: with success, or with why it
+    /// failed.
+    Answered(Call, Result<(), CallFailure>),
+}
+
+/// A call the Kennel makes on the person's behalf, with its protocol
+/// params: one of a Run's controls (ADR 0141).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Call {
+    /// `run.stop`: a Checkpoint, and the Run can resume.
+    Stop(RunWaitParams),
+    /// `run.abort`: no attempt in flight commits; not immediate.
+    Abort(RunAbortParams),
+    /// `run.pause`: a Checkpoint and a stop.
+    Pause(RunParams),
+    /// `run.resume`, of a Run the engine can run itself.
+    Resume(RunResumeParams),
+    /// `run.retry_failed`, of a live crawl.
+    RetryFailed(RunRetryFailedParams),
+}
+
+impl Call {
+    /// The operation it calls.
+    pub fn method(&self) -> &'static str {
+        match self {
+            Self::Stop(_) => RUN_STOP.name,
+            Self::Abort(_) => RUN_ABORT.name,
+            Self::Pause(_) => RUN_PAUSE.name,
+            Self::Resume(_) => RUN_RESUME.name,
+            Self::RetryFailed(_) => RUN_RETRY_FAILED.name,
+        }
+    }
+
+    /// The request `id` that makes it.
+    fn request(&self, id: i64) -> Request {
+        match self {
+            Self::Stop(params) => request(id, self.method(), params),
+            Self::Abort(params) => request(id, self.method(), params),
+            Self::Pause(params) => request(id, self.method(), params),
+            Self::Resume(params) => request(id, self.method(), params),
+            Self::RetryFailed(params) => request(id, self.method(), params),
+        }
+    }
+}
+
+/// Why a call failed: the Error code the Daemon answered, or the Client's
+/// own `no_daemon` or `connection_lost`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallFailure {
+    /// The Error code.
+    pub code: String,
+    /// What went wrong, for people.
+    pub message: String,
+}
+
+impl CallFailure {
+    /// No Daemon was reached to make the call on.
+    fn no_daemon() -> Self {
+        Self {
+            code: "no_daemon".to_owned(),
+            message: "No Daemon is reached".to_owned(),
+        }
+    }
+
+    /// The Connection the call was made on closed before its answer: the
+    /// call may or may not have taken effect.
+    fn connection_lost() -> Self {
+        Self {
+            code: "connection_lost".to_owned(),
+            message: "The Connection to the Daemon closed before the answer".to_owned(),
+        }
+    }
 }
 
 /// The reads the State wants the Client to keep in step with.
@@ -227,6 +308,9 @@ pub struct Follow {
     pub health_every: Duration,
     /// The reads the State wants.
     pub wanted: watch::Receiver<Wanted>,
+    /// The calls to make on the reached Daemon, each answered with
+    /// [`Report::Answered`].
+    pub calls: mpsc::Receiver<Call>,
 }
 
 /// Follows the Daemon until the Kennel stops: looks for it in the home,
@@ -247,6 +331,7 @@ pub async fn follow(tasks: Tasks, follow: Follow, report: impl Fn(Report) + Send
         tasks,
         follow,
         runtime_files: RuntimeFiles::new(),
+        calls_open: true,
         report,
     };
     follower.run().await;
@@ -257,6 +342,8 @@ struct Follower<R> {
     tasks: Tasks,
     follow: Follow,
     runtime_files: RuntimeFiles,
+    /// Whether [`Follow::calls`] may still bring calls.
+    calls_open: bool,
     report: R,
 }
 
@@ -295,14 +382,19 @@ impl<R: Fn(Report)> Follower<R> {
                         keep_daemon_alive,
                         "reached the Daemon"
                     );
-                    let reads = Reads::new(&mut self.follow.wanted);
+                    let mut reads = Reads::new(&mut self.follow.wanted);
                     (self.report)(Report::Connection(ConnectionChange::Connected(
                         connection.identity.clone(),
                     )));
                     let left = self
-                        .serve(connection, reads, &runtime, keep_daemon_alive)
+                        .serve(connection, &mut reads, &runtime, keep_daemon_alive)
                         .await;
                     tracing::info!(?left, "left the Daemon");
+                    // A call unanswered may or may not have taken effect;
+                    // it is not made again.
+                    for call in reads.unanswered_calls() {
+                        (self.report)(Report::Answered(call, Err(CallFailure::connection_lost())));
+                    }
                     continue;
                 }
                 Err(Opening::Refused(refusal)) => {
@@ -313,13 +405,23 @@ impl<R: Fn(Report)> Follower<R> {
                     (self.report)(Report::Connection(ConnectionChange::NoDaemon));
                 }
             }
-            tokio::select! {
-                asked = self.follow.look_again.recv() => {
-                    if asked.is_none() {
-                        return;
+            loop {
+                tokio::select! {
+                    asked = self.follow.look_again.recv() => {
+                        if asked.is_none() {
+                            return;
+                        }
+                        break;
+                    }
+                    () = self.runtime_files.changed() => break,
+                    call = self.follow.calls.recv(), if self.calls_open => {
+                        if let Some(call) = call {
+                            (self.report)(Report::Answered(call, Err(CallFailure::no_daemon())));
+                        } else {
+                            self.calls_open = false;
+                        }
                     }
                 }
-                () = self.runtime_files.changed() => {}
             }
         }
     }
@@ -338,7 +440,7 @@ impl<R: Fn(Report)> Follower<R> {
     async fn serve(
         &mut self,
         mut connection: Connection,
-        mut reads: Reads,
+        reads: &mut Reads,
         reached: &DaemonRuntimeFile,
         keep_daemon_alive: bool,
     ) -> Left {
@@ -352,7 +454,7 @@ impl<R: Fn(Report)> Follower<R> {
         let (applied, mut renewals) = watch::channel(0_u64);
         let mut credited = 0_u64;
         let first = reads.first.take().unwrap_or_default();
-        if connection.keep_in_step(&mut reads, &first).await.is_err() {
+        if connection.keep_in_step(reads, &first).await.is_err() {
             return Left::Lost;
         }
         loop {
@@ -367,7 +469,7 @@ impl<R: Fn(Report)> Follower<R> {
                     {
                         (self.report)(Report::Connection(ConnectionChange::Health(reading)));
                     }
-                    connection.read(message, &mut reads, &applied, &self.report).await
+                    connection.read(message, reads, &applied, &self.report).await
                 }
                 _ = polls.tick() => {
                     let id = reads.next_id();
@@ -396,8 +498,20 @@ impl<R: Fn(Report)> Follower<R> {
                     wanted_followed = changed.is_ok();
                     if wanted_followed {
                         let now = self.follow.wanted.borrow_and_update().clone();
-                        connection.keep_in_step(&mut reads, &now).await
+                        connection.keep_in_step(reads, &now).await
                     } else {
+                        Ok(())
+                    }
+                }
+                call = self.follow.calls.recv(), if self.calls_open => {
+                    if let Some(call) = call {
+                        let id = reads.next_id();
+                        tracing::info!(method = call.method(), "a call on the person's behalf");
+                        let sent = send(&mut connection.writer, &call.request(id)).await;
+                        reads.pending.insert(id, Pending::Call(call));
+                        sent
+                    } else {
+                        self.calls_open = false;
                         Ok(())
                     }
                 }
@@ -592,8 +706,11 @@ impl Connection {
             }
             Ok(Message::Error(failure)) => match failure.id {
                 Some(id) => {
-                    self.answered(reads, id, Err(failure.error.data.code), report)
-                        .await
+                    let failure = CallFailure {
+                        code: failure.error.data.code,
+                        message: failure.error.message,
+                    };
+                    self.answered(reads, id, Err(failure), report).await
                 }
                 None => Ok(()),
             },
@@ -606,7 +723,7 @@ impl Connection {
         &mut self,
         reads: &mut Reads,
         id: RequestId,
-        answer: Result<Value, String>,
+        answer: Result<Value, CallFailure>,
         report: &impl Fn(Report),
     ) -> io::Result<()> {
         let RequestId::Number(id) = id else {
@@ -614,13 +731,20 @@ impl Connection {
         };
         match reads.pending.remove(&id) {
             None => Ok(()),
+            Some(Pending::Call(call)) => {
+                if let Err(failure) = &answer {
+                    tracing::warn!(method = call.method(), code = failure.code, "a call failed");
+                }
+                report(Report::Answered(call, answer.map(|_| ())));
+                Ok(())
+            }
             Some(Pending::LiveRuns) => {
                 match answer.map(serde_json::from_value::<RunList>) {
                     Ok(Ok(list)) => report(Report::LiveRuns(list.runs)),
                     Ok(Err(error)) => {
                         tracing::warn!(%error, "a run.list answer the Kennel cannot read");
                     }
-                    Err(code) => tracing::warn!(code, "run.list failed"),
+                    Err(failure) => tracing::warn!(code = failure.code, "run.list failed"),
                 }
                 Ok(())
             }
@@ -632,8 +756,8 @@ impl Connection {
                         reads.followed.insert(run, Followed::Ended);
                         return Ok(());
                     }
-                    Err(code) => {
-                        tracing::warn!(code, run_id = %run, "run.progress failed");
+                    Err(failure) => {
+                        tracing::warn!(code = failure.code, run_id = %run, "run.progress failed");
                         reads.followed.insert(run, Followed::Ended);
                         return Ok(());
                     }
@@ -742,6 +866,17 @@ impl Reads {
         self.next_id += 1;
         id
     }
+
+    /// The calls still waiting for their answer, in the order made.
+    fn unanswered_calls(&mut self) -> Vec<Call> {
+        std::mem::take(&mut self.pending)
+            .into_values()
+            .filter_map(|pending| match pending {
+                Pending::Call(call) => Some(call),
+                Pending::LiveRuns | Pending::Progress(_) => None,
+            })
+            .collect()
+    }
 }
 
 /// What a call waiting for its answer reads.
@@ -749,6 +884,8 @@ impl Reads {
 enum Pending {
     LiveRuns,
     Progress(RunId),
+    /// A call made on the person's behalf.
+    Call(Call),
 }
 
 /// Where a followed Run's progress is.

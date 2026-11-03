@@ -18,6 +18,13 @@
 //!   progress of each stopped Run until
 //!   its stop reason is known; and, only while the menu is open, the
 //!   progress of each Run it shows.
+//! - **Each Run's controls** in a submenu, labelled with what they do: Pause,
+//!   Stop and Abort for a running Run, and Retry failed for a running crawl
+//!   on a Foxhound Daemon; Resume for a paused or Limit-stopped Run that a
+//!   Recipe runs, and "Copy resume command" for a script's (ADR 0031). Stop
+//!   asks first as the settings say, Abort and Retry failed always, Pause
+//!   never. A read-only Kennel offers none. A call that failed is shown
+//!   until the menu that showed it closes.
 //! - **Redraws**: at most one a second, and none of the menu while it is
 //!   hidden, since the Tray draws the latest view as it opens.
 //!
@@ -27,13 +34,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::checkpoint::RunResumeParams;
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
+use goodfetch_protocol::foxhound::outcomes::RunRetryFailedParams;
 use goodfetch_protocol::foxhound::progress::RequestProgress;
 use goodfetch_protocol::run::{
-    Lifecycle, RECIPE_TAG, RunAxes, RunId, RunIndexRow, RunProgress, StopReason,
+    Lifecycle, RECIPE_TAG, RunAbortParams, RunAxes, RunId, RunIndexRow, RunKind, RunParams,
+    RunProgress, RunWaitParams, StopReason,
 };
 
-use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted};
+use crate::client::{
+    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted,
+};
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
@@ -74,6 +86,8 @@ pub enum Input {
     Settings(Result<Settings, SettingsError>),
     /// The `daemon start` the person chose has ended.
     StartEnded(Result<(), StartFailure>),
+    /// A call the Kennel made was answered.
+    Answered(Call, Result<(), CallFailure>),
 }
 
 /// The menu opened or closed.
@@ -86,12 +100,39 @@ pub enum MenuChange {
 }
 
 /// What a person can choose in the menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Choice {
     /// Run the installed Product's `daemon start`.
     StartDaemon,
+    /// One of a Run's controls.
+    Control {
+        /// The Run.
+        run: RunId,
+        /// The control.
+        control: Control,
+    },
     /// Quit the Kennel, which stops none of the Runs.
     Quit,
+}
+
+/// A Run's control in its submenu, each labelled with what it does (ADR
+/// 0141).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Control {
+    /// A Checkpoint and a stop, resumable: `run.pause`.
+    Pause,
+    /// A Checkpoint, and the Run can resume: `run.stop`.
+    Stop,
+    /// No attempt in flight commits; not immediate: `run.abort`.
+    Abort,
+    /// The crawl's failed requests run again: `run.retry_failed`.
+    RetryFailed,
+    /// The Daemon runs the stopped Run again: `run.resume`, for a Run the
+    /// engine can run itself, a Recipe's.
+    Resume,
+    /// Copies the command that resumes a script's Run, which only its
+    /// program can run (ADR 0031).
+    CopyResumeCommand,
 }
 
 /// What the Kennel carries out for the State.
@@ -99,8 +140,29 @@ pub enum Choice {
 pub enum Effect {
     /// Run this Product's `daemon start`, then look for the Daemon again.
     StartDaemon(InstalledProduct),
+    /// Make this call on the reached Daemon.
+    Call(Call),
+    /// Ask the person this, then give the State their yes with
+    /// [`State::confirmed`].
+    Confirm(Confirmation),
+    /// Copy this text to the clipboard.
+    Copy(String),
     /// Quit.
     Quit,
+}
+
+/// A question asked before a control acts: it names the Run and the
+/// consequence (ADR 0141).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Confirmation {
+    /// The question, naming the Run.
+    pub title: String,
+    /// What the control does to the Run.
+    pub consequence: String,
+    /// The label of the button that confirms.
+    pub confirm: String,
+    run: RunId,
+    control: Control,
 }
 
 /// The one verdict the icon shows, worst first (ADR 0141).
@@ -132,6 +194,13 @@ pub enum Row {
         /// What choosing it does.
         choice: Choice,
     },
+    /// A line that opens these rows beside it.
+    Submenu {
+        /// What the line says.
+        label: String,
+        /// What it opens.
+        rows: Vec<Row>,
+    },
     /// A separator.
     Separator,
 }
@@ -149,20 +218,31 @@ impl View {
     /// The view of `verdict` and `rows`, each row's text made safe to
     /// show by the Text function.
     fn new(verdict: Verdict, rows: Vec<Row>) -> Self {
-        let rows = rows
-            .into_iter()
-            .map(|row| match row {
-                Row::Text(line) => Row::Text(text::shown(&line, LINE_MOST)),
-                Row::Detail(line) => Row::Detail(text::shown(&line, LINE_MOST)),
-                Row::Choice { label, choice } => Row::Choice {
-                    label: text::shown(&label, LINE_MOST),
-                    choice,
-                },
-                Row::Separator => Row::Separator,
-            })
-            .collect();
-        Self { verdict, rows }
+        Self {
+            verdict,
+            rows: shown(rows),
+        }
     }
+}
+
+/// `rows`, each row's text, a submenu's included, made safe to show by
+/// the Text function.
+fn shown(rows: Vec<Row>) -> Vec<Row> {
+    rows.into_iter()
+        .map(|row| match row {
+            Row::Text(line) => Row::Text(text::shown(&line, LINE_MOST)),
+            Row::Detail(line) => Row::Detail(text::shown(&line, LINE_MOST)),
+            Row::Choice { label, choice } => Row::Choice {
+                label: text::shown(&label, LINE_MOST),
+                choice,
+            },
+            Row::Submenu { label, rows } => Row::Submenu {
+                label: text::shown(&label, LINE_MOST),
+                rows: shown(rows),
+            },
+            Row::Separator => Row::Separator,
+        })
+        .collect()
 }
 
 /// Whether the Tray redraws now.
@@ -220,6 +300,9 @@ enum Phase {
     Running,
     /// It stopped, and its stop reason is read.
     Stopping,
+    /// It was paused, to be resumed: it stays listed until it runs again
+    /// or ends.
+    Paused,
     /// It failed.
     Failed,
     /// It was stopped by a Limit.
@@ -267,8 +350,18 @@ struct Counts {
 /// What the Run index's row says of a live Run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Facts {
+    kind: RunKind,
     recipe: Option<String>,
     message: Option<String>,
+}
+
+/// A call that failed, shown in the menu.
+#[derive(Clone, Debug)]
+struct Failure {
+    /// What the menu says.
+    line: String,
+    /// Whether an open menu showed it.
+    seen: bool,
 }
 
 /// What the Tray last drew.
@@ -294,6 +387,8 @@ pub struct State {
     facts: BTreeMap<RunId, Facts>,
     /// The Needs you items listed, by ID.
     needs_you: BTreeSet<String>,
+    /// The calls that failed, until a menu that showed them closes.
+    failures: Vec<Failure>,
     /// Bumped each time the live Runs' rows are to be read again.
     live_runs: u64,
     menu_open: bool,
@@ -319,6 +414,7 @@ impl State {
             runs: BTreeMap::new(),
             facts: BTreeMap::new(),
             needs_you: BTreeSet::new(),
+            failures: Vec::new(),
             live_runs: 0,
             menu_open: false,
             drawn: None,
@@ -336,16 +432,25 @@ impl State {
                 }
             }
             Input::LiveRuns(rows) => {
-                self.facts = rows
+                let mut facts: BTreeMap<RunId, Facts> = rows
                     .into_iter()
                     .map(|row| {
                         let facts = Facts {
+                            kind: row.kind,
                             recipe: row.tags.reserved(RECIPE_TAG).map(str::to_owned),
                             message: row.progress_message,
                         };
                         (row.run_id, facts)
                     })
                     .collect();
+                // A Run still listed that no longer runs keeps what its
+                // last row said: its name and whether it can resume.
+                for (id, kept) in std::mem::take(&mut self.facts) {
+                    if self.runs.contains_key(&id) {
+                        facts.entry(id).or_insert(kept);
+                    }
+                }
+                self.facts = facts;
             }
             Input::Progress(progress) => self.progress(&progress),
             Input::Menu(MenuChange::Opened(at)) => {
@@ -366,6 +471,7 @@ impl State {
                 self.menu_open = false;
                 self.runs
                     .retain(|_, run| !(run.phase.needs_a_look() && run.seen));
+                self.failures.retain(|failure| !failure.seen);
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
@@ -378,6 +484,14 @@ impl State {
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
             Input::StartEnded(Err(failure)) => self.start = Start::Failed(failure),
+            Input::Answered(_, Ok(())) => {}
+            Input::Answered(call, Err(failure)) => {
+                let (verb, run) = call_of(&call);
+                self.failures.push(Failure {
+                    line: format!("{verb} of {} failed: {}", self.name(run), failure.message),
+                    seen: false,
+                });
+            }
         }
         Vec::new()
     }
@@ -387,6 +501,15 @@ impl State {
     pub fn choose(&mut self, choice: Choice) -> Vec<Effect> {
         match choice {
             Choice::Quit => vec![Effect::Quit],
+            Choice::Control { run, control } => {
+                if !self.offered(&run).contains(&control) {
+                    return Vec::new();
+                }
+                match self.confirmation(&run, control) {
+                    Some(confirmation) => vec![Effect::Confirm(confirmation)],
+                    None => self.act(run, control).into_iter().collect(),
+                }
+            }
             Choice::StartDaemon => match self.startable() {
                 Some(installed) => {
                     let effect = Effect::StartDaemon(installed.clone());
@@ -396,6 +519,16 @@ impl State {
                 None => Vec::new(),
             },
         }
+    }
+
+    /// The person said yes to `confirmation`: its control acts, unless
+    /// the menu no longer offers it.
+    pub fn confirmed(&mut self, confirmation: Confirmation) -> Vec<Effect> {
+        let Confirmation { run, control, .. } = confirmation;
+        if !self.offered(&run).contains(&control) {
+            return Vec::new();
+        }
+        self.act(run, control).into_iter().collect()
     }
 
     /// The reads the view needs now.
@@ -465,6 +598,14 @@ impl State {
         }
         if let Daemon::Reached(identity, _) = &self.daemon {
             self.run_rows(identity.product, &mut rows);
+        }
+        if !self.failures.is_empty() {
+            rows.push(Row::Separator);
+            rows.extend(
+                self.failures
+                    .iter()
+                    .map(|failure| Row::Text(failure.line.clone())),
+            );
         }
         rows.push(Row::Separator);
         rows.push(Row::Choice {
@@ -619,6 +760,7 @@ impl State {
             (Lifecycle::Running, _, _) => Phase::Running,
             (Lifecycle::Failed, _, _) => Phase::Failed,
             (Lifecycle::Stopped, Some(StopReason::Limit(_)), _) => Phase::StoppedByLimit,
+            (Lifecycle::Stopped, Some(StopReason::Pause), _) => Phase::Paused,
             (Lifecycle::Stopped, _, false) => Phase::Stopping,
             (Lifecycle::Stopped, _, true) | (Lifecycle::Finished, _, _) => {
                 self.runs.remove(&progress.run_id);
@@ -669,11 +811,25 @@ impl State {
         rows.push(Row::Separator);
         for (id, run) in listed {
             let facts = self.facts.get(id);
-            let name = facts.and_then(|facts| facts.recipe.as_deref()).map_or_else(
-                || id.as_str().to_owned(),
-                |recipe| text::shown(recipe, NAME_MOST),
-            );
-            rows.push(Row::Text(format!("{name} — {}", lifecycle(run.phase))));
+            let label = format!("{} — {}", self.name(id), lifecycle(run.phase));
+            let controls = self.offered(id);
+            rows.push(if controls.is_empty() {
+                Row::Text(label)
+            } else {
+                Row::Submenu {
+                    label,
+                    rows: controls
+                        .into_iter()
+                        .map(|control| Row::Choice {
+                            label: control_label(control).to_owned(),
+                            choice: Choice::Control {
+                                run: id.clone(),
+                                control,
+                            },
+                        })
+                        .collect(),
+                }
+            });
             let message = run
                 .message
                 .as_deref()
@@ -697,9 +853,135 @@ impl State {
         }
     }
 
+    /// What the menu calls `id`: its Recipe, or its Run ID when it ran
+    /// none.
+    fn name(&self, id: &RunId) -> String {
+        self.facts
+            .get(id)
+            .and_then(|facts| facts.recipe.as_deref())
+            .map_or_else(
+                || id.as_str().to_owned(),
+                |recipe| text::shown(recipe, NAME_MOST),
+            )
+    }
+
+    /// The controls the menu offers for `id`, in their order: none in a
+    /// read-only Kennel, for a Run it does not list, or with no Daemon.
+    fn offered(&self, id: &RunId) -> Vec<Control> {
+        let Daemon::Reached(identity, _) = &self.daemon else {
+            return Vec::new();
+        };
+        let listed = self
+            .listed()
+            .0
+            .into_iter()
+            .find(|(listed, _)| *listed == id);
+        let (Some((_, run)), true) = (listed, self.settings.controls) else {
+            return Vec::new();
+        };
+        let facts = self.facts.get(id);
+        match run.phase {
+            Phase::Running => {
+                let mut controls = vec![Control::Pause, Control::Stop, Control::Abort];
+                // A crawl's retry is Foxhound's.
+                let crawl = facts.is_some_and(|facts| facts.kind == RunKind::Crawl);
+                if crawl && identity.product == Product::Foxhound {
+                    controls.push(Control::RetryFailed);
+                }
+                controls
+            }
+            // The engine runs a Recipe's Run itself; only its program runs
+            // a script's (ADR 0031).
+            Phase::Paused | Phase::StoppedByLimit => {
+                if facts.is_some_and(|facts| facts.recipe.is_some()) {
+                    vec![Control::Resume]
+                } else {
+                    vec![Control::CopyResumeCommand]
+                }
+            }
+            Phase::Stopping | Phase::Failed => Vec::new(),
+        }
+    }
+
+    /// The question `control` asks before it acts on `run`: Abort and
+    /// Retry failed always ask, Stop as the settings say, the others never.
+    fn confirmation(&self, run: &RunId, control: Control) -> Option<Confirmation> {
+        let name = self.name(run);
+        let (title, consequence, confirm) = match control {
+            Control::Stop if self.settings.confirm_stop => (
+                format!("Stop {name}?"),
+                "It stops at its next safe point with a Checkpoint, and it can resume.",
+                "Stop",
+            ),
+            Control::Abort => (
+                format!("Abort {name}?"),
+                "It stops at its next safe point, not at once. No attempt in flight commits, and its work items return to pending.",
+                "Abort",
+            ),
+            Control::RetryFailed => (
+                format!("Retry the failed requests of {name}?"),
+                "Each request whose latest outcome is failed runs again in this crawl, with its retries counted afresh.",
+                "Retry failed",
+            ),
+            Control::Stop | Control::Pause | Control::Resume | Control::CopyResumeCommand => {
+                return None;
+            }
+        };
+        Some(Confirmation {
+            title: text::shown(&title, LINE_MOST),
+            consequence: text::shown(consequence, LINE_MOST * 2),
+            confirm: text::shown(confirm, LINE_MOST),
+            run: run.clone(),
+            control,
+        })
+    }
+
+    /// What `control` does to `run` once it may act.
+    fn act(&self, run: RunId, control: Control) -> Option<Effect> {
+        let call = match control {
+            Control::Pause => Call::Pause(RunParams { run_id: run }),
+            Control::Stop => Call::Stop(RunWaitParams {
+                run_id: run,
+                timeout: None,
+            }),
+            Control::Abort => Call::Abort(RunAbortParams {
+                run_id: run,
+                forwarded: false,
+            }),
+            Control::RetryFailed => Call::RetryFailed(RunRetryFailedParams {
+                run_id: run,
+                blocked: false,
+                settings: serde_json::Map::new(),
+                project: None,
+            }),
+            Control::Resume => Call::Resume(RunResumeParams {
+                run_id: run,
+                checkpoint: None,
+                settings: serde_json::Map::new(),
+                project: None,
+            }),
+            Control::CopyResumeCommand => {
+                let Daemon::Reached(identity, _) = &self.daemon else {
+                    return None;
+                };
+                // A Run ID holds only lowercase letters, digits, `.`, `_`
+                // and `-`: the command needs no quoting.
+                return Some(Effect::Copy(format!(
+                    "goodfetch-{} run resume {}",
+                    identity.product.as_str(),
+                    run.as_str()
+                )));
+            }
+        };
+        Some(Effect::Call(call))
+    }
+
     /// Marks each Run that needs a look and that the open menu lists as
-    /// seen.
+    /// seen, and each failed call it shows.
     fn mark_seen(&mut self) {
+        for failure in &mut self.failures {
+            failure.seen = true;
+        }
         let listed: Vec<RunId> = self
             .listed()
             .0
@@ -726,8 +1008,32 @@ impl State {
 fn lifecycle(phase: Phase) -> &'static str {
     match phase {
         Phase::Running | Phase::Stopping => "Running",
+        Phase::Paused => "Paused",
         Phase::Failed => "Failed",
         Phase::StoppedByLimit => "Stopped by a Limit",
+    }
+}
+
+/// What a control's line in a Run's submenu says it does (ADR 0141).
+fn control_label(control: Control) -> &'static str {
+    match control {
+        Control::Pause => "Pause: a Checkpoint and a stop",
+        Control::Stop => "Stop: a Checkpoint, and the Run can resume",
+        Control::Abort => "Abort: no attempt in flight commits; not immediate",
+        Control::RetryFailed => "Retry failed: its failed requests run again",
+        Control::Resume => "Resume: the Daemon runs it again from where it stopped",
+        Control::CopyResumeCommand => "Copy resume command",
+    }
+}
+
+/// What the menu calls `call`, and the Run it acts on.
+fn call_of(call: &Call) -> (&'static str, &RunId) {
+    match call {
+        Call::Stop(params) => ("Stop", &params.run_id),
+        Call::Abort(params) => ("Abort", &params.run_id),
+        Call::Pause(params) => ("Pause", &params.run_id),
+        Call::Resume(params) => ("Resume", &params.run_id),
+        Call::RetryFailed(params) => ("Retry failed", &params.run_id),
     }
 }
 

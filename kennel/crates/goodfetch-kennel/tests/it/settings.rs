@@ -21,6 +21,7 @@ fn without_a_settings_file_the_defaults_apply() {
         read,
         Ok(Settings {
             controls: true,
+            confirm_stop: true,
             keep_daemon_alive: false,
         })
     );
@@ -38,7 +39,26 @@ fn keeping_the_daemon_alive_is_a_setting_of_its_own() {
         read,
         Ok(Settings {
             controls: true,
+            confirm_stop: true,
             keep_daemon_alive: true,
+        })
+    );
+}
+
+#[test]
+fn the_stop_confirmation_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "confirm_stop = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            controls: true,
+            confirm_stop: false,
+            keep_daemon_alive: false,
         })
     );
 }

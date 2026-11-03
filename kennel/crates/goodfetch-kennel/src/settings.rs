@@ -21,6 +21,9 @@ use crate::tasks::Tasks;
 pub struct Settings {
     /// Whether the menu offers actions; off gives a read-only Kennel.
     pub controls: bool,
+    /// Whether a Run's Stop asks for confirmation first; Abort and Retry
+    /// failed always ask, Pause never does.
+    pub confirm_stop: bool,
     /// Whether the Kennel, while connected, keeps the Daemon alive: off, it
     /// only observes, and the Daemon stops at its idle timeout and hands
     /// over to its major's pick as if no Kennel were connected (ADR 0141).
@@ -31,6 +34,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             controls: true,
+            confirm_stop: true,
             keep_daemon_alive: false,
         }
     }

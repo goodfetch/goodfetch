@@ -24,7 +24,7 @@ mod menu_closed;
 use std::cell::RefCell;
 
 use goodfetch_kennel::state::{Choice, Frame, Row, Verdict, View};
-use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use winit::event_loop::EventLoopProxy;
 
@@ -40,7 +40,7 @@ pub(crate) const FOLLOWS_THE_MENU: bool = cfg!(target_os = "macos");
 struct Tray {
     icon: TrayIcon,
     menu: Menu,
-    /// The id of each choice the menu shows now.
+    /// The id of each choice the menu shows now, its submenus' included.
     choices: Vec<(MenuId, Choice)>,
     /// The latest view, which the mouse-down handler draws.
     latest: View,
@@ -131,7 +131,7 @@ pub(crate) fn choice(id: &MenuId) -> Option<Choice> {
             tray.choices
                 .iter()
                 .find(|(shown, _)| shown == id)
-                .map(|(_, choice)| *choice)
+                .map(|(_, choice)| choice.clone())
         })
     })
 }
@@ -150,27 +150,42 @@ impl Tray {
         while self.menu.remove_at(0).is_some() {}
         self.choices.clear();
         for row in rows {
-            let appended = match row {
-                Row::Text(text) => self.menu.append(&MenuItem::new(label(text), false, None)),
-                Row::Detail(text) => self.menu.append(&MenuItem::new(
-                    label(&format!("{INDENT}{text}")),
-                    false,
-                    None,
-                )),
-                Row::Choice {
-                    label: text,
-                    choice,
-                } => {
-                    let item = MenuItem::new(label(text), true, None);
-                    self.choices.push((item.id().clone(), *choice));
-                    self.menu.append(&item)
-                }
-                Row::Separator => self.menu.append(&PredefinedMenuItem::separator()),
-            };
-            if let Err(error) = appended {
+            let item = item(row, &mut self.choices);
+            if let Err(error) = self.menu.append(item.as_ref()) {
                 tracing::warn!(%error, "a menu item was not added");
             }
         }
+    }
+}
+
+/// The menu item that draws `row`, a submenu with its own items; each
+/// choice it shows is added to `choices`.
+fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
+    match row {
+        Row::Text(text) => Box::new(MenuItem::new(label(text), false, None)),
+        Row::Detail(text) => Box::new(MenuItem::new(
+            label(&format!("{INDENT}{text}")),
+            false,
+            None,
+        )),
+        Row::Choice {
+            label: text,
+            choice,
+        } => {
+            let item = MenuItem::new(label(text), true, None);
+            choices.push((item.id().clone(), choice.clone()));
+            Box::new(item)
+        }
+        Row::Submenu { label: text, rows } => {
+            let submenu = Submenu::new(label(text), true);
+            for row in rows {
+                if let Err(error) = submenu.append(item(row, choices).as_ref()) {
+                    tracing::warn!(%error, "a submenu item was not added");
+                }
+            }
+            Box::new(submenu)
+        }
+        Row::Separator => Box::new(PredefinedMenuItem::separator()),
     }
 }
 

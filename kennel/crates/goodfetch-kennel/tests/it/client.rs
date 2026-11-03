@@ -11,14 +11,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_kennel::client::{
-    self, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Report, Wanted,
+    self, Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Report, Wanted,
 };
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, Unready};
-use goodfetch_protocol::run::{Lifecycle, RunId};
+use goodfetch_protocol::run::{Lifecycle, RunAbortParams, RunId, RunParams, RunWaitParams};
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
 
@@ -27,22 +27,23 @@ use crate::support::{ScriptedDaemon, next, reports, runtime, script, scripted_en
 const TOKEN: &str = "kennel-test-token";
 
 /// A health poll period no test waits for.
-const NEVER: Duration = Duration::from_secs(3600);
+pub(crate) const NEVER: Duration = Duration::from_secs(3600);
 
 /// A Kennel's Client following the Daemon of a home; dropping it stops
 /// the Client, which closes its Connection.
-struct Following {
+pub(crate) struct Following {
     runtime: Runtime,
     reports: mpsc::Receiver<Report>,
     keep_daemon_alive: watch::Sender<bool>,
     wanted: watch::Sender<Wanted>,
+    calls: mpsc::Sender<Call>,
     _look_again: mpsc::Sender<()>,
 }
 
 impl Following {
     /// Follows the Daemon of `home`, with the keep-alive setting
     /// `keep_daemon_alive` and a health poll every `health_every`.
-    fn start(home: &Home, keep_daemon_alive: bool, health_every: Duration) -> Self {
+    pub(crate) fn start(home: &Home, keep_daemon_alive: bool, health_every: Duration) -> Self {
         Self::wanting(home, keep_daemon_alive, health_every, Wanted::default())
     }
 
@@ -58,6 +59,7 @@ impl Following {
         let (look_again_sender, look_again) = mpsc::channel(1);
         let (keep_alive_sender, keep_alive) = watch::channel(keep_daemon_alive);
         let (wanted_sender, wanted) = watch::channel(wanted);
+        let (calls_sender, calls) = mpsc::channel(4);
         tasks.spawn(client::follow(
             tasks.clone(),
             client::Follow {
@@ -66,6 +68,7 @@ impl Following {
                 keep_daemon_alive: keep_alive,
                 health_every,
                 wanted,
+                calls,
             },
             report,
         ));
@@ -74,7 +77,24 @@ impl Following {
             reports,
             keep_daemon_alive: keep_alive_sender,
             wanted: wanted_sender,
+            calls: calls_sender,
             _look_again: look_again_sender,
+        }
+    }
+
+    /// Makes `call` on the person's behalf.
+    pub(crate) fn call(&self, call: Call) {
+        self.calls.try_send(call).unwrap();
+    }
+
+    /// The next answer to a call, past the subscription's events.
+    pub(crate) fn next_answer(&mut self) -> (Call, Result<(), CallFailure>) {
+        loop {
+            match self.next_report() {
+                Report::Answered(call, answer) => return (call, answer),
+                Report::Events(_) => {}
+                other => panic!("a call's answer, not {other:?}"),
+            }
         }
     }
 
@@ -92,7 +112,7 @@ impl Following {
     }
 
     /// The next `count` reports, each a change of the Connection.
-    fn next(&mut self, count: usize) -> Vec<ConnectionChange> {
+    pub(crate) fn next(&mut self, count: usize) -> Vec<ConnectionChange> {
         (0..count).map(|_| self.next_change()).collect()
     }
 
@@ -477,6 +497,99 @@ fn a_runs_progress_is_followed_while_the_view_wants_it_and_its_read_cancelled_af
     assert!(
         daemon.ended().success(),
         "the Daemon saw the read followed with after, then cancelled"
+    );
+}
+
+fn pause(run: &str) -> Call {
+    Call::Pause(RunParams {
+        run_id: run_id(run),
+    })
+}
+
+#[test]
+fn the_persons_calls_are_made_on_the_daemon_and_each_answer_reported() {
+    let Some(engine) = scripted_engine("the_persons_calls_are_made_on_the_daemon") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("calls-answered-and-refused.json"),
+        TOKEN,
+    );
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+    let abort = Call::Abort(RunAbortParams {
+        run_id: run_id("shop-crawl"),
+        forwarded: false,
+    });
+
+    kennel.call(pause("shop-crawl"));
+    let paused = kennel.next_answer();
+    kennel.call(abort.clone());
+    let aborted = kennel.next_answer();
+
+    assert_eq!(paused, (pause("shop-crawl"), Ok(())));
+    assert_eq!(
+        aborted,
+        (
+            abort,
+            Err(CallFailure {
+                code: "run_busy".to_owned(),
+                message: "Another engine holds the Run's writer lock.".to_owned(),
+            })
+        )
+    );
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(daemon.ended().success(), "the Daemon saw both calls");
+}
+
+#[test]
+fn a_call_the_connection_closes_under_is_reported_lost() {
+    let Some(engine) = scripted_engine("a_call_the_connection_closes_under") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("call-unanswered-then-closed.json"),
+        TOKEN,
+    );
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+    let stop = Call::Stop(RunWaitParams {
+        run_id: run_id("shop-crawl"),
+        timeout: None,
+    });
+
+    kennel.call(stop.clone());
+
+    let (call, answer) = kennel.next_answer();
+    assert_eq!(call, stop);
+    assert_eq!(
+        answer.map_err(|failure| failure.code),
+        Err("connection_lost".to_owned())
+    );
+    assert!(daemon.ended().success());
+}
+
+#[test]
+fn a_call_with_no_daemon_reached_is_answered_that_none_is() {
+    let folder = tempfile::tempdir().unwrap();
+    let mut kennel = Following::start(&Home::new(folder.path()), false, NEVER);
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+
+    kennel.call(pause("shop-crawl"));
+
+    let (call, answer) = kennel.next_answer();
+    assert_eq!(call, pause("shop-crawl"));
+    assert_eq!(
+        answer.map_err(|failure| failure.code),
+        Err("no_daemon".to_owned())
     );
 }
 

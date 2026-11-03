@@ -942,8 +942,9 @@ kennel:
     kennel/scripts/install.sh
 
 # The Kennel's checks (ADR 0141): its workspace's Clippy and tests, the
-# Client's against goodfetch-scripted-engine, which the root workspace
-# builds with the tests' profile. On macOS every crate; elsewhere the
+# Client's against goodfetch-scripted-engine and the Run controls' against a
+# real Daemon of goodfetch-collie, which the root workspace builds with the
+# tests' profile. On macOS every crate; elsewhere the
 # non-graphical crate, with the graphical one type-checked for macOS, or
 # listed as skipped without that Rust target (kennel/scripts/check.sh).
 # Runs the Kennel's Clippy and tests.

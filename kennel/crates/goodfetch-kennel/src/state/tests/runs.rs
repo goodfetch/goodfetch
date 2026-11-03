@@ -14,7 +14,7 @@ use super::super::{Frame, Input, MenuChange, Redraw, Row, State, Verdict};
 use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity};
 
 /// A State that reached a Daemon of `product`.
-fn reached(product: Product) -> State {
+pub(super) fn reached(product: Product) -> State {
     let mut state = State::new();
     state.apply(Input::Connection(ConnectionChange::Connected(
         DaemonIdentity {
@@ -25,7 +25,7 @@ fn reached(product: Product) -> State {
     state
 }
 
-fn axes(run: &str, lifecycle: &str) -> DaemonEvent {
+pub(super) fn axes(run: &str, lifecycle: &str) -> DaemonEvent {
     DaemonEvent::RunAxes(
         serde_json::from_value(json!({"run_id": run, "lifecycle": lifecycle})).unwrap(),
     )
@@ -65,7 +65,7 @@ fn resync(runs: &[&str], items: &[&str]) -> DaemonEvent {
 
 /// The progress of `run`, with `parts` added to the fields every Run's
 /// progress holds.
-fn progress(run: &str, parts: Value) -> RunProgress {
+pub(super) fn progress(run: &str, parts: Value) -> RunProgress {
     let mut value = json!({
         "run_id": run,
         "position": 7,
@@ -98,7 +98,7 @@ fn row(run: &str, tags: &[&str], message: Option<&str>) -> RunIndexRow {
     .unwrap()
 }
 
-fn run_id(run: &str) -> RunId {
+pub(super) fn run_id(run: &str) -> RunId {
     RunId::parse(run).unwrap()
 }
 
@@ -108,7 +108,7 @@ fn runs(ids: &[&str]) -> BTreeSet<RunId> {
 
 /// The menu as a person reads it: a detail indented, a separator as
 /// `---`.
-fn lines(state: &State) -> Vec<String> {
+pub(super) fn lines(state: &State) -> Vec<String> {
     state
         .view()
         .rows
@@ -116,14 +116,14 @@ fn lines(state: &State) -> Vec<String> {
         .map(|row| match row {
             Row::Text(line) => line,
             Row::Detail(line) => format!("  {line}"),
-            Row::Choice { label, .. } => label,
+            Row::Choice { label, .. } | Row::Submenu { label, .. } => label,
             Row::Separator => "---".to_owned(),
         })
         .collect()
 }
 
 /// A fixed instant the tests count from: the State reads no clock.
-fn origin() -> Instant {
+pub(super) fn origin() -> Instant {
     #[expect(
         clippy::disallowed_methods,
         reason = "a test's origin for the instants it gives the State, which reads no clock itself"
@@ -220,13 +220,13 @@ fn a_run_stopped_by_a_limit_counts_as_failed_once_its_stop_reason_is_read() {
 fn a_run_stopped_for_another_reason_leaves_the_menu() {
     let mut state = reached(Product::Foxhound);
     state.apply(Input::Events(vec![
-        axes("paused-crawl", "running"),
-        axes("paused-crawl", "stopped"),
+        axes("stopped-crawl", "running"),
+        axes("stopped-crawl", "stopped"),
     ]));
 
     state.apply(Input::Progress(progress(
-        "paused-crawl",
-        json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "pause"}}),
+        "stopped-crawl",
+        json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "abort", "by": "client"}}),
     )));
 
     assert_eq!(state.view().verdict, Verdict::Idle);

@@ -24,7 +24,7 @@ fn url_key(links: Vec<Url>) -> usize {
 }
 
 #[library_benchmark]
-#[bench::a_thousand_shop_links(scenarios::links(1_000))]
+#[bench::a_thousand_shop_links_in_a_transaction(scenarios::links(1_000))]
 fn admit_seeds(links: Vec<String>) -> usize {
     black_box(scenarios::admit_seeds(black_box(&links)))
 }

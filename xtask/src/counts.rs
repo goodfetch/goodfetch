@@ -31,6 +31,9 @@
 mod register;
 mod strace;
 
+/// The file whose Quality register holds the counted rows' limits.
+pub(crate) use register::TESTING as REGISTER_FILE;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};

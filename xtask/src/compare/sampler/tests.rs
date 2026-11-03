@@ -86,3 +86,26 @@ fn a_crawl_shorter_than_one_window_has_no_peak_cores() {
 
     assert_eq!(sampled.peak_cores, None);
 }
+
+/// A tool that exited but is not yet waited for is a zombie: `/proc` still
+/// lists it with nothing resident, and it gives no sample either.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exited_process_not_yet_waited_for_gives_no_sample() {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    let gone = std::path::PathBuf::from(format!("/proc/{pid}/stat"));
+    while !std::fs::read_to_string(&gone).is_ok_and(|stat| stat.contains(") Z ")) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let sampler = Sampler::start(std::time::Instant::now());
+
+    sampler.follow(pid);
+    std::thread::sleep(std::time::Duration::from_millis(
+        4 * super::INTERVAL_MILLISECONDS,
+    ));
+    let taken = sampler.finish().map(|samples| samples.len());
+    child.wait().unwrap();
+
+    assert_eq!(taken, Some(0));
+}

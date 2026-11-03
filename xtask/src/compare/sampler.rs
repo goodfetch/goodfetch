@@ -103,13 +103,17 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
 }
 
 /// One process's resident bytes, CPU ticks, threads and open files; none
-/// once it is gone.
+/// once it is gone, or exited and not yet waited for (a zombie, which
+/// `/proc` lists with nothing resident).
 fn process(pid: u32, page: u64) -> Option<(u64, u64, u64, u64)> {
-    let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
-    let resident: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the command's closing parenthesis, from the state (3).
     let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
+    if matches!(fields.first(), Some(&("Z" | "X"))) {
+        return None;
+    }
+    let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+    let resident: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
     let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
     let threads: u64 = fields.get(17)?.parse().ok()?;
     let open_files =

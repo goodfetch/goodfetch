@@ -25,8 +25,14 @@
 //!   the call it makes, [`Effect::Call`], and a call that fails says so
 //!   in the menu, with the engine's Error message, until a menu that
 //!   showed it closes.
+//! - **Desktop notices** (`notices`): a transition that needs a person,
+//!   each type a setting, a burst coalesced over the period the settings
+//!   give; nothing for the state the Kennel finds at its start or for a
+//!   resync's replayed state, and nothing before the settings are read or
+//!   while `notifications` is off.
 //!
-//! Every string shown passes through the Text function.
+//! Every string shown, a notice's included, passes through the Text
+//! function.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -34,7 +40,7 @@ use std::time::{Duration, Instant};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use goodfetch_protocol::foxhound::progress::RequestProgress;
-use goodfetch_protocol::needs_you::{NeedsYouChange, NeedsYouItem};
+use goodfetch_protocol::needs_you::{NeedsYouChange, NeedsYouItem, RUN_STOPPED_BY_LIMIT};
 use goodfetch_protocol::run::{
     Lifecycle, RECIPE_TAG, RunAxes, RunId, RunIndexRow, RunProgress, StopReason,
 };
@@ -47,8 +53,12 @@ use crate::settings::{Settings, SettingsError};
 use crate::text;
 
 mod needs_you;
+mod notices;
 
 pub use needs_you::Action;
+pub use notices::{Notice, Notices};
+
+use notices::{Coalescer, Ended, Kind};
 
 #[cfg(test)]
 mod tests;
@@ -283,6 +293,9 @@ struct Run {
     counts: Option<Counts>,
     /// Whether an open menu showed it since it ended.
     seen: bool,
+    /// Whether its phase came from a resync's replayed state, whose end
+    /// sends no desktop notice.
+    replayed: bool,
 }
 
 impl Run {
@@ -292,6 +305,7 @@ impl Run {
             message: None,
             counts: None,
             seen: false,
+            replayed: false,
         }
     }
 }
@@ -350,6 +364,8 @@ pub struct State {
     live_runs: u64,
     menu_open: bool,
     drawn: Option<Drawn>,
+    /// The desktop notices decided and not yet sent.
+    notices: Coalescer,
 }
 
 impl Default for State {
@@ -375,6 +391,7 @@ impl State {
             live_runs: 0,
             menu_open: false,
             drawn: None,
+            notices: Coalescer::default(),
         }
     }
 
@@ -425,11 +442,13 @@ impl State {
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
+                self.notices.settings(settings.notifications);
                 self.settings = settings;
                 self.settings_error = None;
             }
             Input::Settings(Err(error)) => {
                 self.settings = Settings::default();
+                self.notices.settings(self.settings.notifications);
                 self.settings_error = Some(error);
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
@@ -492,6 +511,19 @@ impl State {
             live_runs: self.live_runs,
             progress,
         }
+    }
+
+    /// Whether desktop notices are on: the settings are read and say so.
+    /// While they are off the Kennel builds no notice adapter.
+    pub fn notifying(&self) -> bool {
+        self.notices.notifying()
+    }
+
+    /// The desktop notices to send at `now`: the first of a burst at
+    /// once, then one summary per period, which falls due at
+    /// [`Notices::due`].
+    pub fn notices(&mut self, now: Instant) -> Notices {
+        self.notices.take(now)
     }
 
     /// What the Tray draws now.
@@ -589,6 +621,25 @@ impl State {
     }
 
     fn connection(&mut self, change: ConnectionChange) {
+        // The Daemon lost while a Run was live: its Connection ends with
+        // no Daemon reached in its place.
+        if let Daemon::Reached(identity, _) = &self.daemon
+            && matches!(
+                change,
+                ConnectionChange::NoDaemon | ConnectionChange::Refused(_)
+            )
+        {
+            let product = identity.product;
+            let live = self
+                .runs
+                .values()
+                .filter(|run| run.phase == Phase::Running)
+                .count();
+            if live > 0 {
+                self.notices
+                    .push(Kind::DaemonLost, || notices::daemon_lost(product, live));
+            }
+        }
         self.daemon = match change {
             ConnectionChange::NoDaemon => Daemon::None,
             // Each Connection starts with no reading: nothing the last one
@@ -628,7 +679,7 @@ impl State {
                     }
                 }
                 for axes in resync.runs {
-                    self.axes(axes);
+                    self.axes(axes, true);
                 }
                 self.needs_you = resync
                     .needs_you
@@ -642,10 +693,15 @@ impl State {
                 if axes.lifecycle == Lifecycle::Running && !known {
                     self.live_runs += 1;
                 }
-                self.axes(axes);
+                self.axes(axes, false);
             }
             DaemonEvent::NeedsYou(change) => match change {
                 NeedsYouChange::Listed { item } => {
+                    if !self.needs_you.contains_key(&item.id) && !self.limit_noticed(&item) {
+                        let summary = item.summary.clone();
+                        self.notices
+                            .push(Kind::NeedsYou, || notices::needs_you(&summary));
+                    }
                     self.needs_you.insert(item.id.clone(), item);
                 }
                 NeedsYouChange::Removed { id, .. } => {
@@ -655,8 +711,8 @@ impl State {
         }
     }
 
-    /// A Run's axes as they are now.
-    fn axes(&mut self, axes: RunAxes) {
+    /// A Run's axes as they are now, `replayed` by a resync or changed.
+    fn axes(&mut self, axes: RunAxes, replayed: bool) {
         let phase = match axes.lifecycle {
             Lifecycle::Running => Phase::Running,
             Lifecycle::Failed => Phase::Failed,
@@ -664,18 +720,78 @@ impl State {
             // read from its progress.
             Lifecycle::Stopped => Phase::Stopping,
             Lifecycle::Finished => {
-                self.runs.remove(&axes.run_id);
+                // A Run the State does not follow ended before it learned
+                // of it, or its progress already said so.
+                if let Some(run) = self.runs.remove(&axes.run_id)
+                    && !replayed
+                    && !run.replayed
+                {
+                    self.ended(&axes.run_id, Some(run.phase), Ended::Finished);
+                }
                 return;
             }
         };
+        let id = axes.run_id;
+        let was = self.runs.get(&id).map(|run| run.phase);
         let run = self
             .runs
-            .entry(axes.run_id)
+            .entry(id.clone())
             .or_insert_with(|| Run::new(phase));
-        if run.phase != phase {
+        if was != Some(phase) {
             run.phase = phase;
             run.seen = false;
+            // A running Run's end is a change, whatever listed it.
+            run.replayed = replayed && phase != Phase::Running;
+            if phase == Phase::Failed && !replayed {
+                self.ended(&id, was, Ended::Failed);
+            }
         }
+    }
+
+    /// Sends the notice of the Run `id` ending as `ended` says, from the
+    /// phase `was` it was followed in, if any; none when it had already
+    /// ended in a state that needs a look, or when the notice of its Needs
+    /// you item tells the same.
+    fn ended(&mut self, id: &RunId, was: Option<Phase>, ended: Ended) {
+        if was.is_some_and(Phase::needs_a_look) {
+            return;
+        }
+        if ended == Ended::StoppedByLimit && self.notices.wants(Kind::NeedsYou) {
+            let told = self
+                .needs_you
+                .values()
+                .any(|item| item.kind == RUN_STOPPED_BY_LIMIT && item.run.as_ref() == Some(id));
+            if told {
+                return;
+            }
+        }
+        let name = self.run_name(id);
+        self.notices
+            .push(ended.kind(), || notices::run_ended(ended, &name));
+    }
+
+    /// Whether `item` says a Run stopped by a Limit whose own notice was
+    /// already sent.
+    fn limit_noticed(&self, item: &NeedsYouItem) -> bool {
+        item.kind == RUN_STOPPED_BY_LIMIT
+            && self.notices.wants(Kind::RunStoppedByLimit)
+            && item
+                .run
+                .as_ref()
+                .and_then(|id| self.runs.get(id))
+                .is_some_and(|run| run.phase == Phase::StoppedByLimit && !run.replayed)
+    }
+
+    /// What names the Run `id`: its Recipe, or its Run ID when it ran
+    /// none.
+    fn run_name(&self, id: &RunId) -> String {
+        self.facts
+            .get(id)
+            .and_then(|facts| facts.recipe.as_deref())
+            .map_or_else(
+                || id.as_str().to_owned(),
+                |recipe| text::shown(recipe, NAME_MOST),
+            )
     }
 
     fn progress(&mut self, progress: &RunProgress) {
@@ -701,14 +817,34 @@ impl State {
             (Lifecycle::Failed, _, _) => Phase::Failed,
             (Lifecycle::Stopped, Some(StopReason::Limit(_)), _) => Phase::StoppedByLimit,
             (Lifecycle::Stopped, _, false) => Phase::Stopping,
-            (Lifecycle::Stopped, _, true) | (Lifecycle::Finished, _, _) => {
+            (Lifecycle::Stopped, _, true) => {
                 self.runs.remove(&progress.run_id);
                 return;
             }
+            (Lifecycle::Finished, _, _) => {
+                let (was, replayed) = (run.phase, run.replayed);
+                self.runs.remove(&progress.run_id);
+                if !replayed {
+                    self.ended(&progress.run_id, Some(was), Ended::Finished);
+                }
+                return;
+            }
         };
-        if run.phase != phase {
+        let (was, replayed) = (run.phase, run.replayed);
+        if was != phase {
             run.phase = phase;
             run.seen = false;
+            run.replayed = replayed && phase != Phase::Running;
+            let ended = match phase {
+                Phase::Failed => Some(Ended::Failed),
+                Phase::StoppedByLimit => Some(Ended::StoppedByLimit),
+                Phase::Running | Phase::Stopping => None,
+            };
+            if let Some(ended) = ended
+                && !replayed
+            {
+                self.ended(&progress.run_id, Some(was), ended);
+            }
         }
     }
 

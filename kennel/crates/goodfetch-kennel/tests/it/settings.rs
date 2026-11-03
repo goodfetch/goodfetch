@@ -7,7 +7,7 @@
 use std::fs;
 
 use goodfetch_kennel::home::Home;
-use goodfetch_kennel::settings::{self, Settings, SettingsError};
+use goodfetch_kennel::settings::{self, Notifications, Settings, SettingsError};
 
 use crate::support::{next, reports, runtime};
 
@@ -22,6 +22,15 @@ fn without_a_settings_file_the_defaults_apply() {
         Ok(Settings {
             controls: true,
             keep_daemon_alive: false,
+            notifications: Notifications {
+                enabled: true,
+                needs_you: true,
+                run_failed: true,
+                run_stopped_by_limit: true,
+                daemon_lost: true,
+                run_finished: false,
+                period_minutes: 20,
+            },
         })
     );
 }
@@ -37,9 +46,49 @@ fn keeping_the_daemon_alive_is_a_setting_of_its_own() {
     assert_eq!(
         read,
         Ok(Settings {
-            controls: true,
             keep_daemon_alive: true,
+            ..Settings::default()
         })
+    );
+}
+
+#[test]
+fn each_desktop_notice_type_and_the_period_are_settings_of_their_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(
+        home.settings_file(),
+        "[notifications]\nrun_failed = false\nrun_finished = true\nperiod_minutes = 5\n",
+    )
+    .unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            notifications: Notifications {
+                run_failed: false,
+                run_finished: true,
+                period_minutes: 5,
+                ..Notifications::default()
+            },
+            ..Settings::default()
+        })
+    );
+}
+
+#[test]
+fn desktop_notices_turn_off_as_a_whole() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "[notifications]\nenabled = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read.map(|settings| settings.notifications.enabled),
+        Ok(false)
     );
 }
 
@@ -85,4 +134,22 @@ fn a_settings_file_with_an_unknown_key_says_which() {
         panic!("an unknown key is refused: {read:?}");
     };
     assert!(why.contains("contrls"), "{why}");
+}
+
+#[test]
+fn an_unknown_key_among_the_desktop_notices_is_refused() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(
+        home.settings_file(),
+        "[notifications]\nrun_failled = false\n",
+    )
+    .unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    let Err(SettingsError::Unreadable(why)) = read else {
+        panic!("an unknown key is refused: {read:?}");
+    };
+    assert!(why.contains("run_failled"), "{why}");
 }

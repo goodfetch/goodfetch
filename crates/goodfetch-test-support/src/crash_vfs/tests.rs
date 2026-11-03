@@ -323,3 +323,21 @@ fn a_power_cut_lands_on_the_durable_bytes_what_it_drew(
     assert_eq!(file.durable, expected);
     assert_eq!(file.current, expected);
 }
+
+/// A benchmark reads what a commit at SQLite's full sync costs from here
+/// (ADR 0140).
+#[test]
+fn the_vfs_counts_each_sync_of_a_commit() {
+    let vfs = CrashVfs::register("counts-syncs", 0).unwrap();
+    let connection = open(&vfs);
+    connection
+        .execute_batch("PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; CREATE TABLE item (value TEXT);")
+        .unwrap();
+    let before = vfs.syncs();
+
+    connection
+        .execute("INSERT INTO item (value) VALUES ('one')", [])
+        .unwrap();
+
+    assert!(vfs.syncs() > before);
+}

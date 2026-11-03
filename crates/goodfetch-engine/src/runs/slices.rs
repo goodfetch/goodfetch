@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{LimitScope, RunId};
 use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON};
@@ -36,6 +37,8 @@ pub(crate) struct Limits {
     pub(crate) owner: Arc<TaskOwner>,
     /// The user's Usage ledger.
     pub(crate) ledger: Ledger,
+    /// Where each Run's charges count their work (ADR 0140).
+    pub(crate) work: CountedWork,
     /// The user's known-certificates store, of the Usage ledger's family,
     /// beside it (ADR 0042).
     pub(crate) known_certificates: KnownCertificates,
@@ -66,7 +69,7 @@ impl Limits {
         placement: Placement,
     ) -> Charging {
         Charging::new(
-            self.ledger.clone(),
+            self.ledger.clone().counting(self.work.clone()),
             Holder {
                 run_id: run_id.as_str().to_owned(),
                 epoch,

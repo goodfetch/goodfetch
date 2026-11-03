@@ -24,6 +24,7 @@ fn read_with(html: &str, built_in: BuiltIn) -> PageFormats {
         &Context {
             clean_up: None,
             extractor: built_in.extractor(),
+            work: goodfetch_counted_work::CountedWork::default(),
         },
     )
 }

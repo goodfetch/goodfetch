@@ -409,6 +409,9 @@ fn change_confined_to_foxhounds_side_selects_only_foxhound(
 // A ceiling changed in `xtask perf`'s budget is checked at once on the bench
 // targets of the crates it reads (ADR 0134).
 #[case::ceilings_of_the_performance_budget(&["xtask/src/perf/budget.rs"], "goodfetch-frontier/frontier")]
+// A newly pinned reference build is compared at once with every bench target
+// (`drift.reference`, ADR 0140).
+#[case::the_pinned_reference_build(&["ci/perf-reference.toml"], "goodfetch-engine/engine goodfetch-frontier/frontier")]
 fn changed_crate_selects_its_and_its_dependants_bench_targets(
     #[case] paths: &[&str],
     #[case] bench_targets: &str,

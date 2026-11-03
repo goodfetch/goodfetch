@@ -3,6 +3,10 @@
 //! link-dense blocks, image-only blocks and repeated navigation lists; the
 //! HTML as it stands, after the Clean-up rules, or of the main content; and
 //! the main content's text.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};
 use proptest::prelude::*;
@@ -178,6 +182,10 @@ fn raw_html_of_a_dom_is_its_light_tree_without_the_shadow_roots_serialized_besid
 struct AdSlots;
 
 impl CleanUp for AdSlots {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn remove(&self, html: &str, _url: &str) -> String {
         let document = dom_query::Document::from(html);
         document.select(".ad-slot").remove();

@@ -11,7 +11,8 @@
 //! draw, which the browser gives no size, and one inside a closed
 //! `details`.
 
-use dom_query::{Document, Matcher, NodeRef};
+use dom_query::NodeRef;
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
 /// What the markup says of the one element a selector matches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,12 +41,12 @@ const DRAWN: [&str; 13] = [
 /// parse, a document with a declarative shadow root, more than one match,
 /// whose wait the browser refuses as not strict, or an element whose
 /// visibility needs layout or a stylesheet's rules.
-pub(crate) fn shown(html: &str, selector: &str) -> Option<Shown> {
+pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Shown> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = Matcher::new(selector).ok()?;
-    let document = Document::from(html);
+    let matcher = work.compile_selector(Row::PageSelectorCompilations, selector)?;
+    let document = work.parse_html(Row::PageParses, html);
     let selection = document.select_matcher(&matcher);
     let nodes = selection.nodes();
     let element = match nodes {
@@ -87,19 +88,25 @@ pub(crate) fn shown(html: &str, selector: &str) -> Option<Shown> {
         || std::iter::once(*element)
             .chain(element.descendants())
             .any(|node| DRAWN.contains(&name(&node).as_str()));
-    (draws && !in_closed_details && !styled(&document)).then_some(Shown::Visible)
+    (draws && !in_closed_details && !styled(&document, work)).then_some(Shown::Visible)
 }
 
 /// Whether `document` holds a stylesheet: a `<style>` element, or a
 /// `<link>` whose `rel` names `stylesheet`, an alternate one included.
-fn styled(document: &Document) -> bool {
-    !document.select("style").is_empty()
-        || document.select("link[rel]").nodes().iter().any(|link| {
-            link.attr("rel").is_some_and(|rel| {
-                rel.split_ascii_whitespace()
-                    .any(|kind| kind.eq_ignore_ascii_case("stylesheet"))
+fn styled(document: &ParsedHtml, work: &CountedWork) -> bool {
+    !document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "style"))
+        .is_empty()
+        || document
+            .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "link[rel]"))
+            .nodes()
+            .iter()
+            .any(|link| {
+                link.attr("rel").is_some_and(|rel| {
+                    rel.split_ascii_whitespace()
+                        .any(|kind| kind.eq_ignore_ascii_case("stylesheet"))
+                })
             })
-        })
 }
 
 /// The value of the property `property` in `node`'s inline `style`, lower

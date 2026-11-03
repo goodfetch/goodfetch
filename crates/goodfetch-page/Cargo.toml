@@ -31,6 +31,7 @@ flate2.workspace = true
 futures-util.workspace = true
 goodfetch-cdp.workspace = true
 goodfetch-clean-up-rules.workspace = true
+goodfetch-counted-work.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
@@ -79,6 +80,8 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true
 proptest.workspace = true
+# The counts cell's Goodfetch home.
+tempfile.workspace = true
 rstest.workspace = true
 # The verifier that proves the relay's authority name-constrained.
 rustls = { workspace = true, features = ["ring", "std"] }

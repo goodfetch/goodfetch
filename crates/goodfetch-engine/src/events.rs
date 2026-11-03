@@ -23,6 +23,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::{Event, EventClass};
 use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
@@ -68,6 +69,7 @@ impl Default for EventsOptions {
 pub struct Events {
     commands: mpsc::Sender<Command>,
     instance: EngineInstance,
+    work: CountedWork,
 }
 
 /// One subscription to the stream, as the call that reads it holds it;
@@ -157,11 +159,12 @@ impl Snapshot {
 
 impl Events {
     /// Starts the stream's actor as a task of `owner`, its positions those
-    /// of `instance`.
+    /// of `instance`, each encode of an event counted on `work`.
     pub(crate) fn start(
         options: EventsOptions,
         instance: EngineInstance,
         owner: &TaskOwner,
+        work: CountedWork,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
         let stream = Stream {
@@ -181,7 +184,11 @@ impl Events {
                 () = token.cancelled() => {}
             }
         });
-        Self { commands, instance }
+        Self {
+            commands,
+            instance,
+            work,
+        }
     }
 
     /// The engine instance whose positions it gives.
@@ -200,6 +207,7 @@ impl Events {
     ///
     /// Dropping the future after the event was sent still publishes it.
     pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
+        self.work.count(Row::MessageEncodes);
         let data =
             serde_json::to_value(data).expect("invariant: an event's payload encodes as JSON");
         self.send(event, scope.map(str::to_owned), data, None).await;
@@ -212,6 +220,7 @@ impl Events {
     ///
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
+        self.work.count(Row::MessageEncodes);
         let data = serde_json::to_value(&axes).expect("invariant: a Run's axes encode as JSON");
         let scope = Some(axes.run_id.as_str().to_owned());
         self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
@@ -225,6 +234,7 @@ impl Events {
     ///
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_needs_you(&self, change: NeedsYouChange) {
+        self.work.count(Row::MessageEncodes);
         let data = serde_json::to_value(&change).expect("invariant: a change of Needs you encodes");
         self.send(
             &NEEDS_YOU_CHANGED,

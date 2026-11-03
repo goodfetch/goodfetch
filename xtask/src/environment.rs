@@ -24,6 +24,11 @@ pub(crate) struct Environment {
     /// Whether `GOODFETCH_LAZYFS` names a LazyFS build, as `just
     /// lazyfs-test` sets it on Linux.
     pub(crate) lazyfs: bool,
+    /// Whether `CI` is set: CI runs every part, so a missing tool fails
+    /// there rather than listing its part as skipped (ADR 0061).
+    pub(crate) ci: bool,
+    /// The folders of `PATH`, where a tool a command runs is looked for.
+    pub(crate) programs: Vec<PathBuf>,
 }
 
 impl Environment {
@@ -42,6 +47,10 @@ impl Environment {
                 .and_then(|token| token.into_string().ok())
                 .filter(|token| !token.is_empty()),
             lazyfs: variable("GOODFETCH_LAZYFS").is_some(),
+            ci: variable("CI").is_some_and(|value| !value.is_empty()),
+            programs: variable("PATH")
+                .map(|path| std::env::split_paths(&path).collect())
+                .unwrap_or_default(),
             goodfetch_variables: variables
                 .iter()
                 .map(|(name, _)| name)
@@ -62,6 +71,13 @@ impl Environment {
 
     pub(crate) fn token(&self) -> Option<&str> {
         self.github_token.as_deref()
+    }
+
+    /// Whether the program `name` is in a folder of `PATH`.
+    pub(crate) fn has_program(&self, name: &str) -> bool {
+        self.programs
+            .iter()
+            .any(|folder| folder.join(name).is_file())
     }
 }
 

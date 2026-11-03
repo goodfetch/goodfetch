@@ -12,6 +12,10 @@
 //! are borrowed from a static fixture, so serving them allocates nothing.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 
+#[expect(
+    dead_code,
+    reason = "the fixture's counts cell, which the counts benchmark runs and this one does not"
+)]
 mod scenarios;
 
 use std::hint::black_box;
@@ -30,6 +34,11 @@ fn in_memory_pages() -> usize {
         crawled.body_bytes,
         scenarios::body_bytes(),
         "invariant: the site sends each body once"
+    );
+    assert_eq!(
+        crawled.attempts,
+        u64::try_from(scenarios::PAGES.len() + 1).unwrap_or(u64::MAX),
+        "the site serves each page to one attempt"
     );
     black_box(crawled.records.len())
 }

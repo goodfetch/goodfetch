@@ -38,6 +38,7 @@ fn state_of(
                 never_block: Arc::new(NeverBlock::new()),
                 lists: None,
                 choices: goodfetch_clean_up_rules::matching::Choices::default(),
+                work: goodfetch_counted_work::CountedWork::default(),
             },
         },
         pending,
@@ -141,8 +142,9 @@ fn a_runs_documents_share_their_parsed_selectors_while_any_holds_them() {
     let interception = Interception::default();
     let [one, other] = ["run-1", "run-2"].map(|run| RunId::parse(run).unwrap());
 
-    let first = interception.shared.selectors(&one);
-    let [again, others] = [&one, &other].map(|run| interception.shared.selectors(run));
+    let work = goodfetch_counted_work::CountedWork::default();
+    let first = interception.shared.selectors(&one, &work);
+    let [again, others] = [&one, &other].map(|run| interception.shared.selectors(run, &work));
     let shared = [Arc::ptr_eq(&first, &again), Arc::ptr_eq(&first, &others)];
     let held = Arc::downgrade(&first);
     drop((first, again));

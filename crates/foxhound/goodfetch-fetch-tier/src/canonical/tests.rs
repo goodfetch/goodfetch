@@ -52,7 +52,13 @@ fn a_page_names_its_canonical(
     let url = Url::parse("http://site.test/page/one").unwrap();
 
     assert_eq!(
-        canonical(html, &headers, &base, &url),
+        canonical(
+            html,
+            &headers,
+            &base,
+            &url,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
         expected.map(|expected| Url::parse(expected).unwrap())
     );
 }

@@ -45,6 +45,8 @@ libc.workspace = true
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus"] }
 
 [dev-dependencies]
+# The counters `counts`' rows are held to (ADR 0140).
+goodfetch-counted-work.workspace = true
 # The test tool manifest's Proving ground, for `journeys tasks`' tests.
 goodfetch-test-support.workspace = true
 insta.workspace = true

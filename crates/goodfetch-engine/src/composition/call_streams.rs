@@ -9,6 +9,7 @@
 
 use std::sync::{Mutex, PoisonError};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::page::{CHUNK, CHUNK_BYTES, Chunk};
 use serde::Serialize;
@@ -27,24 +28,32 @@ pub(crate) struct CallNotifier {
     id: RequestId,
     outgoing: mpsc::Sender<Vec<u8>>,
     line: fn(&str, Value) -> Vec<u8>,
+    work: CountedWork,
 }
 
 impl CallNotifier {
     /// The notifier of the call `id`, on the Connection's writer
     /// `outgoing`, which writes the line `line` makes of a notification's
-    /// method and params.
+    /// method and params, each encode counted on `work`.
     pub(crate) fn new(
         id: RequestId,
         outgoing: mpsc::Sender<Vec<u8>>,
         line: fn(&str, Value) -> Vec<u8>,
+        work: CountedWork,
     ) -> Self {
-        Self { id, outgoing, line }
+        Self {
+            id,
+            outgoing,
+            line,
+            work,
+        }
     }
 
     /// The notification `method` with `params` to the Client; `false` once
     /// the Connection's writer is gone. Dropping the future sends nothing
     /// unless the writer took the line.
     async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
+        self.work.count(Row::MessageEncodes);
         let params =
             serde_json::to_value(params).expect("invariant: a notification's params encode");
         self.outgoing

@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, POLITENESS_FILE};
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
@@ -104,11 +105,14 @@ pub struct PolitenessTables {
 }
 
 /// How the Politeness file opens.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct PolitenessOptions {
     /// The name of the SQLite VFS it opens through: none in production, the
     /// crash VFS in tests (ADR 0060).
     pub vfs: Option<String>,
+    /// Where it counts its opens and transactions, and the robots.txt copy
+    /// kept in it its reads and parses (ADR 0140's E6).
+    pub work: CountedWork,
 }
 
 /// Whether a key admits one more request now.
@@ -314,6 +318,7 @@ struct Inner {
     /// The first transaction that met a full disk or an I/O error, as
     /// SQLite named it, once one did (ADR 0122).
     failures: watch::Sender<Option<String>>,
+    work: CountedWork,
 }
 
 impl fmt::Debug for Politeness {
@@ -352,9 +357,10 @@ impl Politeness {
     ) -> Result<Self, PolitenessError> {
         let vfs = options.vfs.clone();
         let opened = path.clone();
+        let work = options.work.clone();
         let (connection, folder) = owner
             .blocking(move || -> Result<_, PolitenessError> {
-                let connection = open_file(&opened, vfs.as_deref(), &tables)?;
+                let connection = open_file(&opened, vfs.as_deref(), &work, &tables)?;
                 let folder = transport::socket_folder("goodfetch-wake-", WAKE_SOCKET)
                     .map_err(|error| PolitenessError::WakeEndpoint(error.to_string()))?;
                 Ok((connection, folder))
@@ -396,13 +402,14 @@ impl Politeness {
             wakes,
             Some(endpoint),
             Some(folder),
+            options.work.clone(),
             owner,
         )
     }
 
     /// A Politeness file of one Run's own, in memory, for a Run with
     /// `politeness.sharing = run`: the same rules, shared with no other
-    /// Run.
+    /// Run, counting on `options`' Counted work (its VFS is the memory's).
     ///
     /// # Errors
     ///
@@ -412,15 +419,18 @@ impl Politeness {
     ///
     /// Dropping the future drops the file.
     pub async fn in_memory(
+        options: &PolitenessOptions,
         tables: Vec<PolitenessTables>,
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
         let path = PathBuf::from(":memory:");
         let opened = path.clone();
+        let work = options.work.clone();
         let connection = owner
             .blocking(move || {
                 let connection =
                     Connection::open_in_memory().map_err(|error| sqlite_error(&opened, &error))?;
+                counting(&connection, &work).map_err(|error| sqlite_error(&opened, &error))?;
                 create_tables(&connection, &opened, &tables)?;
                 Ok::<_, PolitenessError>(connection)
             })
@@ -438,6 +448,7 @@ impl Politeness {
             wakes,
             Some(IN_MEMORY_ENDPOINT.to_owned()),
             None,
+            options.work.clone(),
             owner,
         )
     }
@@ -448,6 +459,7 @@ impl Politeness {
         wakes: broadcast::Sender<Wake>,
         endpoint: Option<String>,
         wake_folder: Option<tempfile::TempDir>,
+        work: CountedWork,
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
         let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
@@ -465,7 +477,14 @@ impl Politeness {
             endpoint,
             _wake_folder: wake_folder,
             failures: watch::Sender::new(None),
+            work,
         })))
+    }
+
+    /// Where the file counts its work, and what keeps its tables counts
+    /// theirs (ADR 0140's E6).
+    pub fn work(&self) -> &CountedWork {
+        &self.0.work
     }
 
     /// The first transaction of the file that met a full disk or an I/O
@@ -754,10 +773,23 @@ fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> Polit
     }
 }
 
+/// Counts `connection`'s opening and each transaction it commits on `work`,
+/// beneath every owner, so a contribution's transaction counts too (ADR
+/// 0140's E6).
+fn counting(connection: &Connection, work: &CountedWork) -> rusqlite::Result<()> {
+    work.count(Row::PolitenessOpens);
+    let work = work.clone();
+    connection.commit_hook(Some(move || {
+        work.count(Row::PolitenessTransactions);
+        false
+    }))
+}
+
 /// Opens the file, skips `fsync` and creates its tables.
 fn open_file(
     path: &Path,
     vfs: Option<&str>,
+    work: &CountedWork,
     tables: &[PolitenessTables],
 ) -> Result<Connection, PolitenessError> {
     let failed = |error: rusqlite::Error| sqlite_error(path, &error);
@@ -776,6 +808,7 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
+    counting(&connection, work).map_err(failed)?;
     connection.busy_timeout(BUSY_TIMEOUT).map_err(failed)?;
     crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(failed)?;
     connection

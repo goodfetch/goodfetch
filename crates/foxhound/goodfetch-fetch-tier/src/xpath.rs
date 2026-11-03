@@ -60,7 +60,7 @@ pub(crate) struct Document(tree::Tree);
 
 impl Document {
     /// `document`, as `XPath` reads it.
-    pub(crate) fn of(document: &dom_query::Document) -> Self {
+    pub(crate) fn of(document: &goodfetch_counted_work::ParsedHtml) -> Self {
         Self(tree::Tree::of(document))
     }
 

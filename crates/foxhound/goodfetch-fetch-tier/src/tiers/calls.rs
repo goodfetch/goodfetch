@@ -49,6 +49,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
+use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
@@ -377,18 +378,19 @@ fn waited(
     let page_id = page_id.clone();
     Box::pin(async move {
         let document = Arc::clone(&page.document);
+        let work = page.document.run.metrics().counted_work().clone();
         let met = page
             .document
             .run
             .owner()
             .blocking(move || match wait {
                 Wait::Shown(state) => {
-                    let shown = shown(&document.html, &selector)?;
+                    let shown = shown(&document.html, &selector, &work)?;
                     let met = shown == state || (state == Shown::Hidden && shown == Shown::Absent);
                     met.then(|| encoded(&Reached {}))
                 }
                 Wait::One | Wait::None | Wait::Count(_) => {
-                    let count = matches(&document.html, &selector)?;
+                    let count = matches(&document.html, &selector, &work)?;
                     match wait {
                         Wait::One => (count == 1).then(|| encoded(&Reached {})),
                         Wait::None => (count == 0).then(|| encoded(&Reached {})),
@@ -408,12 +410,12 @@ fn waited(
 /// matches; `None` when the markup alone cannot tell, the selector being
 /// one the matcher does not parse or the document holding a declarative
 /// shadow root.
-pub(crate) fn matches(html: &str, selector: &str) -> Option<u64> {
+pub(crate) fn matches(html: &str, selector: &str, work: &CountedWork) -> Option<u64> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = dom_query::Matcher::new(selector).ok()?;
-    let document = dom_query::Document::from(html);
+    let matcher = work.compile_selector(CountedRow::PageSelectorCompilations, selector)?;
+    let document = work.parse_html(CountedRow::PageParses, html);
     u64::try_from(document.select_matcher(&matcher).length()).ok()
 }
 

@@ -54,7 +54,26 @@ if [[ "$(uname -s)" != Linux ]]; then
 fi
 
 command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not installed on this host"
+
+# The rows of counted work (ADR 0140), whose statement preparations are
+# Callgrind's call count: each run against its limit, then each counter against
+# a planted unit of its work.
+cargo run --quiet -p xtask -- counts
+cargo run --quiet -p xtask -- counts --prove
+
+# B1 and B2 under strace: what it sees of the Run trace's opens and folders
+# and of the counted files' syncs against the counters, then a raw unit of each
+# beside its counted function, which must fail the cell (ADR 0140). Without
+# strace on a local host it lists itself as skipped; CI fails.
+cargo run --quiet -p xtask -- counts --strace
+cargo run --quiet -p xtask -- counts --strace --prove
+
 command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
+
+# The rows read under Valgrind (ADR 0140): each against its limit, then each
+# against a planted unit of work.
+cargo run --quiet -p xtask -- counts --valgrind
+cargo run --quiet -p xtask -- counts --valgrind --prove
 
 selection=$(cargo run --quiet -p xtask -- affected "${change[@]}")
 targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")

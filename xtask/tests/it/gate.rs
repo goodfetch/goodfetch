@@ -270,6 +270,7 @@ fn a_later_run_reruns_what_the_change_since_the_first_reaches_and_every_red_resu
     for step in [
         "dco",
         "commit-messages",
+        "floor-guard",
         "lint",
         "audit",
         "commit-leaks",
@@ -676,9 +677,10 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
 }
 
 /// Every step of `just pre-merge all`, by its name in the plan.
-const STEPS: [&str; 20] = [
+const STEPS: [&str; 21] = [
     "dco",
     "commit-messages",
+    "floor-guard",
     "lint",
     "feature-combinations",
     "audit",

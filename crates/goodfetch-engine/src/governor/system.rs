@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::governor::{AllowanceSource, GovernorLevel};
 
 use super::storage::{Disks, FilesystemSource};
@@ -25,6 +26,8 @@ mod windows;
 pub struct System {
     source: Source,
     pub(crate) disks: Disks,
+    /// What its counted reads count on: the governor's, once it samples.
+    work: CountedWork,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +68,7 @@ impl System {
         Self {
             source: Source::Os,
             disks: Disks::Os,
+            work: CountedWork::default(),
         }
     }
 
@@ -74,6 +78,7 @@ impl System {
         Self {
             source: Source::LinuxFiles(proc),
             disks: Disks::Os,
+            work: CountedWork::default(),
         }
     }
 
@@ -86,12 +91,23 @@ impl System {
         self
     }
 
+    /// The same, its reads counted on `work` (ADR 0140's E4).
+    #[must_use]
+    pub(crate) fn counting(mut self, work: CountedWork) -> Self {
+        self.work = work;
+        self
+    }
+
     /// The memory of the process `process` and every descendant, as
     /// [`footprint_of`] counts it, read where the governor reads the
     /// machine. Blocking.
     pub(crate) fn footprint(&self, process: u32) -> u64 {
         match &self.source {
-            Source::LinuxFiles(proc) => linux::Proc(proc).footprint_from(&process.to_string()),
+            Source::LinuxFiles(proc) => linux::Proc {
+                folder: proc,
+                work: &self.work,
+            }
+            .footprint_from(&process.to_string()),
             Source::Os => footprint_of(process),
         }
     }
@@ -99,8 +115,8 @@ impl System {
     /// Reads the machine now. Blocking.
     pub(crate) fn read(&self, inputs: &Inputs) -> SystemReading {
         let found = match &self.source {
-            Source::LinuxFiles(proc) => linux_files(proc, inputs),
-            Source::Os => os(inputs),
+            Source::LinuxFiles(proc) => linux_files(proc, &self.work, inputs),
+            Source::Os => os(&self.work, inputs),
         };
         let (allowance, allowance_source) = tightest(
             found.cgroup,
@@ -124,7 +140,12 @@ impl System {
 pub fn footprint_of(process: u32) -> u64 {
     #[cfg(target_os = "linux")]
     {
-        linux::Proc(Path::new("/proc")).footprint_from(&process.to_string())
+        // Uncounted: the pool counts its walk where it asks for one.
+        linux::Proc {
+            folder: Path::new("/proc"),
+            work: &CountedWork::default(),
+        }
+        .footprint_from(&process.to_string())
     }
     #[cfg(target_os = "macos")]
     {
@@ -151,8 +172,8 @@ struct Found {
     cpu_time: Duration,
 }
 
-fn linux_files(proc: &Path, inputs: &Inputs) -> Found {
-    let proc = linux::Proc(proc);
+fn linux_files(proc: &Path, work: &CountedWork, inputs: &Inputs) -> Found {
+    let proc = linux::Proc { folder: proc, work };
     Found {
         cgroup: proc.cgroup_limit(),
         job: None,
@@ -164,13 +185,13 @@ fn linux_files(proc: &Path, inputs: &Inputs) -> Found {
 }
 
 #[cfg(target_os = "linux")]
-fn os(inputs: &Inputs) -> Found {
-    linux_files(Path::new("/proc"), inputs)
+fn os(work: &CountedWork, inputs: &Inputs) -> Found {
+    linux_files(Path::new("/proc"), work, inputs)
 }
 
 #[cfg(target_os = "macos")]
-fn os(inputs: &Inputs) -> Found {
-    let _ = inputs;
+fn os(work: &CountedWork, inputs: &Inputs) -> Found {
+    let _ = (work, inputs);
     Found {
         cgroup: None,
         job: None,
@@ -182,7 +203,8 @@ fn os(inputs: &Inputs) -> Found {
 }
 
 #[cfg(windows)]
-fn os(inputs: &Inputs) -> Found {
+fn os(work: &CountedWork, inputs: &Inputs) -> Found {
+    let _ = work;
     Found {
         cgroup: None,
         job: windows::job_limit(),
@@ -194,8 +216,8 @@ fn os(inputs: &Inputs) -> Found {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn os(inputs: &Inputs) -> Found {
-    let _ = inputs;
+fn os(work: &CountedWork, inputs: &Inputs) -> Found {
+    let _ = (work, inputs);
     Found {
         cgroup: None,
         job: None,

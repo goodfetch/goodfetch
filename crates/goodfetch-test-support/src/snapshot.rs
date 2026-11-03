@@ -123,6 +123,10 @@ impl SnapshotValues {
 /// `text` under the rules [`snapshot_settings`] gives insta for `values`,
 /// applied as insta applies them: for a value a test compares without a
 /// snapshot.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub fn redact(text: &str, values: &SnapshotValues) -> String {
     rules(values)
         .into_iter()

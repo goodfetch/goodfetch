@@ -79,7 +79,7 @@ enum Visit {
 
 impl Tree {
     /// `document`'s tree.
-    pub(super) fn of(document: &dom_query::Document) -> Self {
+    pub(super) fn of(document: &goodfetch_counted_work::ParsedHtml) -> Self {
         let root = document.root();
         let mut tree = Self {
             nodes: vec![Node {

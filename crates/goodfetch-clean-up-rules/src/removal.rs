@@ -22,7 +22,8 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 
 use adblock::cosmetic_filter_cache::ProceduralOrActionFilter;
 use adblock::filters::cosmetic::{CosmeticFilterAction, CosmeticFilterOperator};
-use dom_query::{Document, Matcher, NodeId, NodeRef, Selection};
+use dom_query::{Matcher, NodeId, NodeRef, Selection};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
 use crate::cosmetic::{CssRule, HIDDEN, PageRules};
 use crate::matching::{Choices, List};
@@ -71,9 +72,20 @@ pub struct Removed {
 #[derive(Default)]
 pub struct Selectors {
     parsed: Mutex<HashMap<String, Option<Matcher>>>,
+    /// Where a removal counts its parse of a document (ADR 0140).
+    work: CountedWork,
 }
 
 impl Selectors {
+    /// None parsed yet, a removal through it counting on `work`.
+    #[must_use]
+    pub fn counting(work: CountedWork) -> Self {
+        Self {
+            parsed: Mutex::default(),
+            work,
+        }
+    }
+
     /// How many selectors it parsed so far.
     pub fn parsed(&self) -> usize {
         self.parsed
@@ -92,7 +104,9 @@ impl Selectors {
                 if let Some(matcher) = parsed.get(selector) {
                     return matcher.clone();
                 }
-                let matcher = Matcher::new(selector).ok();
+                let matcher = self
+                    .work
+                    .compile_selector(Row::PageSelectorCompilations, selector);
                 parsed.insert(selector.to_owned(), matcher.clone());
                 matcher
             })
@@ -137,7 +151,7 @@ pub fn remove(
     if rules.is_empty() {
         return untouched(html);
     }
-    let document = Document::from(html);
+    let document = selectors.work.parse_html(Row::PageParses, html);
     let roots = roots(&document);
     let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
     let hiding: Vec<CssRule> = rules
@@ -218,6 +232,14 @@ pub fn remove(
 /// document and its shadow roots: the selectors of the rules the Consent
 /// prompt runner hid prompts with, each element recorded with no list. A
 /// selector that does not parse is left out.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub fn remove_selected(removal: Removal, selectors: &[String]) -> Removal {
     let matchers: Vec<(&str, Matcher)> = selectors
         .iter()
@@ -231,7 +253,7 @@ pub fn remove_selected(removal: Removal, selectors: &[String]) -> Removal {
         mut removed,
         mut removed_text,
     } = removal;
-    let document = Document::from(html.as_str());
+    let document = dom_query::Document::from(html.as_str());
     let roots = roots(&document);
     let mut gone = BTreeSet::new();
     let mut took = false;
@@ -281,7 +303,11 @@ fn untouched(html: &str) -> Removal {
 
 /// The document's root, then each shadow root with the `<template>` that
 /// holds it, breadth first in document order.
-fn roots(document: &Document) -> Vec<(NodeRef<'_>, Option<NodeRef<'_>>)> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
+fn roots(document: &ParsedHtml) -> Vec<(NodeRef<'_>, Option<NodeRef<'_>>)> {
     static SHADOW: LazyLock<Matcher> = LazyLock::new(|| {
         Matcher::new("template[shadowrootmode]")
             .expect("invariant: the shadow root selector is CSS")

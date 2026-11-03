@@ -1,0 +1,158 @@
+//! The floor guard (ADR 0140; `TESTING.md`, Quality register): what a change
+//! does to the bar, from the merge base to its head. It fails on a new
+//! suppression outside the Floor's forms, a stub or an empty catch, a skipped or
+//! deleted test, a weakened register row and an edit to the gate's own files,
+//! unless a `Quality-change: <file or row>: <reason>` trailer of the change
+//! names it. Adapted from `constraint-driven-development`'s floor guard, reading
+//! `TESTING.md`: tightening is silent, loosening is loud, and a guard that could
+//! not run exits 2, never 0.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
+)]
+
+mod diff;
+mod moves;
+mod register;
+
+use std::collections::BTreeSet;
+use std::path::Path;
+use std::process::{Command, ExitCode};
+
+use anyhow::{Context as _, Result, anyhow, bail};
+
+use crate::check::{self, Finding};
+
+const REGISTER_FILE: &str = "TESTING.md";
+
+/// Runs `git <args>` in `root` and answers its standard output.
+fn git(root: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("running git {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A file at a commit, or `None` when the commit has no such file.
+fn file_at(root: &Path, commit: &str, path: &str) -> Result<Option<String>> {
+    let object = format!("{commit}:{path}");
+    let known = Command::new("git")
+        .args(["cat-file", "-e", &object])
+        .current_dir(root)
+        .output()
+        .context("running git cat-file")?;
+    if !known.status.success() {
+        return Ok(None);
+    }
+    git(root, &["show", &object]).map(Some)
+}
+
+/// What the change's trailers name, and a finding for each that names nothing.
+fn trailers(root: &Path, range: &str) -> Result<(BTreeSet<String>, Vec<Finding>)> {
+    let log = git(
+        root,
+        &[
+            "log",
+            "--format=%(trailers:key=Quality-change,valueonly,unfold)",
+            range,
+            "--",
+        ],
+    )?;
+    let mut named = BTreeSet::new();
+    let mut invalid = Vec::new();
+    for trailer in log.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        match trailer.split_once(": ") {
+            Some((name, reason)) if !name.is_empty() && !reason.trim().is_empty() => {
+                named.insert(name.trim().to_owned());
+            }
+            _ => invalid.push(Finding::new(
+                "invalid-trailer",
+                trailer,
+                "the trailer is `Quality-change: <file or row>: <reason>`",
+            )),
+        }
+    }
+    Ok((named, invalid))
+}
+
+pub(crate) fn run(root: &Path, base: &str, head: &str) -> Result<ExitCode> {
+    let merge_base = git(root, &["merge-base", base, head])?.trim().to_owned();
+    let head_testing = file_at(root, head, REGISTER_FILE)?
+        .ok_or_else(|| anyhow!("{head} has no {REGISTER_FILE}"))?;
+    let head_register = register::read(&head_testing)
+        .with_context(|| format!("reading {head}'s register"))?
+        .ok_or_else(|| anyhow!("{head}'s {REGISTER_FILE} has no Quality register"))?;
+    let base_register = match file_at(root, &merge_base, REGISTER_FILE)? {
+        Some(testing) => {
+            register::read(&testing).with_context(|| format!("reading {merge_base}'s register"))?
+        }
+        None => None,
+    };
+
+    let unified = git(
+        root,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--unified=0",
+            "--no-renames",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            &merge_base,
+            head,
+            "--",
+        ],
+    )?;
+    let files = diff::parse(&unified);
+
+    let mut lowered = moves::findings(&files, |path, at_head| {
+        file_at(root, if at_head { head } else { &merge_base }, path)
+    })?;
+    if let Some(base_register) = &base_register {
+        lowered.extend(
+            files
+                .iter()
+                .filter(|file| file.existed && base_register.is_gate_file(&file.path))
+                .map(|file| {
+                    Finding::new(
+                        "gate-file-edited",
+                        file.path.as_str(),
+                        "this is one of the gate's own files; a `Quality-change` trailer naming it records why",
+                    )
+                }),
+        );
+        lowered.extend(register::findings(base_register, &head_register));
+    }
+
+    let (named, mut findings) = trailers(root, &format!("{merge_base}..{head}"))?;
+    let (accepted, refused): (Vec<Finding>, Vec<Finding>) = lowered
+        .into_iter()
+        .partition(|finding| named.contains(&finding.subject));
+    findings.extend(refused);
+    check::note(
+        &accepted
+            .into_iter()
+            .map(|finding| {
+                Finding::new(
+                    "quality-change",
+                    finding.subject,
+                    format!("a trailer accepts: {}", finding.kind),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    Ok(check::report(&findings))
+}

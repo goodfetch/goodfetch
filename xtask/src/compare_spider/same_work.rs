@@ -4,7 +4,8 @@
 //! a tool's report (spec #152: the Proving ground is the benchmark's only
 //! source of bytes). No trial is the others' reference, so the trial that
 //! did other work is the one named, whichever ran first (ADR 0134's #1574
-//! note).
+//! note). The Callgrind cell's runs are held to it among themselves, as a
+//! crawl under Callgrind is another cell of the comparison (ADR 0140).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,7 +14,7 @@ use serde_json::Value;
 
 use crate::check::Finding;
 
-use super::trials::{Comparison, Tool, Trial};
+use super::trials::{Comparison, InstructionCell, Tool};
 
 /// What the Proving ground saw one trial do on the site.
 #[derive(Debug, PartialEq, Eq)]
@@ -81,53 +82,123 @@ fn site_pages(first: &str) -> Option<BTreeSet<String>> {
     )
 }
 
-fn subject(trial: &Trial) -> String {
-    format!("{} trial {}", trial.tool.name(), trial.number)
+/// What one trial of a cell did, whichever cell.
+struct Done<'a> {
+    tool: Tool,
+    number: u32,
+    pages: &'a [String],
+    requests: u64,
+    bytes: u64,
 }
 
-/// Each finding that keeps the trials' figures from counting: a tool short
-/// of or past its declared trials, every trial whose pages are not the
-/// declared site's, and every other trial whose requests and bytes are not
-/// the ones most trials share.
-pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for tool in Tool::ALL {
-        let count = trials
-            .trials
-            .iter()
-            .filter(|trial| trial.tool == tool)
-            .count();
-        if u32::try_from(count).ok() != Some(trials.declared.trials) {
-            findings.push(Finding::new(
-                "trial_count",
-                tool.name(),
-                format!(
-                    "{count} trials, where {} were declared",
-                    trials.declared.trials
-                ),
-            ));
-        }
+/// The trials of one cell, with what it declared.
+struct Cell<'a> {
+    /// `<tool>` or `<tool> callgrind`, as a finding names the tool.
+    suffix: &'static str,
+    declared: u32,
+    done: Vec<Done<'a>>,
+}
+
+impl Cell<'_> {
+    fn tool(&self, tool: Tool) -> String {
+        format!("{}{}", tool.name(), self.suffix)
     }
+
+    fn subject(&self, done: &Done<'_>) -> String {
+        format!("{} trial {}", self.tool(done.tool), done.number)
+    }
+}
+
+/// Each finding that keeps the figures from counting, in the timed trials and
+/// the Callgrind cell: see [`check_cell`]. A Callgrind run that counted no
+/// instruction measured nothing.
+pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     let Some(site) = site_pages(&trials.declared.site) else {
-        findings.push(Finding::new(
+        return vec![Finding::new(
             "unknown_site",
             trials.declared.site.clone(),
             "the declared site's first page is no `/sites/<n>/1`",
-        ));
-        return findings;
+        )];
     };
+    let mut findings = check_cell(
+        &Cell {
+            suffix: "",
+            declared: trials.declared.trials,
+            done: trials
+                .trials
+                .iter()
+                .map(|trial| Done {
+                    tool: trial.tool,
+                    number: trial.number,
+                    pages: &trial.pages,
+                    requests: trial.requests,
+                    bytes: trial.bytes,
+                })
+                .collect(),
+        },
+        &site,
+    );
+    if let InstructionCell::Measured {
+        trials: declared,
+        runs,
+        ..
+    } = &trials.instructions
+    {
+        let cell = Cell {
+            suffix: " callgrind",
+            declared: *declared,
+            done: runs
+                .iter()
+                .map(|run| Done {
+                    tool: run.tool,
+                    number: run.number,
+                    pages: &run.pages,
+                    requests: run.requests,
+                    bytes: run.bytes,
+                })
+                .collect(),
+        };
+        findings.extend(check_cell(&cell, &site));
+        for (run, done) in runs.iter().zip(&cell.done) {
+            if run.instructions == 0 {
+                findings.push(Finding::new(
+                    "no_instructions",
+                    cell.subject(done),
+                    "Callgrind counted no instruction, so the run measured nothing",
+                ));
+            }
+        }
+    }
+    findings
+}
+
+/// Each finding of one cell: a tool short of or past its declared trials,
+/// every trial whose pages are not the declared site's, and every other trial
+/// whose requests and bytes are not the ones most trials share.
+fn check_cell(cell: &Cell<'_>, site: &BTreeSet<String>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for tool in Tool::ALL {
+        let count = cell.done.iter().filter(|done| done.tool == tool).count();
+        if u32::try_from(count).ok() != Some(cell.declared) {
+            findings.push(Finding::new(
+                "trial_count",
+                cell.tool(tool),
+                format!("{count} trials, where {} were declared", cell.declared),
+            ));
+        }
+    }
     let mut whole = Vec::new();
-    for trial in &trials.trials {
-        let pages: BTreeSet<String> = trial.pages.iter().cloned().collect();
-        if pages == site {
-            whole.push(trial);
+    for done in &cell.done {
+        let pages: BTreeSet<String> = done.pages.iter().cloned().collect();
+        if pages == *site {
+            whole.push(done);
             continue;
         }
         let missing = site.difference(&pages).count();
-        let extra = pages.difference(&site).count();
+        let extra = pages.difference(site).count();
         findings.push(Finding::new(
             "different_pages",
-            subject(trial),
+            cell.subject(done),
             format!(
                 "{missing} of the site's {} pages missing and {extra} other pages fetched",
                 site.len()
@@ -137,8 +208,8 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     // The requests and bytes most of the trials that fetched the site share;
     // none when two values are shared by as many trials.
     let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-    for trial in &whole {
-        *shared.entry((trial.requests, trial.bytes)).or_default() += 1;
+    for done in &whole {
+        *shared.entry((done.requests, done.bytes)).or_default() += 1;
     }
     let most = shared.values().copied().max().unwrap_or(0);
     let mut held = shared.iter().filter(|(_, count)| **count == most);
@@ -146,21 +217,21 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (Some((work, count)), None) => Some((*work, *count)),
         _ => None,
     };
-    for trial in whole {
+    for done in whole {
         let message = match reference {
-            Some((work, _)) if work == (trial.requests, trial.bytes) => continue,
+            Some((work, _)) if work == (done.requests, done.bytes) => continue,
             Some(((requests, bytes), count)) => format!(
                 "{} requests served {} bytes, where {count} of the {} trials that fetched the site had {requests} requests served {bytes}",
-                trial.requests,
-                trial.bytes,
+                done.requests,
+                done.bytes,
                 shared.values().sum::<usize>()
             ),
             None => format!(
                 "{} requests served {} bytes, and no count of requests and bytes is shared by more trials than another",
-                trial.requests, trial.bytes
+                done.requests, done.bytes
             ),
         };
-        findings.push(Finding::new("different_bytes", subject(trial), message));
+        findings.push(Finding::new("different_bytes", cell.subject(done), message));
     }
     findings
 }

@@ -20,6 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -93,6 +94,7 @@ pub(crate) struct Leases {
     run_id: Arc<str>,
     run_epoch: u64,
     staging: Staging,
+    work: CountedWork,
 }
 
 impl Leases {
@@ -105,7 +107,16 @@ impl Leases {
             run_id: Arc::from(run_id),
             run_epoch,
             staging: Staging::default(),
+            work: CountedWork::default(),
         }
+    }
+
+    /// The same, each commit's Records counting their work on `work`
+    /// (ADR 0140).
+    #[must_use]
+    pub(crate) fn counting_on(mut self, work: CountedWork) -> Self {
+        self.work = work;
+        self
     }
 
     /// The same, each attempt staging its outputs in `staging` while its
@@ -389,6 +400,7 @@ impl WorkItemLease {
         let work_item = self.0.work_item.to_string();
         let epoch = lease.epoch();
         let staging = self.0.leases.staging.clone();
+        let counted_work = self.0.leases.work.clone();
         let masks = masks.clone();
         let folder = state
             .path()
@@ -401,7 +413,8 @@ impl WorkItemLease {
                 if work_items::attempt(connection, &work_item, epoch)?.is_none() {
                     return Ok(None);
                 }
-                let answered = match Datasets::read(connection)?.check(records) {
+                let declared = Datasets::read_for_records(connection, &counted_work)?;
+                let answered = match declared.check(records, &counted_work) {
                     Ok(answered) => answered,
                     Err(refused) => return Ok(Some(Err(refused))),
                 };
@@ -421,6 +434,7 @@ impl WorkItemLease {
                     masks: &masks,
                     ended_at: &ended_at,
                     not_added: &not_added,
+                    work: &counted_work,
                 };
                 Ok(
                     work_items::commit(connection, &work_item, epoch, committed)?

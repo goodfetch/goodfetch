@@ -29,6 +29,7 @@ flate2.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
 getrandom.workspace = true
+goodfetch-counted-work.workspace = true
 goodfetch-protocol.workspace = true
 hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 # Derives the wrap of each Run's data key from its key-encryption key.
@@ -59,7 +60,8 @@ netdev.workspace = true
 opentelemetry = { workspace = true, features = ["metrics"] }
 opentelemetry_sdk.workspace = true
 tracing-opentelemetry.workspace = true
-rusqlite.workspace = true
+# `hooks`: the commit hook the Usage ledger counts its transactions with (ADR 0140).
+rusqlite = { workspace = true, features = ["hooks"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # The encrypted local file (`secretfile:`, spec #564).
 age.workspace = true

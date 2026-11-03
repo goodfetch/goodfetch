@@ -84,7 +84,7 @@ fn a_connection_too_slow_to_read_its_log_events_receives_the_count_it_lost() {
     let received = tracing::subscriber::with_default(subscriber, || {
         let log = events.connection();
         log.set(LogLevel::Info);
-        let forwarding = log.forward(outgoing);
+        let forwarding = log.forward(outgoing, goodfetch_counted_work::CountedWork::default());
         for count in 0..3000_u32 {
             tracing::info!(count, "a state change");
         }
@@ -114,7 +114,7 @@ fn a_connection_receives_only_the_log_events_at_its_level_and_above() {
     let received = tracing::subscriber::with_default(subscriber, || {
         let log = events.connection();
         log.set(LogLevel::Warn);
-        let forwarding = log.forward(outgoing);
+        let forwarding = log.forward(outgoing, goodfetch_counted_work::CountedWork::default());
         tracing::debug!("a line per request");
         tracing::info!("a state change");
         tracing::warn!(attempt = 2_u64, "a warning");
@@ -153,7 +153,7 @@ fn a_connection_whose_level_is_off_receives_no_log_event() {
 
     let received = tracing::subscriber::with_default(subscriber, || {
         let log = events.connection();
-        let forwarding = log.forward(outgoing);
+        let forwarding = log.forward(outgoing, goodfetch_counted_work::CountedWork::default());
         tracing::error!("an error");
         drop(log);
         goodfetch_test_support::runtime().block_on(forwarding);

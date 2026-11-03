@@ -304,6 +304,10 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
 
 /// The machine's identity kept at `path`, or `drawn`, kept there first
 /// when the file does not exist yet.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
     let read = |path: &Path| -> io::Result<String> {
         let mut text = String::new();

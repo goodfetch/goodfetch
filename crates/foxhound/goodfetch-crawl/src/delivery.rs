@@ -68,6 +68,7 @@ use std::collections::BTreeSet;
 use std::time::SystemTime;
 
 use futures_util::future::join_all;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -281,6 +282,7 @@ fn wall_ms(run: &Run) -> u64 {
 fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
+        .counting_on(run.metrics().counted_work().clone())
 }
 
 /// The delivery's loop, which returns once the Run ended or stopped.
@@ -521,7 +523,7 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers);
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
     drive(
         run,
         context,
@@ -1568,10 +1570,12 @@ async fn read_sitemap(run: &Run, resolved: &Resolved, attempt: Attempt) {
     };
     let egress = resumed_domain_policy(resolved, run.id());
     let (id, epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let work = run.metrics().counted_work().clone();
+    work.count(Row::SitemapTransactions);
     let written = run
         .state()
         .write(move |connection| {
-            work_items::read_sitemap(connection, &egress, (&id, epoch), &document)
+            work_items::read_sitemap(connection, &egress, (&id, epoch), &document, &work)
         })
         .await;
     lease.release();

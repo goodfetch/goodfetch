@@ -24,6 +24,7 @@ mod compare_spider;
 mod compat;
 mod console;
 mod containment;
+mod counts;
 mod dco;
 mod dependency_direction;
 mod egress;
@@ -31,6 +32,7 @@ mod environment;
 mod evict_caches;
 mod features;
 mod fixture_size;
+mod floor_guard;
 mod foxhound_side;
 mod gate;
 mod github;
@@ -56,6 +58,7 @@ mod pinned;
 mod quarantine;
 mod rate;
 mod received_requests;
+mod register;
 mod release_suite;
 mod repeat;
 mod results;
@@ -78,7 +81,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory as _, Parser, Subcommand};
 
 use environment::Environment;
 
@@ -125,6 +128,17 @@ enum Command {
     /// `goodfetch-cli` generates, the cargo-deny `wrappers` list and each
     /// SDK package's `generated/` layer (ADR 0038).
     Codegen(codegen::Arguments),
+    /// The floor guard (ADR 0140): fails on what the change from the merge base
+    /// of `--base` and `--head` to `--head` does to the Quality register's Floor,
+    /// unless a `Quality-change:` trailer names it.
+    FloorGuard {
+        /// The branch the change merges into.
+        #[arg(long)]
+        base: String,
+        /// The change's head commit.
+        #[arg(long)]
+        head: String,
+    },
     /// Fails on a commit from `--base` to `--head`, merges and the ancestors
     /// of `--since` aside, whose subject is not a Conventional Commit
     /// (CONTRIBUTING.md).
@@ -159,6 +173,9 @@ enum Command {
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
     Containment,
+    /// The Counted work of each row of the Quality register, on its
+    /// benchmark, against its limit (ADR 0140).
+    Counts(counts::Arguments),
     /// Fails on a commit from `--base` to `--head`, merges aside, without a
     /// Developer Certificate of Origin sign-off by its author (ADR 0018).
     Dco {
@@ -255,6 +272,11 @@ enum Command {
     Quarantine {
         #[command(subcommand)]
         command: quarantine::Command,
+    },
+    /// The Quality register of `TESTING.md` (ADR 0140).
+    Register {
+        #[command(subcommand)]
+        command: register::Command,
     },
     /// Fails on a test that reads the Proving ground's requests other than
     /// through `ReceivedRequests`, which says whether a count keeps the
@@ -467,9 +489,11 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::CommitMessages { base, head, since } => Ok(check::report(
             &commit_messages::check(root, &base, &head, &since)?,
         )),
+        Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
         Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
+        Command::Counts(arguments) => counts::run(&arguments, environment),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))
@@ -495,6 +519,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
+        Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),

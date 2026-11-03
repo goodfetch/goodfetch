@@ -158,6 +158,10 @@ impl Engines {
     /// # Errors
     ///
     /// When it cannot start, or refuses or leaves unanswered the `hello`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     pub(crate) async fn start(
         &self,
         product: Product,

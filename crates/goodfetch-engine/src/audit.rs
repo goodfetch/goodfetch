@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{
     AUDIT_LOG_ANCHOR, AUDIT_LOG_PRUNED, AUDIT_RETENTION, Actor, AuditEntry, AuditVerified,
     ExportedAuditEntry,
@@ -161,6 +162,7 @@ pub struct AuditLog {
     events: Option<AuditEvents>,
     /// The Runs whose entries are written unchained, shared by its clones.
     unchained: Arc<Mutex<BTreeSet<RunId>>>,
+    work: CountedWork,
 }
 
 impl AuditLog {
@@ -174,7 +176,17 @@ impl AuditLog {
             retained_under: None,
             events: None,
             unchained: Arc::default(),
+            work: CountedWork::default(),
         }
+    }
+
+    /// The same, its Counted work counted on `work` (ADR 0140): each
+    /// configuration read, store open, prune pass, transaction and head-file
+    /// write of its entries.
+    #[must_use]
+    pub fn counting_on(mut self, work: CountedWork) -> Self {
+        self.work = work;
+        self
     }
 
     /// Writes every later entry of `run_id` unchained, as a Run whose
@@ -322,6 +334,8 @@ impl AuditLog {
         layer: Option<SettingsLayer>,
         now: Timestamp,
     ) -> Result<Option<AuditEntry>, AuditError> {
+        self.work.count(Row::Prunes);
+        self.work.count(Row::AuditPrunes);
         let cutoff = SignedDuration::try_from(retention)
             .ok()
             .and_then(|retention| now.checked_sub(retention).ok());
@@ -384,6 +398,7 @@ impl AuditLog {
     /// prunes nothing.
     fn retention(&self) -> Option<(Duration, SettingsLayer)> {
         let (files, product) = self.retained_under.as_ref()?;
+        self.work.count(Row::AuditConfigurationReads);
         let machine = files
             .load(*product)
             .inspect_err(|error| {
@@ -610,6 +625,7 @@ impl AuditLog {
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, AuditError> {
+        self.work.count(Row::AuditOpens);
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         if let Some(folder) = self.path.parent() {
             #[expect(
@@ -626,6 +642,15 @@ impl AuditLog {
             None => Connection::open_with_flags(&self.path, flags),
         }
         .map_err(|error| failed(&error))?;
+        // Beneath every caller, so a commit beside the append's counts too
+        // (ADR 0140).
+        let work = self.work.clone();
+        connection
+            .commit_hook(Some(move || {
+                work.count(Row::AuditTransactions);
+                false
+            }))
+            .map_err(|error| failed(&error))?;
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
@@ -673,6 +698,7 @@ impl AuditLog {
             message: error.to_string(),
         };
         let text = serde_json::to_vec(head).map_err(|error| failed(&error))?;
+        self.work.count(Row::AuditSyncs);
         durable::replace(&self.head, &text).map_err(|error| failed(&error))
     }
 

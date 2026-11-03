@@ -30,6 +30,10 @@ fn candidates(pattern: &str, near: &str) -> impl Strategy<Value = String> {
 }
 
 /// Whether `pattern` matches all of `text`, as a JSON Schema validator reads it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn matches(pattern: &str, text: &str) -> bool {
     Regex::new(pattern)
         .expect("the pattern is a regex")

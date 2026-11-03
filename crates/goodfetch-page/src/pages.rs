@@ -1111,8 +1111,15 @@ impl Pages {
             .answered_at(&response.request_id)
             .unwrap_or_else(|| page.clock.wall());
         let operation = Some(destination.operation());
-        let block =
-            blocked::block_of(&page.driver, self.blocks.as_ref(), &response, operation).await?;
+        let work = page.run.metrics().counted_work();
+        let block = blocked::block_of(
+            &page.driver,
+            work,
+            self.blocks.as_ref(),
+            &response,
+            operation,
+        )
+        .await?;
         let touched = self.interception.lists_blocked(page_id) > blocked_before;
         if let Some(block) = block
             && !(touched && block.checks_the_browser())
@@ -1388,7 +1395,10 @@ impl Pages {
         navigated: bool,
     ) -> Result<(), CallError> {
         let walls = self.sessions.consent_walls();
-        if navigated && crate::consent::first_pass_found(&page.driver).await {
+        if navigated
+            && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
+                .await
+        {
             walls.detected(page_id);
         }
         let (_, limit) = &page.action_timeout;
@@ -1428,8 +1438,14 @@ impl Pages {
         else {
             return Ok(());
         };
-        if let Some(block) =
-            blocked::block_of(&page.driver, self.blocks.as_ref(), &response, waiting).await?
+        if let Some(block) = blocked::block_of(
+            &page.driver,
+            page.run.metrics().counted_work(),
+            self.blocks.as_ref(),
+            &response,
+            waiting,
+        )
+        .await?
         {
             return Err(blocked::blocked(block, &response, received));
         }
@@ -1482,6 +1498,7 @@ impl Pages {
                 &Values::default(),
             );
             let cosmetic = self.interception.served_cosmetic(&served.run).await;
+            let work = served.run.metrics().counted_work().clone();
             let (formats, read) = served
                 .run
                 .owner()
@@ -1492,6 +1509,7 @@ impl Pages {
                         request,
                         extractor.extractor(),
                         (cosmetic.as_ref(), &[]),
+                        &work,
                     )
                 })
                 .await;
@@ -1513,6 +1531,7 @@ impl Pages {
         );
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
+        let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page
             .run
             .owner()
@@ -1523,6 +1542,7 @@ impl Pages {
                     request,
                     extractor.extractor(),
                     (cosmetic.as_ref(), &hidden),
+                    &work,
                 )
             })
             .await;

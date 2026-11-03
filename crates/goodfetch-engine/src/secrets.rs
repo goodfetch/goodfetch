@@ -974,11 +974,15 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
 /// The exclusive lock on the file at `path`, made if it is missing, once
 /// no other process holds it. Blocking: it runs on the tasks module's
 /// blocking policy.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn lock_exclusive(path: &Path) -> std::io::Result<std::fs::File> {
     if let Some(folder) = path.parent() {
         #[expect(
             clippy::disallowed_methods,
-            reason = "it runs on the tasks module's blocking policy"
+            reason = "ADR 0140: a folder created on no counted row yet, on the tasks module's blocking policy; the Shared paths audit moves it onto its counted function"
         )]
         std::fs::create_dir_all(folder)?;
     }

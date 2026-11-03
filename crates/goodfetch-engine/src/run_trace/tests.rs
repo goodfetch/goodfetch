@@ -45,6 +45,7 @@ fn the_request_log_writes_a_resolved_value_only_when_its_runs_redaction_is_off(
         TaskOwner::root(BlockingPolicy::Inline),
         env.folder(),
         joined(redaction),
+        goodfetch_counted_work::CountedWork::default(),
     );
 
     goodfetch_test_support::runtime()
@@ -81,6 +82,7 @@ fn the_provenance_log_writes_a_resolved_value_only_when_its_runs_redaction_is_of
             &owner,
             env.folder(),
             &joined(redaction),
+            &goodfetch_counted_work::CountedWork::default(),
             &json!({ "action": "filled", "value": "pa ss\"w/rd>?9~" }),
         ))
         .unwrap();

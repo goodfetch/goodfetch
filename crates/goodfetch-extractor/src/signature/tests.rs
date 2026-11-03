@@ -19,12 +19,15 @@ fn page(title: &str, main: &str, nav: &str) -> String {
 }
 
 fn signature(html: &str, url: &str) -> [u8; 32] {
-    page_signature(&Document {
-        html,
-        url,
-        base_url: url,
-        serialization: Serialization::Served,
-    })
+    page_signature(
+        &Document {
+            html,
+            url,
+            base_url: url,
+            serialization: Serialization::Served,
+        },
+        &goodfetch_counted_work::CountedWork::default(),
+    )
 }
 
 /// The same title and main text match, though the navigation, the links,

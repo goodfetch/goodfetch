@@ -16,6 +16,10 @@ use url::Url;
 
 /// Every `<script type="application/ld+json">` block of `tree` that
 /// parses, in document order, its text as written.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn json_ld(tree: &Html) -> Vec<Value> {
     let selector = Selector::parse("script[type]").expect("invariant: the selector is CSS");
     tree.select(&selector)

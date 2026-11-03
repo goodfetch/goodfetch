@@ -13,6 +13,7 @@
 
 use std::marker::PhantomData;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::HandlerRequest;
 use goodfetch_protocol::jsonrpc::{ErrorObject, META, RequestId};
 use serde::Serialize;
@@ -48,6 +49,7 @@ pub(crate) enum Outgoing {
 #[derive(Clone, Debug)]
 pub struct Client {
     requests: mpsc::Sender<Outgoing>,
+    work: CountedWork,
 }
 
 /// Why a handler request got no answer.
@@ -91,9 +93,9 @@ pub struct Sent<R> {
 impl Client {
     /// A Client whose requests go to `requests`, and the end the protocol
     /// server reads them from.
-    pub(crate) fn new() -> (Self, mpsc::Receiver<Outgoing>) {
+    pub(crate) fn new(work: CountedWork) -> (Self, mpsc::Receiver<Outgoing>) {
         let (requests, outgoing) = mpsc::channel(OUTGOING_REQUESTS);
-        (Self { requests }, outgoing)
+        (Self { requests, work }, outgoing)
     }
 
     /// Sends the handler request `request` with `params`, and answers once
@@ -113,6 +115,7 @@ impl Client {
         params: &impl Serialize,
     ) -> Result<Sent<R>, ClientRequestError> {
         let span = trace::client_span(request.name);
+        self.work.count(Row::MessageEncodes);
         let mut params = serde_json::to_value(params)
             .expect("invariant: a handler request's params encode as JSON");
         if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {

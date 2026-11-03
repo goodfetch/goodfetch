@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use serde_json::Value;
@@ -61,13 +62,17 @@ pub struct SelectorInvalid(pub String);
 /// # Errors
 ///
 /// When `selector` is no CSS selector.
-pub(crate) fn matched(html: &str, selector: &str) -> Result<Vec<Matched>, SelectorInvalid> {
-    let matcher = matcher(selector)?;
-    let document = dom_query::Document::from(html);
+pub(crate) fn matched(
+    html: &str,
+    selector: &str,
+    work: &CountedWork,
+) -> Result<Vec<Matched>, SelectorInvalid> {
+    let matcher = matcher(selector, work)?;
+    let document = work.parse_html(Row::PageParses, html);
     // The ids an element names in `aria-controls`: what a button or a tab
     // shows and hides.
     let controlled: HashSet<String> = document
-        .select("[aria-controls]")
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "[aria-controls]"))
         .nodes()
         .iter()
         .filter_map(|control| control.attr("aria-controls"))
@@ -135,9 +140,11 @@ const EXTENSIONS: [&str; 3] = ["contains", "has-text", "only-text"];
 /// # Errors
 ///
 /// When `selector` is no CSS selector a browser reads.
-fn matcher(selector: &str) -> Result<dom_query::Matcher, SelectorInvalid> {
+fn matcher(selector: &str, work: &CountedWork) -> Result<dom_query::Matcher, SelectorInvalid> {
     let invalid = || SelectorInvalid(selector.to_owned());
-    let matcher = dom_query::Matcher::new(selector).map_err(|_| invalid())?;
+    let matcher = work
+        .compile_selector(Row::PageSelectorCompilations, selector)
+        .ok_or_else(invalid)?;
     let mut input = cssparser::ParserInput::new(selector);
     if extended(&mut cssparser::Parser::new(&mut input)) {
         return Err(invalid());
@@ -215,8 +222,9 @@ pub(crate) enum LocatorInvalid {
 pub(crate) fn first_elements(
     html: &str,
     locators: &[FieldLocator],
+    work: &CountedWork,
 ) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
-    let document = dom_query::Document::from(html);
+    let document = work.parse_html(Row::PageParses, html);
     // Built once, at the first `XPath` locator.
     let mut held: Option<xpath::Document> = None;
     locators
@@ -224,7 +232,7 @@ pub(crate) fn first_elements(
         .map(|locator| {
             let found = match locator {
                 FieldLocator::Css { selector } => {
-                    let matcher = matcher(selector)?;
+                    let matcher = matcher(selector, work)?;
                     document.select_matcher(&matcher).nodes().first().copied()
                 }
                 FieldLocator::Xpath { selector } => {
@@ -292,7 +300,8 @@ pub(crate) fn browser_fields(answer: &Value) -> Option<(String, Vec<Option<Field
 ///
 /// When `selector` is no CSS selector a browser reads.
 pub fn check_selector(selector: &str) -> Result<(), SelectorInvalid> {
-    matcher(selector).map(drop)
+    // A crawl's start refuses it here: no page's work, so counted nowhere.
+    matcher(selector, &CountedWork::default()).map(drop)
 }
 
 /// Refuses `expression` when it is no `XPath` 1.0 expression the engine

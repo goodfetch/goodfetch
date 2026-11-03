@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
+# What each command costs (ADR 0140): given at construction, read by no behaviour.
+goodfetch-counted-work.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

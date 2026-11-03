@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::governor::{
     CRITICAL, Concurrency, CpuReading, GovernorLevel, KindConcurrency, LAST_RESORT_AFTER,
     MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
@@ -88,12 +89,18 @@ impl Governor {
     /// A governor that samples `system` every `governor.sample_interval`
     /// on `clock`, reading its settings from the machine's layers of
     /// `settings` at each sample, as a task of `owner`, until `owner`
-    /// stops. It admits nothing before its first sample, taken at once:
+    /// stops, counting a sample's work on `work` (ADR 0140's E4). It admits nothing before its first sample, taken at once:
     /// each target starts at the ceiling the machine's settings give,
     /// which only that sample reads, never at the built-in one (ADR 0040).
     /// A Run that asks first waits for its turn, which the first sample
     /// gives it.
-    pub fn start(system: System, settings: Settings, clock: Clock, owner: &TaskOwner) -> Self {
+    pub fn start(
+        system: System,
+        settings: Settings,
+        clock: Clock,
+        owner: &TaskOwner,
+        work: CountedWork,
+    ) -> Self {
         let shares = Shares::new([0; 3]);
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
@@ -102,8 +109,9 @@ impl Governor {
         let folders = Folders::default();
         let disks = system.disks.clone();
         let sampler = Sampler {
-            system,
+            system: system.counting(work.clone()),
             settings,
+            work,
             clock,
             shares: shares.clone(),
             sender,
@@ -271,6 +279,8 @@ fn defaults(settings: &Settings) -> Resolved {
 struct Sampler {
     system: System,
     settings: Settings,
+    /// Where it counts its work.
+    work: CountedWork,
     clock: Clock,
     shares: Shares,
     sender: watch::Sender<Option<SystemInfo>>,
@@ -434,7 +444,13 @@ impl Sampler {
     /// values when they cannot be read, as the warning logged says.
     async fn machine(&self) -> Resolved {
         let product = self.settings.product();
-        let read = self.settings.machine().await.and_then(|machine| {
+        let machine = self.settings.machine().await;
+        // Each settings file it read; a read that failed read one at least.
+        let files = machine.as_ref().map_or(1, |machine| machine.files.len());
+        for _ in 0..files {
+            self.work.count(Row::GovernorConfigurationReads);
+        }
+        let read = machine.and_then(|machine| {
             resolve(
                 &Layers {
                     operator_policy: machine.operator_policy,

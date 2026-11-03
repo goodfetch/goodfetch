@@ -53,6 +53,41 @@ disallowed-methods = [
   { path = "std::env::vars_os", reason = "only main reads the environment (ADR 0059)" },
   # A SQLite file switches journal mode only through goodfetch-engine's `sqlite_wal` module (#1773).
   { path = "rusqlite::Connection::pragma_update_and_check", reason = "switch a file to WAL through goodfetch-engine's sqlite_wal::enter: SQLite answers a switch beside another connection busy at once, never waiting its busy timeout (STYLE.md)", allow-invalid = true },
+  # An HTML parse goes through one counted function (ADR 0140); `dom_query`'s
+  # are under `disallowed-types`.
+  { path = "scraper::Html::parse_document", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  { path = "scraper::Html::parse_fragment", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  { path = "lol_html::rewrite_str", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  # A selector, regular expression or glob compiles through its one counted
+  # function (ADR 0140): dom_query's string-taking methods each compile one.
+  { path = "dom_query::Matcher::new", reason = "compile through CountedWork::compile_selector (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Document::select", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Document::nip", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Document::try_select", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Document::select_single", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_single_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::select", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::nip", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::try_select", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::select_single", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use select_single_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::is", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use is_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::filter", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use filter_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::try_filter", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use filter_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::add", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use add_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::Selection::try_add", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use add_matcher (ADR 0140)", allow-invalid = true },
+  { path = "dom_query::NodeRef::is", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use is_match (ADR 0140)", allow-invalid = true },
+  { path = "scraper::Selector::parse", reason = "a selector compiles through its one counted function (ADR 0140)", allow-invalid = true },
+  { path = "regex::Regex::new", reason = "compile through CountedWork::compile_regex (ADR 0140)", allow-invalid = true },
+  { path = "glob::Pattern::new", reason = "compile through CountedWork::compile_glob (ADR 0140)", allow-invalid = true },
+  # A file opens, and a folder is created, through its one counted function
+  # (ADR 0140); `std::fs::File::open` and `create_dir_all` are under the
+  # blocking ban below, whose exceptions already name their module.
+  { path = "std::fs::OpenOptions::open", reason = "open through CountedWork::open_file (ADR 0140)" },
+  { path = "tokio::fs::OpenOptions::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
+  { path = "tokio::fs::File::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
+  { path = "tokio::fs::File::create", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
+  { path = "tokio::fs::create_dir_all", reason = "create through CountedWork::create_dir_all on a blocking owner (ADR 0140)", allow-invalid = true },
+  # A validator build goes through one counted function (ADR 0140).
+  { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },
@@ -76,6 +111,11 @@ disallowed-methods = [
 ]
 
 disallowed-types = [
+  # An HTML parse goes through `CountedWork::parse_html` (ADR 0140). This type,
+  # and not `dom_query::Document::from`: that call resolves to the trait's
+  # `From::from`, which Clippy cannot single out, and naming the type catches
+  # it. A signature names it `goodfetch_counted_work::ParsedHtml`.
+  { path = "dom_query::Document", reason = "parse through CountedWork::parse_html and name the tree ParsedHtml (ADR 0140)", allow-invalid = true },
   # Sockets are opened only in goodfetch-engine's transport module (ADR 0060).
   { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },

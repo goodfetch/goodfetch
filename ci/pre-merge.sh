@@ -14,8 +14,8 @@
 # image (ci/visual/container.sh). The suite waits for each and fails when one
 # fails, and stops them when a host step fails first, keeping the result of
 # each that had already ended for the gate's record. The host's checks that
-# take seconds and judge the whole change (sign-offs, commit messages, the SDK
-# crates' features, advisories, secrets in commits, the fuzz targets, the
+# take seconds and judge the whole change (sign-offs, commit messages, the
+# floor guard, the SDK crates' features, advisories, secrets in commits, the fuzz targets, the
 # proofs) run before the suites; the stress
 # run of the new and changed tests (`just stress`) runs after the Pre-merge
 # suite, whose build its listings reuse.
@@ -78,6 +78,7 @@ if [[ $all == quick ]]; then
   echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
   timed dco just dco
   timed commit-messages just commit-messages
+  timed floor-guard just floor-guard
   timed lint just lint
   timed audit just audit
   timed commit-leaks just commit-leaks
@@ -264,6 +265,7 @@ for step in perf linux visual; do
 done
 gated dco just dco
 gated commit-messages just commit-messages
+gated floor-guard just floor-guard
 gated lint just lint
 gated feature-combinations just feature-combinations
 gated audit just audit

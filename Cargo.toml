@@ -145,6 +145,8 @@ goodfetch-cli = { path = "crates/goodfetch-cli" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# Counted work (ADR 0140): the counts, and each primitive's counted function.
+goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -299,7 +301,7 @@ rstest = { version = "0.27.0", default-features = false }
 # SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
 # with that same SQLite through sqlite-plugin, whose build script runs
 # bindgen (libclang) and downloads nothing.
-rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "serialize"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "hooks", "serialize"] }
 sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 # Credentials held as `SecretString`, zeroized when dropped (STYLE.md).

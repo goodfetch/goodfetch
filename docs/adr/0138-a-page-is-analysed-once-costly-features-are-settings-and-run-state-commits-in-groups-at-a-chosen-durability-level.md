@@ -204,6 +204,8 @@ How proven crawlers shape this work. Each was checked against its primary source
   - `rusqlite::Connection::prepare` outside the stores' modules;
   - building a JSON Schema validator outside a crawl's start;
   - compiling a selector outside the engine's cache.
+
+  > Note (agent decision of #1840, pending owner review), 2026-11-02: Clippy cannot list `dom_query::Document::from`: the call resolves to the trait's `From::from`, whatever the type (clippy.toml answers "does not refer to a reachable function"). `disallowed-types` lists `dom_query::Document` instead, which catches that call, `Document::fragment` and a `use` of it; a signature names the tree `goodfetch_counted_work::ParsedHtml`. The other two stay in `disallowed-methods`.
 - **Step 7's review (`code-review`, Standards) reports:**
   - a module that takes a page's HTML as a string on a page's path;
   - per-page work that depends only on the Run.

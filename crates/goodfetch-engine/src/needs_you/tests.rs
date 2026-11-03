@@ -95,6 +95,7 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         EventsOptions::default(),
         EngineInstance::new("test"),
         &owner,
+        goodfetch_counted_work::CountedWork::default(),
     );
     let changes = events.subscribe(None, false).await.unwrap();
     let context = SourceContext {

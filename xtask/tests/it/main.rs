@@ -26,6 +26,8 @@ mod compare_spider;
 mod compat;
 mod console;
 mod containment;
+#[cfg(unix)]
+mod counts;
 mod dco;
 mod dependency_direction;
 mod diagnostic;
@@ -39,6 +41,7 @@ mod feature_generators;
 mod features;
 mod features_report;
 mod fixture_size;
+mod floor_guard;
 mod gate;
 mod gate_backstop;
 mod head_order;
@@ -64,11 +67,15 @@ mod perf_build;
 mod perf_ceilings;
 mod perf_drift;
 #[cfg(unix)]
+mod perf_reference;
+#[cfg(unix)]
 mod perf_run;
 mod pre_merge;
 mod quarantine;
 mod received_requests;
 mod refusals;
+mod register;
+mod register_coverage;
 mod release_suite;
 mod repeat;
 mod rss;

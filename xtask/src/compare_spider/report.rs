@@ -1,14 +1,17 @@
 //! The report: each tool's median pages per second and median peak resident
-//! memory over its trials, labelled `local-controlled` with the machine and
-//! never published (ADR 0076), written only once the same-work check
-//! passed.
+//! memory over its trials, and `foxhound.spider_instruction_ratio` from the
+//! Callgrind cell, labelled `local-controlled` with the machine and never
+//! published (ADR 0076), written only once the same-work check passed.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::trials::{Comparison, Machine, Tool};
+use super::trials::{Comparison, InstructionCell, InstructionRun, Machine, Tool};
+
+/// The Quality register's row the Callgrind cell gives (ADR 0140).
+const RATIO_ROW: &str = "foxhound.spider_instruction_ratio";
 
 /// What the same-work check found every trial did.
 #[derive(Serialize)]
@@ -25,6 +28,24 @@ pub(crate) struct Figures {
     pub(crate) peak_bytes: u64,
 }
 
+/// The Callgrind cell's figure.
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum Instructions<'a> {
+    NotRun {
+        reason: &'a str,
+    },
+    Measured {
+        row: &'static str,
+        scenario: &'a str,
+        foxhound_per_page: f64,
+        spider_per_page: f64,
+        /// Foxhound's per page over Spider's, to three decimals, as the
+        /// register's figures are.
+        ratio: f64,
+    },
+}
+
 /// The report, as `report.json` holds it.
 #[derive(Serialize)]
 pub(crate) struct Report<'a> {
@@ -36,6 +57,7 @@ pub(crate) struct Report<'a> {
     pub(crate) order_seed: u64,
     pub(crate) same_work: SameWork,
     pub(crate) tools: BTreeMap<&'static str, Figures>,
+    pub(crate) instructions: Instructions<'a>,
 }
 
 /// The median of `values`, the mean of the middle two for an even count.
@@ -62,6 +84,34 @@ fn float(count: u64) -> f64 {
 /// A trial's pages per second.
 fn rate(trial: &super::trials::Trial) -> f64 {
     float(trial.pages.len() as u64) / trial.seconds
+}
+
+/// `tool`'s median instructions per page over its runs.
+fn per_page(runs: &[InstructionRun], tool: Tool) -> f64 {
+    let counts: Vec<f64> = runs
+        .iter()
+        .filter(|run| run.tool == tool)
+        .map(|run| float(run.instructions) / float(run.pages.len() as u64))
+        .collect();
+    median(&counts)
+}
+
+/// The Callgrind cell's figure, of runs that passed the same-work check.
+fn instructions(cell: &InstructionCell) -> Instructions<'_> {
+    match cell {
+        InstructionCell::NotRun { reason } => Instructions::NotRun { reason },
+        InstructionCell::Measured { scenario, runs, .. } => {
+            let foxhound_per_page = per_page(runs, Tool::Foxhound);
+            let spider_per_page = per_page(runs, Tool::Spider);
+            Instructions::Measured {
+                row: RATIO_ROW,
+                scenario,
+                foxhound_per_page,
+                spider_per_page,
+                ratio: (foxhound_per_page / spider_per_page * 1000.0).round() / 1000.0,
+            }
+        }
+    }
 }
 
 /// The report of trials that passed the same-work check.
@@ -105,6 +155,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
             trials: trials.trials.len(),
         },
         tools,
+        instructions: instructions(&trials.instructions),
     }
 }
 
@@ -144,6 +195,23 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             figures.pages_per_second,
             float(figures.peak_bytes) / MIB
         );
+    }
+    match &report.instructions {
+        Instructions::NotRun { reason } => {
+            let _ = writeln!(text, "\n`{RATIO_ROW}`: not run: {reason}.");
+        }
+        Instructions::Measured {
+            row,
+            scenario,
+            foxhound_per_page,
+            spider_per_page,
+            ratio,
+        } => {
+            let _ = writeln!(
+                text,
+                "\n`{row}`: {ratio:.3}, Foxhound's {foxhound_per_page:.0} instructions per page over Spider's {spider_per_page:.0}, under Callgrind on {scenario}, the median of each tool's runs, all of the same work."
+            );
+        }
     }
     text.push_str("\n## Trials, in the order run\n\n| Tool | Trial | Seconds | Pages per second | Peak RSS |\n|---|---:|---:|---:|---:|\n");
     for trial in &trials.trials {

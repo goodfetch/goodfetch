@@ -11,16 +11,19 @@
 //! (ADR 0121). Every line passes through the Run's `Mask` as a kept output
 //! (spec #564): no value a Run resolved is written, unless the Run's
 //! `security.redaction` is off.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the log appends to its file through the owner's blocking policy, never on an async worker"
-)]
+//!
+//! Each line is one entry an intercepted request sends the Run trace's
+//! writer, and the folder and file the log opens to append it are that
+//! request's, counted on the interception's rows (`C5.entries`,
+//! `C5.file_opens`; ADR 0140). The Provenance log's are a page's
+//! (`F1.file_opens`).
 
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -39,18 +42,20 @@ pub struct RequestLog {
     file: Arc<Path>,
     owner: TaskOwner,
     mask: Mask,
+    work: CountedWork,
 }
 
 impl RequestLog {
     /// The log of the Run whose folder is `run_folder`, written through
-    /// `owner`'s blocking policy, masked by `mask`, the Run's; its holder
-    /// waits for `owner`.
-    pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask) -> Self {
+    /// `owner`'s blocking policy, masked by `mask`, the Run's, counting on
+    /// `work`; its holder waits for `owner`.
+    pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask, work: CountedWork) -> Self {
         let file: PathBuf = run_folder.join(FILE);
         Self {
             file: file.into(),
             owner,
             mask,
+            work,
         }
     }
 
@@ -103,8 +108,15 @@ impl RequestLog {
         self.mask.masks().apply_value(&mut entry, Scope::KeptOutput);
         let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');
-        let file = Arc::clone(&self.file);
-        self.owner.blocking(move || append(&file, &line)).await
+        self.work.count(Row::InterceptedEntries);
+        write(
+            &self.owner,
+            Arc::clone(&self.file),
+            line,
+            &self.work,
+            Row::InterceptedFileOpens,
+        )
+        .await
     }
 }
 
@@ -114,7 +126,7 @@ pub const PROVENANCE: &str = "trace/provenance.jsonl";
 
 /// Appends `entry`, one Provenance entry, as a line of the Provenance log of
 /// the Run whose folder is `run_folder`, masked by `mask`, the Run's, and
-/// written through `owner`'s blocking policy.
+/// written through `owner`'s blocking policy, counting on `work`.
 ///
 /// # Errors
 ///
@@ -127,25 +139,60 @@ pub async fn provenance(
     owner: &TaskOwner,
     run_folder: &Path,
     mask: &Mask,
+    work: &CountedWork,
     entry: &serde_json::Value,
 ) -> io::Result<()> {
     let mut entry = entry.clone();
     mask.masks().apply_value(&mut entry, Scope::KeptOutput);
     let mut line = serde_json::to_vec(&entry)?;
     line.push(b'\n');
-    let file = run_folder.join(PROVENANCE);
-    owner.blocking(move || append(&file, &line)).await
+    write(
+        owner,
+        run_folder.join(PROVENANCE).into(),
+        line,
+        work,
+        Row::PageFileOpens,
+    )
+    .await
 }
 
-fn append(file: &Path, line: &[u8]) -> io::Result<()> {
+/// Appends `line`, one entry, to `file` on a blocking task of `owner`'s,
+/// counted on `E5.spawns` whatever `owner`'s policy, as a Run's runs one in
+/// production (ADR 0140, Exception X2), its folder and file opens also on
+/// `opens`.
+async fn write(
+    owner: &TaskOwner,
+    file: Arc<Path>,
+    line: Vec<u8>,
+    work: &CountedWork,
+    opens: Row,
+) -> io::Result<()> {
+    work.count(Row::RunTraceSpawns);
+    let work = work.clone();
+    owner
+        .blocking(move || append(&file, &line, &work, opens))
+        .await
+}
+
+/// Appends `line` to `file`, creating its folder: each counted on
+/// `E5.file_opens`, the entry's work, and on `opens`, the work of what the
+/// entry records (Exception X2): `C5.file_opens` for a request log's line, an
+/// intercepted or refused request's, and `F1.file_opens` for a Provenance
+/// entry, its page's. A Provenance entry of no fetched page, such as a
+/// browser page's, counts on F1 too until the Run-trace writer holds its
+/// handles.
+fn append(file: &Path, line: &[u8], work: &CountedWork, opens: Row) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        std::fs::create_dir_all(folder)?;
+        work.count(opens);
+        work.create_dir_all(Row::RunTraceFileOpens, folder)?;
     }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file)?
-        .write_all(line)
+    work.count(opens);
+    work.open_file(
+        Row::RunTraceFileOpens,
+        OpenOptions::new().create(true).append(true),
+        file,
+    )?
+    .write_all(line)
 }
 
 #[cfg(test)]

@@ -89,6 +89,7 @@ use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::removal::Selectors;
 use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
@@ -193,13 +194,13 @@ impl Shared {
 
     /// The selectors `run`'s documents are read with, which its pages and
     /// its served documents share.
-    fn selectors(&self, run: &RunId) -> Arc<Selectors> {
+    fn selectors(&self, run: &RunId, work: &CountedWork) -> Arc<Selectors> {
         let mut selectors = lock(&self.selectors);
         if let Some(held) = selectors.get(run).and_then(Weak::upgrade) {
             return held;
         }
         selectors.retain(|_, held| held.strong_count() > 0);
-        let held = Arc::new(Selectors::default());
+        let held = Arc::new(Selectors::counting(work.clone()));
         selectors.insert(run.clone(), Arc::downgrade(&held));
         held
     }
@@ -535,7 +536,10 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version, || self.shared.selectors(run.id())),
+            cosmetic: Cosmetic::of(&blocking, version, || {
+                self.shared
+                    .selectors(run.id(), run.metrics().counted_work())
+            }),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -749,6 +753,7 @@ impl Interception {
                     run.owner().child(),
                     run.folder(),
                     run.secrets().mask().clone(),
+                    run.metrics().counted_work().clone(),
                 ));
                 let driver = driver.with_egress(egress).with_value(value, run.clock());
                 let events = driver.events();
@@ -881,7 +886,10 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version, || self.shared.selectors(run.id()))
+            Cosmetic::of(&blocking, version, || {
+                self.shared
+                    .selectors(run.id(), run.metrics().counted_work())
+            })
         })
         .await
         .clone()

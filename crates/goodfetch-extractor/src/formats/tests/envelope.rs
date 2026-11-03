@@ -99,6 +99,7 @@ fn a_request_with_no_format_of_the_main_content_never_runs_the_step_and_answers_
         &Context {
             clean_up: None,
             extractor: &counted,
+            work: goodfetch_counted_work::CountedWork::default(),
         },
     );
 

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
@@ -8,6 +9,7 @@ use super::{Connection, Driver, Ended, SessionId, SubscriptionEnd};
 use crate::Failure;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
+use crate::generated::fetch;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -41,7 +43,7 @@ type Pipe = Driver<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>;
 fn connected() -> (Connection, Pipe, Browser) {
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer);
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
     (
         connection,
         driver,
@@ -60,6 +62,119 @@ fn version() -> Value {
         "userAgent": "Mozilla/5.0",
         "jsVersion": "15.6.75",
     })
+}
+
+/// C1's seam (ADR 0140): each command the driver writes costs one send and
+/// the encode of its frame, on the work the connection was given; a typed
+/// command's params serialized to a `Value` first are an encode of their own
+/// (#1861's Decision 3, recorded under X21).
+#[test]
+fn each_command_counts_its_encodes_and_one_send_on_the_work_it_was_given() {
+    let work = CountedWork::default();
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let mut browser = Browser {
+        stream: browser,
+        framer: Framer::default(),
+    };
+    runtime().block_on(async {
+        let client = async {
+            for _ in 0..2 {
+                connection
+                    .send(None, &GetVersionParams {}, TIMEOUT)
+                    .await
+                    .unwrap();
+            }
+            connection
+                .send_raw("Browser.getVersion", None, json!({}), TIMEOUT)
+                .await
+                .unwrap();
+            drop(connection);
+        };
+        let answers = async {
+            for _ in 0..3 {
+                let command = browser.received().await;
+                browser
+                    .send(&json!({ "id": command["id"], "result": version() }))
+                    .await;
+            }
+        };
+        tokio::join!(driver.run(), client, answers);
+    });
+
+    // Two typed commands of two encodes each, and a raw one of one.
+    assert_eq!(work.read(Row::CdpEncodes), 5);
+    assert_eq!(work.read(Row::CdpSends), 3);
+}
+
+/// C5's seam (ADR 0140): each `Fetch` command written and each `Fetch` event
+/// read is one message of the interception's, and a command that answers a
+/// paused request is one answer; no other domain's message counts.
+#[test]
+fn each_fetch_message_and_each_answer_to_a_paused_request_counts_on_the_work() {
+    let work = CountedWork::default();
+    let (client, browser) = tokio::io::duplex(1 << 16);
+    let (reader, writer) = tokio::io::split(client);
+    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let mut browser = Browser {
+        stream: browser,
+        framer: Framer::default(),
+    };
+    runtime().block_on(async {
+        let client = async {
+            connection
+                .send(None, &fetch::EnableParams::default(), TIMEOUT)
+                .await
+                .unwrap();
+            connection
+                .send(None, &GetVersionParams {}, TIMEOUT)
+                .await
+                .unwrap();
+            connection
+                .send(
+                    None,
+                    &fetch::ContinueRequestParams {
+                        request_id: "paused".to_owned(),
+                        url: None,
+                        method: None,
+                        post_data: None,
+                        headers: None,
+                        intercept_response: None,
+                    },
+                    TIMEOUT,
+                )
+                .await
+                .unwrap();
+            drop(connection);
+        };
+        let answers = async {
+            for answered in 0..3 {
+                let command = browser.received().await;
+                if answered == 2 {
+                    // Read before the last answer, so before the client ends.
+                    for method in ["Fetch.requestPaused", "Page.loadEventFired"] {
+                        browser
+                            .send(&json!({ "method": method, "params": {} }))
+                            .await;
+                    }
+                }
+                let result = if answered == 1 { version() } else { json!({}) };
+                browser
+                    .send(&json!({ "id": command["id"], "result": result }))
+                    .await;
+            }
+        };
+        tokio::join!(driver.run(), client, answers);
+    });
+
+    assert_eq!(
+        (
+            work.read(Row::InterceptedFetchMessages),
+            work.read(Row::InterceptedAnswers)
+        ),
+        (3, 1)
+    );
 }
 
 #[test]
@@ -207,7 +322,7 @@ const HUNG: Duration = Duration::from_secs(600);
 fn wedged(room: usize) -> (Connection, Pipe, DuplexStream) {
     let (client, browser) = tokio::io::duplex(room);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer);
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
     (connection, driver, browser)
 }
 

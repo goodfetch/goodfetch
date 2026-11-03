@@ -16,7 +16,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::politeness::{Ending, Hold, Holder, PermitRule, Politeness, Verdict};
+use goodfetch_engine::politeness::{
+    Ending, Hold, Holder, PermitRule, Politeness, PolitenessOptions, Verdict,
+};
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
@@ -253,7 +255,9 @@ fn a_request_that_ended_well_leaves_an_unlearned_proxy_without_a_ceiling() {
 #[tokio::test(start_paused = true)]
 async fn a_wait_for_room_through_a_proxy_ends_once_its_run_is_cancelled() {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
-    let politeness = Politeness::in_memory(vec![TABLES], &owner).await.unwrap();
+    let politeness = Politeness::in_memory(&PolitenessOptions::default(), vec![TABLES], &owner)
+        .await
+        .unwrap();
     let clock = Clock::paused(at(0));
     let holder = Holder {
         run_id: "waiting".to_owned(),

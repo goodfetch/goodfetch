@@ -29,6 +29,10 @@ Until M1's optimization pass, a figure past its threshold or over its ceiling is
 
 A "Performance change" section never passes a ceiling; only the owner moves one (ADR 0134).
 
+#### Reference build
+
+`drift.reference`: not run yet: `ci/perf-reference.toml` pins no reference build (#1577 pins its tuned build, ADR 0140).
+
 #### Admission of the new benchmarks
 
 | New benchmark and figure | Runs | Lowest | Highest | Spread | Verdict |

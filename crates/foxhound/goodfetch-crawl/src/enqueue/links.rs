@@ -20,6 +20,7 @@
 //! is not suspected and reaches a marked request again clears its mark; a
 //! revealable one leaves it marked as revealable.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace;
 use goodfetch_engine::runs::Run;
@@ -199,20 +200,12 @@ pub(crate) async fn enqueue_links(
     else {
         return Err(attempt.ended());
     };
-    let (served, base) = served(&tiers, &params.locator).await?;
-    if let Some(payloads) = &params.payloads
-        && payloads.len() != served.elements.len()
-    {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "`payloads` holds {} Payloads, but the locator `{}` matches {} elements: give one per element, in the order `crawl_request.links` read them.",
-                payloads.len(),
-                params.locator.selector,
-                served.elements.len()
-            ),
-        ));
+    let work = run.metrics().counted_work().clone();
+    for _ in params.include.iter().chain(&params.exclude) {
+        work.count(Row::BatchCompilations);
     }
+    let (served, base) = served(&tiers, &params.locator).await?;
+    payloads_fit(&params, served.elements.len())?;
     let links: Vec<Link> = served
         .elements
         .into_iter()
@@ -231,6 +224,7 @@ pub(crate) async fn enqueue_links(
         .collect();
     let request = params.clone();
     let encoding = served.encoding;
+    work.count(Row::BatchTransactions);
     let answered = run
         .state()
         .write(move |connection| {
@@ -254,6 +248,7 @@ pub(crate) async fn enqueue_links(
                                 include: &include,
                                 exclude: &exclude,
                             },
+                            work: &work,
                         },
                     )
                 },
@@ -271,6 +266,22 @@ pub(crate) async fn enqueue_links(
         Ok(Some(Err(refused))) => Err(refused),
         Ok(None) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
+    }
+}
+
+/// `invalid_params` when `params`'s `payloads` do not give one Payload for each
+/// of the `elements` its locator matches.
+fn payloads_fit(params: &CrawlRequestEnqueueLinksParams, elements: usize) -> Result<(), CallError> {
+    match &params.payloads {
+        Some(payloads) if payloads.len() != elements => Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "`payloads` holds {} Payloads, but the locator `{}` matches {elements} elements: give one per element, in the order `crawl_request.links` read them.",
+                payloads.len(),
+                params.locator.selector,
+            ),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -368,8 +379,14 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             "from": from,
             "revealable": *mark == Mark::Revealable,
         });
-        let written =
-            run_trace::provenance(run.owner(), run.folder(), run.secrets().mask(), &entry).await;
+        let written = run_trace::provenance(
+            run.owner(),
+            run.folder(),
+            run.secrets().mask(),
+            run.metrics().counted_work(),
+            &entry,
+        )
+        .await;
         if let Err(error) = written {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
@@ -403,9 +420,30 @@ struct Batch<'a> {
     base: &'a Url,
     encoding: &'static goodfetch_frontier::Encoding,
     narrowing: Narrowing<'a>,
+    work: &'a CountedWork,
 }
 
 impl Batch<'_> {
+    /// The refusal of the first of its Payloads that does not fit `label`'s
+    /// schema or the cap, each link that has one checked before any is admitted.
+    fn refused_payload(
+        &self,
+        connection: &Connection,
+        label: &str,
+    ) -> rusqlite::Result<Option<CallError>> {
+        self.work.count(Row::BatchInvariantReads);
+        let rules = PayloadRules::read(connection)?;
+        Ok(self
+            .links
+            .iter()
+            .find_map(|link| match (&link.href, &link.payload) {
+                (Some(_), Chosen::Payload(payload)) => {
+                    rules.check(label, payload.as_ref(), self.work).err()
+                }
+                _ => None,
+            }))
+    }
+
     /// Clears the mark of the request that the link `href`, one that is not
     /// suspected, reaches again as a `duplicate`: a request stays marked
     /// only while every link that reached it was suspected; a link a person
@@ -449,15 +487,17 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
-    let rules = PayloadRules::read(connection)?;
-    for link in batch.links {
-        if let (Some(_), Chosen::Payload(payload)) = (&link.href, &link.payload)
-            && let Err(refused) = rules.check(&params.label, payload.as_ref())
-        {
-            return Ok(Some(Err(refused)));
-        }
+    positions.counting(batch.work);
+    if let Some(refused) = batch.refused_payload(connection, &params.label)? {
+        return Ok(Some(Err(refused)));
     }
-    let scope = Scope::read(connection)?;
+    let scope = Scope::read_counted(
+        connection,
+        batch.work,
+        Row::BatchInvariantReads,
+        Row::BatchCompilations,
+    )?;
+    batch.work.count(Row::BatchInvariantReads);
     let keeps_fragment = Fragments::read(connection)?.keeps(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());

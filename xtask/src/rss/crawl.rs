@@ -33,6 +33,18 @@ pub(crate) const CONCURRENCY: u32 = 16;
 /// The Proving ground's seed.
 const SEED: u64 = 1574;
 
+/// The settings a crawl runs with, beside those every crawl here sets.
+#[derive(Clone, Copy)]
+pub(crate) enum Settings {
+    /// The product's defaults.
+    CodeFree,
+    /// Scenario 1 of ADR 0138's matrix, as far as this tip's settings reach:
+    /// `run_state.durability` `fast`, the fastest there is, and robots.txt not
+    /// obeyed. Its `off` and `frontier.learning: false` arrive with #1577,
+    /// whose pull request adds them here.
+    Raw,
+}
+
 /// Where one crawl goes: the Proving ground's address and the site's size.
 pub(crate) struct Site<'a> {
     /// `<ip>:<port>`.
@@ -152,7 +164,12 @@ impl Engine {
 
 /// Opens with `hello`, starts a code-free crawl of the site on the `http`
 /// tier, waits for its Run to finish complete, and ends the input.
-pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> Result<()> {
+pub(crate) fn crawl(
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+    site: &Site<'_>,
+    settings: Settings,
+) -> Result<()> {
     let mut engine = Engine {
         stdin,
         stdout: BufReader::new(stdout),
@@ -170,6 +187,22 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
     })?;
     engine.call("hello", HELLO, &hello)?;
     let concurrency = site.concurrency;
+    let mut run_settings = json!({
+        "network": { "resolve": { HOST: [site.ip()] } },
+        "egress": { "private_ranges": [HOST] },
+        "fetch": { "tier": "http" },
+        // Its own Politeness, so no other run on the machine shares
+        // its domain's count, at the crawl's concurrency.
+        "politeness": {
+            "sharing": "run",
+            "domain": { "delay": 0, "concurrency": concurrency },
+        },
+        "crawl": { "handler": { "concurrency": concurrency } },
+    });
+    if matches!(settings, Settings::Raw) {
+        run_settings["run_state"] = json!({ "durability": "fast" });
+        run_settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    }
     engine.call(
         "start",
         "crawl.start",
@@ -180,18 +213,7 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
             // Each page's Record holds no format: the crawl fetches and
             // follows links, as Spider's does.
             "extraction": { "formats": {}, "follow": "scope" },
-            "settings": {
-                "network": { "resolve": { HOST: [site.ip()] } },
-                "egress": { "private_ranges": [HOST] },
-                "fetch": { "tier": "http" },
-                // Its own Politeness, so no other run on the machine shares
-                // its domain's count, at the crawl's concurrency.
-                "politeness": {
-                    "sharing": "run",
-                    "domain": { "delay": 0, "concurrency": concurrency },
-                },
-                "crawl": { "handler": { "concurrency": concurrency } },
-            },
+            "settings": run_settings,
         }),
     )?;
     let report = engine.call("finish", "run.finish", &json!({ "run_id": "crawl" }))?;

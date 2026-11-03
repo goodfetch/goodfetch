@@ -4,6 +4,7 @@
 //! resolves a link's, or else the first `Link` header field value with
 //! `rel="canonical"`, resolved against the URL it was fetched at.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use url::Url;
 
 /// The URL `html`'s head, or else its `headers` (names lower-cased), name
@@ -13,10 +14,13 @@ pub(crate) fn canonical(
     headers: &[(String, String)],
     base: &Url,
     url: &Url,
+    work: &CountedWork,
 ) -> Option<Url> {
-    let document = dom_query::Document::from(html);
+    let document = work.parse_html(Row::PageParses, html);
     let in_head = document
-        .select("head link[rel][href]")
+        .select_matcher(
+            &work.literal_selector(Row::PageSelectorCompilations, "head link[rel][href]"),
+        )
         .nodes()
         .iter()
         .find(|link| link.attr("rel").is_some_and(|rel| has_canonical(&rel)))

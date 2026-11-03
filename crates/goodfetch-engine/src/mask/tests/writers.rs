@@ -173,6 +173,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: the Daemon's runtime file, token, lock and pick, no Run's value",
     ),
     (
+        "crates/goodfetch-engine/src/governor/system/linux.rs",
+        1,
+        "holds no value: it writes nothing, its one `OpenOptions` opening the `/proc` files a governor sample counts for reading only",
+    ),
+    (
         "crates/goodfetch-engine/src/installed.rs",
         1,
         "holds no value: installed browser builds",

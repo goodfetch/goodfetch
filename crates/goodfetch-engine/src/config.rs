@@ -424,6 +424,10 @@ fn read(path: &Path) -> io::Result<Option<String>> {
 
 /// The Operator policy's lock, beside the policy at `path`, held until it
 /// drops, so two writes never interleave their check and rename. Blocking.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn lock(path: &Path) -> io::Result<File> {
     let folder = path.parent().unwrap_or(Path::new("."));
     durable::create_folder(folder)?;

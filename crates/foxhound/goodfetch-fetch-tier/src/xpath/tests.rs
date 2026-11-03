@@ -1,3 +1,7 @@
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 use proptest::prelude::*;
 use rstest::rstest;
 

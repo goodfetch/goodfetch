@@ -75,5 +75,12 @@ fn an_elements_visibility_is_its_markups_or_unknown(
     #[case] selector: &str,
     #[case] expected: Option<Shown>,
 ) {
-    assert_eq!(shown(html, selector), expected);
+    assert_eq!(
+        shown(
+            html,
+            selector,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
+        expected
+    );
 }

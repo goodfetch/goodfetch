@@ -6,6 +6,10 @@
 //! matter and a lost or extra paragraph, cell or list item does. Its head,
 //! scripts, styles and templates hold no text a person reads. The same
 //! reading judges a text value, white space aside.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: the Proving ground, on no Shared path, depends on no Goodfetch crate, so its parses go uncounted (ADR 0032)"
+)]
 
 use dom_query::{Document, NodeRef};
 
@@ -31,6 +35,10 @@ pub(crate) fn same_text(expected: &str, submitted: &str) -> bool {
 }
 
 /// The text of each block of `html`, in document order.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn blocks(html: &str) -> Vec<String> {
     let document = Document::from(html);
     let mut blocks = Blocks::default();

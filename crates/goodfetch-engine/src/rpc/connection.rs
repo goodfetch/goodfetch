@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
@@ -113,6 +114,9 @@ pub(crate) struct Dispatch {
     /// Every live Run's resolved values, masked in every message the
     /// Connection sends (spec #564).
     pub(crate) masks: Masks,
+    /// The engine's Counted work, what its Connections' messages add to
+    /// (ADR 0140's E1).
+    pub(crate) work: CountedWork,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -408,16 +412,21 @@ async fn serve_carried(
         listener,
     } = carried;
     let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
-    owner.spawn(write_lines(writing, lines, dispatch.masks.clone()));
+    owner.spawn(write_lines(
+        writing,
+        lines,
+        dispatch.masks.clone(),
+        dispatch.work.clone(),
+    ));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
-    let (client, requests) = Client::new();
+    let (client, requests) = Client::new(dispatch.work.clone());
     let daemon = access.daemon();
     let log = dispatch
         .log_events
         .as_ref()
         .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
-    let forwarding = log.forward(outgoing.clone());
+    let forwarding = log.forward(outgoing.clone(), dispatch.work.clone());
     let stop_logging = logging.clone();
     owner.spawn(async move {
         // Polled first, it sends every log event already waiting before
@@ -438,6 +447,7 @@ async fn serve_carried(
         events,
         daemon,
         log,
+        work: dispatch.work.clone(),
     });
     let mut session = Session {
         dispatch,
@@ -492,9 +502,17 @@ async fn linger(reading: &mut Reading, clock: Clock) {
 /// other line waits; shuts the Connection's sending side down, or closes
 /// its WebSocket, when every sender is gone. Every line passes through
 /// `masks` first, as what a call returns or an event carries: no message
-/// the Connection sends holds a value a Run resolved (spec #564).
-async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>, masks: Masks) {
+/// the Connection sends holds a value a Run resolved (spec #564). Every line
+/// counts once on `work`, as the one encode into bytes each was made by,
+/// whoever made it (ADR 0140's E1).
+async fn write_lines(
+    mut writing: Writing,
+    mut lines: mpsc::Receiver<Vec<u8>>,
+    masks: Masks,
+    work: CountedWork,
+) {
     while let Some(line) = lines.recv().await {
+        work.count(Row::MessageEncodes);
         let line = masks.apply_json_line(line, Scope::Returned);
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
@@ -681,7 +699,7 @@ impl Session<'_> {
     async fn handle(&mut self, frame: Frame) -> Flow {
         let incoming = match frame {
             Frame::TooLarge => Err(DecodeError::too_large()),
-            Frame::Line(line) => decode(&line),
+            Frame::Line(line) => decode(&line, &self.dispatch.work),
         };
         let message = Message::of(incoming);
         match self.transition(message.event()) {
@@ -804,6 +822,7 @@ impl Session<'_> {
                 if !self.pending.contains_key(&id) {
                     return Flow::Continue;
                 }
+                self.dispatch.work.count(Row::MessageEncodes);
                 notification_line(CANCEL, &CancelParams { id })
             }
         };
@@ -904,6 +923,7 @@ impl Session<'_> {
                         .clone_from(private_endpoint);
                     accepted.result.console_link.clone_from(console_link);
                 }
+                self.dispatch.work.count(Row::MessageEncodes);
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 drop(span);
@@ -1006,8 +1026,12 @@ impl Session<'_> {
         let operation = handler.operation();
         let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
-        let notifier =
-            CallNotifier::new(id.clone(), self.outgoing.clone(), notification_value_line);
+        let notifier = CallNotifier::new(
+            id.clone(),
+            self.outgoing.clone(),
+            notification_value_line,
+            self.dispatch.work.clone(),
+        );
         let stream = credits
             .clone()
             .map(|credits| CallStream::new(notifier.clone(), credits));
@@ -1095,7 +1119,7 @@ impl Session<'_> {
             self.input(notification);
             return;
         }
-        let params = notification.params.clone().unwrap_or(Value::Null);
+        let params = self.params_copied(notification);
         let Ok(CancelParams { id }) = serde_json::from_value::<CancelParams>(params) else {
             tracing::debug!("a `$/cancel` without a call's id is ignored");
             return;
@@ -1115,7 +1139,8 @@ impl Session<'_> {
         struct Named {
             id: RequestId,
         }
-        let params = notification.params.clone().unwrap_or(Value::Null);
+        let params = self.params_copied(notification);
+        self.dispatch.work.count(Row::MessageDeepCopies);
         let taker = serde_json::from_value::<Named>(params.clone())
             .ok()
             .and_then(|Named { id }| self.in_flight.get_mut(&id))
@@ -1131,7 +1156,7 @@ impl Session<'_> {
     /// Adds a `$/credit`'s credits to the call it names; one for a call no
     /// longer in flight, or for one that does not stream, is ignored.
     fn credit(&self, notification: &Notification) {
-        let params = notification.params.clone().unwrap_or(Value::Null);
+        let params = self.params_copied(notification);
         let Ok(CreditParams { id, credits }) = serde_json::from_value::<CreditParams>(params)
         else {
             tracing::debug!("a `$/credit` that is not one is ignored");
@@ -1144,6 +1169,12 @@ impl Session<'_> {
         {
             call_credits.grant(credits);
         }
+    }
+
+    /// A copy of `notification`'s params, counted (ADR 0140's E1).
+    fn params_copied(&self, notification: &Notification) -> Value {
+        self.dispatch.work.count(Row::MessageDeepCopies);
+        notification.params.clone().unwrap_or(Value::Null)
     }
 
     /// Sends a line; `false` once the writer is gone.

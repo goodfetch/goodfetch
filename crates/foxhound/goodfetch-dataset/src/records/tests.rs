@@ -103,3 +103,72 @@ fn a_read_through_a_number_answers_its_page_and_whether_it_committed_from_one_st
          exactly when the read says it committed"
     );
 }
+
+/// Each Record `commit` writes counts its copy, its serialization and its
+/// lookup of the schema hash, once each.
+#[test]
+fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
+    use goodfetch_counted_work::{CountedWork, Row};
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_protocol::foxhound::crawl::PushedRecord;
+    use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+    use goodfetch_protocol::foxhound::provenance::RecordProvenance;
+    use goodfetch_protocol::run::PointInTime;
+    use serde_json::json;
+
+    let env = TestEnv::new();
+    let connection = run_file(&env.home().join("run"));
+    let datasets = crate::Datasets::declare(&[DatasetDeclaration {
+        name: "pages".to_owned(),
+        schema: None,
+        key: Vec::new(),
+    }])
+    .unwrap();
+    let work = CountedWork::default();
+    let records: Vec<PushedRecord> = (0..2)
+        .map(|_| PushedRecord {
+            dataset: "pages".to_owned(),
+            data: json!({ "title": "Dune" }),
+        })
+        .collect();
+    let checked = datasets.check(records, &work).unwrap();
+    let (at, masks) = (
+        PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+        Masks::new(),
+    );
+    let provenance = RecordProvenance {
+        request_id: "9".to_owned(),
+        tier: None,
+        encoding: None,
+        origin: None,
+        clean_up_rules: None,
+        wall: None,
+        payment: None,
+        certificate_exception: None,
+        robots_txt: None,
+        value_transforms: Vec::new(),
+        unread_fields: Vec::new(),
+    };
+    let committing = super::Committing {
+        request_id: "9",
+        url: "https://shop.test/",
+        at: &at,
+        provenance: &provenance,
+        masks: &masks,
+        work: &work,
+    };
+    let read = || {
+        [
+            Row::RecordDeepCopies,
+            Row::RecordSerializations,
+            Row::RecordConstantLookups,
+        ]
+        .map(|row| work.read(row))
+    };
+
+    super::commit(&connection, committing, &crate::Checked::default()).unwrap();
+    assert_eq!(read(), [0, 0, 0]);
+
+    super::commit(&connection, committing, &checked).unwrap();
+    assert_eq!(read(), [2, 2, 2]);
+}

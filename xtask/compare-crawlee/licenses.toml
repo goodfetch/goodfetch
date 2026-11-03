@@ -22,3 +22,17 @@ name = "sax"
 version = "1.6.1"
 license = "BlueOak-1.0.0"
 reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; the side never ships"
+
+[[package]]
+ecosystem = "npm"
+name = "minimatch"
+version = "11.0.3"
+license = "BlueOak-1.0.0"
+reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; the side's override takes it in place of minimatch 9's advisory, and the side never ships"
+
+[[package]]
+ecosystem = "npm"
+name = "@isaacs/nonrecursive-glob-match"
+version = "1.0.3"
+license = "BlueOak-1.0.0"
+reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; minimatch 11 takes it, and the side never ships"

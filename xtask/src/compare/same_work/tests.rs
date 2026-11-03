@@ -1,6 +1,5 @@
 use super::check;
 use crate::compare::matrix::{self, Scenario};
-use crate::compare::trial::tool_of;
 use crate::compare::trials::{
     Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, Trial, Work,
 };
@@ -27,7 +26,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             (1..=3).map(move |number| Trial {
                 scenario: cell.scenario,
                 cell: cell.name.to_owned(),
-                tool: tool_of(config),
+                tool: config.tool(),
                 number,
                 site_pages: 4,
                 measured: Measured {
@@ -45,6 +44,8 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             concurrency: 16,
             site: "/sites/4/1".to_owned(),
             spider: "2.53.9".to_owned(),
+            crawlee: "3.18.2".to_owned(),
+            scrapy: "2.19.0".to_owned(),
         },
         machine: Machine {
             class: "local-controlled".to_owned(),
@@ -107,6 +108,8 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
         vec![
             ("different_bytes", "raw foxhound trial 2".to_owned()),
             ("different_bytes", "raw spider trial 2".to_owned()),
+            ("different_bytes", "raw crawlee trial 2".to_owned()),
+            ("different_bytes", "raw scrapy trial 2".to_owned()),
         ]
     );
 }

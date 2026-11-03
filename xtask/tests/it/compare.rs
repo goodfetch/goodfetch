@@ -19,9 +19,11 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 3] = [
+const CELLS: [(&str, &str, &str); 5] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
+    ("raw", "crawlee", "crawlee"),
+    ("raw", "scrapy", "scrapy"),
     ("durable", "foxhound full", "foxhound"),
 ];
 
@@ -135,6 +137,8 @@ fn trials() -> Value {
             "concurrency": 16,
             "site": "/sites/1000/1",
             "spider": "2.53.9",
+            "crawlee": "3.18.2",
+            "scrapy": "2.19.0",
         },
         "machine": {
             "class": "local-controlled",
@@ -255,6 +259,8 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
         json!({
             "foxhound": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "spider": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "crawlee": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
     );
 }
@@ -401,6 +407,57 @@ fn the_report_writes_each_scenarios_mapping() {
     }
 }
 
+/// Crawlee and Scrapy join scenario 1, each cell with every metric and the
+/// settings its tool ran with; their scenario 2 cells say why neither
+/// resumes all the site's pages after a kill, and the report names the
+/// pinned version of each tool.
+#[test]
+fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let names = |cell: &Value| {
+        cell["metrics"]
+            .as_object()
+            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
+    };
+    let foxhound = names(cell(&report, 0, "foxhound"));
+    for (scenario, name) in [(0, "crawlee"), (0, "scrapy")] {
+        let cell = cell(&report, scenario, name);
+        assert_eq!(
+            (&cell["status"], names(cell)),
+            (&json!("measured"), foxhound.clone()),
+            "scenario {scenario}'s {name}"
+        );
+    }
+    assert_eq!(
+        (
+            &cell(&report, 1, "crawlee")["status"],
+            &cell(&report, 1, "scrapy")["status"]
+        ),
+        (&json!("not_supported"), &json!("not_supported"))
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "Crawlee 3.18.2 (`@crawlee/cheerio`) on Node.js and Scrapy 2.19.0 on CPython",
+        "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
+         `maxConcurrency: 16`",
+        "- **scrapy**: a default `scrapy.Spider`",
+        "`ROBOTSTXT_OBEY: False`, `CONCURRENT_REQUESTS: 16`, `CONCURRENT_REQUESTS_PER_DOMAIN: 16`, \
+         `DOWNLOAD_DELAY: 0`",
+        "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
+        "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
 #[test]
 fn the_system_call_cell_gives_each_cells_syncs() {
     let workspace = Workspace::from_fixture("empty");
@@ -466,7 +523,7 @@ fn a_trial_served_other_bytes_for_the_same_pages_fails_the_same_work_check() {
 fn a_resumed_trial_is_held_to_its_pages_first_answers() {
     let workspace = Workspace::from_fixture("empty");
     let mut trials = trials();
-    trials["trials"][7]["work"]["first_bytes"] = json!(600_001);
+    trials["trials"][13]["work"]["first_bytes"] = json!(600_001);
 
     let outcome = report(&workspace, &trials);
 

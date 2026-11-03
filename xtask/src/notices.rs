@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use self::entry::{Ecosystem, Entry, Usage};
 use self::license::{Allowlist, Verdict};
@@ -68,13 +68,94 @@ pub(crate) fn check(
     entries.extend(npm::entries(root)?);
     entries.extend(python::entries(root)?);
     entries.extend(inputs::entries(root, sources.inputs)?);
+    judge(&allowlist, &[], entries, out)
+}
+
+/// Checks the npm and Python packages of each folder of `sides` against the
+/// workspace's allowlist, from each side's own lockfiles and what its
+/// install left beside them, and returns what the allowlist refuses: the
+/// comparison's sides (`just compare`, ADR 0138), whose packages stay out of
+/// the workspace's lockfiles and never ship.
+fn check_sides(root: &Path, sides: &[PathBuf]) -> Result<Vec<Finding>> {
+    let allowlist = Allowlist::read(root)?;
+    let mut findings = Vec::new();
+    for side in sides {
+        let mut entries = npm::entries(side)?;
+        entries.extend(python::entries(side)?);
+        let exceptions = Exceptions::read(side)?;
+        findings.extend(judge(&allowlist, &exceptions.package, entries, None)?);
+    }
+    Ok(findings)
+}
+
+/// A side's license exceptions, `licenses.toml` beside its lockfiles.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct Exceptions {
+    #[serde(default)]
+    package: Vec<Exception>,
+}
+
+/// The license one package at one version carries, read from its own
+/// license file, accepted for its side alone: one its metadata states in no
+/// SPDX expression, or one off the allowlist.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Exception {
+    ecosystem: Ecosystem,
+    name: String,
+    version: String,
+    license: String,
+    /// Where the license was read, and why it is accepted.
+    #[expect(
+        dead_code,
+        reason = "read by the people who review the file, never by the check"
+    )]
+    reason: String,
+}
+
+impl Exceptions {
+    const FILE: &str = "licenses.toml";
+
+    /// `side`'s exceptions; none when it has no file of them.
+    fn read(side: &Path) -> Result<Self> {
+        let path = side.join(Self::FILE);
+        if !path.is_file() {
+            return Ok(Self::default());
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    }
+}
+
+/// Judges each of `entries` by `allowlist`, or by the one of `exceptions`
+/// that names it, writes the inventory to `out` when given, and returns
+/// what the allowlist refuses and each exception no entry used.
+fn judge(
+    allowlist: &Allowlist,
+    exceptions: &[Exception],
+    mut entries: Vec<Entry>,
+    out: Option<&Path>,
+) -> Result<Vec<Finding>> {
     entries.sort_by(|left, right| identity(left).cmp(&identity(right)));
     // A package in two of a lockfile's documents is listed once.
     entries.dedup_by(|left, right| identity(left) == identity(right));
     let mut findings = Vec::new();
     let mut notices = Vec::new();
+    let mut used = vec![false; exceptions.len()];
     for entry in &entries {
-        let license = match allowlist.judge(entry) {
+        let excepted = exceptions.iter().position(|exception| {
+            identity(entry) == (exception.ecosystem, &exception.name, &exception.version)
+        });
+        let verdict = match excepted {
+            Some(index) => {
+                used[index] = true;
+                Verdict::Allowed(exceptions[index].license.clone())
+            }
+            None => allowlist.judge(entry),
+        };
+        let license = match verdict {
             Verdict::Allowed(license) => license,
             Verdict::Refused(refusal) => {
                 findings.push(Finding::new(
@@ -130,6 +211,19 @@ pub(crate) fn check(
         }
         std::fs::write(out, text).with_context(|| format!("writing {}", out.display()))?;
     }
+    for (exception, _) in exceptions.iter().zip(used).filter(|(_, used)| !used) {
+        findings.push(Finding::new(
+            "license-exception-unused",
+            format!(
+                "{} {}@{}",
+                exception.ecosystem, exception.name, exception.version
+            ),
+            format!(
+                "no locked package is this one; remove its entry from {}",
+                Exceptions::FILE
+            ),
+        ));
+    }
     Ok(findings)
 }
 
@@ -152,9 +246,25 @@ pub(crate) struct Arguments {
     /// Writes the inventory, as JSON, to this file.
     #[arg(long)]
     out: Option<PathBuf>,
+    /// Checks only this folder's npm and Python packages, from its own
+    /// lockfiles and install, instead of the workspace's: a side of `just
+    /// compare` (Crawlee's, Scrapy's), no workspace member.
+    #[arg(long, conflicts_with_all = ["inputs", "out"])]
+    side: Vec<PathBuf>,
 }
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    if !arguments.side.is_empty() {
+        let sides: Vec<PathBuf> = arguments
+            .side
+            .iter()
+            .map(|path| environment.path(path))
+            .collect();
+        return Ok(crate::check::report(&check_sides(
+            &environment.root,
+            &sides,
+        )?));
+    }
     let inputs: Vec<PathBuf> = arguments
         .inputs
         .iter()

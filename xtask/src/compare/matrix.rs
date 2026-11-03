@@ -4,7 +4,7 @@
 //! cannot do what a scenario asks has a cell saying so, and a Foxhound
 //! value that does not exist yet is marked pending with the ticket that
 //! brings it; neither gives a figure. This slice holds scenarios 1 and 2,
-//! Foxhound against Spider; #1902 adds Crawlee and Scrapy, #1903 the other
+//! Foxhound against Spider, Crawlee and Scrapy; #1903 adds the other
 //! scenarios.
 
 use serde::{Deserialize, Serialize};
@@ -19,13 +19,21 @@ pub(crate) enum Tool {
     Foxhound,
     /// Spider, in its HTTP mode.
     Spider,
+    /// Crawlee's `CheerioCrawler`, on Node.js.
+    Crawlee,
+    /// Scrapy's default HTTP crawl, on `CPython`.
+    Scrapy,
 }
 
 impl Tool {
+    pub(crate) const ALL: [Self; 4] = [Self::Foxhound, Self::Spider, Self::Crawlee, Self::Scrapy];
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Foxhound => "foxhound",
             Self::Spider => "spider",
+            Self::Crawlee => "crawlee",
+            Self::Scrapy => "scrapy",
         }
     }
 }
@@ -83,6 +91,24 @@ pub(crate) enum Config {
     Foxhound { durability: &'static str },
     /// Spider's HTTP mode, robots.txt not obeyed, 16 at once.
     Spider,
+    /// Crawlee's `CheerioCrawler` at most 16 at once, robots.txt not obeyed
+    /// (its default), nothing kept on disk (`persistStorage: false`).
+    Crawlee,
+    /// Scrapy's default crawl, `ROBOTSTXT_OBEY: False`, 16 at once in all
+    /// and per domain, no delay, nothing kept on disk.
+    Scrapy,
+}
+
+impl Config {
+    /// The tool this configuration runs.
+    pub(crate) fn tool(self) -> Tool {
+        match self {
+            Self::Foxhound { .. } => Tool::Foxhound,
+            Self::Spider => Tool::Spider,
+            Self::Crawlee => Tool::Crawlee,
+            Self::Scrapy => Tool::Scrapy,
+        }
+    }
 }
 
 /// What a cell gives.
@@ -112,7 +138,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 5] = [
+pub(crate) const CELLS: [Cell; 9] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -134,6 +160,31 @@ pub(crate) const CELLS: [Cell; 5] = [
                   `with_concurrency_limit(16)`, no delay, nothing kept on disk",
         pending: &[],
         status: Status::Measured(Config::Spider),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "`CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
+                  `maxConcurrency: 16`, its autoscaled pool starting at the HTTP crawlers' \
+                  desired concurrency of 10 and growing toward 16 as the system allows (its \
+                  default), robots.txt not obeyed (its default), no delay, `enqueueLinks()` on \
+                  the same hostname (its default), its default logging",
+        pending: &[],
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "a default `scrapy.Spider` following every link (`response.follow_all`, \
+                  `allowed_domains` the site's host), `ROBOTSTXT_OBEY: False`, \
+                  `CONCURRENT_REQUESTS: 16`, `CONCURRENT_REQUESTS_PER_DOMAIN: 16`, \
+                  `DOWNLOAD_DELAY: 0`, `LOG_LEVEL: INFO` (Crawlee's and Foxhound's default \
+                  level, where Scrapy's DEBUG logs every request), the first page through the \
+                  duplicate filter like every other request, nothing kept on disk",
+        pending: &[],
+        status: Status::Measured(Config::Scrapy),
     },
     Cell {
         scenario: Scenario::Durable,
@@ -165,6 +216,34 @@ pub(crate) const CELLS: [Cell; 5] = [
         pending: &[],
         status: Status::NotSupported(
             "Spider keeps no crawl state on disk that a new process resumes from after a kill (the owner's matrix, 2026-10-30)",
+        ),
+    },
+    Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "none: `persistStorage: true` (its default) loses pages to a kill",
+        pending: &[],
+        status: Status::NotSupported(
+            "Crawlee's `persistStorage` writes each request of its queue to a file of its own \
+             with a plain write, so a SIGKILL can leave one half-written; the process started \
+             again on the same storage, with `purgeOnStart: false`, ignores it as invalid JSON \
+             and never fetches its page. On 2026-11-03 (#1902), 2 of 6 such crawls fetched 997 \
+             and 999 of the 1,000 pages, which no same-work check passes; the others took 364 s, \
+             waiting for the request locks the killed process held",
+        ),
+    },
+    Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "none: `JOBDIR` resumes only a job stopped cleanly",
+        pending: &[],
+        status: Status::NotSupported(
+            "Scrapy's `JOBDIR` writes its queue's index only on a clean close, so after a SIGKILL \
+             the process started again on the same `JOBDIR` has no request left to fetch: it \
+             fetched none of the 488 pages left on 2026-11-03 (#1902), as Scrapy's jobs \
+             documentation warns; a clean stop (one SIGINT) resumes, but that is no kill",
         ),
     },
 ];

@@ -12,10 +12,11 @@ use crate::output;
 use crate::rss::crawl::serve;
 
 use super::matrix::{self, Cell, Config, Scenario};
-use super::trial::{Counted, callgrind_missing, strace_missing, tool_of};
+use super::trial::{Counted, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell,
-    INSTRUCTION_RUNS, Machine, Measured, SITE_PAGES, SPIDER_VERSION, STATISTIC, Trial,
+    CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
+    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, SCRAPY_VERSION, SITE_PAGES,
+    SPIDER_VERSION, STATISTIC, Trial,
 };
 
 /// The executables a run takes.
@@ -23,6 +24,10 @@ pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
     pub(crate) spider: &'a Path,
+    /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
+    /// Python environment beside it.
+    pub(crate) crawlee: &'a Path,
+    pub(crate) scrapy: &'a Path,
 }
 
 /// What a run was asked for.
@@ -138,6 +143,8 @@ fn trial<T: serde::de::DeserializeOwned>(
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound,
         Config::Spider => executables.spider,
+        Config::Crawlee => executables.crawlee,
+        Config::Scrapy => executables.scrapy,
     };
     let serving = serve(executables.proving_ground)?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
@@ -175,7 +182,7 @@ fn trial<T: serde::de::DeserializeOwned>(
 fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     match config {
         Config::Spider => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } => pages,
+        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => pages,
     }
 }
 
@@ -203,7 +210,7 @@ fn timed(
         trials.push(Trial {
             scenario: cell.scenario,
             cell: cell.name.to_owned(),
-            tool: tool_of(config),
+            tool: config.tool(),
             number,
             site_pages,
             measured,
@@ -242,7 +249,7 @@ fn counted(
         done.push(CountedRun {
             scenario: cell.scenario,
             cell: cell.name.to_owned(),
-            tool: tool_of(config),
+            tool: config.tool(),
             number,
             count: counted.count,
             syncs: counted.syncs,
@@ -294,10 +301,13 @@ pub(crate) fn run(
             ),
         }
     };
+    // ADR 0140's row compares Foxhound's instructions with Spider's.
     let scenario_1: Vec<_> = measured
         .iter()
         .copied()
-        .filter(|(cell, _)| cell.scenario == Scenario::Raw)
+        .filter(|(cell, config)| {
+            cell.scenario == Scenario::Raw && INSTRUCTION_TOOLS.contains(&config.tool())
+        })
         .collect();
     let instructions = match callgrind_missing() {
         Some(reason) => {
@@ -320,6 +330,8 @@ pub(crate) fn run(
             concurrency: CONCURRENCY,
             site: format!("/sites/{SITE_PAGES}/1"),
             spider: SPIDER_VERSION.to_owned(),
+            crawlee: CRAWLEE_VERSION.to_owned(),
+            scrapy: SCRAPY_VERSION.to_owned(),
         },
         machine,
         commit,

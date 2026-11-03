@@ -14,7 +14,9 @@ use std::collections::BTreeMap;
 use crate::check::Finding;
 
 use super::matrix::{self, Scenario};
-use super::trials::{Comparison, CountedCell, CountedRun, GrowthCell, Trial, Work};
+use super::trials::{
+    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, Tool, Trial, Work,
+};
 
 /// What one trial of a pass did, whichever pass.
 struct Done<'a> {
@@ -31,8 +33,10 @@ struct Pass<'a> {
     suffix: &'static str,
     declared: u32,
     site_pages: u64,
-    /// The scenarios whose measured cells the pass runs.
+    /// The scenarios whose measured cells the pass runs, and those cells'
+    /// tools.
     scenarios: &'a [Scenario],
+    tools: &'a [Tool],
     done: Vec<Done<'a>>,
 }
 
@@ -98,19 +102,22 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         declared,
         site_pages: pages,
         scenarios: &Scenario::ALL,
+        tools: &Tool::ALL,
         done: of_trials(&trials.trials),
     });
-    for (suffix, cell, scenarios, empty) in [
+    for (suffix, cell, scenarios, tools, empty) in [
         (
             " strace",
             &trials.syscalls,
             &Scenario::ALL[..],
+            &Tool::ALL[..],
             "strace counted no system call, so the run measured nothing",
         ),
         (
             " callgrind",
             &trials.instructions,
             &[Scenario::Raw][..],
+            &INSTRUCTION_TOOLS[..],
             "Callgrind counted no instruction, so the run measured nothing",
         ),
     ] {
@@ -124,6 +131,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 declared: *declared,
                 site_pages: pages,
                 scenarios,
+                tools,
                 done: of_runs(runs),
             };
             findings.extend(check_pass(&pass));
@@ -145,6 +153,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             declared: *declared,
             site_pages: *site_pages,
             scenarios: &Scenario::ALL,
+            tools: &Tool::ALL,
             done: of_trials(trials_run),
         }));
     }
@@ -156,8 +165,9 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
 /// trial whose work is not the one most of its scenario's trials share.
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for (cell, _) in matrix::measured().filter(|(cell, _)| pass.scenarios.contains(&cell.scenario))
-    {
+    for (cell, _) in matrix::measured().filter(|(cell, config)| {
+        pass.scenarios.contains(&cell.scenario) && pass.tools.contains(&config.tool())
+    }) {
         let count = pass
             .done
             .iter()

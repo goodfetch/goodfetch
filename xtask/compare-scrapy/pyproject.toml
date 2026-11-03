@@ -1,0 +1,15 @@
+# Scrapy's side of `just compare` (ADR 0138's matrix): one crawl of the
+# Proving ground's 1,000-page site with Scrapy at a pinned version, run
+# locally. It is no member of the uv workspace, so Scrapy's dependencies stay
+# out of the Products' `uv.lock`; its own `uv.lock` pins them, and `just fetch`
+# installs them with `uv sync --frozen`.
+[project]
+name = "goodfetch-compare-scrapy"
+version = "0.0.0"
+description = "Scrapy's side of just compare; never built or published."
+requires-python = ">=3.11"
+dependencies = ["scrapy==2.19.0"]
+
+[tool.uv]
+package = false
+required-version = ">=0.9.28"

@@ -24,11 +24,18 @@ pub(crate) const MILESTONES: [u64; 3] = [1_000, 10_000, 100_000];
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
 /// (a unit test holds the two equal).
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";
+/// Crawlee's pinned version, `@crawlee/cheerio`'s in
+/// `xtask/compare-crawlee/package.json`, and Scrapy's, in
+/// `xtask/compare-scrapy/pyproject.toml` (unit tests hold each equal).
+pub(crate) const CRAWLEE_VERSION: &str = "3.18.2";
+pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
 /// Callgrind takes minutes.
 pub(crate) const INSTRUCTION_RUNS: u32 = 3;
+/// The tools the Callgrind cell counts.
+pub(crate) const INSTRUCTION_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
 /// What the Callgrind cell crawls with.
 pub(crate) const INSTRUCTION_SCENARIO: &str = "scenario 1 of ADR 0138's matrix";
 
@@ -43,6 +50,8 @@ pub(crate) struct Declared {
     /// The site's first page, where each timed crawl starts.
     pub(crate) site: String,
     pub(crate) spider: String,
+    pub(crate) crawlee: String,
+    pub(crate) scrapy: String,
 }
 
 /// The machine the trials ran on: never a published host (ADR 0076).
@@ -155,7 +164,8 @@ pub(crate) struct Measured {
     pub(crate) written_bytes: u64,
     /// What its data folder holds on disk once it exited.
     pub(crate) footprint_bytes: u64,
-    /// The size of the executable run.
+    /// The size of the executable run; for a tool run by an interpreter,
+    /// the interpreter's executable and the packages its side installed.
     pub(crate) executable_bytes: u64,
     pub(crate) work: Work,
     /// Every request the Proving ground received on the site's host from
@@ -246,7 +256,8 @@ pub(crate) struct Comparison {
     pub(crate) syscalls: CountedCell,
     pub(crate) growth: GrowthCell,
     /// Callgrind's count of scenario 1's instructions, Foxhound's and
-    /// Spider's.
+    /// Spider's: ADR 0140's row compares those two, and instructions are no
+    /// metric of the owner's list for the other tools.
     pub(crate) instructions: CountedCell,
 }
 

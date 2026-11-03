@@ -1,0 +1,38 @@
+# The license exceptions of Crawlee's side of `just compare` (ADR 0138's
+# #1902 note), which `xtask notices --side` reads: every other package of
+# this side's `pnpm-lock.yaml` is held to ADR 0018's allowlist, as Spider's
+# side is. Each entry is one package at one version whose manifest states its
+# license in no SPDX expression the check can read, or states one off the
+# allowlist; its `license` is read from the package's own license file, and
+# it is accepted for this side alone, which runs only on the machine `just
+# compare` runs on and never ships. A lock update that moves a version checks
+# the package again, and an entry no locked package uses fails the check.
+# Agent decision, pending owner review.
+
+[[package]]
+ecosystem = "npm"
+name = "map-stream"
+version = "0.1.0"
+license = "MIT"
+reason = "states no license; its LICENCE file is the MIT license"
+
+[[package]]
+ecosystem = "npm"
+name = "sax"
+version = "1.6.1"
+license = "BlueOak-1.0.0"
+reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; the side never ships"
+
+[[package]]
+ecosystem = "npm"
+name = "minimatch"
+version = "11.0.3"
+license = "BlueOak-1.0.0"
+reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; the side's override takes it in place of minimatch 9's advisory, and the side never ships"
+
+[[package]]
+ecosystem = "npm"
+name = "@isaacs/nonrecursive-glob-match"
+version = "1.0.3"
+license = "BlueOak-1.0.0"
+reason = "stated as BlueOak-1.0.0, a permissive license off the allowlist; minimatch 11 takes it, and the side never ships"

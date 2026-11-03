@@ -154,9 +154,9 @@ enum Command {
         since: String,
     },
     /// The comparison matrix (ADRs 0134 and 0138): each scenario's cells,
-    /// Foxhound against Spider, crawling the Proving ground's 1,000-page
-    /// site on one machine, every metric reported only once every trial
-    /// did the same work.
+    /// Foxhound against Spider, Crawlee and Scrapy, crawling the Proving
+    /// ground's 1,000-page site on one machine, every metric reported only
+    /// once every trial did the same work.
     Compare {
         #[command(subcommand)]
         command: compare::Command,

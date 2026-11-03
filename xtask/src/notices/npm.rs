@@ -84,6 +84,8 @@ struct Manifest {
 enum LicenseField {
     Expression(String),
     Legacy(LegacyLicense),
+    /// An older form: the names of the licenses offered.
+    Names(Vec<String>),
 }
 
 #[derive(Deserialize)]
@@ -97,6 +99,7 @@ impl Manifest {
         match (self.license, self.licenses) {
             (Some(LicenseField::Expression(expression)), _) => Some(expression),
             (Some(LicenseField::Legacy(legacy)), _) => Some(legacy.kind),
+            (Some(LicenseField::Names(names)), _) if !names.is_empty() => Some(names.join(" OR ")),
             (None, Some(licenses)) if !licenses.is_empty() => Some(
                 licenses
                     .into_iter()
@@ -104,7 +107,7 @@ impl Manifest {
                     .collect::<Vec<_>>()
                     .join(" OR "),
             ),
-            (None, _) => None,
+            (None | Some(LicenseField::Names(_)), _) => None,
         }
     }
 }

@@ -1,5 +1,5 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
-//! against the crawlers nearest it, on one machine with nothing else
+//! against the crawlers nearest it (Spider, Crawlee and Scrapy), on one machine with nothing else
 //! running. Each scenario sets every tool to the closest equivalent
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
@@ -69,6 +69,14 @@ pub(crate) struct RunArguments {
     /// Spider's side, `xtask/compare-spider`'s executable.
     #[arg(long)]
     spider: PathBuf,
+    /// Crawlee's side, `xtask/compare-crawlee`'s script, run by Node.js
+    /// once its packages are installed beside it.
+    #[arg(long, default_value = "xtask/compare-crawlee/crawl.mjs")]
+    crawlee: PathBuf,
+    /// Scrapy's side, `xtask/compare-scrapy`'s script, run by the Python
+    /// environment `uv sync` makes beside it.
+    #[arg(long, default_value = "xtask/compare-scrapy/crawl.py")]
+    scrapy: PathBuf,
     /// The trials file written; the report goes beside it.
     #[arg(long, default_value = "target/compare/trials.json")]
     out: PathBuf,
@@ -151,6 +159,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     proving_ground: &tools.proving_ground,
                     foxhound: &tools.foxhound,
                     spider: &environment.path(&arguments.spider),
+                    crawlee: &environment.path(&arguments.crawlee),
+                    scrapy: &environment.path(&arguments.scrapy),
                 },
                 String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
                 &run::Options {

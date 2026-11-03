@@ -1,0 +1,79 @@
+# The license exceptions of Scrapy's side of `just compare` (ADR 0138's
+# #1902 note), which `xtask notices --side` reads: every other package of
+# this side's `uv.lock` is held to ADR 0018's allowlist, as Spider's side is. Each entry is one package at one version whose metadata
+# states its license in no SPDX expression the check can read, or states one
+# off the allowlist; its `license` is read from the package's own license
+# file, and it is accepted for this side alone, which runs only on the
+# machine `just compare` runs on and never ships. A lock update that moves a
+# version checks the package again, and an entry no locked package uses
+# fails the check. Agent decision, pending owner review.
+
+[[package]]
+ecosystem = "python"
+name = "aiohappyeyeballs"
+version = "2.7.1"
+license = "PSF-2.0"
+reason = "stated as PSF-2.0, which the allowlist keeps for typing-extensions; permissive, and the side never ships"
+
+[[package]]
+ecosystem = "python"
+name = "aiosignal"
+version = "1.4.0"
+license = "Apache-2.0"
+reason = "stated as `Apache 2.0`; its LICENSE file is the Apache License 2.0"
+
+[[package]]
+ecosystem = "python"
+name = "automat"
+version = "25.4.16"
+license = "MIT"
+reason = "stated as `Copyright (c) 2014`; its LICENSE file is the MIT license, as its classifier says"
+
+[[package]]
+ecosystem = "python"
+name = "backports-zstd"
+version = "1.8.0"
+license = "PSF-2.0 AND BSD-3-Clause"
+reason = "stated as PSF-2.0; it also ships zstd's BSD-3-Clause license (LICENSE_zstd.txt); permissive, and the side never ships"
+
+[[package]]
+ecosystem = "python"
+name = "defusedxml"
+version = "0.7.1"
+license = "PSF-2.0"
+reason = "stated as `PSFL`; its LICENSE file is the Python Software Foundation License 2; permissive, and the side never ships"
+
+[[package]]
+ecosystem = "python"
+name = "incremental"
+version = "24.11.0"
+license = "MIT"
+reason = "states no license; its LICENSE file is the MIT license, as its classifier says"
+
+[[package]]
+ecosystem = "python"
+name = "pydispatcher"
+version = "2.0.7"
+license = "BSD-3-Clause"
+reason = "stated as `BSD`, with no license file; its repository's license.txt (github.com/mcfletch/pydispatcher) is BSD-3-Clause"
+
+[[package]]
+ecosystem = "python"
+name = "pyopenssl"
+version = "26.4.0"
+license = "Apache-2.0"
+reason = "stated as `Apache License, Version 2.0`; its LICENSE file is the Apache License 2.0"
+
+[[package]]
+ecosystem = "python"
+name = "requests-file"
+version = "3.0.1"
+license = "Apache-2.0"
+reason = "stated as `Apache 2.0`; its LICENSE file is the Apache License 2.0"
+
+[[package]]
+ecosystem = "python"
+name = "zope-interface"
+version = "8.7"
+license = "ZPL-2.1"
+reason = "stated as ZPL-2.1, a permissive license off the allowlist; Twisted needs it, and the side never ships"

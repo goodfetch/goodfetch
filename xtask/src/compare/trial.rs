@@ -29,7 +29,7 @@ use super::foxhound::Engine;
 use super::matrix::{Cell, Config, Scenario};
 use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
-use super::trials::{MILESTONES, Measured, Tool, Work};
+use super::trials::{MILESTONES, Measured, Work};
 
 /// How a trial runs its tool.
 #[derive(Clone, Debug)]
@@ -128,12 +128,87 @@ fn observations(address: &str) -> Result<Value> {
         .context("parsing the Proving ground's observations")
 }
 
-/// The command that runs `cell`'s tool, under `mode`'s counting tool; the
+/// The program that runs a cell's tool and the arguments that come before
+/// the trial's own: the executable itself, or for a tool run by an
+/// interpreter, the interpreter with the tool's script.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Invocation {
+    pub(crate) program: PathBuf,
+    pub(crate) arguments: Vec<OsString>,
+}
+
+/// Node.js's executable, which runs Crawlee's side.
+const NODE: &str = "node";
+
+/// The Python environment `uv sync` makes beside Scrapy's side, and its
+/// interpreter in it.
+const PYTHON_ENVIRONMENT: &str = ".venv";
+#[cfg(not(windows))]
+const PYTHON: &str = "bin/python";
+#[cfg(windows)]
+const PYTHON: &str = "Scripts/python.exe";
+
+/// The packages `pnpm install` leaves beside Crawlee's side.
+const NODE_MODULES: &str = "node_modules";
+
+/// The first file named `name` in a folder of `PATH`.
+fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|folder| folder.join(name))
+        .find(|path| path.is_file())
+}
+
+/// The folder of a side's script.
+fn side_of(script: &Path) -> &Path {
+    script.parent().unwrap_or_else(|| Path::new("."))
+}
+
+/// How `config`'s tool runs `executable`: Foxhound's and Spider's are
+/// executables, Crawlee's is its side's script run by Node.js from `PATH`,
+/// and Scrapy's its side's script run by the interpreter of the Python
+/// environment beside it.
+pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
+    match config {
+        Config::Foxhound { .. } | Config::Spider => Invocation {
+            program: executable.to_owned(),
+            arguments: Vec::new(),
+        },
+        Config::Crawlee { .. } => Invocation {
+            program: on_path(NODE).unwrap_or_else(|| PathBuf::from(NODE)),
+            arguments: vec![executable.as_os_str().to_owned()],
+        },
+        Config::Scrapy => Invocation {
+            program: side_of(executable).join(PYTHON_ENVIRONMENT).join(PYTHON),
+            arguments: vec![executable.as_os_str().to_owned()],
+        },
+    }
+}
+
+/// What a tool takes on disk: its executable, and for a tool run by an
+/// interpreter, the interpreter's executable and the packages its side
+/// installed (`node_modules`, or the Python environment; the Python
+/// standard library outside it is not counted).
+fn install_bytes(config: Config, executable: &Path) -> u64 {
+    let file_bytes = |path: &Path| {
+        std::fs::canonicalize(path)
+            .and_then(std::fs::metadata)
+            .map_or(0, |metadata| metadata.len())
+    };
+    let packages = match config {
+        Config::Foxhound { .. } | Config::Spider => return file_bytes(executable),
+        Config::Crawlee { .. } => NODE_MODULES,
+        Config::Scrapy => PYTHON_ENVIRONMENT,
+    };
+    file_bytes(&invocation(config, executable).program)
+        + footprint(&side_of(executable).join(packages))
+}
+
+/// The command that runs `invocation`, under `mode`'s counting tool; the
 /// `process`-th process of a resumed trial writes strace's counts to a file
 /// of its own.
-fn command(executable: &Path, mode: &Mode, process: u32) -> Command {
-    match mode {
-        Mode::Timed => Command::new(executable),
+fn command(invocation: &Invocation, mode: &Mode, process: u32) -> Command {
+    let mut command = match mode {
+        Mode::Timed => Command::new(&invocation.program),
         Mode::Syscalls(output) => {
             let mut strace = Command::new(STRACE);
             let mut file = output.clone().into_os_string();
@@ -144,7 +219,7 @@ fn command(executable: &Path, mode: &Mode, process: u32) -> Command {
                 .args(["-f", "-c", "-U", "calls,name", "-o"])
                 .arg(file)
                 .arg("--")
-                .arg(executable);
+                .arg(&invocation.program);
             strace
         }
         Mode::Callgrind(output) => {
@@ -152,10 +227,12 @@ fn command(executable: &Path, mode: &Mode, process: u32) -> Command {
             valgrind
                 .args(["--tool=callgrind", "--quiet"])
                 .arg(format!("--callgrind-out-file={}", output.display()))
-                .arg(executable);
+                .arg(&invocation.program);
             valgrind
         }
-    }
+    };
+    command.args(&invocation.arguments);
+    command
 }
 
 /// The tool's own process: the child, or under strace the process strace
@@ -296,30 +373,37 @@ impl Plan<'_> {
     /// Starts the tool's `process`-th process on `home`, Foxhound's
     /// engine opened.
     fn spawn(&self, home: &Path, process: u32, mode: &Mode) -> Result<Driven> {
-        let mut command = command(self.executable, mode, process);
+        let mut command = command(&invocation(self.config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
-        // Neither tool reads Goodfetch's variables a shell may hold, such
-        // as a test's: Foxhound refuses one it does not deploy with.
+        // No tool reads Goodfetch's variables a shell may hold, such as a
+        // test's: Foxhound refuses one it does not deploy with.
         for name in self.goodfetch_variables {
             command.env_remove(name);
         }
-        match self.config {
-            Config::Foxhound { .. } => {
-                // The executable as shipped, with its own data folder and
-                // its default logging, which it writes to stderr.
-                command
-                    .arg("attached-engine")
-                    .env("GOODFETCH_HOME", home)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped());
-            }
-            Config::Spider => {
-                command
-                    .args(["--url", &self.site_url()])
-                    .args(["--host", &format!("{HOST}:{}", self.site.port())])
-                    .args(["--concurrency", &self.site.concurrency.to_string()])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped());
+        if let Config::Foxhound { .. } = self.config {
+            // The executable as shipped, with its own data folder and its
+            // default logging, which it writes to stderr.
+            command
+                .arg("attached-engine")
+                .env("GOODFETCH_HOME", home)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped());
+        } else {
+            // The other tools crawl from their arguments and print their
+            // count last on stdout; a killed process's is never read.
+            command
+                .args(["--url", &self.site_url()])
+                .args(["--host", &format!("{HOST}:{}", self.site.port())])
+                .args(["--concurrency", &self.site.concurrency.to_string()])
+                .current_dir(home)
+                .stdin(Stdio::null())
+                .stdout(if self.cell.scenario.resumes() && process == 1 {
+                    Stdio::null()
+                } else {
+                    Stdio::piped()
+                });
+            if let Config::Crawlee { durable: true } = self.config {
+                command.arg("--storage").arg(home);
             }
         }
         let mut child = command.spawn().context("starting the tool")?;
@@ -339,7 +423,7 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider => None,
+            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => None,
         };
         Ok(Driven { child, engine })
     }
@@ -351,8 +435,27 @@ impl Plan<'_> {
     fn durability(&self) -> &'static str {
         match self.config {
             Config::Foxhound { durability } => durability,
-            Config::Spider => "",
+            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => "",
         }
+    }
+
+    /// Reads a tool's output to its end: its last line is its count.
+    fn read_count(&self, child: &mut Child) -> Result<()> {
+        let mut text = String::new();
+        child
+            .stdout
+            .take()
+            .context("the tool's stdout is piped")?
+            .read_to_string(&mut text)
+            .context("reading the tool's output")?;
+        if !text
+            .lines()
+            .last()
+            .is_some_and(|line| line.starts_with("pages="))
+        {
+            bail!("{} printed no count: {}", self.cell.name, text.trim_end());
+        }
+        Ok(())
     }
 
     /// Runs the tool through the crawl, killed halfway and resumed when
@@ -370,21 +473,8 @@ impl Plan<'_> {
                     engine.finish()?;
                     return Ok(1);
                 }
-            } else {
-                if resumes {
-                    bail!("{} cannot resume a crawl", self.cell.name);
-                }
-                let mut text = String::new();
-                driven
-                    .child
-                    .stdout
-                    .take()
-                    .context("Spider's stdout is piped")?
-                    .read_to_string(&mut text)
-                    .context("reading Spider's output")?;
-                if !text.starts_with("pages=") {
-                    bail!("Spider printed no count: {}", text.trim_end());
-                }
+            } else if !resumes {
+                self.read_count(&mut driven.child)?;
                 return Ok(1);
             }
             // Killed once half the site's pages were asked for, then
@@ -417,13 +507,14 @@ impl Plan<'_> {
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
-        let engine = second
-            .engine
-            .as_mut()
-            .context("a resumed tool is Foxhound's engine")?;
-        let finished = engine
-            .resume(&self.site, self.durability())
-            .and_then(|()| engine.finish());
+        // Foxhound's engine resumes the Run; another tool resumes from the
+        // state it left in the same folder.
+        let finished = match second.engine.as_mut() {
+            Some(engine) => engine
+                .resume(&self.site, self.durability())
+                .and_then(|()| engine.finish()),
+            None => self.read_count(&mut second.child),
+        };
         if let Err(error) = finished {
             let _ = second.child.kill();
             let _ = second.child.wait();
@@ -490,7 +581,7 @@ impl Plan<'_> {
         let footprint_bytes = footprint(home.path());
         let records = match self.config {
             Config::Foxhound { .. } => Some(self.records(home.path(), started_wall)?),
-            Config::Spider => None,
+            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => None,
         };
         let observed = observed::observe(
             &observations(self.site.address)?,
@@ -514,7 +605,7 @@ impl Plan<'_> {
             peak_bytes,
             tree,
             footprint_bytes,
-            std::fs::metadata(self.executable).map_or(0, |metadata| metadata.len()),
+            install_bytes(self.config, self.executable),
             observed,
         ))
     }
@@ -667,14 +758,6 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),
-    }
-}
-
-/// The tool a cell's trial runs.
-pub(crate) fn tool_of(config: Config) -> Tool {
-    match config {
-        Config::Foxhound { .. } => Tool::Foxhound,
-        Config::Spider => Tool::Spider,
     }
 }
 

@@ -78,11 +78,14 @@ convention = "google"
 "pytest.MonkeyPatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
 "_pytest.monkeypatch".msg = "Patches globals (ADR 0062); pass the value through an option instead."
 
+# Scrapy's side of `just compare` (xtask/compare-scrapy) has its own
+# environment, outside the workspace's, so neither type checker can resolve
+# its imports; ruff still checks it, as Spider's side is left to rustc.
 [tool.pyright]
 typeCheckingMode = "strict"
-exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv", "**/fixtures"]
+exclude = ["rnd", "ci/proofs", "**/node_modules", "target", ".venv", "**/fixtures", "xtask/compare-scrapy"]
 
 [tool.mypy]
 strict = true
 enable_error_code = ["deprecated"]
-exclude = ["^rnd/", "^ci/proofs/", "^target/", "/fixtures/"]
+exclude = ["^rnd/", "^ci/proofs/", "^target/", "/fixtures/", "^xtask/compare-scrapy/"]

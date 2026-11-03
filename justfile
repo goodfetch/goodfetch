@@ -71,6 +71,12 @@ lint: fmt-check
     # Spider's side of `just compare`, no workspace member, which no
     # gate builds: its lock's licenses, read without a build (ADR 0134).
     ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+    # Crawlee's and Scrapy's sides, no workspace member either: their locks'
+    # licenses against the same allowlist, read from what their frozen
+    # installs leave beside them, with each side's own exceptions (ADR 0138).
+    pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
+    uv sync --frozen --quiet --directory xtask/compare-scrapy
+    cargo run --quiet -p xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- register check
@@ -315,6 +321,8 @@ mutants base="":
 fetch:
     cargo fetch --locked
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
+    pnpm install --frozen-lockfile --dir xtask/compare-crawlee
+    uv sync --frozen --directory xtask/compare-scrapy
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
@@ -910,7 +918,12 @@ rss-propose *scenarios:
 # Scenario 1 (raw) and scenario 2 (durable, killed once half the site is
 # served, then resumed), Foxhound against Spider 2.53.9's HTTP mode
 # (xtask/compare-spider, no workspace member), both built with the release
-# profile (`profile` changes it for a quicker try): 10 trials of each
+# profile (`profile` changes it for a quicker try), Crawlee 3.18.2's
+# `CheerioCrawler` on Node.js (xtask/compare-crawlee) and Scrapy 2.19.0 on
+# CPython (xtask/compare-scrapy), each side installed from its own lock,
+# outside the Products' (Crawlee's resumed crawl waits minutes for the
+# request locks of the process killed; Scrapy's `JOBDIR` cannot resume
+# after a kill, which its cell says): 10 trials of each
 # measured cell in random order, each tool in a fresh process against a
 # fresh Proving ground at 16 requests at once over the 1,000-page site.
 # Every metric is measured from outside the tools (the OS's accounting of
@@ -925,11 +938,13 @@ rss-propose *scenarios:
 # and never published (ADR 0076); otherwise it fails naming the trial. A
 # host without strace or Valgrind reports that cell as not run. It gates
 # nothing and is no Live check; run it when the 1-minute load is under 4.
-# Spider's crate is downloaded once, free.
+# Spider's crate and the sides' packages are downloaded once, free.
 # Runs the comparison matrix on this machine.
 compare profile="release" *args:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
+    pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
+    uv sync --frozen --quiet --directory xtask/compare-scrapy
     cargo run --quiet -p xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider {{ args }}
 
 # The Performance targets report (ADR 0134), on the owner's machine before
@@ -1158,9 +1173,10 @@ zap phase="scan":
 notices *arguments:
     cargo run --quiet -p xtask -- notices {{ arguments }}
 
-# The security advisories of the Cargo, pnpm and uv lockfiles (the Cargo
-# ones the workspace's and Spider's side's, xtask/compare-spider), against the
-# advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
+# The security advisories of the Cargo, pnpm and uv lockfiles (the
+# workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
+# Crawlee's xtask/compare-crawlee and Scrapy's xtask/compare-scrapy), against
+# the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
 # downloads the snapshot into target/advisories/; a fail is always the
@@ -1168,6 +1184,8 @@ notices *arguments:
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
+    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
+    ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
     ci/tool.sh osv-scanner ci/audit.sh npm
     ci/tool.sh osv-scanner ci/audit.sh python
 

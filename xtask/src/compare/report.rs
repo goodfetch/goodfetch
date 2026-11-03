@@ -664,7 +664,7 @@ const ROWS: &[(&str, &str)] = &[
     ("peak_threads", "Process: threads at peak"),
     ("peak_open_files", "Process: open files at peak"),
     ("startup_seconds", "Process: startup to the first request"),
-    ("executable_bytes", "Process: executable size"),
+    ("executable_bytes", "Process: executable or install size"),
     ("processes", "Process: processes started"),
     ("system_calls_per_page", "Process: system calls per page"),
     ("pages", "Correctness: pages fetched"),
@@ -689,7 +689,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          `local-controlled`, never published (ADR 0076): {} {} on {}, {} threads{load}, at commit `{}`.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
-         once, from `{}`; Spider {}; each figure the {}. Every figure is measured from outside the tools: \
+         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`) on Node.js and Scrapy {} on \
+         CPython; each figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
          the data folder left. Every cell passed the same-work check.\n",
@@ -703,6 +704,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.concurrency,
         declared.site,
         declared.spider,
+        declared.crawlee,
+        declared.scrapy,
         declared.statistic,
     );
     if !report.enough_trials {

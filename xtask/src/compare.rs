@@ -199,10 +199,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
                 Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
             };
+            // Absolute, since a tool other than Foxhound runs in its data
+            // folder.
+            let executable = std::path::absolute(&arguments.executable)
+                .context("finding the tool's executable")?;
             let plan = trial::Plan {
                 cell,
                 config,
-                executable: &arguments.executable,
+                executable: &executable,
                 site: crate::rss::crawl::Site {
                     address: &arguments.address,
                     pages: arguments.pages,

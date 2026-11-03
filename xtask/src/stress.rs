@@ -26,6 +26,7 @@ use std::process::{Command as Process, ExitCode};
 use anyhow::{Context as _, Result, bail};
 
 use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
+use crate::console;
 use crate::environment::Environment;
 use crate::metadata::{self, Package};
 use crate::output;
@@ -402,16 +403,20 @@ impl<'a> Checkout<'a> {
 
     /// Installs the commit's npm packages and Python environment from its
     /// own lockfiles, as `just fetch` does, from the package store and uv's
-    /// cache where it can. The head's would not do: pnpm links each
-    /// workspace package to the head's sources, and uv installs each
-    /// workspace member editable from them, so the commit's Vitest and
-    /// Playwright configs and its pytest tests would import the head's test
-    /// support and SDKs, and fail to load where they lack what is imported.
+    /// cache where it can, then builds its Consoles, which its Products'
+    /// executables embed (ADR 0057): nextest builds the commit's tests to
+    /// list them, and Collie's fail to compile without its Console build.
+    /// The head's would not do: pnpm links each workspace package to the
+    /// head's sources, and uv installs each workspace member editable from
+    /// them, so the commit's Vitest and Playwright configs and its pytest
+    /// tests would import the head's test support and SDKs, and fail to
+    /// load where they lack what is imported.
     fn install(&self) -> Result<()> {
         self.run_install(
             Process::new("pnpm").args(["install", "--frozen-lockfile", "--prefer-offline"]),
             "pnpm install",
         )?;
+        console::build(&self.path).context("building the Consoles in the checkout of the base")?;
         // A project environment set for the head would be synced to the
         // base's lockfile; the checkout's runners use its own `.venv`.
         self.run_install(

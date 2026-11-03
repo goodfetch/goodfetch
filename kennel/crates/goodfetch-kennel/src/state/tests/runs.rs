@@ -281,7 +281,7 @@ fn the_menu_lists_each_live_run_with_its_recipe_or_run_id_lifecycle_and_progress
 }
 
 #[test]
-fn a_runs_row_shows_the_run_indexs_progress_message_until_its_progress_is_read() {
+fn a_runs_row_shows_the_progress_message_of_the_run_index_until_its_progress_is_read() {
     let mut state = reached(Product::Collie);
     state.apply(Input::Events(vec![axes("nightly-1", "running")]));
 

@@ -14,7 +14,7 @@ use super::super::{Frame, Input, MenuChange, Redraw, Row, State, Verdict};
 use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity};
 
 /// A State that reached a Daemon of `product`.
-fn reached(product: Product) -> State {
+pub(super) fn reached(product: Product) -> State {
     let mut state = State::new();
     state.apply(Input::Connection(ConnectionChange::Connected(
         DaemonIdentity {
@@ -25,7 +25,7 @@ fn reached(product: Product) -> State {
     state
 }
 
-fn axes(run: &str, lifecycle: &str) -> DaemonEvent {
+pub(super) fn axes(run: &str, lifecycle: &str) -> DaemonEvent {
     DaemonEvent::RunAxes(
         serde_json::from_value(json!({"run_id": run, "lifecycle": lifecycle})).unwrap(),
     )
@@ -65,7 +65,7 @@ fn resync(runs: &[&str], items: &[&str]) -> DaemonEvent {
 
 /// The progress of `run`, with `parts` added to the fields every Run's
 /// progress holds.
-fn progress(run: &str, parts: Value) -> RunProgress {
+pub(super) fn progress(run: &str, parts: Value) -> RunProgress {
     let mut value = json!({
         "run_id": run,
         "position": 7,
@@ -98,7 +98,7 @@ fn row(run: &str, tags: &[&str], message: Option<&str>) -> RunIndexRow {
     .unwrap()
 }
 
-fn run_id(run: &str) -> RunId {
+pub(super) fn run_id(run: &str) -> RunId {
     RunId::parse(run).unwrap()
 }
 
@@ -108,7 +108,7 @@ fn runs(ids: &[&str]) -> BTreeSet<RunId> {
 
 /// The menu as a person reads it: a detail indented, a separator as
 /// `---`.
-fn lines(state: &State) -> Vec<String> {
+pub(super) fn lines(state: &State) -> Vec<String> {
     state
         .view()
         .rows
@@ -118,12 +118,13 @@ fn lines(state: &State) -> Vec<String> {
             Row::Detail(line) => format!("  {line}"),
             Row::Choice { label, .. } => label,
             Row::Separator => "---".to_owned(),
+            Row::Submenu { label, .. } => format!("{label} >"),
         })
         .collect()
 }
 
 /// A fixed instant the tests count from: the State reads no clock.
-fn origin() -> Instant {
+pub(super) fn origin() -> Instant {
     #[expect(
         clippy::disallowed_methods,
         reason = "a test's origin for the instants it gives the State, which reads no clock itself"
@@ -208,7 +209,7 @@ fn a_run_stopped_by_a_limit_counts_as_failed_once_its_stop_reason_is_read() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "capped-crawl — Stopped by a Limit",
+            "capped-crawl — Stopped by a Limit >",
             "---",
             "Open details",
             "Quit"
@@ -221,13 +222,13 @@ fn a_run_stopped_by_a_limit_counts_as_failed_once_its_stop_reason_is_read() {
 fn a_run_stopped_for_another_reason_leaves_the_menu() {
     let mut state = reached(Product::Foxhound);
     state.apply(Input::Events(vec![
-        axes("paused-crawl", "running"),
-        axes("paused-crawl", "stopped"),
+        axes("stopped-crawl", "running"),
+        axes("stopped-crawl", "stopped"),
     ]));
 
     state.apply(Input::Progress(progress(
-        "paused-crawl",
-        json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "pause"}}),
+        "stopped-crawl",
+        json!({"lifecycle": "stopped", "last": true, "stop_reason": {"kind": "abort", "by": "client"}}),
     )));
 
     assert_eq!(state.view().verdict, Verdict::Idle);
@@ -278,8 +279,8 @@ fn the_menu_lists_each_live_run_with_its_recipe_or_run_id_lifecycle_and_progress
         [
             "Collie Daemon 0.4.1",
             "---",
-            "a-script-run — Running",
-            "nightly-prices — Running",
+            "a-script-run — Running >",
+            "nightly-prices — Running >",
             "  Fetching page 3 of 40",
             "---",
             "Open details",
@@ -304,7 +305,7 @@ fn a_runs_row_shows_the_progress_message_of_the_run_index_until_its_progress_is_
         [
             "Collie Daemon 0.4.1",
             "---",
-            "nightly-prices — Running",
+            "nightly-prices — Running >",
             "  Signing in",
             "---",
             "Open details",
@@ -338,7 +339,7 @@ fn a_crawls_succeeded_failed_and_pending_counts_show_under_its_row() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "shop-crawl — Running",
+            "shop-crawl — Running >",
             "  Crawling shop.example",
             "  120 succeeded, 3 failed, 45 pending",
             "---",
@@ -360,7 +361,7 @@ fn foxhounds_views_are_hidden_on_a_collie_daemon() {
         [
             "Collie Daemon 0.4.1",
             "---",
-            "shop-crawl — Running",
+            "shop-crawl — Running >",
             "  Crawling shop.example",
             "---",
             "Open details",
@@ -384,7 +385,7 @@ fn runs_that_need_a_look_are_listed_before_the_running_ones() {
             "Foxhound Daemon 0.4.1",
             "---",
             "z-broken — Failed",
-            "a-running — Running",
+            "a-running — Running >",
             "---",
             "Open details",
             "Quit"
@@ -409,16 +410,16 @@ fn the_menu_lists_at_most_ten_runs_and_counts_the_others() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "run-01 — Running",
-            "run-02 — Running",
-            "run-03 — Running",
-            "run-04 — Running",
-            "run-05 — Running",
-            "run-06 — Running",
-            "run-07 — Running",
-            "run-08 — Running",
-            "run-09 — Running",
-            "run-10 — Running",
+            "run-01 — Running >",
+            "run-02 — Running >",
+            "run-03 — Running >",
+            "run-04 — Running >",
+            "run-05 — Running >",
+            "run-06 — Running >",
+            "run-07 — Running >",
+            "run-08 — Running >",
+            "run-09 — Running >",
+            "run-10 — Running >",
             "2 more Runs",
             "---",
             "Open details",
@@ -445,7 +446,7 @@ fn text_from_a_run_is_made_safe_before_the_menu_shows_it() {
     assert_eq!(
         lines(&state)[2..4],
         [
-            "shopgpj.exe — Running",
+            "shopgpj.exe — Running >",
             "  GET https://shop.example/?token=•••• [2J"
         ]
     );
@@ -507,7 +508,7 @@ fn a_resync_replaces_the_live_runs_and_the_needs_you_items() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "new-crawl — Running",
+            "new-crawl — Running >",
             "---",
             "Open details",
             "Quit"

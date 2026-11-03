@@ -18,9 +18,16 @@ use crate::tasks::Tasks;
 /// The Kennel's settings.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each feature is a switch of its own with a free off state, as `kennel.toml` spells it (ADR 0141)"
+)]
 pub struct Settings {
     /// Whether the menu offers actions; off gives a read-only Kennel.
     pub controls: bool,
+    /// Whether a Run's Stop asks for confirmation first; Abort and Retry
+    /// failed always ask, Pause never does.
+    pub confirm_stop: bool,
     /// Whether the Kennel, while connected, keeps the Daemon alive: off, it
     /// only observes, and the Daemon stops at its idle timeout and hands
     /// over to its major's pick as if no Kennel were connected (ADR 0141).
@@ -34,6 +41,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             controls: true,
+            confirm_stop: true,
             keep_daemon_alive: false,
             window: true,
         }

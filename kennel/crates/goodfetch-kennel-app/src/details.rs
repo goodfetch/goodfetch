@@ -60,10 +60,11 @@ pub(crate) fn run(
     let (to_model, inputs) = mpsc::unbounded_channel();
     let (wanted, wanted_now) = watch::channel(Wanted::default());
     let (views, latest) = watch::channel(None);
-    // The window never asks the Client to look again, and only observes:
-    // both senders live as long as the window.
+    // The window never asks the Client to look again, only observes, and
+    // makes no call: the senders live as long as the window.
     let (_look_again, looks) = mpsc::channel(1);
     let (_keep_alive, keep_daemon_alive) = watch::channel(false);
+    let (_calls, calls) = mpsc::channel(1);
     let reports = to_model.clone();
     tasks.spawn(client::follow(
         tasks.clone(),
@@ -73,6 +74,7 @@ pub(crate) fn run(
             keep_daemon_alive,
             health_every: client::HEALTH_EVERY,
             wanted: wanted_now,
+            calls,
         },
         move |report: Report| {
             // The model has stopped: the window is closing.
@@ -170,8 +172,9 @@ fn apply(details: &mut Details, report: Report) {
         Report::Listed { generation, rows } => details.apply(Input::Listed { generation, rows }),
         Report::RunReport { run_id, report } => details.apply(Input::Report { run_id, report }),
         Report::Usage { run_id, usage } => details.apply(Input::Usage { run_id, usage }),
-        // The window never asks for the tray's live Runs.
-        Report::LiveRuns(_) => {}
+        // The window never asks for the tray's live Runs, and makes no
+        // call.
+        Report::LiveRuns(_) | Report::Answered(..) => {}
     }
 }
 

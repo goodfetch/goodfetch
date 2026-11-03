@@ -14,9 +14,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+arboard.workspace = true
 eframe.workspace = true
 goodfetch-kennel.workspace = true
 goodfetch-protocol.workspace = true
+rfd.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true

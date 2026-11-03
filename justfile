@@ -921,9 +921,8 @@ rss-propose *scenarios:
 # profile (`profile` changes it for a quicker try), Crawlee 3.18.2's
 # `CheerioCrawler` on Node.js (xtask/compare-crawlee) and Scrapy 2.19.0 on
 # CPython (xtask/compare-scrapy), each side installed from its own lock,
-# outside the Products' (Crawlee's resumed crawl waits minutes for the
-# request locks of the process killed; Scrapy's `JOBDIR` cannot resume
-# after a kill, which its cell says): 10 trials of each
+# outside the Products', in scenario 1 only (neither resumes every page
+# after a kill, which their scenario 2 cells say): 10 trials of each
 # measured cell in random order, each tool in a fresh process against a
 # fresh Proving ground at 16 requests at once over the 1,000-page site.
 # Every metric is measured from outside the tools (the OS's accounting of

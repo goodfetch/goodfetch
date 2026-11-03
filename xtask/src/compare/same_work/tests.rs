@@ -128,12 +128,9 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
 
     assert_eq!(
         named(&trials),
-        vec![
-            (
-                "different_bytes",
-                "durable foxhound full trial 3".to_owned()
-            ),
-            ("different_bytes", "durable crawlee trial 3".to_owned()),
-        ]
+        vec![(
+            "different_bytes",
+            "durable foxhound full trial 3".to_owned()
+        )]
     );
 }

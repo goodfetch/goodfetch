@@ -92,10 +92,8 @@ pub(crate) enum Config {
     /// Spider's HTTP mode, robots.txt not obeyed, 16 at once.
     Spider,
     /// Crawlee's `CheerioCrawler` at most 16 at once, robots.txt not obeyed
-    /// (its default); `durable` keeps its storage on disk
-    /// (`persistStorage: true`), not purged on start, so a process started
-    /// again resumes it.
-    Crawlee { durable: bool },
+    /// (its default), nothing kept on disk (`persistStorage: false`).
+    Crawlee,
     /// Scrapy's default crawl, `ROBOTSTXT_OBEY: False`, 16 at once in all
     /// and per domain, no delay, nothing kept on disk.
     Scrapy,
@@ -107,7 +105,7 @@ impl Config {
         match self {
             Self::Foxhound { .. } => Tool::Foxhound,
             Self::Spider => Tool::Spider,
-            Self::Crawlee { .. } => Tool::Crawlee,
+            Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
         }
     }
@@ -173,7 +171,7 @@ pub(crate) const CELLS: [Cell; 9] = [
                   default), robots.txt not obeyed (its default), no delay, `enqueueLinks()` on \
                   the same hostname (its default), its default logging",
         pending: &[],
-        status: Status::Measured(Config::Crawlee { durable: false }),
+        status: Status::Measured(Config::Crawlee),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -224,15 +222,16 @@ pub(crate) const CELLS: [Cell; 9] = [
         scenario: Scenario::Durable,
         tool: Tool::Crawlee,
         name: "crawlee",
-        mapping: "scenario 1's settings with `persistStorage: true` (its default) in the data \
-                  folder and `purgeOnStart: false`, so the process started again on the same \
-                  folder resumes; killed with SIGKILL once half the site is served, then \
-                  started again. The process started again waits until the request locks the \
-                  killed one held in its queue expire (`requestLockSecs`, 65 s at its default \
-                  60 s handler timeout, extended while a request is handled), minutes that its \
-                  time includes",
+        mapping: "none: `persistStorage: true` (its default) loses pages to a kill",
         pending: &[],
-        status: Status::Measured(Config::Crawlee { durable: true }),
+        status: Status::NotSupported(
+            "Crawlee's `persistStorage` writes each request of its queue to a file of its own \
+             with a plain write, so a SIGKILL can leave one half-written; the process started \
+             again on the same storage, with `purgeOnStart: false`, ignores it as invalid JSON \
+             and never fetches its page. On 2026-11-03 (#1902), 2 of 6 such crawls fetched 997 \
+             and 999 of the 1,000 pages, which no same-work check passes; the others took 364 s, \
+             waiting for the request locks the killed process held",
+        ),
     },
     Cell {
         scenario: Scenario::Durable,

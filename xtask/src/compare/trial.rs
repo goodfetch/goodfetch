@@ -173,7 +173,7 @@ pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
-        Config::Crawlee { .. } => Invocation {
+        Config::Crawlee => Invocation {
             program: on_path(NODE).unwrap_or_else(|| PathBuf::from(NODE)),
             arguments: vec![executable.as_os_str().to_owned()],
         },
@@ -196,7 +196,7 @@ fn install_bytes(config: Config, executable: &Path) -> u64 {
     };
     let packages = match config {
         Config::Foxhound { .. } | Config::Spider => return file_bytes(executable),
-        Config::Crawlee { .. } => NODE_MODULES,
+        Config::Crawlee => NODE_MODULES,
         Config::Scrapy => PYTHON_ENVIRONMENT,
     };
     file_bytes(&invocation(config, executable).program)
@@ -389,22 +389,15 @@ impl Plan<'_> {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped());
         } else {
-            // The other tools crawl from their arguments and print their
-            // count last on stdout; a killed process's is never read.
+            // The other tools crawl from their arguments, in their data
+            // folder, and print their count last on stdout.
             command
                 .args(["--url", &self.site_url()])
                 .args(["--host", &format!("{HOST}:{}", self.site.port())])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
                 .current_dir(home)
                 .stdin(Stdio::null())
-                .stdout(if self.cell.scenario.resumes() && process == 1 {
-                    Stdio::null()
-                } else {
-                    Stdio::piped()
-                });
-            if let Config::Crawlee { durable: true } = self.config {
-                command.arg("--storage").arg(home);
-            }
+                .stdout(Stdio::piped());
         }
         let mut child = command.spawn().context("starting the tool")?;
         let engine = match self.config {
@@ -423,7 +416,7 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => None,
+            Config::Spider | Config::Crawlee | Config::Scrapy => None,
         };
         Ok(Driven { child, engine })
     }
@@ -435,7 +428,7 @@ impl Plan<'_> {
     fn durability(&self) -> &'static str {
         match self.config {
             Config::Foxhound { durability } => durability,
-            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => "",
+            Config::Spider | Config::Crawlee | Config::Scrapy => "",
         }
     }
 
@@ -473,7 +466,10 @@ impl Plan<'_> {
                     engine.finish()?;
                     return Ok(1);
                 }
-            } else if !resumes {
+            } else {
+                if resumes {
+                    bail!("{} cannot resume a crawl", self.cell.name);
+                }
                 self.read_count(&mut driven.child)?;
                 return Ok(1);
             }
@@ -507,14 +503,13 @@ impl Plan<'_> {
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
-        // Foxhound's engine resumes the Run; another tool resumes from the
-        // state it left in the same folder.
-        let finished = match second.engine.as_mut() {
-            Some(engine) => engine
-                .resume(&self.site, self.durability())
-                .and_then(|()| engine.finish()),
-            None => self.read_count(&mut second.child),
-        };
+        let engine = second
+            .engine
+            .as_mut()
+            .context("a resumed tool is Foxhound's engine")?;
+        let finished = engine
+            .resume(&self.site, self.durability())
+            .and_then(|()| engine.finish());
         if let Err(error) = finished {
             let _ = second.child.kill();
             let _ = second.child.wait();
@@ -581,7 +576,7 @@ impl Plan<'_> {
         let footprint_bytes = footprint(home.path());
         let records = match self.config {
             Config::Foxhound { .. } => Some(self.records(home.path(), started_wall)?),
-            Config::Spider | Config::Crawlee { .. } | Config::Scrapy => None,
+            Config::Spider | Config::Crawlee | Config::Scrapy => None,
         };
         let observed = observed::observe(
             &observations(self.site.address)?,

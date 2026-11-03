@@ -143,7 +143,7 @@ fn trial<T: serde::de::DeserializeOwned>(
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound,
         Config::Spider => executables.spider,
-        Config::Crawlee { .. } => executables.crawlee,
+        Config::Crawlee => executables.crawlee,
         Config::Scrapy => executables.scrapy,
     };
     let serving = serve(executables.proving_ground)?;
@@ -182,7 +182,7 @@ fn trial<T: serde::de::DeserializeOwned>(
 fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     match config {
         Config::Spider => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } | Config::Crawlee { .. } | Config::Scrapy => pages,
+        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => pages,
     }
 }
 

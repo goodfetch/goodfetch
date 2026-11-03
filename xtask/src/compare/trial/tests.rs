@@ -9,10 +9,7 @@ use crate::compare::matrix::Config;
 #[test]
 fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
     let spider = invocation(Config::Spider, Path::new("/s/spider"));
-    let crawlee = invocation(
-        Config::Crawlee { durable: false },
-        Path::new("/c/crawl.mjs"),
-    );
+    let crawlee = invocation(Config::Crawlee, Path::new("/c/crawl.mjs"));
     let scrapy = invocation(Config::Scrapy, Path::new("/p/crawl.py"));
 
     assert_eq!(

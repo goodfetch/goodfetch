@@ -19,13 +19,12 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 6] = [
+const CELLS: [(&str, &str, &str); 5] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("durable", "foxhound full", "foxhound"),
-    ("durable", "crawlee", "crawlee"),
 ];
 
 /// The work of a trial that fetched each page of the 1,000-page site once,
@@ -408,10 +407,10 @@ fn the_report_writes_each_scenarios_mapping() {
     }
 }
 
-/// Crawlee and Scrapy join scenario 1 and Crawlee scenario 2, each cell
-/// with every metric and the settings its tool ran with; Scrapy's
-/// scenario 2 cell says why it cannot resume after a kill, and the report
-/// names the pinned version of each tool.
+/// Crawlee and Scrapy join scenario 1, each cell with every metric and the
+/// settings its tool ran with; their scenario 2 cells say why neither
+/// resumes all the site's pages after a kill, and the report names the
+/// pinned version of each tool.
 #[test]
 fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let workspace = Workspace::from_fixture("empty");
@@ -426,7 +425,7 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
             .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
     };
     let foxhound = names(cell(&report, 0, "foxhound"));
-    for (scenario, name) in [(0, "crawlee"), (0, "scrapy"), (1, "crawlee")] {
+    for (scenario, name) in [(0, "crawlee"), (0, "scrapy")] {
         let cell = cell(&report, scenario, name);
         assert_eq!(
             (&cell["status"], names(cell)),
@@ -435,8 +434,11 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
         );
     }
     assert_eq!(
-        &cell(&report, 1, "scrapy")["status"],
-        &json!("not_supported")
+        (
+            &cell(&report, 1, "crawlee")["status"],
+            &cell(&report, 1, "scrapy")["status"]
+        ),
+        (&json!("not_supported"), &json!("not_supported"))
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
@@ -446,7 +448,7 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
         "- **scrapy**: a default `scrapy.Spider`",
         "`ROBOTSTXT_OBEY: False`, `CONCURRENT_REQUESTS: 16`, `CONCURRENT_REQUESTS_PER_DOMAIN: 16`, \
          `DOWNLOAD_DELAY: 0`",
-        "- **crawlee**: scenario 1's settings with `persistStorage: true` (its default)",
+        "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
         "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
     ] {
         assert!(

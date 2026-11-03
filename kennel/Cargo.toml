@@ -1,0 +1,84 @@
+# The Kennel's workspace (ADR 0141): a tool of its own, apart from the
+# Products, with its own lockfile and toolchain pin. The root workspace
+# excludes this folder, and this `[workspace]` table stops Cargo's search
+# for a parent one. Its only path dependency is `goodfetch-protocol`, whose
+# `.workspace = true` fields resolve through the root workspace.
+#
+# - `goodfetch-kennel`: every module that needs no graphical toolkit (the
+#   Client, the State, the settings, the Daemon start), built and tested on
+#   every host, the display-less Linux gate's included;
+# - `goodfetch-kennel-app`: the executable, `goodfetch-kennel`, with the
+#   Tray on `tray-icon`, `muda` and `winit`, which the Linux gate only
+#   type-checks for macOS (`just kennel-check`).
+#
+# Clippy reads the root `clippy.toml`, the nearest in a parent folder of
+# each crate's manifest, so the Products' disallowed methods and types hold
+# here too. Cargo does not pass `[workspace.lints]` to a nested workspace:
+# the root's tables are copied below, and change with them.
+[workspace]
+resolver = "3"
+members = ["crates/goodfetch-kennel", "crates/goodfetch-kennel-app"]
+
+[workspace.package]
+# The Kennel's own version (ADR 0141), not the Products'.
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/goodfetch/goodfetch"
+publish = false
+
+[workspace.dependencies]
+goodfetch-kennel = { path = "crates/goodfetch-kennel" }
+goodfetch-protocol = { path = "../crates/goodfetch-protocol" }
+
+anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+dirs = { version = "7.0.0", default-features = false }
+jiff = { version = "0.2.35", default-features = false, features = ["std"] }
+notify = { version = "8.2.1", default-features = false, features = ["macos_fsevent"] }
+rstest = { version = "0.27.0", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+tempfile = { version = "3.27.0", default-features = false }
+thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+tokio = { version = "1.53.3", default-features = false }
+tokio-util = { version = "0.7.20", default-features = false }
+toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
+# The Tray (ADR 0141), at the versions #1915 checked on the owner's Mac.
+tray-icon = { version = "=0.26.1" }
+winit = { version = "=0.30.13" }
+
+# The root workspace's `[workspace.lints]`, copied (see above).
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unreachable_pub = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(goodfetch_loom)", "cfg(tokio_unstable)"] }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+clone_on_ref_ptr = "deny"
+exit = "deny"
+iter_over_hash_type = "deny"
+undocumented_unsafe_blocks = "deny"
+
+# One executable of at most 6 MB, stripped, with LTO (ADR 0141's
+# Performance targets); #1915 measured this profile at 4.77 MB.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

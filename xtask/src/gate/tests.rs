@@ -222,6 +222,50 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
     assert!(!full.contains(&"tlc") && !full.contains(&"visual"));
 }
 
+// The Kennel's checks rerun only for a change its selection reaches, and
+// such a change reruns none of the Products' test steps (ADR 0141).
+#[test]
+fn a_change_reaching_the_kennel_alone_reruns_its_checks_and_no_products_tests() {
+    let record = full_green_run();
+    let touched = Touched {
+        jobs: BTreeSet::from([Job::Kennel]),
+        ..Touched::default()
+    };
+
+    let (full, part) = reruns(&planned(Some(&record), &touched_since_earlier(touched)));
+
+    assert!(full.contains(&"kennel"), "{full:?}");
+    for step in [
+        "perf",
+        "linux",
+        "visual",
+        "tlc",
+        "msrv",
+        "miri",
+        "quick",
+        "pre-merge",
+        "stress",
+    ] {
+        assert!(!full.contains(&step), "{step} in {full:?}");
+    }
+    assert_eq!(part, BTreeMap::new());
+}
+
+#[test]
+fn a_change_the_kennel_does_not_read_reuses_its_checks() {
+    let record = full_green_run();
+    let touched = Touched {
+        crates: true,
+        jobs: BTreeSet::from([Job::PreMerge]),
+        members: BTreeSet::from(["goodfetch-engine".to_owned()]),
+        ..Touched::default()
+    };
+
+    let plan = planned(Some(&record), &touched_since_earlier(touched));
+
+    assert!(matches!(action(&plan, Step::Kennel), Action::Reuse { .. }));
+}
+
 #[rstest]
 #[case::justfile("justfile")]
 #[case::nextest_settings(".config/nextest.toml")]

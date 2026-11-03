@@ -32,6 +32,7 @@ pub(crate) enum Step {
     Tlc,
     Msrv,
     Miri,
+    Kennel,
 }
 
 /// What a step's result depends on, besides the gate's own inputs.
@@ -51,7 +52,7 @@ enum Reach {
 }
 
 impl Step {
-    pub(crate) const ALL: [Self; 21] = [
+    pub(crate) const ALL: [Self; 22] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -73,6 +74,7 @@ impl Step {
         Self::Tlc,
         Self::Msrv,
         Self::Miri,
+        Self::Kennel,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -99,6 +101,7 @@ impl Step {
             Self::Tlc => "tlc",
             Self::Msrv => "msrv",
             Self::Miri => "miri",
+            Self::Kennel => "kennel",
         }
     }
 
@@ -126,6 +129,7 @@ impl Step {
             Self::Linux => Reach::Job(Job::PreMerge),
             Self::Visual => Reach::Job(Job::Visual),
             Self::Tlc => Reach::Job(Job::Tlc),
+            Self::Kennel => Reach::Job(Job::Kennel),
             Self::Msrv | Self::Miri => Reach::Crates,
             Self::Quick | Self::PreMerge | Self::Stress => Reach::Members,
         }
@@ -213,7 +217,7 @@ impl Touched {
     pub(crate) fn new(paths: &[RepoPath], selection: &Selection) -> Self {
         Self {
             gate_input: gate_input(paths).map(|path| path.as_str().to_owned()),
-            jobs: [Job::PreMerge, Job::Perf, Job::Visual, Job::Tlc]
+            jobs: [Job::PreMerge, Job::Perf, Job::Visual, Job::Tlc, Job::Kennel]
                 .into_iter()
                 .filter(|job| selection.selects(*job))
                 .collect(),

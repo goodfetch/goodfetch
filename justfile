@@ -37,18 +37,21 @@ default:
 # Formats Rust, TypeScript and Python.
 fmt:
     cargo fmt --all
+    cd kennel && cargo fmt
     pnpm exec oxfmt .
     uv run ruff format .
 
 # Checks formatting only (the pre-commit hook).
 fmt-check:
     cargo fmt --all --check
+    cd kennel && cargo fmt --check
     pnpm exec oxfmt --check .
     uv run ruff format --check .
 
 # Formatting checks, then every linter and the repository's own static checks.
 lint: fmt-check
     cargo metadata --locked --format-version 1 > /dev/null
+    cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
     ci/fuzz-check.sh locked
     pnpm install --lockfile-only --frozen-lockfile
     uv lock --check
@@ -65,12 +68,17 @@ lint: fmt-check
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
     ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
     # Spider's side of `just compare-spider`, no workspace member, which no
     # gate builds: its lock's licenses, read without a build (ADR 0134).
     ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+    # The Kennel's workspace (ADR 0141), read without a build: its lock's
+    # licenses against the root allowlist, its bans and sources with its own
+    # deny.toml.
+    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- register check
@@ -315,6 +323,7 @@ mutants base="":
 fetch:
     cargo fetch --locked
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
+    cd kennel && cargo fetch --locked
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
@@ -813,6 +822,7 @@ release:
     "$just" test release
     "$just" features-audit
     "$just" _tlc all
+    "$just" _kennel all
     "$just" proofs
     "$just" rss
     "$just" asan
@@ -920,6 +930,25 @@ compare-spider profile="release":
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
     cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+
+# The Kennel (ADR 0141), from the repository. On macOS: its release
+# executable in `Kennel.app`, signed ad hoc under the stable bundle
+# identifier `dev.goodfetch.kennel` (a rebuild keeps the desktop-notice
+# permission), installed by rename into ~/Applications and opened with
+# `open`, through LaunchServices; a Kennel already running is quit first.
+# On Linux and Windows, its executable runs (kennel/scripts/install.sh).
+# Builds, installs and opens the Kennel.
+kennel:
+    kennel/scripts/install.sh
+
+# The Kennel's checks (ADR 0141): its workspace's Clippy and tests, the
+# Client's against goodfetch-scripted-engine, which the root workspace
+# builds with the tests' profile. On macOS every crate; elsewhere the
+# non-graphical crate, with the graphical one type-checked for macOS, or
+# listed as skipped without that Rust target (kennel/scripts/check.sh).
+# Runs the Kennel's Clippy and tests.
+kennel-check:
+    kennel/scripts/check.sh {{ test_profile }}
 
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build, its startup to `hello`
@@ -1157,6 +1186,7 @@ notices *arguments:
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm
     ci/tool.sh osv-scanner ci/audit.sh python
 
@@ -1355,6 +1385,25 @@ _tlc all:
     esac
     ci/tool.sh java "$just" tlc "${models[@]}"
     ci/tool.sh java "$just" tlc-self-test
+
+# The gate's `kennel` step: the Kennel's checks when the change reaches
+# its job (`xtask affected`'s `kennel`: a change to `kennel/` or
+# goodfetch-protocol, ADR 0141), and always with `all`.
+_kennel all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ all }}" in
+      all) ;;
+      "")
+        selection=$(cargo run --quiet -p xtask -- affected --local)
+        if ! grep -q '^jobs=.*"kennel"' <<< "$selection"; then
+          echo "The change does not reach the Kennel."
+          exit 0
+        fi
+        ;;
+      *) echo "error: the only argument is \`all\`, not {{ all }}" >&2; exit 2 ;;
+    esac
+    {{ just_executable() }} kennel-check
 
 # Runner configs define the `visual` projects only inside the pinned image
 # (ci/visual/run.sh), so no host test command runs them.

@@ -1,0 +1,56 @@
+# cargo-deny's configuration for the Kennel's workspace (ADR 0141), whose
+# lockfile is its own. `just lint` checks its bans and sources with this
+# file, and its licenses against the root `deny.toml`'s allowlist, which
+# `xtask codegen` writes from ADR 0018's; `just audit` checks its advisories
+# with this file, through ci/audit.sh. The rules are the root's; the
+# exceptions, none so far, are its own.
+
+[graph]
+all-features = true
+
+[advisories]
+db-path = "${GOODFETCH_ADVISORY_DBS:-target/advisories/rustsec}"
+maximum-db-staleness = "P36500D"
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = []
+
+# Only crates.io, as in the root's.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+# No mocking of owned code (ADR 0062), as in the root's.
+[[bans.deny]]
+crate = "mockall"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "mockito"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "wiremock"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "faux"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "mry"
+reason = "mocks owned code (ADR 0062)"
+
+# The Kennel links `goodfetch-protocol` and no engine crate (ADR 0141), and
+# its Client's tests run the Scripted engine as a process, never as a
+# linked crate (ADR 0069).
+[[bans.deny]]
+crate = "goodfetch-engine"
+reason = "the Kennel links no engine crate (ADR 0141)"
+
+[[bans.deny]]
+crate = "goodfetch-test-support"
+reason = "the Kennel's tests run goodfetch-scripted-engine as a process, never as a linked crate (ADRs 0069 and 0141)"

@@ -160,7 +160,7 @@ fn an_unknown_key_among_the_desktop_notices_is_refused() {
     let home = Home::new(folder.path());
     fs::write(
         home.settings_file(),
-        "[notifications]\nrun_failled = false\n",
+        "[notifications]\nrun_crashed = false\n",
     )
     .unwrap();
 
@@ -169,5 +169,5 @@ fn an_unknown_key_among_the_desktop_notices_is_refused() {
     let Err(SettingsError::Unreadable(why)) = read else {
         panic!("an unknown key is refused: {read:?}");
     };
-    assert!(why.contains("run_failled"), "{why}");
+    assert!(why.contains("run_crashed"), "{why}");
 }

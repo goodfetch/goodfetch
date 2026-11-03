@@ -7,6 +7,10 @@ use goodfetch_protocol::page::Table;
 use scraper::{ElementRef, Html, Node, Selector};
 
 /// The tables of `tree`, in document order.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn tables(tree: &Html) -> Vec<Table> {
     let selector = Selector::parse("table").expect("invariant: `table` is a selector");
     tree.select(&selector).map(table).collect()

@@ -143,5 +143,14 @@ RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
 RUN cargo install --locked --root /usr/local cargo-mutants@27.1.0 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
+# strace for `xtask counts --strace` (ADR 0140), which cross-checks the
+# counted opens, folders and syncs from outside the process in the merge
+# gate's perf step, at the base's Debian version. A layer of its own at the
+# end, as cargo-mutants', so adding it rebuilt no other layer.
+ARG STRACE_VERSION=6.13+ds-1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends "strace=${STRACE_VERSION}" \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV CI=true
 WORKDIR /work

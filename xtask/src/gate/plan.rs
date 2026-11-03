@@ -13,6 +13,7 @@ use crate::affected::{Job, RepoPath, Selection};
 pub(crate) enum Step {
     Dco,
     CommitMessages,
+    FloorGuard,
     Lint,
     FeatureCombinations,
     Audit,
@@ -50,9 +51,10 @@ enum Reach {
 }
 
 impl Step {
-    pub(crate) const ALL: [Self; 20] = [
+    pub(crate) const ALL: [Self; 21] = [
         Self::Dco,
         Self::CommitMessages,
+        Self::FloorGuard,
         Self::Lint,
         Self::FeatureCombinations,
         Self::Audit,
@@ -78,6 +80,7 @@ impl Step {
         match self {
             Self::Dco => "dco",
             Self::CommitMessages => "commit-messages",
+            Self::FloorGuard => "floor-guard",
             Self::Lint => "lint",
             Self::FeatureCombinations => "feature-combinations",
             Self::Audit => "audit",
@@ -107,6 +110,7 @@ impl Step {
         match self {
             Self::Dco
             | Self::CommitMessages
+            | Self::FloorGuard
             | Self::Lint
             | Self::FeatureCombinations
             | Self::Audit

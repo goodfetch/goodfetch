@@ -1415,6 +1415,7 @@ name = "goodfetch-cdp"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "goodfetch-counted-work",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1429,12 +1430,22 @@ dependencies = [
  "adblock",
  "data-encoding",
  "dom_query 0.28.0",
+ "goodfetch-counted-work",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "zstd",
+]
+
+[[package]]
+name = "goodfetch-counted-work"
+version = "0.0.0"
+dependencies = [
+ "dom_query 0.28.0",
+ "glob",
+ "regex",
 ]
 
 [[package]]
@@ -1453,6 +1464,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "goodfetch-counted-work",
  "goodfetch-protocol",
  "hickory-resolver",
  "hkdf",
@@ -1505,6 +1517,7 @@ dependencies = [
  "dom_query 0.28.0",
  "dom_smoothie",
  "ego-tree",
+ "goodfetch-counted-work",
  "goodfetch-protocol",
  "htmd",
  "html5ever 0.39.0",
@@ -1524,6 +1537,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "encoding_rs",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -1560,6 +1574,7 @@ dependencies = [
  "futures-util",
  "goodfetch-cdp",
  "goodfetch-clean-up-rules",
+ "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-protocol",

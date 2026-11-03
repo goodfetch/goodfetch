@@ -46,8 +46,8 @@ pub use admit::{Candidate, admit, admit_in};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
-    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, rewrite,
-    url_key,
+    Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
+    redirect_reached, rewrite, url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
@@ -55,7 +55,7 @@ pub use politeness::{
     start_after, start_after_robots_txt, started_again, started_at_send,
 };
 pub use queues::DomainQueues;
-pub use robots_txt::SharedRobotsTxt;
+pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };

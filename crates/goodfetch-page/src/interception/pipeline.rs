@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex, Weak};
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{fetch, network, page};
 use goodfetch_cdp::{NetError, Subscription};
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
@@ -209,6 +210,7 @@ impl PageContext {
                 run.owner().child(),
                 run.folder(),
                 run.secrets().mask().clone(),
+                run.metrics().counted_work().clone(),
             )),
             run,
         }
@@ -1728,6 +1730,10 @@ impl PageContext {
                 failure: refusal,
             },
         );
+        self.run
+            .metrics()
+            .counted_work()
+            .count(Row::InterceptedSpawns);
         self.run.spawn(async move {
             if let Err(error) = log.request_failed(&failed).await {
                 tracing::warn!(%error, "the Run trace did not take a refused request");
@@ -1742,6 +1748,12 @@ impl PageContext {
         let Sender::ServiceWorker { session, log } = &self.sender else {
             return;
         };
+        if failure.is_some() {
+            self.run
+                .metrics()
+                .counted_work()
+                .count(Row::InterceptedSpawns);
+        }
         let request = ServiceWorkerRequest {
             session_id: session.clone(),
             url: held.url().to_owned(),

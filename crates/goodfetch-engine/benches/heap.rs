@@ -5,6 +5,11 @@
     reason = "bench targets run on the test Clock and Entropy (ADR 0071)"
 )]
 
+#[expect(
+    dead_code,
+    reason = "what only the counts cell and its test read of the scenario"
+)]
+mod messages;
 mod scenarios;
 
 use std::hint::black_box;
@@ -28,6 +33,44 @@ fn dispatch(input: (Vec<u8>, tempfile::TempDir)) -> (usize, tempfile::TempDir) {
     let (lines, home) = input;
     let replies = black_box(scenarios::dispatch(black_box(&lines), home.path()));
     (replies, home)
+}
+
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default().pass_through_env(messages::PLANT_VARIABLE)
+)]
+#[bench::no_messages(
+    args = (messages::NO_MESSAGES, messages::Logs::On),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::small_params(
+    args = (messages::SMALL_PARAMS, messages::Logs::On),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::large_params(
+    args = (messages::LARGE_PARAMS, messages::Logs::On),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::no_messages_log_off(
+    args = (messages::NO_MESSAGES, messages::Logs::Off),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::small_params_log_off(
+    args = (messages::SMALL_PARAMS, messages::Logs::Off),
+    setup = messages::input,
+    teardown = messages::done
+)]
+#[bench::large_params_log_off(
+    args = (messages::LARGE_PARAMS, messages::Logs::Off),
+    setup = messages::input,
+    teardown = messages::done
+)]
+fn dispatch_messages(input: messages::Input) -> (usize, messages::Input) {
+    let outgoing = black_box(messages::dispatched(black_box(&input)));
+    (outgoing, input)
 }
 
 #[library_benchmark]
@@ -89,6 +132,7 @@ library_benchmark_group!(
     benchmarks = [
         framing,
         dispatch,
+        dispatch_messages,
         run_state_writes,
         egress_judge,
         egress_judge_private_ranges,

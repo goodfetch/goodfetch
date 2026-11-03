@@ -117,7 +117,13 @@ fn a_documents_directive_is_its_header_else_its_first_meta_outside_noscript(
     #[case] expected: Option<Refresh>,
 ) {
     assert_eq!(
-        directive(&document(), &headers(refreshes), html.as_bytes(), true),
+        directive(
+            &document(),
+            &headers(refreshes),
+            html.as_bytes(),
+            true,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
         expected
     );
 }
@@ -127,7 +133,16 @@ fn a_documents_directive_is_its_header_else_its_first_meta_outside_noscript(
 fn a_document_that_is_no_html_has_no_meta_directive() {
     let html = meta("0; url=/target");
 
-    assert_eq!(directive(&document(), &[], html.as_bytes(), false), None);
+    assert_eq!(
+        directive(
+            &document(),
+            &[],
+            html.as_bytes(),
+            false,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
+        None
+    );
 }
 
 /// Covers: story:5-125

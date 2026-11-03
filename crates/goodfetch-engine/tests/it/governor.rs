@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::{
     BrowserUse, GovernedBrowser, Governor, HostGovernor, PageHold, RunShare, System,
@@ -122,7 +123,13 @@ fn governed<T>(env: &TestEnv, proc: &Proc, run: impl AsyncFnOnce(Governor) -> T)
             owner.child(),
         );
         let clock = Clock::paused(SystemTime::UNIX_EPOCH);
-        let governor = Governor::start(System::linux_files(proc.proc()), settings, clock, &owner);
+        let governor = Governor::start(
+            System::linux_files(proc.proc()),
+            settings,
+            clock,
+            &owner,
+            CountedWork::default(),
+        );
         let answer = run(governor).await;
         owner.stop().await;
         answer

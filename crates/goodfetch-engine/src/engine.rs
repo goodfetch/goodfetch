@@ -8,6 +8,7 @@
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
 
+use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -117,6 +118,7 @@ impl Engine {
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
+                work: CountedWork::default(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
@@ -138,6 +140,14 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.dispatch = Arc::new(Dispatch {
+            identity: Arc::clone(&self.dispatch.identity),
+            handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
+            log_events: self.dispatch.log_events.clone(),
+            masks: self.dispatch.masks.clone(),
+            work: metrics.counted_work().clone(),
+        });
         self.metrics = metrics;
         self
     }
@@ -162,6 +172,7 @@ impl Engine {
             drivers: Arc::clone(&self.dispatch.drivers),
             log_events: Some(log_events),
             masks: self.dispatch.masks.clone(),
+            work: self.dispatch.work.clone(),
         });
         self
     }
@@ -177,6 +188,7 @@ impl Engine {
             drivers: Arc::clone(&self.dispatch.drivers),
             log_events: self.dispatch.log_events.clone(),
             masks,
+            work: self.dispatch.work.clone(),
         });
         self
     }
@@ -301,6 +313,35 @@ impl Engine {
         ended
     }
 
+    /// The engine's Resource governor, a task of `owner` that reads
+    /// `settings` on `clock` and reports each sample to `events`, when its
+    /// starter gave it the machine to read; else one that never samples.
+    fn governor(
+        &self,
+        settings: &Settings,
+        clock: Clock,
+        owner: &TaskOwner,
+        events: &Events,
+    ) -> Governor {
+        let Some(system) = &self.system else {
+            return Governor::unsampled();
+        };
+        let governor = Governor::start(
+            system.clone(),
+            settings.clone(),
+            clock,
+            owner,
+            self.metrics.counted_work().clone(),
+        );
+        owner.spawn(report_samples(
+            governor.system_info(),
+            events.clone(),
+            self.metrics.clone(),
+            owner.token().clone(),
+        ));
+        governor
+    }
+
     /// The engine's event stream and Runs registry, tasks of `owner`; the
     /// Run index names `reached_at` as the owner of its live Runs, whose
     /// run state is in `install` in the per-install layout.
@@ -312,28 +353,22 @@ impl Engine {
         install: Option<InstallDatabase>,
         console: Option<String>,
     ) -> (Runs, Events) {
+        dependencies.run_state.work = self.metrics.counted_work().clone();
+        dependencies.politeness.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
-        let events = Events::start(self.events, instance, owner);
+        let events = Events::start(
+            self.events,
+            instance,
+            owner,
+            self.metrics.counted_work().clone(),
+        );
         let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner,
             &dependencies,
         );
-        let governor = match &self.system {
-            Some(system) => {
-                let governor =
-                    Governor::start(system.clone(), settings.clone(), dependencies.clock, owner);
-                owner.spawn(report_samples(
-                    governor.system_info(),
-                    events.clone(),
-                    self.metrics.clone(),
-                    owner.token().clone(),
-                ));
-                governor
-            }
-            None => Governor::unsampled(),
-        };
+        let governor = self.governor(&settings, dependencies.clock, owner, &events);
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
             SourceContext {
@@ -780,7 +815,8 @@ fn host_settings(
         });
     }
     let keychain = dependencies.keychain.clone();
-    Settings::with_host(files, product, owner.child(), move || {
+    let work = dependencies.run_state.work.clone();
+    Settings::with_host(files, product, owner.child(), work, move || {
         let keychain = keychain.clone();
         let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
         Box::pin(async move {

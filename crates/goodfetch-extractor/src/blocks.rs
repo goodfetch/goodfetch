@@ -6,7 +6,7 @@
 //! resolved against the document's base URL. Lengths are counted in
 //! characters, white space aside.
 
-use dom_query::{Document, NodeRef};
+use dom_query::NodeRef;
 use url::{Position, Url};
 
 /// The elements that hold no text a person reads: `noscript`, and those
@@ -91,15 +91,31 @@ const LIST: &str = "ul, ol, menu";
 
 /// The HTML of `html`'s body, without its head: the whole page a person
 /// reads.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn body(html: &str) -> String {
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     document.select("body").inner_html().to_string()
 }
 
 /// The text of `html`, each block's text a paragraph, its white space made
 /// one space, the paragraphs one blank line apart.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn text(html: &str) -> String {
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     let mut blocks = Blocks::default();
     for node in document.select("html").nodes() {
         blocks.read(node);
@@ -160,9 +176,17 @@ impl Blocks {
 /// `main`, the main content's HTML, without its link-dense blocks, its
 /// image-only blocks and the lists whose links another list of `document`
 /// (the whole page, whose base URL is `base_url`) repeats, in order.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
     let base = Url::parse(base_url).ok();
-    let page = Document::from(document);
+    let page = dom_query::Document::from(document);
     let page_lists: Vec<Vec<String>> = page
         .select(LIST)
         .nodes()
@@ -174,7 +198,7 @@ pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
         base: base.as_ref(),
         targets: &page_lists,
     };
-    let content = Document::from(main);
+    let content = dom_query::Document::from(main);
     let root = content.select("body");
     for node in root.nodes() {
         prune(node, &lists);
@@ -191,6 +215,10 @@ struct PageLists<'a> {
 
 /// Takes out of `node`'s descendants, from the outermost, each candidate
 /// block "fit" leaves out.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn prune(node: &NodeRef<'_>, lists: &PageLists<'_>) {
     for child in node.element_children() {
         if child.is(CANDIDATE) && left_out(&child, lists) {
@@ -201,6 +229,10 @@ fn prune(node: &NodeRef<'_>, lists: &PageLists<'_>) {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn left_out(block: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
     let all = length(&block.text());
     if all == 0 {
@@ -229,6 +261,10 @@ fn repeated(list: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
 /// its path, query and fragment, so that an absolute target and a relative
 /// one to the same page compare equal; a target that does not resolve is
 /// read as written.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 fn targets(list: &NodeRef<'_>, base: Option<&Url>) -> Vec<String> {
     list.descendants_it()
         .filter(|node| node.is("a[href]"))

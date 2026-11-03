@@ -71,6 +71,7 @@ async fn reflect(params: Value, context: CallContext) -> Result<Value, CallError
         run.owner().child(),
         run.folder(),
         run.secrets().mask().clone(),
+        run.metrics().counted_work().clone(),
     )
     .record(&PAGE_REQUEST_FAILED, &json!({ "url": text }))
     .await

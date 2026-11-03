@@ -9,18 +9,23 @@
 
 use std::borrow::Cow;
 
-use dom_query::{Document, Matcher, NodeRef, Selection};
+use dom_query::{Matcher, NodeRef, Selection};
+use goodfetch_counted_work::ParsedHtml;
 
 /// The selector of a shadow root's template.
 const SHADOW_ROOT: &str = "template[shadowrootmode]";
 
 /// `html` with every shadow root's content in its host's place; `html`
 /// itself when it holds no shadow root.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 pub(crate) fn composed(html: &str) -> Cow<'_, str> {
     if !html.contains("shadowrootmode") {
         return Cow::Borrowed(html);
     }
-    let document = Document::from(html);
+    let document = dom_query::Document::from(html);
     let templates = templates(&document);
     if templates.is_empty() {
         return Cow::Borrowed(html);
@@ -36,7 +41,11 @@ pub(crate) fn composed(html: &str) -> Cow<'_, str> {
 
 /// Every shadow root's template: those of the document in document order,
 /// then those of each shadow root's content, breadth first.
-fn templates(document: &Document) -> Vec<NodeRef<'_>> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
+fn templates(document: &ParsedHtml) -> Vec<NodeRef<'_>> {
     let matcher = Matcher::new(SHADOW_ROOT).expect("invariant: the shadow root selector is CSS");
     let mut found: Vec<NodeRef<'_>> = Selection::from(document.root())
         .select_matcher(&matcher)
@@ -59,7 +68,7 @@ fn templates(document: &Document) -> Vec<NodeRef<'_>> {
 }
 
 /// The content of the shadow root `template` holds.
-fn contents<'a>(document: &'a Document, template: &NodeRef<'a>) -> Option<NodeRef<'a>> {
+fn contents<'a>(document: &'a ParsedHtml, template: &NodeRef<'a>) -> Option<NodeRef<'a>> {
     template
         .query(|node| {
             node.as_element()
@@ -71,7 +80,11 @@ fn contents<'a>(document: &'a Document, template: &NodeRef<'a>) -> Option<NodeRe
 
 /// Puts the content of the shadow root `template` holds in its host's
 /// place, its slots filled with the host's children.
-fn compose(document: &Document, template: &NodeRef<'_>) {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
+fn compose(document: &ParsedHtml, template: &NodeRef<'_>) {
     let (Some(host), Some(contents)) = (template.parent(), contents(document, template)) else {
         return;
     };

@@ -41,6 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, Pins, Platform, browser_source,
@@ -574,13 +575,20 @@ impl Pool {
             (pooled.browser.process(), pooled.served)
         };
         let footprint = match process {
-            Some(process) if served > 0 => Some(
+            Some(process) if served > 0 => {
                 self.shared
                     .run
-                    .owner()
-                    .blocking(move || footprint_of(process))
-                    .await,
-            ),
+                    .metrics()
+                    .counted_work()
+                    .count(Row::PoolWalks);
+                Some(
+                    self.shared
+                        .run
+                        .owner()
+                        .blocking(move || footprint_of(process))
+                        .await,
+                )
+            }
             _ => None,
         };
         let mut browsers = lock(&self.shared.browsers);

@@ -22,20 +22,46 @@
 static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
     goodfetch_engine::heap::Counting::new(std::alloc::System);
 
+// B3's Audit entry scenario, which `counted_audit` checks.
+#[path = "../../benches/audit.rs"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the scenario writes its home's settings file before the log opens"
+)]
+#[expect(dead_code, reason = "what only the counts cell reads of the scenario")]
+mod audit_scenario;
 mod certificates;
+mod charge_counts;
 mod children;
 mod client_certificates;
+mod counted_audit;
+mod counted_governor;
+mod counted_messages;
 mod dns;
 mod downloads;
 mod egress;
 mod extra_loopback;
 mod governor;
+// B3's governor scenario, which `counted_governor` checks.
+#[path = "../../benches/governor.rs"]
+mod governor_scenario;
 mod happy_eyeballs;
 mod heap;
 mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+// B3's message scenario, which `counted_messages` checks.
 mod local_addresses;
+#[path = "../../benches/messages.rs"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the scenario runs on the test Clock and Entropy (ADR 0059)"
+)]
+#[expect(
+    dead_code,
+    reason = "what only the Valgrind targets read of the scenario"
+)]
+mod message_scenario;
 mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;

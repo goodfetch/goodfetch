@@ -41,7 +41,11 @@ impl HttpTier {
             Hop::get(url.clone()),
             &self.following,
             &gate,
-            (&clock, hand_over.run.owner()),
+            (
+                &clock,
+                hand_over.run.owner(),
+                hand_over.run.metrics().counted_work(),
+            ),
             |hop| async move { fetch(self.transport.as_ref(), &hop, &self.bounds, &clock).await },
         )
         .await

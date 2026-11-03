@@ -23,6 +23,7 @@
 //! popup's opener or a redirect, is judged the same way by the call that
 //! waited for its navigation, or by the page's next call.
 
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Values;
@@ -173,11 +174,17 @@ async fn by_page_check(
         read(judging, &in_document).await?
     };
     let mut asked = 0;
+    let work = judging.run.metrics().counted_work();
+    let compilations = Row::NavigationCompilations;
     let mut matches = |matcher: &PageMatch| -> Result<bool, CallError> {
         let url = &response.url;
         match matcher {
-            PageMatch::Glob { pattern } => Ok(UrlPattern::glob(pattern)?.matches(url)),
-            PageMatch::Regex { pattern } => Ok(UrlPattern::regex(pattern)?.matches(url)),
+            PageMatch::Glob { pattern } => {
+                Ok(UrlPattern::counted_glob(work, compilations, pattern)?.matches(url))
+            }
+            PageMatch::Regex { pattern } => {
+                Ok(UrlPattern::counted_regex(work, compilations, pattern)?.matches(url))
+            }
             PageMatch::Css { .. } | PageMatch::Xpath { .. } | PageMatch::Text { .. } => {
                 let found = read.found.get(asked).copied();
                 asked += 1;
@@ -226,8 +233,9 @@ async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(
     } else {
         judging.checking.holds_login && read(judging, &[]).await?.password
     };
-    trace::provenance(
+    trace::counted_provenance(
         judging.run,
+        Row::NavigationProvenanceEntries,
         &json!({
             "action": WEAKLY_CHECKED,
             "page_id": judging.page_id,
@@ -251,6 +259,11 @@ fn is_url(matcher: &PageMatch) -> bool {
 /// Reads the document for `matches`, its element and text matches; a
 /// document gone or not there reads as showing nothing.
 async fn read(judging: &Judging<'_>, matches: &[&PageMatch]) -> Result<Read, CallError> {
+    judging
+        .run
+        .metrics()
+        .counted_work()
+        .count(Row::NavigationDetectionReads);
     let argument = json!({ "matches": matches });
     let read = judging
         .driver

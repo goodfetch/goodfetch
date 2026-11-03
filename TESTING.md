@@ -567,6 +567,7 @@ Each suite runs everything the suite before it runs.
 - **`just stress [base]`** runs the stress run of [Before merge](#before-merge) against `base`, the merge base with `origin/main` by default. The incremental local gate narrows it, `just stress "" <since> <workspace member>…`: only the new and changed tests of the workspace members the change since an earlier gate run's head reaches, plus each test whose file that change changed; Vitest, Playwright and pytest keep every one of their new and changed tests, so they run in the head's order as in a full run ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)).
 - **`just gate-backstop [ref]`** is the incremental gate's backstop ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)), daily from the gate host's cron on `main`'s head (the milestone branch's during M1), from the main checkout: `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`) in a gate worktree of its own, then each result an incremental run of `just merge` on the same tree reused and the full run found red, a selection miss, listed in `~/gate-backstop/misses.txt` and failing the backstop; a suspect crate of a red per-member step reruns alone to confirm it. Fix each miss in the gate's selection or evidence, with a test that plants it.
 - **`just linux` and `just visual` run, on a host that is not Linux, what only the Pre-merge suite's Linux job checks:** the tests only Linux decides (`tc netem`, the Secret Service, the IPv6 Happy Eyeballs check, the extra loopback addresses) in the CI image with every Linux OS service, and the visual projects in the pinned Playwright image, each through Docker or Podman. Without either, `just linux` is listed as skipped and `just visual` fails, as ADR 0073 has it; `just screenshots-update` writes Reference screenshots in that image while GitHub Actions is off. `just pre-merge` runs them beside its host steps, with `just perf`, and runs `just stress` after its tests. A test that only Linux decides joins `ci/linux.sh`'s selection.
+- **`just counts`** prints each counted row's figure and fails over its limit, and `just counts --valgrind` each row read under Valgrind ([Quality register](#quality-register)). B1's `F2.prepares` and `F3.prepares` and B3's `E3.prepares` need Valgrind, for Callgrind's count of statement preparations.
 - **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
 - **What changed comes from `xtask affected`**, in CI and locally; `just quick all` and `just pre-merge all` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too. A crate whose tests run another crate's executable through the test tool manifest names that crate in `[package.metadata.goodfetch] runs`, and a pnpm or uv package names it in its `package.json`'s `goodfetch.runs` or its `pyproject.toml`'s `[tool.goodfetch] runs`. A change to that crate, or to a crate its build depends on (a normal or build dependency, not a dev-dependency), reaches them as a dependency's would: `goodfetch-conformance` names the Proving ground and both Products, so a change to the Proving ground or to the engine runs the self-test suite, and the test-support packages name them too, so the same change runs their tests and their dependants', the Console's and the SDKs'. The Quick suite runs in-process tests only (nextest's `quick` profile: no `tests/` binary), so it runs no test that starts an executable, whatever `xtask affected` selects.
 - **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
@@ -1171,11 +1172,19 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 - **A ceiling starts when its benchmark first runs, and never lapses:** once the base or the head measures a benchmark a ceiling reads, the head must have every figure the ceiling reads, so renaming or removing a benchmark fails rather than dropping its ceiling.
 - **The summary lists every ceiling beside the comparison table:** its head figure, derived ones shown rounded up, and its verdict. One whose benchmarks neither side measured is listed as not run yet. The check itself compares exact counts.
 
+### The fixed reference build
+
+- **`xtask perf` also holds every counted figure to at most 1.10 times a pinned reference build** (`drift.reference`, [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md)), so that steps under +5 % cannot add up unseen. `ci/perf-reference.toml` names the build's commit or tag: #1577's tuned build, then each release tag.
+- **It is measured in the same job, on the same runner,** in a worktree and target folder of its own: the selected bench targets it has, and size-limit when it has a `.size-limit.json`. Moving the pin selects every bench target.
+- **A figure over 1.10 times its reference fails, naming it,** whatever `GATING` says and whatever a pull request's "Performance change" section accepts: only an ADR amendment the owner approves passes it. A figure the reference does not hold is listed as new since it. A reference holding none of the head's figures compared nothing, and fails.
+- **With no revision pinned, the check reports that it has not run yet.** A missing `ci/perf-reference.toml` fails `xtask perf build`: the file is the gate's switch.
+
 ### Performance targets
 
 - **A Performance target is measured on the owner's machine and never fails a change.** Startup to `hello` at most 10 ms (median); an idle Attached engine at most 8 MiB and an idle Daemon at most 16 MiB of resident memory, for each Product; the 1,000-page HTTP crawl at most 32 MiB at its peak, and at least as many pages per second as Spider in the same `just compare-spider` run.
 - **`just targets` writes the targets report:** each target, its measured figure and, for a miss, the gap with the optimization pass's write-up from `ci/performance-target-gaps.toml`, in `target/targets/report.md`. It measures each Product's release build: startup to `hello` with hyperfine (10 warm-up runs, then the median of 100), the peaks of the idle Attached engine, the idle Daemon and the 1,000-page crawl with the resident-memory check's scenarios (median of 5 runs each), and takes the crawl's pages per second from the latest `just compare-spider` report. A figure with no measurement yet is listed as not measured. Each milestone's owner test links it under Reports, with `just compare-spider`'s report, labelled `local-controlled` and never published (ADR 0076).
 - **`just compare-spider` counts a figure only after its same-work check.** Foxhound and Spider (pinned, its HTTP mode) each crawl the Proving ground's 1,000-page site, `scale.test/sites/1000/1`, in 10 trials interleaved in random order, each tool in a fresh process against a fresh Proving ground, at 16 requests at once; every trial must have fetched the site's own pages and been served the requests and bytes most trials were, as the Proving ground's observations record them, or it fails naming each trial that did other work and writes no figure. It reports each tool's median pages per second and median peak RSS in `target/compare-spider/report.md`.
+- **Its Callgrind cell gives `foxhound.spider_instruction_ratio` under the same check** ([ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md)). Each tool crawls the same site under Callgrind 3 times, each in a fresh process against a fresh Proving ground, Foxhound on scenario 1 of [ADR 0138](docs/adr/0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)'s matrix. The runs are held to the same-work check among themselves, a run counting no instruction fails, and the ratio is the median of Foxhound's instructions per page over the median of Spider's, to three decimals. A host without Valgrind reports the cell as not run, with why.
 - **A target is not a test.** No test asserts it, and `just compare-spider` is not a Live check.
 
 ### Counts as snapshots
@@ -1228,7 +1237,9 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 Decided in [ADR 0140](docs/adr/0140-every-shared-per-unit-path-has-one-owner-module-a-cost-contract-of-counted-work-and-a-benchmark.md), in the format of the `system-qualities` skill's register. It is the project's quality bar: the Floor every diff keeps, the limits that fail the merge gate, the figures that only ratchet down and the Exceptions that expire. The project has no `CONSTRAINTS.md`. Read it before writing code on a Shared path (ADR 0140's inventory: F1 to F6, C1 to C5, E1 to E6). Change a limit only by the rules below: tighten it in the pull request that earns it, loosen it with the owner.
 
-Until the gate's spec builds them, three things this section names don't exist yet: the counters of counted work, the floor guard and the register check. Until then, `code-review`'s Standards axis checks the Floor and the Shared paths' contracts as a judgement, and each row of counted work stays in the Measured table.
+Every row of counted work whose path exists has its counter and its first figure, and is Enforced, in the [Counted work](#counted-work) table; a row whose path is not built yet stays Measured, "not run yet", and `E1.decodes` has no counter yet (its "Checked by" says none yet). `code-review`'s Standards axis still checks the Shared paths' contracts as a judgement where no counter reaches. `just floor-guard` checks the Floor on every merge (`xtask floor-guard`, in `just merge`'s gate); it reads lines, not meaning, so `code-review` still checks the Floor too.
+
+**`just counts`** (`xtask counts`, ADR 0140) is the "Checked by" of every counted row: it runs each row's benchmark with its default features on and once per switchable feature off, divides each count by the units of the outcome that did the work, reads the row's limit (its Today figure, else its Contract) and fails over it, naming the row, its figure and its limit. Before it runs anything it fails on a row of the counted work below that its `ROWS` has no counter for, and on a counter of what it runs whose row the register lacks. `just counts --family B1`, `--path F1` or `--row F1.parses` runs fewer; `--plant <row>` has the benchmark do one extra unit of the row's work, and `--prove` does so for every row and fails on a counter that does not see it. `just counts --valgrind` does the same for the rows read under Valgrind, at the merge gate: each figure is its scenario less the run of its benchmark that sends nothing, per unit, within 0.5 % of its limit, and a row with `1.10 ×` in its Contract is held only to its Today figure until #1577 sets its ceiling. Its figures are per unit and whole: `F1.parses`'s 8 includes each parse X1 waives. Work several outcomes do has a row per outcome, each divided by its own units with a limit of its own, so none is averaged away or hidden under another's limit: `F3.compilations` per links batch, `F3.compilations.hop` per redirect hop, `.sitemap` per sitemap read and `.payload` per URL with a Payload. `F3.prepares`' are Callgrind's call counts of SQLite's prepare inside the function that does each outcome's admission, so `just counts` needs Valgrind for them; `just perf` lists itself as skipped without it. F2's "Today" is its worst cell, `concurrency_1`, where a delivery pass runs per request. `F2.syncs` reads a counting VFS and `F2.prepares` Callgrind on pages of about 1 kB (Valgrind needed: without it the row is not counted, which fails); both are the benchmark's own, so the ops metric has neither. `F2.effect_syncs` has no Effect to divide by until the Effect journal lands (#1550): 0 passes, a planted one fails. E6's rows count on a site that serves its robots.txt, and their "Today" is their worst cell, `concurrency_1` (`document_tier_handler` reads as many copies): `E6.opens` adds the Politeness file's opens after the crawl's first page to the statements Callgrind sees prepared beneath its functions, its opening's own left out; `E6.off_work` is the sum of E6's counters in the cell `politeness_and_robots_txt_off` (no delay, no per-domain limit, robots.txt not obeyed) over its attempts, and has no unit in any other cell. Its Page analysis rows other than the parses count from the crawl's first page: what its start does once is no page's work. Its Run-trace rows divide by the entries the crawl's Run trace holds, read from its files: a task counts on `E5.spawns` whether the engine's blocking policy runs it inline, as the benchmark's does, or on a thread, and while no kind of entry can be switched off `E5.formatting_off` divides by every entry and its only proof is its plant. B2's Page read rows count over the reads its program makes once each navigation's own work ended, per read or per document and frame read; the reads a navigation judges its document with are C4's. A row of a path whose code does not exist yet (`F5.*`, `F6.*`, `C6.*`, `E7.*`, `C2.closed_root_commands` and `C2.live_view_commands`, whose reads #726 and #1683 build, `E4.cpu_stat_opens` until #1306 reads `cpu.stat`, and C5's Response cache, recording and charset rows) starts at ADR 0140's value: the command prints its limit, or for a ratchet that it has no figure yet, and "not run yet" and passes, and it fails, naming the row, as soon as a benchmark counts any of its work, so the ticket that builds the path moves the row to `xtask counts`'s `ROWS` and gives it a plant. **`just counts --strace`**, in the merge gate's `perf` step, runs B1 and B2 under `strace`, tracing opens, folder creations and syncs alone, and fails, naming the family, when what it sees differs from the counters: each creation of a Run trace's folder and each open of one of its files for writing against `E5.file_opens` plus `C1.file_opens`, and each sync of a file B1's counting VFS opened against `F2.syncs`, so a raw call beside a counted function fails. `--strace --bypass open|directory|sync` plants one such raw call a unit, and `--strace --prove` plants each in turn and fails a bypass the cell does not see. Off Linux, or locally with no `strace`, it lists itself as skipped; in CI a missing `strace` fails, and the CI image pins it.
 
 ### Floor
 
@@ -1239,19 +1250,19 @@ Always enforced on the diff. A breach is a hard violation in `code-review`.
   - a test run as a child process by another test: `#[ignore = "run as a child by <test>"]`;
   - the SDKs' type tests: `@ts-expect-error` and `# type: ignore[code]` ([SDKs](#sdks));
   - Python: `# pyright: ignore[rule]`;
-  - TypeScript: `oxlint-disable-next-line <rule>` with its reason, in the syntax the gate's spec takes from oxlint's documentation.
+  - TypeScript: `oxlint-disable-next-line <rule> -- <reason>`. [Oxlint's documentation](https://oxc.rs/docs/guide/usage/linter/ignore-comments) gives the comment and its rules and no reason syntax; its parser takes what follows ` -- ` as the description, so the guard asks for that form.
 - **No unimplemented stub, or empty catch, standing in for the work.**
 - **No skipped or deleted test without a `Quality-change` trailer.** A test replaced at a deepened module's interface names its replacement.
 - **No secret in source.**
 - **No register row weakened outside the rules below.**
-- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer.
+- **No edit to the gate's own files** (its benchmarks, the floor guard, the register check) without a `Quality-change` trailer. The guard reads them from this line, at the merge base; a new file of the gate adds to the bar and passes: `xtask/src/floor_guard.rs`, `xtask/src/floor_guard/`, `xtask/tests/it/floor_guard.rs`, `xtask/src/register.rs`, `xtask/src/register/`, `xtask/tests/it/register.rs`, `xtask/src/counts.rs`, `xtask/src/counts/`, `xtask/tests/it/counts.rs`, `crates/foxhound/goodfetch-foxhound/benches/`, `crates/goodfetch-page/benches/`, `crates/goodfetch-engine/benches/`.
 
 _Why:_ the floor is diff-scoped, so the suppressions the code already holds (412 `#[expect]`, 28 `#[ignore]`, 51 `oxlint-disable` on 2026-11-01) fail nothing, while a new bare one does.
 
 ### Recorded changes
 
 - **A change the Floor would flag but these rules allow carries a commit trailer:** `Quality-change: <file or row>: <reason>`. That covers a test removed with its replacement named, a row raised within its Cost contract, and an edit to the gate's own files.
-- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140.
+- **The floor guard accepts a flagged change that a trailer names,** and `code-review` checks each trailer against the spec and ADR 0140. A file's trailer names its path, a row's its name (`F1.parses`, `X1`), and a change to a section of rules names that section (`Floor`, `Recorded changes`, `Rules`). The guard reads the trailers of every commit from the merge base to the head, and lists what each accepted as a `note[quality-change]` line.
 
 ### Enforced
 
@@ -1270,127 +1281,153 @@ Limits that fail the merge gate. Every row has a number and a command.
 | Workflow security | 0 findings | `zizmor` and `actionlint` (`just lint`) | merge gate |
 | Generated code | current | `xtask codegen --check` (`just lint`) | merge gate |
 | Feature declarations | inventory current, every declaration known | `xtask features check` (Quick) and `just features-tests` (Pre-merge), [Feature coverage](#feature-coverage) | merge gate |
+| Quality register | no drift from ADR 0140 or `xtask perf`'s ceilings ([Rules](#rules)) | `xtask register check` (`just lint`) | merge gate |
+
+#### Counted work
+
+The rows of counted work, and those read under Valgrind, promoted from the Measured table by their first measure (#1881, 2026-11-02). Each row's "Today" is its figure on its benchmark, the worst of its cells, from `just counts` and, for the rows read under Valgrind, `just counts --valgrind`; each fails the merge gate one count over its limit (its Today, else its Contract; a Valgrind row 0.5 % over it), and `just counts --prove` plants one unit of each row's work and fails a counter that does not see it. `C1.file_opens`' 1.873 is its worst cell's, `filter_lists_off`, the same in #1881's run and in three runs since: its writer opens per batch, and a batch's size could move with socket timing (#1861). A row whose path is not built yet stays in the Measured table, "not run yet", until the ticket that builds the path measures it and moves it here. So do two rows whose benchmark does none of their work yet, though `just counts` counts them and `--prove` proves their counters: `F2.effect_syncs`, as B1 records no Effect until the Effect journal lands (#1550), and `E4.pool_walks`, as B2's Borrowed browser skips the pool's walk (X17).
+
+| Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |
+|---|---|---|---|---|---|---|---|
+| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | 8 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.selector_compilations` | selector compilations per page | 0 | 58.154 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.readability_runs` | readability runs per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.file_opens` | files opened per page | 0 | 4 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.locale_form_builds` | locale-form builds per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | 9.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 11.231 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.prepares` | statement preparations per page | 0 | 181.693 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.writer_reads` | reads through the writer per page | 0 | 1.847 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.configuration_reads` | configuration reads per Run | 1 | 41 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.prunes` | prune passes per attempt | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | 6 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.invariant_reads.hop` | reads of the Scope, Payload rules or Fragments per redirect hop | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.invariant_reads.sitemap` | reads of the Scope, Payload rules or Fragments per sitemap read | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.compilations` | glob and regex compilations and validator builds per links batch | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.compilations.hop` | glob and regex compilations and validator builds per redirect hop | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.compilations.sitemap` | glob and regex compilations and validator builds per sitemap read | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.compilations.payload` | glob and regex compilations and validator builds per URL with a payload | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.prepares` | statement preparations per links batch | 0 | 21.154 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.prepares.hop` | statement preparations per redirect hop | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.prepares.sitemap` | statement preparations per sitemap read | 0 | 10 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.transactions` | transactions of its own per links batch | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.transactions.hop` | transactions of its own per redirect hop | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.transactions.sitemap` | transactions of its own per sitemap read | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.payload_serializations` | serializations per URL with a payload | 1 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.validations` | validations per URL with a payload under a schema | 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.validator_builds` | validator builds per Record | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.serializations` | serializations per Record | 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.deep_copies` | deep copies of a Record's data | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F4.transactions` | transactions of its own per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.encodes` | encodes per CDP command | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.sends` | sends per CDP command | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | 1.873 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | click 5, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.script_compilations` | script compilations per navigation | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C4.provenance_entries` | Provenance entries per navigation | 1 | 1.334 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | 3.167 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.spawns` | tasks spawned per refused request | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.file_opens` | files opened per refused request | 0 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.matches` | Filter-list matches per paused request | 1 | 0.667 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.compilations` | compilations per paused request | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.deep_copies` | deep copies per incoming message | 0 | 1.019 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.encodes` | encodes per answer or event | 1 | 2.146 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.instructions` | instructions per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 32350.07 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.instructions_large` | instructions per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 1780227.77 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.allocations` | allocations per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 46.78 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.allocations_large` | allocations per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 46.75 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.bytes_allocated` | bytes allocated per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 5410.81 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.bytes_allocated_large` | bytes allocated per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 617845.09 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | 1.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.prepares` | statement preparations per Audit entry | 0 | 32.6 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.prunes` | prune passes per Audit entry | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.transactions` | transactions per Audit entry | 1 | 3.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | 9.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E3.statements` | SQL statements per charge the held Slices cover | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | 2.25 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E3.opens` | store opens per charge or Slice | 0 | 0.125 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E3.prepares` | statement preparations per Slice taken | 0 | 19.75 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E4.configuration_reads` | configuration reads per governor sample | 0 | 2 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | 3 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | 2 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E4.process_reads` | memory reads per process per sample | 1 | 1.5 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | 2 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E5.spawns` | tasks spawned per Run-trace entry | 0 | 1 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | 0 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | 6.924 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.opens` | opens and statement preparations per permit | 0 | 49 | B1, B2 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | 13 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | 0.929 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 4.77 | B1 | must not grow | `just counts` | implementer done, merge gate |
 
 ### Measured, not yet enforced
 
-The ratchet. A figure is compared with its "Today" value, never with the previous commit. Counted work has zero tolerance: one more count per unit is a regression. The gate's spec builds each row's command, which promotes it to Enforced (a tightening). Each row's Contract is ADR 0140's cap: no row may allow more, and a gap below it is an Exception. "After #1583" means the row's first figure is taken on its benchmark once the gate's spec builds it, after [#1583](https://github.com/goodfetch/goodfetch/pull/1583) merges.
+The ratchet. A figure is compared with its "Today" value, never with the previous commit. Counted work has zero tolerance: one more count per unit is a regression. A row of counted work moves to Enforced's [Counted work](#counted-work) once its first figure is measured (a tightening): the gate's spec moved every row whose path exists (#1881), and the ticket that builds a path not run yet moves its rows. Each row's Contract is ADR 0140's cap: no row may allow more, and a gap below it is an Exception. A row with no figure says why in its "Today": its path is not built yet, it has no counter yet, or what it compares with is not pinned yet.
 
-| Row | Metric, per unit | Contract | Today | Benchmark | Direction |
-|---|---|---|---|---|---|
-| `F1.parses` | HTML parses per page | ≤ 1 (0 streaming) | after #1583 | B1 | must not grow |
-| `F1.selector_compilations` | selector compilations per page | 0 | after #1583 | B1 | must not grow |
-| `F1.readability_runs` | readability runs per page | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.file_opens` | files opened per page | 0 | after #1583 | B1 | must not grow |
-| `F1.locale_form_builds` | locale-form builds per page | 0 | after #1583 | B1 | must not grow |
-| `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | after #1583 | B1 | must not grow |
-| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow |
-| `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | after #1583 | B1 | must not grow |
-| `F2.syncs` | syncs per attempt at `full` | ≤ 1 | after #1583 | B1 | must not grow |
-| `F2.prepares` | statement preparations per page | 0 | after #1583 | B1 | must not grow |
-| `F2.writer_reads` | reads through the writer per page | 0 | after #1583 | B1 | must not grow |
-| `F2.configuration_reads` | configuration reads per Run | 1 | after #1583 | B1 | must not grow |
-| `F2.prunes` | prune passes per attempt | 0 | after #1583 | B1 | must not grow |
-| `F2.effect_syncs` | synced journal commits per Effect | 1 | after #1583 | B1 | must not grow |
-| `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.compilations` | glob, regex and validator builds per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.prepares` | statement preparations per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.transactions` | transactions of its own per links batch | 0 | after #1583 | B1 | must not grow |
-| `F3.payload_serializations` | serializations per URL with a payload | 1 | after #1583 | B1 | must not grow |
-| `F3.validations` | validations per URL with a payload under a schema | 1 | after #1583 | B1 | must not grow |
-| `F4.declaration_reads` | Dataset declaration reads per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.validator_builds` | validator builds per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | after #1583 | B1 | must not grow |
-| `F4.serializations` | serializations per Record | 1 | after #1583 | B1 | must not grow |
-| `F4.deep_copies` | deep copies of a Record's data | 0 | after #1583 | B1 | must not grow |
-| `F4.constant_lookups` | lookups of a value constant for the Run, per Record | 0 | after #1583 | B1 | must not grow |
-| `F4.transactions` | transactions of its own per Record | 0 | after #1583 | B1 | must not grow |
-| `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow |
-| `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow |
-| `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
-| `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | after #1583 | B2 | must not grow |
-| `C2.commands` | CDP commands per page read | 1 | after #1583 | B2 | must not grow |
-| `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | after #1583 | B2 | must not grow |
-| `C2.document_worlds` | `Page.createIsolatedWorld` per document and frame read | ≤ 1 | after #1583 | B2 | must not grow |
-| `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | after #1583 | B2 | must not grow |
-| `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | after #1583 | B2 | must not grow |
-| `C3.script_sends` | sends of `check.js`'s source per check | 0 | after #1583 | B2 | must not grow |
-| `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow |
-| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | after #1583 | B2 | must not grow |
-| `C4.detection_reads` | detection reads per navigation | ≤ 1 | after #1583 | B2 | must not grow |
-| `C4.compilations` | glob and regex compilations per navigation | 0 | after #1583 | B2 | must not grow |
-| `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow |
-| `C4.provenance_entries` | Provenance entries per navigation | 1 | after #1583 | B2 | must not grow |
-| `C5.fetch_messages_no_rule` | `Fetch` messages per request with no route, Filter list, placeholder or gate, in a Session whose egress the relay enforces | 0 | after #1583 | B2 | must not grow |
-| `C5.spawns` | tasks spawned per refused request | 0 | after #1583 | B2 | must not grow |
-| `C5.file_opens` | files opened per refused request | 0 | after #1583 | B2 | must not grow |
-| `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow |
-| `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | after #1583 | B2 | must not grow |
-| `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow |
-| `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | after #1583 | B2 | must not grow |
-| `C5.cache_lookups` | Response cache lookups per request, `cache.mode` not `off` (0 when off) | 1 | after #1583 | B2 | must not grow |
-| `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | after #1583 | B2 | must not grow |
-| `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | after #1583 | B2 | must not grow |
-| `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | after #1583 | B2 | must not grow |
-| `E1.deep_copies` | deep copies per incoming message | 0 | after #1583 | B3 | must not grow |
-| `E1.encodes` | encodes per answer or event | 1 | after #1583 | B3 | must not grow |
-| `E1.instructions` | instructions per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
-| `E1.allocations` | allocations and bytes allocated per dispatched message, small and large params | 1.10 × the figure after #1577 (ADR 0134) | after #1583 | B3 | must not grow (0.5 %) |
-| `E2.configuration_reads` | configuration reads per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.opens` | store opens and schema set-ups per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.prepares` | statement preparations per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.prunes` | prune passes per Audit entry | 0 | after #1583 | B3 | must not grow |
-| `E2.transactions` | transactions per Audit entry | 1 | after #1583 | B3 | must not grow |
-| `E2.syncs` | syncs and head-file writes per Audit entry | no cap (ratchet) | after #1583 | B3 | must not grow |
-| `E3.statements` | SQL statements per charge the held Slices cover | 0 | after #1583 | B3 | must not grow |
-| `E3.slice_transactions` | transactions and syncs per Slice taken | 1 | after #1583 | B3 | must not grow |
-| `E3.opens` | store opens per charge or Slice | 0 | after #1583 | B3 | must not grow |
-| `E3.prepares` | statement preparations per Slice taken | 0 | after #1583 | B3 | must not grow |
-| `E4.configuration_reads` | configuration reads per governor sample | 0 | after #1583 | B3 | must not grow |
-| `E4.meminfo_opens` | `/proc/meminfo` opens per sample | ≤ 1 | after #1583 | B3 | must not grow |
-| `E4.static_opens` | `self/cgroup` and `self/mountinfo` opens per sample | 0 | after #1583 | B3 | must not grow |
-| `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | after #1583 | B3 | must not grow |
-| `E4.process_reads` | memory reads per process per sample | 1 | after #1583 | B3 | must not grow |
-| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | after #1583 | B2 | must not grow |
-| `E5.file_opens` | directories created and files opened per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
-| `E5.spawns` | tasks spawned per Run-trace entry | 0 | after #1583 | B1, B2 | must not grow |
-| `E5.formatting_off` | entries formatted per entry of a kind switched off | 0 | after #1583 | B1, B2 | must not grow |
-| `E6.transactions` | Politeness-file transactions, or store round trips, per attempt or hop | ≤ 2 | after #1583 | B1, B2 | must not grow |
-| `E6.opens` | opens and statement preparations per permit | 0 | after #1583 | B1, B2 | must not grow |
-| `E6.script_sends` | script sends per permit to Valkey or Redis | 0 | after #1583 | B1 | must not grow |
-| `E6.robots_parses` | robots.txt parses per origin per Run | 1 | after #1583 | B1 | must not grow |
-| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | after #1583 | B1 | must not grow |
-| `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | after #1583 | B1 | must not grow |
-| `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | after #1583 | B1 | must not grow |
-| `F5.calls` | requests out and typed decodes per Hook called | 1 each | after #1583 | B1 | must not grow |
-| `F5.builds` | chain builds and compilations per stage | 0 | after #1583 | B1 | must not grow |
-| `F6.opens` | store opens and statement preparations per delivered batch | 0 | after #1583 | B1 | must not grow |
-| `F6.transactions` | transactions per delivered batch | 1 | after #1583 | B1 | must not grow |
-| `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | after #1583 | B1 | must not grow |
-| `C6.file_opens` | files opened per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.compilations` | compilations per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.spawns` | tasks spawned per Live view frame | 0 | after #1583 | B2 | must not grow |
-| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | after #1583 | B2 | must not grow |
-| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | after #1583 | B2 | must not grow |
-| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | after #1583 | B3 | must not grow |
-| `E7.document_loads` | whole-document loads per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.opens` | store opens per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.prepares` | statement preparations per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.transactions` | transactions per Working-copy update | 1 | after #1583 | B3 | must not grow |
-| `E7.syncs` | syncs per Working-copy update | 0 | after #1583 | B3 | must not grow |
-| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | after #1583 | B3 | must not grow |
-| `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 32 (the profile below) | the gate spec's Callgrind cell of `just compare-spider` | must not grow |
-| `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | from #1577 | `xtask perf` | must not grow |
-| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
-| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | the next weekly coverage job | `just coverage all` | must not fall (0.5 %) |
+| Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |
+|---|---|---|---|---|---|---|---|
+| `F1.bytes_allocated` | bytes allocated per crawled page, over its body's bytes | ≤ 2 (ADR 0134) | 234.45 | `heap::crawl::in_memory_pages` | must not grow | `xtask perf` | merge gate |
+| `C2.closed_root_commands` | CDP commands per read in a document holding a closed shadow root | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done, merge gate |
+| `C2.live_view_commands` | CDP commands per Live view hover, pick and match | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done, merge gate |
+| `C5.cache_lookups` | Response cache lookups per request, `cache.mode` not `off` (0 when off) | 1 | not run yet (#793) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
+| `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | not run yet (#793) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
+| `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | not run yet (#1291) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
+| `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | not run yet (#1783) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
+| `E1.decodes` | decodes per request, straight into typed params | 1 | no counter yet (B3 counts no decode) | B3 | must not grow | none yet | none yet |
+| `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | not run yet (#1306) | B3 | must not grow | `just counts --path E4` | implementer done, merge gate |
+| `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | not reached on B2 (X17) | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.effect_syncs` | synced journal commits per Effect | 1 | not run yet (#1550) | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F5.messages_no_hook` | messages and formatting per stage with no Hook on it | 0 | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |
+| `F5.calls` | requests out and typed decodes per Hook called | 1 each | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |
+| `F5.builds` | chain builds and compilations per stage | 0 | not run yet (#1481) | B1 | must not grow | `just counts --path F5` | implementer done, merge gate |
+| `F6.opens` | store opens and statement preparations per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done, merge gate |
+| `F6.transactions` | transactions per delivered batch | 1 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done, merge gate |
+| `F6.writer_reads` | reads through the run file's writer per delivered batch | 0 | not run yet (#1121) | B1 | must not grow | `just counts --path F6` | implementer done, merge gate |
+| `C6.file_opens` | files opened per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done, merge gate |
+| `C6.compilations` | compilations per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done, merge gate |
+| `C6.spawns` | tasks spawned per Live view frame | 0 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done, merge gate |
+| `C6.acknowledgements` | acknowledgement commands per Live view frame (0 with no viewer) | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done, merge gate |
+| `C6.seals` | seals per fragment of a relayed viewer's frame (0 otherwise) | 1 | not run yet (#959) | B2 | must not grow | `just counts --path C6` | implementer done, merge gate |
+| `E7.merge_round_trips` | Merge host round trips per Working-copy update | 1 | not run yet (#1998) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.document_loads` | whole-document loads per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.document_encodes` | whole-document encodes per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.opens` | store opens per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.prepares` | statement preparations per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.transactions` | transactions per Working-copy update | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.syncs` | syncs per Working-copy update | 0 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `E7.encodes` | encodes per Working-copy update, however many Connections follow | 1 | not run yet (#1689) | B3 | must not grow | `just counts --path E7` | implementer done, merge gate |
+| `foxhound.spider_instruction_ratio` | Foxhound's instructions per page over Spider's, scenario 1 of ADR 0138's matrix | set from #1577's tuned figure, then blocking | 22.799 (#1877, at f7aaaf802) | the Callgrind cell of `just compare-spider` | must not grow | `just compare-spider` | owner's report, until #1577 sets its ceiling |
+| `drift.reference` | every counted figure over the pinned reference build | ≤ 1.10 (#1577's tuned build, then each release tag) | not run yet: no reference build pinned (`ci/perf-reference.toml`, #1577) | `xtask perf` | must not grow | `xtask perf` | merge gate |
+| `frontier.heap_per_url` | heap bytes per URL in the Frontier at 100,000 URLs | ≤ 8 (ADR 0134) | 4.25 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow | `xtask perf` | merge gate |
+| `console.collie_brotli` | Collie's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | 448968 | `size-limit/collie-console` | must not grow | `xtask perf` | merge gate |
+| `console.collie_initial_route_brotli` | Collie's Console's initial route, bytes brotli | ≤ 139,779 (ADR 0071) | 122738 | `size-limit/collie-console-initial-route` | must not grow | `xtask perf` | merge gate |
+| `console.foxhound_brotli` | Foxhound's whole Console build, bytes brotli | ≤ 1,000,000 (ADRs 0071, 0087) | 461514 | `size-limit/foxhound-console` | must not grow | `xtask perf` | merge gate |
+| `console.foxhound_initial_route_brotli` | Foxhound's Console's initial route, bytes brotli | ≤ 161,174 (ADRs 0071, 0087) | 130337 | `size-limit/foxhound-console-initial-route` | must not grow | `xtask perf` | merge gate |
+| `coverage.project` | project line coverage, Rust, TypeScript and Python | none: a ratchet (ADR 0072) | 88.61 % | `just coverage all` | must not fall (0.5 %) | none yet | none yet |
 
 Some tickets name a row by what it counts: Hook stages are `F5.*`, the Politeness path `E6.*`, Sink delivery `F6.*`, an Extractor Plugin `F1.plugin_*`, Live view reads `C2.live_view_commands`, closed shadow roots `C2.closed_root_commands`, cache hits `C5.cache_lookups` and `C5.cache_file_opens`, record mode `C5.body_reads`, the second GET `C5.charset_refetches`, and validations and serializations `F4.validations` and `F4.serializations`.
 
 The benchmarks are ADR 0140's: B1 is `goodfetch-foxhound`'s in-memory crawl (`crawl::in_memory_pages`), B2 a `goodfetch-page` Session against a scripted browser on the in-memory CDP end, and B3 `goodfetch-engine`'s `dispatch` with large params, Audit entries, charges and governor samples. Each runs with its path's default features on and once with each feature that can be switched off turned off. The gate's spec names each benchmark's ID.
 
-- **Rows measured until `GATING` turns on** ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md)): ADR 0071's +5 % comparison with the base, and the absolute ceilings of [Performance budgets](#performance-budgets). `xtask perf` reports them as notes until #1577's pull request sets `GATING` to `Enforced`, under Exception X20, which ends then or on its date. The rows of counted work above do not wait for it: each is enforced from the pull request that builds its command.
-- **Project coverage** is compared by ADR 0072's weekly coverage job, which opens an issue when it falls, as `xtask budgets` does; no merge fails on it.
+- **Rows measured until `GATING` turns on** ([ADR 0134](docs/adr/0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md)): ADR 0071's +5 % comparison with the base, and the absolute ceilings of [Performance budgets](#performance-budgets). `xtask perf` reports them as notes until #1577's pull request sets `GATING` to `Enforced`, under Exception X20, which ends then or on its date. The rows of counted work do not wait for it: each is enforced from the pull request that measures it, in the [Counted work](#counted-work) table.
+- **Project coverage** is compared by ADR 0072's weekly coverage job, which opens an issue when it falls, as `xtask budgets` does; no merge fails on it. `xtask register coverage` adds up the job's three lcov reports into one line figure, and its 0.5 % is a share of the row's figure, as for every figure that varies. While the row has no figure, the job opens one issue naming the first; `--write`, run in a pull request on the run's `coverage-report`, writes it in the row, and writes a rise the same way. It never lowers the row.
 
 **Context, not a Today value.** A count is compared only with the same benchmark on the same input, so the profile's figures stand beside the rows, never in them. Profile of 2026-10-30, on a Hetzner CCX43 at tip `0fd15a3a7`, crawling the Proving ground's 1,000-page site at 16 requests at once, code-free and in `fast` on tmpfs unless noted:
 
@@ -1412,26 +1449,27 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 
 | ID | Rule | Path | Reason | Owner | Expires | Removed by |
 |---|---|---|---|---|---|---|
-| X1 | `F1.parses`, `F1.selector_compilations`, `F1.readability_runs` | F1 | 8 parses per page; the clean-up compiles about 614 selectors twice per page even with no format (`goodfetch-extractor/src/formats.rs:131`, `goodfetch-clean-up-rules/src/removal.rs:95`); readability runs again for formats; the gate's use signals (`goodfetch-fetch-tier/src/gate.rs:389`), each redirect hop's refresh stub (`refresh.rs:62`) and a document tier's served calls (`tiers.rs:2163`, `tiers/calls.rs:416`) each parse the page again. It also covers #767, #788, #715, #760, #762 and #994 if they land before #1577: each keeps today's parse, which #1577 moves onto the Page analysis | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X1 | `F1.parses`, `F1.selector_compilations`, `F1.readability_runs` | F1 | 8 parses per page; the clean-up compiles its 613 selectors once per Run, kept in its cache, and 11 more a page even with no format, 58.154 per page on B1's first measure, where ADR 0138's profile read 614 twice a page (`goodfetch-extractor/src/formats.rs:131`, `goodfetch-clean-up-rules/src/removal.rs:95`); readability runs again for formats; the gate's use signals (`goodfetch-fetch-tier/src/gate.rs:389`), each redirect hop's refresh stub (`refresh.rs:62`) and a document tier's served calls (`tiers.rs:2163`, `tiers/calls.rs:416`) each parse the page again. It also covers #767, #788, #715, #760, #762 and #994 if they land before #1577: each keeps today's parse, which #1577 moves onto the Page analysis | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
 | X2 | `F1.file_opens`, `E5.file_opens`, `E5.spawns` | F1, E5 | each Provenance and request-log entry creates its folder and opens its file (`goodfetch-engine/src/run_trace.rs:80`, `:126`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 for the page's entries; the Shared paths spec for the rest |
 | X3 | `F1.bytes_allocated` | F1 | 234.45 bytes allocated per body byte against ADR 0134's 2 | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
-| X4 | `F2.transactions`, `F2.syncs`, `F2.writer_reads` | F2 | about 8 commits and 7.5 fsyncs (`full`) per page; `RunState::read` goes through the writer (`goodfetch-engine/src/run_state.rs:510`, `:735`, `:814`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
-| X5 | `F2.prepares`, `F2.configuration_reads` | F2, F3, F4 | 135 statement preparations per page; settings read again at each admission (`goodfetch-engine/src/settings.rs:253`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
-| X6 | `F3.invariant_reads`, `F3.compilations`, `F3.prepares`, `F3.payload_serializations`, `F3.validations` | F3 | the Scope is read and its globs compiled per links batch (`goodfetch-crawl/src/enqueue/links.rs:460`, `goodfetch-frontier/src/scope.rs:385`); a validator is built per payload, and each payload is serialized only to measure it (`goodfetch-frontier/src/payload.rs:155`, `:328`); each redirect hop reads the Scope in a writer transaction (`goodfetch-fetch-tier/src/gate.rs:790`), and each sitemap read reads it again and compiles its rules (`goodfetch-crawl/src/work_items.rs:289`, `goodfetch-frontier/src/sitemap.rs:551`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X4 | `F2.transactions`, `F2.syncs`, `F2.writer_reads` | F2 | 9.385 commits and 11.231 fsyncs (`full`) per page on B1's first measure; `RunState::read` goes through the writer, 1.847 reads a page (`goodfetch-engine/src/run_state.rs:510`, `:735`, `:814`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X5 | `F2.prepares`, `F2.configuration_reads` | F2, F3, F4 | 181.693 statement preparations per page on B1's first measure; settings read again at each admission (`goodfetch-engine/src/settings.rs:253`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X6 | `F3.invariant_reads`, `F3.invariant_reads.hop`, `F3.invariant_reads.sitemap`, `F3.compilations`, `F3.compilations.hop`, `F3.compilations.sitemap`, `F3.compilations.payload`, `F3.prepares`, `F3.prepares.hop`, `F3.prepares.sitemap`, `F3.transactions`, `F3.transactions.hop`, `F3.transactions.sitemap`, `F3.payload_serializations`, `F3.validations` | F3 | the Scope is read and its globs compiled per links batch (`goodfetch-crawl/src/enqueue/links.rs:460`, `goodfetch-frontier/src/scope.rs:385`); a validator is built per payload, and each payload is serialized only to measure it (`goodfetch-frontier/src/payload.rs:155`, `:328`); each redirect hop reads the Scope in a writer transaction (`goodfetch-fetch-tier/src/gate.rs:790`), and each sitemap read reads it again and compiles its rules (`goodfetch-crawl/src/work_items.rs:289`, `goodfetch-frontier/src/sitemap.rs:551`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X7 | `F4.declaration_reads`, `F4.validator_builds` | F4 | Datasets read and a validator built per check (`goodfetch-crawl/src/lease.rs:404`, `goodfetch-dataset/src/declaration.rs:140`) | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
-| X8 | `F4.deep_copies` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`); suspected, confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X8 | `F4.deep_copies`, `F4.constant_lookups` | F4 | each Record's data is cloned and the Run's schema hash looked up per insert (`goodfetch-dataset/src/records.rs:93`), and the Clean-up rules' digest read again at each commit (`goodfetch-crawl/src/work_items.rs:794`); confirmed by B1's first figure | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X9 | `C1.file_opens`, `C1.log_sends_off` | C1 | the CDP command log is always on and its writer creates its folder and opens its file per batch (`goodfetch-page/src/driver.rs:312`, `goodfetch-page/src/trace.rs:93`, `:100`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X10 | `C2.commands`, `C2.world_creations`, `C2.document_worlds` | C2 | every read creates its isolated world (`goodfetch-page/src/driver.rs:1439`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X11 | `C3.script_sends`, `C3.check_commands` | C3 | every check sends `check.js`'s 9,631 bytes (`goodfetch-page/src/guard.rs:205`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X12 | `C4.detection_reads`, `C4.compilations` | C4 | up to 3 detection reads per navigation (`goodfetch-page/src/pages/blocked.rs:70`, `recovery.rs:257`, `consent.rs:212`); the Page check compiles its globs per judgment (`recovery.rs:179`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X12 | `C4.detection_reads`, `C4.compilations`, `C4.provenance_entries` | C4 | 4 detection reads per navigation on B2's first measure: the Block markers' (`goodfetch-page/src/pages/blocked.rs:72`), the Page check's or the built-in detector's (`recovery.rs:266`), the Consent prompt runner's first pass (`consent.rs:212`) and its start in each document (`consent.rs:412`), which cannot join the others (ADR 0140, open question 3); the Page check compiles its globs per judgment (`recovery.rs:182`); a Consent prompt's outcome writes a Provenance entry of its own beside the built-in detector's (`consent.rs:534`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X13 | `C5.spawns`, `C5.file_opens` | C5 | each refused request spawns a task that appends to the request log (`goodfetch-page/src/interception/pipeline.rs:1731`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X14 | `E1.deep_copies`, `E1.encodes` | E1 | each message is copied whole and walked about 5 times; each answer and event is encoded twice (`goodfetch-engine/src/rpc/framing.rs:179`, `composition.rs:438`, `rpc.rs:140`, `events.rs:202`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X16 | `E3.statements`, `E3.opens`, `E3.prepares` | E3 | each charge reads every Limit back (`goodfetch-engine/src/ledger/charging.rs:332`); each Slice opens a connection (`ledger.rs:278`, `:680`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X17 | `E4.configuration_reads`, `E4.meminfo_opens`, `E4.static_opens`, `E4.process_reads`, `E4.pool_walks` | E4 | each sample reads both settings files, opens `/proc/meminfo` 3 times, reads `self/cgroup` and `self/mountinfo`, and walks each browser twice (`goodfetch-engine/src/governor.rs:304`, `:319`); each page opened walks its browser again (`goodfetch-page/src/pool.rs:581`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X15 | `E2.configuration_reads`, `E2.opens`, `E2.prepares`, `E2.prunes`, `E2.transactions` | E2 | each entry reads both settings files, prunes, and opens the store twice with its schema set-up (`goodfetch-engine/src/audit.rs:284`, `:612`); each open commits its schema set-up, and a prune its own transaction, beside the append's | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X16 | `E3.statements`, `E3.slice_transactions`, `E3.opens`, `E3.prepares` | E3 | each charge reads every Limit back (`goodfetch-engine/src/ledger/charging.rs:332`); each Slice opens a connection and commits its set-up (`ledger.rs:278`, `:680`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X17 | `E4.configuration_reads`, `E4.meminfo_opens`, `E4.static_opens`, `E4.process_reads`, `E4.pool_walks` | E4 | each sample reads both settings files, opens `/proc/meminfo` 3 times, reads `self/cgroup` and `self/mountinfo`, and walks each browser twice (`goodfetch-engine/src/governor.rs:304`, `:319`); each page opened walks its browser again (`goodfetch-page/src/pool.rs:581`), which B2's first measure does not reach: its Borrowed browser skips the pool's walk, so `E4.pool_walks` reads 0 and only its plant proves the counter (#1874) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X18 | `C5.fetch_messages_no_rule` | C5 | every page pauses every request for the egress check, the domain policy and the relay's 407 (`goodfetch-page/src/interception.rs:576`, `:1084`); those are security guarantees of ADRs 0014 and 0017 until the relay enforces them | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
-| X19 | `E6.transactions`, `E6.opens`, `E6.robots_parses`, `E6.robots_reads` | E6 | each permit prepares its statements per call (`goodfetch-engine/src/politeness.rs:502`, `:576`); each request reads the robots.txt copy and parses it again (`goodfetch-frontier/src/robots_txt.rs`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
+| X19 | `E6.transactions`, `E6.opens`, `E6.robots_parses`, `E6.robots_reads`, `E6.off_work` | E6 | each permit prepares its statements per call (`goodfetch-engine/src/politeness.rs:502`, `:576`); each request reads the robots.txt copy and parses it again (`goodfetch-frontier/src/robots_txt.rs`); with Politeness and robots.txt off, admission still takes each Permit and the crawl still reads robots.txt (`goodfetch-engine/src/admission.rs`) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 | X20 | ADR 0071's +5 % comparison and ADR 0134's ceilings | all | `GATING` is `Informational` (ADR 0134): a waiver, which ends at #1577's merge or on this date, whichever comes first | Jean-Baptiste Manillier | 2027-01-30 | #1577 |
+| X21 | `C1.encodes` | C1 | a typed command's params are serialized to a `serde_json::Value` before the driver frames the command, two encodes of each (`goodfetch-cdp/src/connection.rs:282`, `:415`); found by B2's first measure (#1861's Decision 3) | Jean-Baptiste Manillier | 2027-01-30 | the Shared paths spec |
 
 ### Rules
 
@@ -1456,11 +1494,13 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 - **No gate is informational without an owner and an expiry.** A waiver names its figures, its owner and a date or a named merge, and the gate blocks again by itself when it ends (ADR 0134, as ADR 0140 amends it).
 - **Drift has a fixed baseline.** No counted figure passes 1.10 times its pinned reference build, #1577's tuned build and then each release tag, without an amendment the owner approves (ADR 0071, as ADR 0140 amends it).
 - **The register is the source of the numbers.** The gate's code reads the register, or the register check compares the two and fails on a difference, as for `xtask perf`'s ceilings.
-- **The register check runs with the merge gate.** It fails when:
-  - an enforced row's command does not exist;
+- **The register check, `xtask register check`, runs with the merge gate through `just lint`.** It fails when:
+  - an enforced row's command does not exist: each code span of its "Checked by" must be a recipe of the justfile, a command of `xtask`, a file of the repository, or text a recipe runs;
   - an Exception has expired;
-  - a path of ADR 0140 has no row, or a count in a Cost contract has no row;
-  - a row allows more than its contract's cap.
+  - a path of ADR 0140 has no row, or a count in a Cost contract has no row: a row holds a count when its Metric names every word of the count, the words after the count's number up to the first word that says where or when it applies;
+  - a row allows more than its contract's cap, or its Today figure is over its Contract with no Exception naming it;
+  - a ceiling of `xtask perf` differs from the row whose Benchmark names it, or either has no counterpart;
+  - a table it reads is missing or empty.
 - **Each counter proves it can fail.** A benchmark's own tests plant one extra unit of each counted work it gates and expect a failure.
 - **A row changes in the pull request that lowers its figure, raises it within its contract as its spec names, or amends ADR 0140.** Nothing waits for a separate maintenance task.
 
@@ -1762,8 +1802,8 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 
 ### Code coverage and mutation testing
 
-- **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service.
-- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and runs only while the month's count toward the ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks) is below 550 minutes; a skip says so in its job summary. Its results never decide a Feature's status: its step is no test step, and its JUnit files carry the runtime `instrumented`, a configuration of their own in the results store. It attaches its three reports to the run as `coverage-report` (`.github/workflows/coverage.yml`).
+- **Never gate on a percentage:** no `--fail-under-*`, no coverage or mutation score in any check, badge or pull request, and no coverage service. The Quality register's `coverage.project` ratchet opens an issue on a fall and fails nothing.
+- **The coverage job runs in no suite** on Linux x64, weekly (nightly once the nightly tier is on): cargo-llvm-cov over nextest and over every run of the instrumented binary through `show-env`, Vitest's `v8` provider on Node and in Browser Mode, coverage.py with branches. While the repository is private, it has a 60-minute timeout and runs only while the month's count toward the ceiling of [Flaky tests and Live checks](#flaky-tests-and-live-checks) is below 550 minutes; a skip says so in its job summary. Its results never decide a Feature's status: its step is no test step, and its JUnit files carry the runtime `instrumented`, a configuration of their own in the results store. It attaches its three reports to the run as `coverage-report` (`.github/workflows/coverage.yml`), and its `compare` job, which holds the issue token and runs none of the product, compares them with the [Quality register](#quality-register).
 - **Run `just coverage`** for the Pre-merge suite's tests of what changed (`just coverage all` for the whole workspace, as the job runs): every workspace crate is built for coverage into a target folder of its own, test support's map passes `LLVM_PROFILE_FILE` to every executable a test starts, and the reports go to `target/coverage/rust/`, `vitest/` and `python/`, written even when a test fails.
 - **Read coverage for gaps.** A function no test executes that hides a behaviour with no Feature gets a story, a Feature or a test.
 - **Every pull request that changes Rust code runs cargo-mutants `--in-diff`** with nextest on Linux x64, sharded within the 15-minute job budget, in a job that never fails on a survivor and is not part of "all green". While the repository is private, it runs on the owner's machine with the pull-request tier, using no included minutes, so neither the four-shard cap nor the 550-minute threshold applies to it ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)). The `affected` job counts the change's mutants and gives the `mutants` job one shard per 4 (`ci/mutants.sh`); each shard writes its surviving mutants to its job summary and attaches its report as `mutants-<k>`. Run `just mutants` for every mutant of your branch's committed Rust changes at once: it writes each mutant into the working tree and takes it out again.

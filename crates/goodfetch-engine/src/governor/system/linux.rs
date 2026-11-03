@@ -5,14 +5,21 @@
 //! children too; physical memory, `MemAvailable` and PSI's memory stalls;
 //! the PSS of the engine and every descendant, so pages its browsers share
 //! count once; and its CPU time.
+//!
+//! The opens a sample's Cost contract counts (ADR 0140's E4) go through
+//! [`CountedWork::open_file`]: `meminfo`, `self/cgroup` and `self/mountinfo`,
+//! and each process's `smaps_rollup`.
 #![expect(
     clippy::disallowed_methods,
     reason = "every read here runs under the governor's blocking policy (STYLE.md)"
 )]
 
+use std::fs::OpenOptions;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::governor::GovernorLevel;
 
 /// A cgroup v1 memory limit at or past this many bytes is no limit: the
@@ -28,18 +35,37 @@ const PSI_STALLED: f64 = 10.0;
 /// 100 for every user-space interface of the kernel.
 const USER_HZ: u64 = 100;
 
-/// A folder laid out as `/proc`.
-pub(super) struct Proc<'a>(pub(super) &'a Path);
+/// A folder laid out as `/proc`, and the Counted work its counted opens
+/// count on.
+pub(super) struct Proc<'a> {
+    pub(super) folder: &'a Path,
+    pub(super) work: &'a CountedWork,
+}
 
 impl Proc<'_> {
     fn read(&self, relative: &str) -> Option<String> {
-        std::fs::read_to_string(self.0.join(relative)).ok()
+        std::fs::read_to_string(self.folder.join(relative)).ok()
+    }
+
+    /// [`Self::read`], its open counted on `row`.
+    fn counted_read(&self, row: Row, relative: &str) -> Option<String> {
+        let mut file = self
+            .work
+            .open_file(
+                row,
+                OpenOptions::new().read(true),
+                &self.folder.join(relative),
+            )
+            .ok()?;
+        let mut text = String::new();
+        file.read_to_string(&mut text).ok()?;
+        Some(text)
     }
 
     /// The memory limit of the process's own cgroup, if any.
     pub(super) fn cgroup_limit(&self) -> Option<u64> {
-        let cgroups = self.read("self/cgroup")?;
-        let mounts = self.read("self/mountinfo")?;
+        let cgroups = self.counted_read(Row::GovernorStaticOpens, "self/cgroup")?;
+        let mounts = self.counted_read(Row::GovernorStaticOpens, "self/mountinfo")?;
         let v2 = cgroups
             .lines()
             .find_map(|line| line.strip_prefix("0::"))
@@ -77,11 +103,13 @@ impl Proc<'_> {
 
     /// `meminfo`'s field `name`, in bytes.
     fn meminfo(&self, name: &str) -> Option<u64> {
-        self.read("meminfo")?.lines().find_map(|line| {
-            let rest = line.strip_prefix(name)?.strip_prefix(':')?;
-            let kilobytes: u64 = rest.trim().strip_suffix("kB")?.trim().parse().ok()?;
-            Some(kilobytes * 1024)
-        })
+        self.counted_read(Row::GovernorMeminfoOpens, "meminfo")?
+            .lines()
+            .find_map(|line| {
+                let rest = line.strip_prefix(name)?.strip_prefix(':')?;
+                let kilobytes: u64 = rest.trim().strip_suffix("kB")?.trim().parse().ok()?;
+                Some(kilobytes * 1024)
+            })
     }
 
     /// Physical memory, in bytes.
@@ -149,18 +177,21 @@ impl Proc<'_> {
     }
 
     fn pss(&self, process: &str) -> u64 {
-        self.read(&format!("{process}/smaps_rollup"))
-            .and_then(|rollup| {
-                rollup.lines().find_map(|line| {
-                    let kilobytes = line.strip_prefix("Pss:")?.trim().strip_suffix("kB")?.trim();
-                    kilobytes.parse::<u64>().ok()
-                })
+        self.counted_read(
+            Row::GovernorProcessReads,
+            &format!("{process}/smaps_rollup"),
+        )
+        .and_then(|rollup| {
+            rollup.lines().find_map(|line| {
+                let kilobytes = line.strip_prefix("Pss:")?.trim().strip_suffix("kB")?.trim();
+                kilobytes.parse::<u64>().ok()
             })
-            .map_or(0, |kilobytes| kilobytes * 1024)
+        })
+        .map_or(0, |kilobytes| kilobytes * 1024)
     }
 
     fn children(&self, process: &str) -> Vec<String> {
-        let Ok(threads) = self.0.join(process).join("task").read_dir() else {
+        let Ok(threads) = self.folder.join(process).join("task").read_dir() else {
             return Vec::new();
         };
         let mut children: Vec<String> = threads

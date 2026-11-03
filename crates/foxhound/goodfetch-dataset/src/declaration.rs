@@ -13,6 +13,7 @@
 //! names each issue by its path, a JSON Pointer into the Record.
 
 use data_encoding::HEXLOWER;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::{
@@ -72,7 +73,13 @@ impl Datasets {
             let Some(schema) = &declaration.schema else {
                 continue;
             };
-            if let Err(error) = jsonschema::validator_for(schema) {
+            // Once per Dataset as the crawl starts, on no Record: no row's work.
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the declaration's one check of its schema, per Run and on no Record (ADR 0140)"
+            )]
+            let built = jsonschema::validator_for(schema);
+            if let Err(error) = built {
                 return Err(CallError::protocol(
                     ProtocolFailure::InvalidParams,
                     format!("The Dataset `{name}`'s schema is no JSON Schema: {error}"),
@@ -163,6 +170,18 @@ impl Datasets {
         Ok(Self(declared))
     }
 
+    /// [`read`](Self::read), as a Record's check does, counted on
+    /// `F4.declaration_reads`. A reader of a Dataset reads with [`read`](Self::read):
+    /// its unit is no Record.
+    ///
+    /// # Errors
+    ///
+    /// [`read`](Self::read)'s.
+    pub fn read_for_records(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
+        work.count(Row::RecordDeclarationReads);
+        Self::read(connection)
+    }
+
     /// `records`, once each holds for the Dataset it names.
     ///
     /// # Errors
@@ -171,9 +190,13 @@ impl Datasets {
     /// declare its Dataset; `record_invalid`, naming each issue's path, when
     /// it is no JSON object, does not fit its Dataset's schema, or lacks a
     /// field of the key of a Dataset with no schema.
-    pub fn check(&self, records: Vec<PushedRecord>) -> Result<Checked, CallError> {
+    pub fn check(
+        &self,
+        records: Vec<PushedRecord>,
+        work: &CountedWork,
+    ) -> Result<Checked, CallError> {
         for record in &records {
-            self.check_one(record)?;
+            self.check_one(record, work)?;
         }
         Ok(Checked::new(records))
     }
@@ -186,15 +209,19 @@ impl Datasets {
     /// [`check`](Self::check)'s, with the rejection to stage in its place
     /// when the crawl declares its Dataset: the Record, the error's
     /// message as the reason, and each issue (ADR 0103).
-    pub fn check_pushed(&self, record: PushedRecord) -> Result<Checked, Refused> {
-        let Err(error) = self.check_one(&record) else {
+    pub fn check_pushed(
+        &self,
+        record: PushedRecord,
+        work: &CountedWork,
+    ) -> Result<Checked, Refused> {
+        let Err(error) = self.check_one(&record, work) else {
             return Ok(Checked::new(vec![record]));
         };
         let rejected = match self.declared(&record.dataset) {
             Ok(declaration) => Checked::rejected(Rejection {
                 why: Why {
                     reason: error.message().to_owned(),
-                    issues: issues(declaration, &record.data),
+                    issues: issues(declaration, &record.data, work),
                     hook: None,
                 },
                 dataset: record.dataset,
@@ -254,10 +281,10 @@ impl Datasets {
         )
     }
 
-    fn check_one(&self, record: &PushedRecord) -> Result<(), CallError> {
+    fn check_one(&self, record: &PushedRecord, work: &CountedWork) -> Result<(), CallError> {
         let name = &record.dataset;
         let declaration = self.declared(name)?;
-        let issues = issues(declaration, &record.data);
+        let issues = issues(declaration, &record.data, work);
         if issues.is_empty() {
             return Ok(());
         }
@@ -285,7 +312,7 @@ fn required(schema: &Value) -> Vec<&str> {
 }
 
 /// Each way `data` does not hold for `declaration`.
-fn issues(declaration: &DatasetDeclaration, data: &Value) -> Vec<RecordIssue> {
+fn issues(declaration: &DatasetDeclaration, data: &Value, work: &CountedWork) -> Vec<RecordIssue> {
     let Some(object) = data.as_object() else {
         return vec![RecordIssue {
             path: String::new(),
@@ -294,9 +321,10 @@ fn issues(declaration: &DatasetDeclaration, data: &Value) -> Vec<RecordIssue> {
     };
     match &declaration.schema {
         Some(schema) => {
-            let Ok(validator) = jsonschema::validator_for(schema) else {
+            let Ok(validator) = counted_validator(work, schema) else {
                 return Vec::new();
             };
+            work.count(Row::RecordValidations);
             validator
                 .iter_errors(data)
                 .map(|error| RecordIssue {
@@ -335,3 +363,24 @@ fn described(issues: &[RecordIssue]) -> String {
 fn hash(schema: &Value) -> String {
     HEXLOWER.encode(&Sha256::digest(schema.to_string().as_bytes()))
 }
+
+/// The validator of `schema`, counted on `F4.validator_builds`: the one
+/// function a Record's check builds a validator through (ADR 0140).
+///
+/// # Errors
+///
+/// The validator's, when `schema` is no JSON Schema.
+pub fn counted_validator<'schema>(
+    work: &CountedWork,
+    schema: &'schema Value,
+) -> Result<jsonschema::Validator, jsonschema::ValidationError<'schema>> {
+    work.count(Row::RecordValidatorBuilds);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one counted function of a Record's validator build (ADR 0140)"
+    )]
+    jsonschema::validator_for(schema)
+}
+
+#[cfg(test)]
+mod tests;

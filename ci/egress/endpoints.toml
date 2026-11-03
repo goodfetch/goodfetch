@@ -119,9 +119,14 @@ job = "test-health.yml#budget"
 reason = "It counts the month's minutes from the results store; it runs none of the product."
 
 # The coverage job (ADR 0072): its tests run the instrumented product under
-# the deny; `budget` only counts the month's minutes.
+# the deny; `budget` only counts the month's minutes, and `compare` only reads
+# the reports and keeps its issue.
 [[deny]]
 job = "coverage.yml#coverage"
+
+[[outside]]
+job = "coverage.yml#compare"
+reason = "It compares the job's reports with the Quality register and opens its issue through GitHub's API (ADR 0072); it runs none of the product."
 
 [[outside]]
 job = "coverage.yml#budget"

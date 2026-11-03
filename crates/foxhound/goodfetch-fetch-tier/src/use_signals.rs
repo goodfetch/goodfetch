@@ -137,6 +137,14 @@ impl UseSignals {
     /// `Link` header's license is resolved against `url`. A response that
     /// holds no document is read with an empty `html`.
     #[must_use]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     pub fn with_markup(mut self, html: &str, url: &Url) -> Self {
         self.license = self
             .license_header

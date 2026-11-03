@@ -64,6 +64,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use data_encoding::BASE64;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -426,6 +427,7 @@ impl EgressRelay {
                 run.owner().child(),
                 run.folder(),
                 run.secrets().mask().clone(),
+                run.metrics().counted_work().clone(),
             )),
             met,
             refusals: Mutex::new(VecDeque::new()),
@@ -698,6 +700,7 @@ impl Observe for Record {
                 run.owner(),
                 run.folder(),
                 run.secrets().mask(),
+                run.metrics().counted_work(),
                 &entry,
             )
             .await
@@ -780,6 +783,10 @@ impl Record {
             method: method.to_owned(),
             failure,
         };
+        self.run
+            .metrics()
+            .counted_work()
+            .count(Row::InterceptedSpawns);
         self.run.spawn(async move {
             if let Err(error) = log.request_failed(&failed).await {
                 tracing::warn!(%error, "the Run trace did not take a connection the egress relay refused");

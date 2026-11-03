@@ -197,6 +197,7 @@ fn a_refused_request_no_call_waits_on_is_a_request_failed_event_in_the_run_trace
         TaskOwner::root(BlockingPolicy::Inline),
         &run_folder,
         Masks::new().for_run(Redaction::On),
+        goodfetch_counted_work::CountedWork::default(),
     );
     let runtime = goodfetch_test_support::runtime();
 

@@ -69,6 +69,10 @@ pub async fn send_events(stream: &CallStream, events: Vec<EventEnvelope>) -> boo
     stream.notify(EVENTS, &batch).await
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 async fn read_body(
     params: PageBodyParams,
     context: CallContext,

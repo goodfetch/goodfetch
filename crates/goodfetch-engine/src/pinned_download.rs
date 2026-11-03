@@ -312,6 +312,10 @@ pub(crate) enum Failure {
 ///
 /// Dropping the future closes the connection and leaves `into` partly
 /// written, for its caller to remove.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) async fn download(
     url: &PinnedUrl,
     pinned: Digest,

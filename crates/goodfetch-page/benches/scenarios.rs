@@ -82,6 +82,7 @@ use goodfetch_cdp::{Connection, Framer};
 use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::{Policy, RequestKind};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
@@ -128,7 +129,7 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer);
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
         let (_, ready, ()) = tokio::join!(
             driver.run(),
             async {
@@ -281,6 +282,7 @@ pub(crate) fn filter_lists(count: usize) -> (usize, steps::Blocking) {
             annoyances: true,
             ..Choices::default()
         },
+        work: CountedWork::default(),
     };
     (count, blocking)
 }
@@ -296,7 +298,7 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer);
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
         let (_, sent_on, ()) = tokio::join!(
             driver.run(),
             async {

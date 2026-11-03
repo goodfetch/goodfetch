@@ -40,9 +40,11 @@
 //! a dev-dependency.
 
 mod browsers;
+pub mod callgrind;
 mod canaries;
 mod cli;
 mod colour;
+mod counting_vfs;
 mod crash_dumps;
 mod crash_vfs;
 mod daemon;
@@ -109,6 +111,7 @@ pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
 pub use colour::{ColourError, ColourProperty};
+pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
     AfterCrashError, Crash, CrashKind, CrashVfs, CrashVfsError, CrashedFile, IoFault, Landed,

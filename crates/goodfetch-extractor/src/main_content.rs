@@ -7,7 +7,7 @@
 //! article): then the answer is empty, never the page's chrome, which
 //! Readability falls back to, in its place (pitfall D02).
 
-use dom_query::Document;
+use goodfetch_counted_work::{CountedWork, Row};
 
 use crate::extractor::{Extractor, dom_smoothie_article};
 
@@ -27,23 +27,37 @@ pub(crate) fn main_content(
     html: &str,
     url: &str,
     extractor: &dyn Extractor,
+    work: &CountedWork,
 ) -> Option<(String, usize)> {
-    read(html, url, extractor)
+    read(html, url, extractor, work)
 }
 
 /// The length of the text of the main content `extractor` finds in `html`,
 /// read at `url`, white space aside, in characters; 0 when it has none.
-pub(crate) fn main_text_length(html: &str, url: &str, extractor: &dyn Extractor) -> usize {
-    read(html, url, extractor).map_or(0, |(_, length)| length)
+pub(crate) fn main_text_length(
+    html: &str,
+    url: &str,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> usize {
+    read(html, url, extractor, work).map_or(0, |(_, length)| length)
 }
 
 /// The text of `html`'s main content, read at `url`, and its title, each
 /// with every run of white space made one space and none at either end;
 /// an empty text when it has no main content.
-pub(crate) fn title_and_main_text(html: &str, url: &str) -> (String, String) {
-    let title = collapsed(&Document::from(html).select("head title").text());
-    let text = has_content_text(html)
-        .then(|| dom_smoothie_article(html, url))
+pub(crate) fn title_and_main_text(html: &str, url: &str, work: &CountedWork) -> (String, String) {
+    let title = collapsed(
+        &work
+            .parse_html(Row::PageParses, html)
+            .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "head title"))
+            .text(),
+    );
+    let text = has_content_text(html, work)
+        .then(|| {
+            work.count(Row::PageReadabilityRuns);
+            dom_smoothie_article(html, url)
+        })
         .flatten()
         .map(|article| collapsed(&article.text_content))
         .unwrap_or_default();
@@ -61,8 +75,14 @@ fn collapsed(text: &str) -> String {
 /// document holds some answers what is left of its body outside those
 /// landmarks: a document with text a person reads is never answered as
 /// one without (pitfall D02).
-fn read(html: &str, url: &str, extractor: &dyn Extractor) -> Option<(String, usize)> {
-    let remaining = outside_landmarks(html)?;
+fn read(
+    html: &str,
+    url: &str,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> Option<(String, usize)> {
+    let remaining = outside_landmarks(html, work)?;
+    work.count(Row::PageReadabilityRuns);
     let found = extractor.main_content(html, url).map(|content| {
         let length = text_length(&content);
         (content, length)
@@ -77,31 +97,42 @@ fn read(html: &str, url: &str, extractor: &dyn Extractor) -> Option<(String, usi
 }
 
 /// The length of the text of the HTML fragment `html`, white space aside.
+#[expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
+)]
 fn text_length(html: &str) -> usize {
-    visible(&Document::fragment(html).root().text())
+    visible(&dom_query::Document::fragment(html).root().text())
         .chars()
         .count()
 }
 
 /// Whether `html` holds text outside its navigation landmarks.
-fn has_content_text(html: &str) -> bool {
-    outside_landmarks(html).is_some()
+fn has_content_text(html: &str, work: &CountedWork) -> bool {
+    outside_landmarks(html, work).is_some()
 }
 
 /// The HTML of `html`'s body without its navigation landmarks and what no
 /// person reads; none when no text is left in it.
-fn outside_landmarks(html: &str) -> Option<String> {
-    let document = Document::from(html);
-    document.select(NOT_CONTENT).remove();
-    for landmark in document.select("header, footer").nodes() {
+fn outside_landmarks(html: &str, work: &CountedWork) -> Option<String> {
+    let document = work.parse_html(Row::PageParses, html);
+    document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
+        .remove();
+    for landmark in document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "header, footer"))
+        .nodes()
+    {
+        let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
         if !landmark
             .ancestors_it(None)
-            .any(|ancestor| ancestor.is(SECTIONING))
+            .any(|ancestor| ancestor.is_match(&sectioning))
         {
             landmark.remove_from_parent();
         }
     }
-    let body = document.select("body");
+    let body =
+        document.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"));
     (!visible(&body.text()).is_empty()).then(|| body.inner_html().to_string())
 }
 

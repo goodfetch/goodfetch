@@ -28,5 +28,12 @@ fn a_static_documents_matches_are_its_markups_or_unknown(
     #[case] selector: &str,
     #[case] expected: Option<u64>,
 ) {
-    assert_eq!(matches(html, selector), expected);
+    assert_eq!(
+        matches(
+            html,
+            selector,
+            &goodfetch_counted_work::CountedWork::default()
+        ),
+        expected
+    );
 }

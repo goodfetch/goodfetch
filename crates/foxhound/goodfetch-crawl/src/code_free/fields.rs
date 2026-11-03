@@ -19,6 +19,7 @@
 //! relative time (`currency`, `relative_time`) are the Value transforms'
 //! parsers' (#844, #848).
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_fetch_tier::{FieldElement, check_selector, check_xpath};
 use goodfetch_frontier::Url;
 use goodfetch_protocol::foxhound::crawl::{ExtractionField, FieldLocator, FieldTransform};
@@ -87,28 +88,39 @@ enum Typed {
 impl Reader {
     /// What `field` reads with: a `match` pattern that does not compile,
     /// which [`check`] refused at the start, matches nothing.
-    pub(crate) fn of(field: &ExtractionField) -> Self {
+    pub(crate) fn of(field: &ExtractionField, work: &CountedWork) -> Self {
+        let forms = || work.count(Row::PageLocaleFormBuilds);
         let matched = field.matched.as_ref().and_then(|matched| {
             Some((
-                Regex::new(&matched.pattern).ok()?,
+                work.compile_regex(Row::PageSelectorCompilations, &matched.pattern)
+                    .ok()?,
                 usize::try_from(matched.group).ok()?,
             ))
         });
         let typed = match &field.transform {
             FieldTransform::Text => Typed::Text,
-            FieldTransform::Number { locale } => Typed::Number {
-                locale: locale.clone(),
-                printed: printed::Numbers::of(locale),
-            },
-            FieldTransform::Date { locale } => Typed::Date {
-                locale: locale.clone(),
-                printed: printed::Dates::of(locale),
-            },
-            FieldTransform::DateTime { locale, time_zone } => Typed::DateTime {
-                locale: locale.clone(),
-                time_zone: time_zone.clone(),
-                printed: printed::DateTimes::of(locale),
-            },
+            FieldTransform::Number { locale } => {
+                forms();
+                Typed::Number {
+                    locale: locale.clone(),
+                    printed: printed::Numbers::of(locale),
+                }
+            }
+            FieldTransform::Date { locale } => {
+                forms();
+                Typed::Date {
+                    locale: locale.clone(),
+                    printed: printed::Dates::of(locale),
+                }
+            }
+            FieldTransform::DateTime { locale, time_zone } => {
+                forms();
+                Typed::DateTime {
+                    locale: locale.clone(),
+                    time_zone: time_zone.clone(),
+                    printed: printed::DateTimes::of(locale),
+                }
+            }
         };
         Self { matched, typed }
     }
@@ -130,6 +142,10 @@ enum Form {
 /// # Errors
 ///
 /// What is wrong with it, in a sentence naming the field.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
 pub(crate) fn check(name: &str, field: &ExtractionField) -> Result<(), String> {
     match &field.locator {
         FieldLocator::Css { selector } => {

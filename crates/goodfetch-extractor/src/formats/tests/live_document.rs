@@ -4,6 +4,10 @@
 //! host's own children; and the Clean-up rules' cosmetic matcher, which the
 //! call's `Context` carries (ADR 0047), applied before the main-content
 //! step and the Markdown converter.
+#![expect(
+    clippy::disallowed_types,
+    reason = "ADR 0140: a test's own parse, on no Shared path"
+)]
 
 use std::cell::RefCell;
 
@@ -113,6 +117,10 @@ struct AdSlots {
 }
 
 impl CleanUp for AdSlots {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    )]
     fn remove(&self, html: &str, url: &str) -> String {
         assert_eq!(url, URL);
         self.given.borrow_mut().push(html.to_owned());

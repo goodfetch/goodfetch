@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 
 use data_encoding::HEXLOWER;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
@@ -72,6 +73,10 @@ impl PayloadRules {
     /// # Errors
     ///
     /// `invalid_params` naming a Label whose schema is no JSON Schema.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the declaration's one check of its schema, as the crawl starts (ADR 0140)"
+    )]
     pub fn of(
         settings: &Resolved,
         labels: &BTreeMap<String, LabelDeclaration>,
@@ -150,8 +155,14 @@ impl PayloadRules {
     ///
     /// `payload_invalid` when its JSON is longer than the cap, or it does
     /// not fit its Label's schema.
-    pub fn check(&self, label: &str, payload: Option<&Value>) -> Result<(), CallError> {
+    pub fn check(
+        &self,
+        label: &str,
+        payload: Option<&Value>,
+        work: &CountedWork,
+    ) -> Result<(), CallError> {
         if let Some(payload) = payload {
+            work.count(Row::PayloadSerializations);
             let size = u64::try_from(payload.to_string().len()).unwrap_or(u64::MAX);
             if size > self.max_size {
                 return Err(CallError::new(
@@ -173,6 +184,8 @@ impl PayloadRules {
         let Some(Some(schema)) = self.labels.get(label) else {
             return Ok(());
         };
+        work.count(Row::PayloadCompilations);
+        work.count(Row::PayloadValidations);
         let issues = issues(schema, payload);
         if issues.is_empty() {
             return Ok(());
@@ -284,8 +297,10 @@ pub fn store(
     connection: &Connection,
     request: &str,
     payload: Option<&Value>,
+    work: &CountedWork,
 ) -> rusqlite::Result<()> {
     if let Some(payload) = payload {
+        work.count(Row::PayloadSerializations);
         connection.execute(
             "INSERT INTO payloads (request, payload) VALUES (?1, ?2)",
             (request, payload.to_string()),
@@ -324,6 +339,10 @@ fn hash(schema: &Value) -> String {
 
 /// Each way `payload`, a missing one read as `null`, does not fit
 /// `schema`, a JSON Schema [`PayloadRules::of`] checked.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a Payload's validator, which `F3.compilations` has yet to count (ADR 0140)"
+)]
 fn issues(schema: &Value, payload: Option<&Value>) -> Vec<PayloadIssue> {
     let Ok(validator) = jsonschema::validator_for(schema) else {
         return Vec::new();

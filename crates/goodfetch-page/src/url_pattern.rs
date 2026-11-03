@@ -7,6 +7,7 @@
 //! runs in the program instead. Mapping a TypeScript `RegExp`'s or a Python
 //! `re.Pattern`'s flags and classes into this syntax is the SDKs' (area 11).
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{PATTERN_UNSUPPORTED, PatternConstruct, PatternUnsupportedDetails};
 use regex::Regex;
@@ -31,9 +32,27 @@ impl UrlPattern {
     /// [`UnsupportedPattern`] for nested or unmatched braces, which
     /// Playwright refuses too.
     pub fn glob(glob: &str) -> Result<Self, UnsupportedPattern> {
+        Self::glob_compiled(glob, uncounted)
+    }
+
+    /// [`Self::glob`], compiled through `work`'s counted function on `row`
+    /// (ADR 0140).
+    pub(crate) fn counted_glob(
+        work: &CountedWork,
+        row: Row,
+        glob: &str,
+    ) -> Result<Self, UnsupportedPattern> {
+        Self::glob_compiled(glob, |source| work.compile_regex(row, source))
+    }
+
+    /// [`Self::glob`], its expression compiled by `compile`.
+    fn glob_compiled(
+        glob: &str,
+        compile: impl FnOnce(&str) -> Result<Regex, regex::Error>,
+    ) -> Result<Self, UnsupportedPattern> {
         if glob.is_empty() {
             return Ok(Self {
-                regex: Regex::new("").expect("invariant: the empty expression compiles"),
+                regex: compile("").expect("invariant: the empty expression compiles"),
             });
         }
         let source = glob_source(&resolve(glob)).map_err(|construct| UnsupportedPattern {
@@ -44,7 +63,7 @@ impl UrlPattern {
                 _ => "a `{` or `}` with no match".to_owned(),
             },
         })?;
-        let regex = Regex::new(&source).map_err(|error| UnsupportedPattern {
+        let regex = compile(&source).map_err(|error| UnsupportedPattern {
             pattern: glob.to_owned(),
             construct: PatternConstruct::Other,
             description: format!("a glob too large to compile ({error})"),
@@ -60,6 +79,24 @@ impl UrlPattern {
     /// [`UnsupportedPattern`] naming the construct, for look-around, a
     /// back-reference or any other construct outside that syntax.
     pub fn regex(source: &str) -> Result<Self, UnsupportedPattern> {
+        Self::regex_compiled(source, uncounted)
+    }
+
+    /// [`Self::regex`], compiled through `work`'s counted function on `row`
+    /// (ADR 0140).
+    pub(crate) fn counted_regex(
+        work: &CountedWork,
+        row: Row,
+        source: &str,
+    ) -> Result<Self, UnsupportedPattern> {
+        Self::regex_compiled(source, |source| work.compile_regex(row, source))
+    }
+
+    /// [`Self::regex`], compiled by `compile`.
+    fn regex_compiled(
+        source: &str,
+        compile: impl FnOnce(&str) -> Result<Regex, regex::Error>,
+    ) -> Result<Self, UnsupportedPattern> {
         let unsupported = |construct, description| UnsupportedPattern {
             pattern: source.to_owned(),
             construct,
@@ -69,7 +106,7 @@ impl UrlPattern {
             let (construct, description) = construct_of(&error);
             return Err(unsupported(construct, description));
         }
-        let regex = Regex::new(source).map_err(|error| {
+        let regex = compile(source).map_err(|error| {
             unsupported(
                 PatternConstruct::Other,
                 format!("a regular expression too large to compile ({error})"),
@@ -82,6 +119,15 @@ impl UrlPattern {
     pub fn matches(&self, url: &str) -> bool {
         self.regex.is_match(url)
     }
+}
+
+/// `source` compiled on no counted row: a pattern of a path with no row yet.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+)]
+fn uncounted(source: &str) -> Result<Regex, regex::Error> {
+    Regex::new(source)
 }
 
 /// A glob's `**`: Playwright's `.*`, any characters but a line

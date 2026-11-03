@@ -22,6 +22,7 @@ fn waiting_for_a_command_the_stopped_stream_never_read_ends_with_the_stream() {
             EventsOptions::default(),
             EngineInstance::new("0123456789abcdef"),
             &owner,
+            goodfetch_counted_work::CountedWork::default(),
         );
         let permit = events.commands.reserve().await.unwrap();
         owner.stop().await;

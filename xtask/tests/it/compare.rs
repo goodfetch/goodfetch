@@ -19,12 +19,22 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 5] = [
+const CELLS: [(&str, &str, &str); 15] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("durable", "foxhound full", "foxhound"),
+    ("polite", "foxhound", "foxhound"),
+    ("polite", "crawlee", "crawlee"),
+    ("polite", "scrapy", "scrapy"),
+    ("extraction", "foxhound", "foxhound"),
+    ("extraction", "spider", "spider"),
+    ("extraction", "crawlee", "crawlee"),
+    ("extraction", "scrapy", "scrapy"),
+    ("browser", "spider", "spider"),
+    ("browser", "crawlee", "crawlee"),
+    ("browser", "scrapy", "scrapy"),
 ];
 
 /// The work of a trial that fetched each page of the 1,000-page site once,
@@ -139,6 +149,9 @@ fn trials() -> Value {
             "spider": "2.53.9",
             "crawlee": "3.18.2",
             "scrapy": "2.19.0",
+            "playwright": "1.64.1",
+            "scrapy_playwright": "0.0.48",
+            "browser": "156.0.8078.4",
         },
         "machine": {
             "class": "local-controlled",
@@ -442,7 +455,9 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "Crawlee 3.18.2 (`@crawlee/cheerio`) on Node.js and Scrapy 2.19.0 on CPython",
+        "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
+         Node.js and Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
+         every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
         "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
          `maxConcurrency: 16`",
         "- **scrapy**: a default `scrapy.Spider`",
@@ -450,6 +465,102 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
          `DOWNLOAD_DELAY: 0`",
         "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
         "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// Scenarios 3 to 5 (#1903): the polite crawl of the multi-domain site,
+/// extraction to a dataset and the headless browser each report every
+/// metric for each measured cell, with its mapping; Spider's polite cell
+/// says why Spider cannot be polite to each domain, and Foxhound's browser
+/// cell why it gives no figure yet.
+#[test]
+fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let names = |cell: &Value| {
+        cell["metrics"]
+            .as_object()
+            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
+    };
+    let foxhound = names(cell(&report, 0, "foxhound"));
+    let scenarios: Vec<&Value> = (2..5)
+        .map(|index| &report["scenarios"][index]["scenario"])
+        .collect();
+    assert_eq!(
+        scenarios,
+        [&json!("polite"), &json!("extraction"), &json!("browser")]
+    );
+    for (index, cells) in [
+        (2, &["foxhound", "crawlee", "scrapy"][..]),
+        (3, &["foxhound", "spider", "crawlee", "scrapy"][..]),
+        (4, &["spider", "crawlee", "scrapy"][..]),
+    ] {
+        for name in cells {
+            let cell = cell(&report, index, name);
+            assert_eq!(
+                (&cell["status"], names(cell)),
+                (&json!("measured"), foxhound.clone()),
+                "scenario {index}'s {name}"
+            );
+        }
+    }
+    assert_eq!(
+        (
+            &cell(&report, 2, "spider")["status"],
+            &cell(&report, 4, "foxhound")["status"]
+        ),
+        (&json!("not_supported"), &json!("pending"))
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (50 domains)",
+        "## 4. Extraction to a dataset",
+        "## 5. Headless browser",
+        "- **crawlee**: `CheerioCrawler` with `sameDomainDelaySecs: 1`, `respectRobotsTxtFile: true`",
+        "- **scrapy**: `scrapy-playwright`'s download handler for every request",
+        "- **spider**: none: Spider's delay and robots.txt are its crawl's, not each domain's",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// Each trial records the 1-minute load it started at, which the trials
+/// table shows, and the report says how many timed trials started above a
+/// quiet machine's 4.
+#[test]
+fn the_report_shows_the_load_each_trial_started_at() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for (index, trial) in trials["trials"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        trial["load"] = json!(if index == 0 { 6.5 } else { 1.25 });
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
+        "| raw | foxhound | 1 | 6.50 | 1.000 |",
+        "| raw | foxhound | 2 | 1.25 | 2.000 |",
+        "1 of the 45 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

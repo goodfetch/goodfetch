@@ -14,7 +14,7 @@ use super::matrix::{CELLS, Cell, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    TRIALS, Trial,
+    QUIET_LOAD, TRIALS, Trial,
 };
 
 /// The span of one window of the core sampling.
@@ -689,8 +689,10 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          `local-controlled`, never published (ADR 0076): {} {} on {}, {} threads{load}, at commit `{}`.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
-         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`) on Node.js and Scrapy {} on \
-         CPython; each figure the {}. Every figure is measured from outside the tools: \
+         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
+         Playwright {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
+         CPython, every tool of the headless browser scenario running Chrome for Testing {}; each \
+         figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
          the data folder left. Every cell passed the same-work check.\n",
@@ -705,7 +707,11 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.site,
         declared.spider,
         declared.crawlee,
+        declared.playwright,
         declared.scrapy,
+        declared.scrapy_playwright,
+        declared.playwright,
+        declared.browser,
         declared.statistic,
     );
     if !report.enough_trials {
@@ -808,16 +814,32 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
         }
     }
+    text.push_str("\n## Trials, in the order run\n\n");
+    let unquiet = trials
+        .trials
+        .iter()
+        .filter(|trial| trial.load.is_some_and(|load| load >= QUIET_LOAD))
+        .count();
+    if unquiet > 0 {
+        let _ = writeln!(
+            text,
+            "{unquiet} of the {} timed trials started above a 1-minute load of {QUIET_LOAD}.\n",
+            trials.trials.len()
+        );
+    }
     text.push_str(
-        "\n## Trials, in the order run\n\n| Scenario | Cell | Trial | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|\n",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|\n",
     );
     for trial in &trials.trials {
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
+            "| {} | {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
             trial.scenario.name(),
             trial.cell,
             trial.number,
+            trial
+                .load
+                .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),
             trial.measured.seconds,
             rate(trial),
             float(peak(trial)) / MIB

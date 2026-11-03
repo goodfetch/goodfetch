@@ -39,9 +39,9 @@ pub(crate) struct Observed {
     pub(crate) page_times: Vec<f64>,
 }
 
-/// The site a trial crawled.
+/// The site a trial crawled: its hosts, and its pages.
 pub(crate) struct Site<'a> {
-    pub(crate) host: &'a str,
+    pub(crate) hosts: &'a [&'a str],
     pub(crate) pages: u64,
 }
 
@@ -64,10 +64,12 @@ fn parent(page: u64) -> Option<u64> {
     (page > 1).then(|| (page - 2) / 10 + 1)
 }
 
-/// Whether a request's `host` names `host`, with or without its port.
-fn on_host(request: &Value, host: &str) -> bool {
+/// Whether a request's `host` names one of `hosts`, with or without its
+/// port.
+fn on_host(request: &Value, hosts: &[&str]) -> bool {
     request["host"].as_str().is_some_and(|seen| {
-        seen == host || seen.split_once(':').is_some_and(|(name, _)| name == host)
+        let name = seen.split_once(':').map_or(seen, |(name, _)| name);
+        hosts.contains(&name)
     })
 }
 
@@ -118,7 +120,7 @@ pub(crate) fn observe(
     );
     let on_site: Vec<&Value> = requests
         .iter()
-        .filter(|request| on_host(request, site.host))
+        .filter(|request| on_host(request, site.hosts))
         .collect();
     let marker = *on_site
         .iter()
@@ -134,14 +136,18 @@ pub(crate) fn observe(
             .or_else(|| request["timing"]["arrived_microseconds"].as_u64())
             .map(seconds_of)
     };
+    // Every byte of the connections to the site's hosts, the marker's
+    // left out.
+    let host_bytes = |direction: &str| -> u64 {
+        site.hosts
+            .iter()
+            .filter_map(|host| observations["hosts"][*host][direction].as_u64())
+            .sum()
+    };
     let mut observed = Observed {
-        sent_bytes: observations["hosts"][site.host]["received"]
-            .as_u64()
-            .unwrap_or(0)
+        sent_bytes: host_bytes("received")
             .saturating_sub(marker["bytes"]["received"].as_u64().unwrap_or(0)),
-        received_bytes: observations["hosts"][site.host]["sent"]
-            .as_u64()
-            .unwrap_or(0)
+        received_bytes: host_bytes("sent")
             .saturating_sub(marker["bytes"]["sent"].as_u64().unwrap_or(0)),
         startup_seconds: f64::NAN,
         first_page_seconds: f64::NAN,

@@ -9,6 +9,12 @@ pub(crate) use super::matrix::Tool;
 
 /// Trials of each measured cell, interleaved in random order.
 pub(crate) const TRIALS: u32 = 10;
+/// The 1-minute load average under which a machine counts as quiet: each
+/// timed trial waits for it before it starts.
+pub(crate) const QUIET_LOAD: f64 = 4.0;
+/// The longest a timed trial waits for a quiet machine before it starts
+/// anyway, its load recorded.
+pub(crate) const QUIET_WAIT_SECONDS: u64 = 30 * 60;
 /// The statistic each figure is reported as, with its spread.
 pub(crate) const STATISTIC: &str = "median, with the lowest and highest trial";
 /// Requests in flight at once, for each tool: the resident-memory check's
@@ -29,6 +35,12 @@ pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 /// `xtask/compare-scrapy/pyproject.toml` (unit tests hold each equal).
 pub(crate) const CRAWLEE_VERSION: &str = "3.18.2";
 pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
+/// Playwright's pinned version, which both sides' headless browser crawls
+/// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
+/// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
+/// in the latter (unit tests hold each equal).
+pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
+pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -52,6 +64,11 @@ pub(crate) struct Declared {
     pub(crate) spider: String,
     pub(crate) crawlee: String,
     pub(crate) scrapy: String,
+    pub(crate) playwright: String,
+    pub(crate) scrapy_playwright: String,
+    /// The Chrome for Testing build every tool of the headless browser
+    /// scenario runs.
+    pub(crate) browser: String,
 }
 
 /// The machine the trials ran on: never a published host (ADR 0076).
@@ -140,6 +157,10 @@ pub(crate) struct Trial {
     pub(crate) number: u32,
     /// The pages of the site it crawled.
     pub(crate) site_pages: u64,
+    /// The 1-minute load average when it started, where the OS gives one:
+    /// a quiet machine is under [`QUIET_LOAD`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
     #[serde(flatten)]
     pub(crate) measured: Measured,
 }

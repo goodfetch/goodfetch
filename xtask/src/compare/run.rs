@@ -15,7 +15,8 @@ use super::matrix::{self, Cell, Config, Scenario};
 use super::trial::{Counted, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
-    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, SCRAPY_VERSION, SITE_PAGES,
+    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
+    QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
     SPIDER_VERSION, STATISTIC, Trial,
 };
 
@@ -24,10 +25,16 @@ pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
     pub(crate) spider: &'a Path,
+    /// Spider's side built with its `chrome` feature, for the headless
+    /// browser scenario.
+    pub(crate) spider_chrome: &'a Path,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
     /// Python environment beside it.
     pub(crate) crawlee: &'a Path,
     pub(crate) scrapy: &'a Path,
+    /// Chrome for Testing's folder, which every tool of the headless
+    /// browser scenario runs.
+    pub(crate) browser: &'a Path,
 }
 
 /// What a run was asked for.
@@ -102,9 +109,7 @@ fn machine() -> Machine {
             cpu,
         )
     };
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|text| text.split_whitespace().next()?.parse().ok());
+    let load = load();
     Machine {
         class: "local-controlled".to_owned(),
         os,
@@ -112,6 +117,43 @@ fn machine() -> Machine {
         cpu,
         threads: std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
         load,
+    }
+}
+
+/// The 1-minute load average now, where the OS gives one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: it reads /proc with a blocking call (STYLE.md)"
+)]
+fn load() -> Option<f64> {
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|text| text.split_whitespace().next()?.parse().ok())
+}
+
+/// Waits, up to [`QUIET_WAIT_SECONDS`], for the 1-minute load to fall under
+/// [`QUIET_LOAD`], so a timed trial starts on a quiet machine, a browser
+/// trial's own load included; the load it starts at, where the OS gives
+/// one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: a run waits for a quiet machine by sleeping between reads of its load (STYLE.md)"
+)]
+fn quiet() -> Option<f64> {
+    const POLL_SECONDS: u64 = 10;
+    let mut waited = 0;
+    loop {
+        let now = load()?;
+        if now < QUIET_LOAD || waited >= QUIET_WAIT_SECONDS {
+            if waited > 0 {
+                output::line(&format!(
+                    "Waited {waited} s for the 1-minute load to fall under {QUIET_LOAD}: {now:.2}."
+                ));
+            }
+            return Some(now);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(POLL_SECONDS));
+        waited += POLL_SECONDS;
     }
 }
 
@@ -142,7 +184,8 @@ fn trial<T: serde::de::DeserializeOwned>(
 ) -> Result<T> {
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound,
-        Config::Spider => executables.spider,
+        Config::Spider { chrome: false } => executables.spider,
+        Config::Spider { chrome: true } => executables.spider_chrome,
         Config::Crawlee => executables.crawlee,
         Config::Scrapy => executables.scrapy,
     };
@@ -154,7 +197,9 @@ fn trial<T: serde::de::DeserializeOwned>(
         .args(["--cell", cell.name, "--executable"])
         .arg(executable)
         .args(["--address", &serving.address, "--pages", &pages.to_string()])
-        .args(["--concurrency", &CONCURRENCY.to_string(), "--mode", mode.0]);
+        .args(["--concurrency", &CONCURRENCY.to_string(), "--mode", mode.0])
+        .arg("--browser")
+        .arg(executables.browser);
     if let Some(output) = mode.1 {
         command.arg("--output").arg(output);
     }
@@ -181,7 +226,7 @@ fn trial<T: serde::de::DeserializeOwned>(
 /// The pages of the site `config`'s tool crawls.
 fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     match config {
-        Config::Spider => spider_pages.unwrap_or(pages),
+        Config::Spider { .. } => spider_pages.unwrap_or(pages),
         Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => pages,
     }
 }
@@ -198,6 +243,7 @@ fn timed(
     let mut trials = Vec::new();
     for (cell, config, number) in order(&cells, options.trials, state) {
         let site_pages = pages_of(config, pages, options.spider_pages);
+        let load = quiet();
         let measured: Measured = trial(executables, cell, config, site_pages, ("timed", None))?;
         output::line(&format!(
             "{pass}{} {} trial {number}: {} pages in {:.3} s, peak {} bytes",
@@ -213,6 +259,7 @@ fn timed(
             tool: config.tool(),
             number,
             site_pages,
+            load,
             measured,
         });
     }
@@ -332,6 +379,9 @@ pub(crate) fn run(
             spider: SPIDER_VERSION.to_owned(),
             crawlee: CRAWLEE_VERSION.to_owned(),
             scrapy: SCRAPY_VERSION.to_owned(),
+            playwright: PLAYWRIGHT_VERSION.to_owned(),
+            scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
+            browser: super::trial::CHROME_FOR_TESTING_BUILD.to_owned(),
         },
         machine,
         commit,

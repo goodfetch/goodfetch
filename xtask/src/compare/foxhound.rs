@@ -1,6 +1,6 @@
 //! Foxhound's side of a trial: its Attached engine driven over JSON-RPC
-//! through one code-free crawl of the site on its `http` tier, at a cell's
-//! durability, started, or resumed after a kill, and, once the measured
+//! through one code-free crawl of the scenario's site at a cell's
+//! settings, started, or resumed after a kill, and, once the measured
 //! process is gone, its Records' commit times read by another engine on the
 //! same home, which no figure counts.
 #![expect(
@@ -18,7 +18,9 @@ use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface
 use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
 use serde_json::{Value, json};
 
-use crate::rss::crawl::{HOST, Site};
+use crate::rss::crawl::Site;
+
+use super::matrix::Scenario;
 
 /// The Run every trial crawls in.
 const RUN: &str = "crawl";
@@ -107,30 +109,40 @@ impl Engine {
         self.call_with(id, method, params, |_| {})
     }
 
-    /// Starts the code-free crawl of `site` at `durability`.
-    pub(crate) fn start(&mut self, site: &Site<'_>, durability: &str) -> Result<()> {
+    /// Starts the code-free crawl of `scenario`'s site from `start` at
+    /// `durability`.
+    pub(crate) fn start(
+        &mut self,
+        site: &Site<'_>,
+        scenario: Scenario,
+        start: &str,
+        durability: &str,
+    ) -> Result<()> {
         self.call(
             "start",
             "crawl.start",
             &json!({
                 "run_id": RUN,
-                "seeds": [{ "url": site.start_url(), "label": "page" }],
+                "seeds": [{ "url": start, "label": "page" }],
                 "datasets": [],
-                // Each page's Record holds no format: the crawl fetches
-                // and follows links, as Spider's does.
-                "extraction": { "formats": {}, "follow": "scope" },
-                "settings": settings(site, durability),
+                "extraction": extraction(scenario),
+                "settings": settings(site, scenario, durability),
             }),
         )?;
         Ok(())
     }
 
     /// Resumes the killed crawl from its run file.
-    pub(crate) fn resume(&mut self, site: &Site<'_>, durability: &str) -> Result<()> {
+    pub(crate) fn resume(
+        &mut self,
+        site: &Site<'_>,
+        scenario: Scenario,
+        durability: &str,
+    ) -> Result<()> {
         self.call(
             "resume",
             "run.resume",
-            &json!({ "run_id": RUN, "settings": settings(site, durability) }),
+            &json!({ "run_id": RUN, "settings": settings(site, scenario, durability) }),
         )?;
         Ok(())
     }
@@ -189,22 +201,66 @@ impl Engine {
     }
 }
 
-/// A cell's Run settings: its own Politeness at the crawl's concurrency, no
-/// delay and robots.txt not obeyed, at `durability`.
-fn settings(site: &Site<'_>, durability: &str) -> Value {
-    let concurrency = site.concurrency;
-    json!({
-        "network": { "resolve": { HOST: [site.ip()] } },
-        "egress": { "private_ranges": [HOST] },
-        "fetch": { "tier": "http" },
-        // Its own Politeness, so no other run on the machine shares its
-        // domain's count, at the crawl's concurrency.
-        "politeness": {
-            "sharing": "run",
-            "domain": { "delay": 0, "concurrency": concurrency },
-        },
-        "crawl": { "handler": { "concurrency": concurrency } },
+/// What each page's Record holds: in the extraction scenario, the text of
+/// its main content and its title; otherwise no format, the crawl fetching
+/// and following links as the other tools' do.
+fn extraction(scenario: Scenario) -> Value {
+    match scenario {
+        Scenario::Extraction => json!({
+            "formats": { "text": true },
+            "follow": "scope",
+            "fields": { "title": { "locator": { "kind": "css", "selector": "title" } } },
+        }),
+        Scenario::Raw | Scenario::Durable | Scenario::Polite | Scenario::Browser => {
+            json!({ "formats": {}, "follow": "scope" })
+        }
+    }
+}
+
+/// A cell's Run settings, its site's hosts resolved to the Proving ground:
+/// in the polite scenario, Foxhound's defaults with ADR 0086's delay and
+/// concurrency per domain, the `http` tier and a scope of every host;
+/// otherwise its own Politeness at the crawl's
+/// concurrency, no delay and robots.txt not obeyed, at `durability`, on the
+/// `browser` tier in the headless browser scenario and the `http` tier
+/// otherwise.
+fn settings(site: &Site<'_>, scenario: Scenario, durability: &str) -> Value {
+    let hosts = scenario.site().hosts();
+    let resolve: serde_json::Map<String, Value> = hosts
+        .iter()
+        .map(|host| (host.clone(), json!([site.ip()])))
+        .collect();
+    let mut settings = json!({
+        "network": { "resolve": resolve },
+        "egress": { "private_ranges": hosts },
         "run_state": { "durability": durability },
-        "site_preferences": { "respect_robots_txt": false },
-    })
+    });
+    let concurrency = site.concurrency;
+    let added = match scenario {
+        // ADR 0086's 1 s and 1 in flight per domain, which the catalog
+        // holds no default for until the fetch tiers take them (ADR 0086's
+        // #684 note).
+        Scenario::Polite => json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "delay": 1000, "concurrency": 1 } },
+            "crawl": { "scope": { "strategy": "all" } },
+        }),
+        Scenario::Raw | Scenario::Durable | Scenario::Extraction | Scenario::Browser => json!({
+            "fetch": {
+                "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
+            },
+            // Its own Politeness, so no other run on the machine shares its
+            // domain's count, at the crawl's concurrency.
+            "politeness": {
+                "sharing": "run",
+                "domain": { "delay": 0, "concurrency": concurrency },
+            },
+            "crawl": { "handler": { "concurrency": concurrency } },
+            "site_preferences": { "respect_robots_txt": false },
+        }),
+    };
+    if let (Value::Object(settings), Value::Object(added)) = (&mut settings, added) {
+        settings.extend(added);
+    }
+    settings
 }

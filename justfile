@@ -69,8 +69,9 @@ lint: fmt-check
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
     # Spider's side of `just compare`, no workspace member, which no
-    # gate builds: its lock's licenses, read without a build (ADR 0134).
-    ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+    # gate builds: its lock's licenses, its `chrome` feature's included,
+    # read without a build (ADR 0134).
+    ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     # Crawlee's and Scrapy's sides, no workspace member either: their locks'
     # licenses against the same allowlist, read from what their frozen
     # installs leave beside them, with each side's own exceptions (ADR 0138).
@@ -915,16 +916,22 @@ rss-propose *scenarios:
 # scenario sets every tool to its closest equivalent configuration and the
 # report writes that mapping, a cell saying so where a tool cannot do the
 # scenario and marking pending each Foxhound value that does not exist yet.
-# Scenario 1 (raw) and scenario 2 (durable, killed once half the site is
-# served, then resumed), Foxhound against Spider 2.53.9's HTTP mode
-# (xtask/compare-spider, no workspace member), both built with the release
-# profile (`profile` changes it for a quicker try), Crawlee 3.18.2's
-# `CheerioCrawler` on Node.js (xtask/compare-crawlee) and Scrapy 2.19.0 on
-# CPython (xtask/compare-scrapy), each side installed from its own lock,
-# outside the Products', in scenario 1 only (neither resumes every page
-# after a kill, which their scenario 2 cells say): 10 trials of each
-# measured cell in random order, each tool in a fresh process against a
-# fresh Proving ground at 16 requests at once over the 1,000-page site.
+# Five scenarios: 1, raw; 2, durable (killed once half the site is served,
+# then resumed); 3, polite, on the Proving ground's 50-domain site; 4,
+# extraction of each page's title and main text to the tool's dataset; 5,
+# headless browser, on its script-rendered site. Foxhound against Spider
+# 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
+# `chrome` feature's executable for scenario 5), both built with the
+# release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
+# on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
+# `PlaywrightCrawler` for scenario 5) and Scrapy 2.19.0 on CPython
+# (xtask/compare-scrapy, with scrapy-playwright for scenario 5), each side
+# installed from its own lock, outside the Products'. Scenario 5's tools
+# all run the Chrome for Testing build Foxhound pins, as Playwright
+# installed it (`pnpm exec playwright install chromium`). A cell a tool
+# cannot run says why: 10 trials of each measured cell in random order,
+# each tool in a fresh process against a fresh Proving ground at 16
+# requests at once over the scenario's 1,000-page site.
 # Every metric is measured from outside the tools (the OS's accounting of
 # the waited-for children, /proc samples of the process tree, the Proving
 # ground's observations, the data folder left), then each cell's system
@@ -942,9 +949,10 @@ rss-propose *scenarios:
 compare profile="release" *args:
     cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet -p xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider {{ args }}
+    cargo run --quiet -p xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider --spider-chrome target/compare-spider/spider-chrome/{{ profile }}/goodfetch-compare-spider {{ args }}
 
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build, its startup to `hello`

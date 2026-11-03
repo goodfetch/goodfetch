@@ -136,7 +136,7 @@ writer = ["registry", "tree"]
 
 # Which of `compare`'s own modules may import which.
 [submodules.compare]
-foxhound = []
+foxhound = ["matrix"]
 matrix = []
 observed = ["trials"]
 report = ["matrix", "sampler", "trials"]

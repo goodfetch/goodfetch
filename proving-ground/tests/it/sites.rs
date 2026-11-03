@@ -173,9 +173,9 @@ fn the_script_rendered_sites_links_are_seen_only_by_a_browser() {
     let proving_ground = ProvingGround::start(SEED);
     let origin = format!("http://rendered.localhost:{}", proving_ground.port());
     let page = proving_ground.get(&format!("{origin}/sites/1000/2"));
-    let mut crawler = Crawler::new(&proving_ground);
-    crawler.follow_scripts = false;
-    let crawled = crawler.crawl(&format!("{origin}/sites/25/1")).len();
+    let mut plain = Crawler::new(&proving_ground);
+    plain.follow_scripts = false;
+    let reached = plain.crawl(&format!("{origin}/sites/25/1")).len();
 
     let rendered = crate::browser::run(
         "comparison",
@@ -185,7 +185,7 @@ fn the_script_rendered_sites_links_are_seen_only_by_a_browser() {
     );
 
     assert_eq!(
-        (page.status, hrefs(&page.body), crawled, &rendered["links"]),
+        (page.status, hrefs(&page.body), reached, &rendered["links"]),
         (
             200,
             vec!["/sites/1000/1".to_owned()],

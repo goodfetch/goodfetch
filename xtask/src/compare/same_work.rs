@@ -6,8 +6,11 @@
 //! trial that did other work is the one named, whichever ran first (ADR
 //! 0134's #1574 note). A scenario that kills its crawl halfway and resumes
 //! it fetches some pages again, so its trials are held to the bytes of each
-//! page's first answer instead. Each counted cell and the growth cell are
-//! held to it among themselves, as other cells of the comparison (ADR 0140).
+//! page's first answer instead. On the headless browser scenario's site,
+//! whose links past the first page only a script adds, a trial that missed
+//! pages is named for the script-rendered pages it never reached. Each
+//! counted cell and the growth cell are held to it among themselves, as
+//! other cells of the comparison (ADR 0140).
 
 use std::collections::BTreeMap;
 
@@ -187,6 +190,21 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             let work = done.work;
             if work.pages == pass.site_pages && work.missing.is_empty() && work.extra.is_empty() {
                 whole.push(done);
+                continue;
+            }
+            // On the script-rendered site, every page past the first is
+            // linked only by a script: a trial that missed some never
+            // rendered their links.
+            if scenario.renders_links() && work.extra.is_empty() && work.pages > 0 {
+                findings.push(Finding::new(
+                    "unrendered_pages",
+                    pass.subject(done),
+                    format!(
+                        "{} of the site's {} pages its script links not reached",
+                        work.missing.len(),
+                        pass.site_pages.saturating_sub(1)
+                    ),
+                ));
                 continue;
             }
             findings.push(Finding::new(

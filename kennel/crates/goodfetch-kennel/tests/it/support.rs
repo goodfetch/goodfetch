@@ -104,10 +104,23 @@ impl ScriptedDaemon {
     /// Starts `engine` on `script` as the Daemon of `home`, with `token`,
     /// and returns once a Client can find it.
     pub(crate) fn start(engine: &Path, home: &Home, script: &Path, token: &str) -> Self {
+        Self::start_as(engine, home, script, token, "0.0.0")
+    }
+
+    /// Starts it as [`ScriptedDaemon::start`] does, as a Daemon of
+    /// `product_version`, which names its per-major folder.
+    pub(crate) fn start_as(
+        engine: &Path,
+        home: &Home,
+        script: &Path,
+        token: &str,
+        product_version: &str,
+    ) -> Self {
         let mut child = Command::new(engine)
             .arg("--script")
             .arg(script)
             .args(["--mode", "socket", "--token", token])
+            .args(["--product-version", product_version])
             .env("GOODFETCH_HOME", home.path())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -124,9 +137,21 @@ impl ScriptedDaemon {
         Self { child }
     }
 
-    /// Waits for the play to end: success when every step was played.
+    /// Waits for the play to end: success when every step was played. A
+    /// play still going after [`PATIENCE`] fails the test, which would
+    /// otherwise wait for a Client that never comes.
     pub(crate) fn ended(mut self) -> ExitStatus {
-        self.child.wait().unwrap()
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            assert!(
+                started.elapsed() < PATIENCE,
+                "the Scripted engine's play ended within the test's patience"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 

@@ -122,12 +122,17 @@ fn start_tasks(
             let _ = proxy.send_event(event);
         }
     };
+    let (keep_alive, keep_daemon_alive) = watch::channel(Settings::default().keep_daemon_alive);
     let report = to_ui(proxy);
     tasks.spawn(client::follow(
         tasks.clone(),
-        home.clone(),
-        looks,
-        wanted,
+        client::Follow {
+            home: home.clone(),
+            look_again: looks,
+            keep_daemon_alive,
+            health_every: client::HEALTH_EVERY,
+            wanted,
+        },
         move |client: Report| report(UserEvent::Client(client)),
     ));
     let report = to_ui(proxy);
@@ -135,6 +140,13 @@ fn start_tasks(
         tasks.clone(),
         home.clone(),
         move |settings: Result<Settings, SettingsError>| {
+            // An unreadable file gives the defaults, as the State shows.
+            let wanted = settings
+                .as_ref()
+                .map_or(Settings::default().keep_daemon_alive, |settings| {
+                    settings.keep_daemon_alive
+                });
+            keep_alive.send_if_modified(|kept| std::mem::replace(kept, wanted) != wanted);
             report(UserEvent::Input(Input::Settings(settings)));
         },
     ));

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use rstest::rstest;
 
 use super::{Choice, Effect, Input, Row, State, Verdict};
@@ -206,7 +207,10 @@ fn with_no_installed_product_start_daemon_is_not_offered_and_the_menu_says_why()
 fn a_read_only_kennel_offers_no_start_daemon() {
     let mut state = no_daemon();
 
-    state.apply(Input::Settings(Ok(Settings { controls: false })));
+    state.apply(Input::Settings(Ok(Settings {
+        controls: false,
+        ..Settings::default()
+    })));
 
     assert_eq!(texts(&state), ["No Daemon"]);
     assert!(!offers_start(&state));
@@ -265,4 +269,68 @@ fn quit_is_always_offered_and_quits() {
         })
     );
     assert_eq!(state.choose(Choice::Quit), [Effect::Quit]);
+}
+
+fn health(live: bool, unready: Vec<Unready>) -> Input {
+    Input::Connection(ConnectionChange::Health(DaemonHealth {
+        live,
+        ready: live && unready.is_empty(),
+        unready,
+    }))
+}
+
+#[rstest]
+#[case::serving(health(true, vec![]), "Serving")]
+#[case::draining(health(true, vec![Unready::Draining]), "Draining: it takes no new Run")]
+#[case::draining_and_more(
+    health(true, vec![Unready::Draining, Unready::StorageCritical]),
+    "Draining: it takes no new Run; its storage is at the critical level"
+)]
+#[case::not_ready(
+    health(true, vec![Unready::BrowsersMissing, Unready::GovernorLastResort]),
+    "Takes no new Run: a browser it uses is not installed; its Resource governor is at its last resort"
+)]
+#[case::run_state(
+    health(true, vec![Unready::RunStateNotWritable]),
+    "Takes no new Run: its run state cannot be written"
+)]
+#[case::not_live(health(false, vec![]), "Not live: its Runs' registry does not respond")]
+fn the_daemons_health_shows_under_it(#[case] reading: Input, #[case] shown: &str) {
+    let mut state = no_daemon();
+    state.apply(Input::Connection(foxhound_daemon()));
+
+    state.apply(reading);
+
+    assert_eq!(texts(&state), ["Foxhound Daemon 0.4.1", shown]);
+    assert_eq!(state.view().verdict, Verdict::Idle);
+}
+
+#[test]
+fn a_lost_connection_and_a_reconnection_change_the_verdict_and_resync_the_view() {
+    let mut state = no_daemon();
+    state.apply(Input::Connection(foxhound_daemon()));
+    state.apply(health(true, vec![Unready::Draining]));
+
+    state.apply(Input::Connection(ConnectionChange::NoDaemon));
+    let lost = (state.view().verdict, texts(&state));
+    state.apply(Input::Connection(ConnectionChange::Connected(
+        DaemonIdentity {
+            product: Product::Collie,
+            product_version: ProductVersion::parse("0.4.2").unwrap(),
+        },
+    )));
+
+    assert_eq!(lost, (Verdict::Unreachable, vec!["No Daemon".to_owned()]));
+    assert_eq!(state.view().verdict, Verdict::Idle);
+    assert_eq!(texts(&state), ["Collie Daemon 0.4.2"]);
+}
+
+#[test]
+fn a_health_reading_with_no_daemon_reached_changes_nothing() {
+    let mut state = no_daemon();
+
+    state.apply(health(true, vec![Unready::Draining]));
+
+    assert_eq!(state.view().verdict, Verdict::Unreachable);
+    assert_eq!(texts(&state), ["No Daemon"]);
 }

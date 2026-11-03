@@ -9,12 +9,18 @@
 //! the subscription's events, and the answers to the reads the State wants,
 //! [`Wanted`], which it keeps in step with.
 //!
+//! - **The Daemon's life.** It follows it without polling and without
+//!   holding it awake: the platform's file notifications on the runtime
+//!   files make it look again when a Daemon starts, stops or hands over to
+//!   its major's pick (`runtime_files`), and its `hello` asks the Daemon to
+//!   stay alive only when the keep-alive setting is on. Its one poll is
+//!   `daemon.health`, on a slow timer, while connected.
 //! - **Push, not poll.** Once `hello` is answered it subscribes with
 //!   `events.subscribe` and grants [`CREDITS`] credits, renewed as the
 //!   events are applied: each [`Batch`] gives its credits back once it is
 //!   dropped, and the Client renews them in grants of at least half. A
 //!   queue that filled while the Kennel was slow comes back as
-//!   `events.resync`, which the Client reports like any event. The first
+//!   `events.resync`, which the Client reports like any event. Each
 //!   subscription names a position ahead of any the engine gave, which
 //!   starts it with `events.resync` too (ADR 0031): the State starts from
 //!   the Daemon's live Runs and Needs you items, and the stream continues
@@ -33,19 +39,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::pin::Pin;
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
 use goodfetch_protocol::connection::{
     CANCEL, CancelParams, DaemonEndpoint, EngineInstance, HELLO, HelloParams, HelloResult,
     PROTOCOL_VERSION_UNSUPPORTED, ProductVersion, ProtocolVersionUnsupportedDetails, Surface,
 };
-use goodfetch_protocol::daemon::DaemonRuntimeFile;
+use goodfetch_protocol::daemon::{self, DaemonHealth, DaemonParams, DaemonRuntimeFile};
 use goodfetch_protocol::events::{
     CREDIT, CreditParams, EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope,
     EventsSubscribeParams, LastRead, Position, RESYNC, Resync,
 };
 use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Message, Notification, Request, RequestId, Version,
+    ErrorObject, Message, Notification, Request, RequestId, Response, Version,
 };
 use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange};
 use goodfetch_protocol::run::{
@@ -56,9 +63,13 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 use tokio::sync::{mpsc, watch};
+use tokio::time::MissedTickBehavior;
 
 use crate::home::Home;
 use crate::tasks::Tasks;
+use runtime_files::RuntimeFiles;
+
+mod runtime_files;
 
 /// The id of the Kennel's `hello`, its first request on each Connection.
 const HELLO_ID: i64 = 1;
@@ -66,8 +77,13 @@ const HELLO_ID: i64 = 1;
 /// The id of its `events.subscribe`, its second.
 const SUBSCRIBE_ID: i64 = 2;
 
-/// The id of its first other call; each next one takes the next.
+/// The id of its first other call, the health poll's included; each next
+/// one takes the next.
 const FIRST_CALL_ID: i64 = 3;
+
+/// How often the Kennel asks the reached Daemon `daemon.health`, the one
+/// poll ADR 0141 allows: slow, so that an idle Kennel costs nothing.
+pub const HEALTH_EVERY: Duration = Duration::from_secs(30);
 
 /// How many events the subscription may hold unapplied: the engine's queue
 /// of lossless events per subscription holds 64 before it falls behind to
@@ -115,6 +131,8 @@ pub enum ConnectionChange {
     Connected(DaemonIdentity),
     /// A Daemon runs and refused the Kennel.
     Refused(Refusal),
+    /// The reached Daemon's answer to the health poll, `daemon.health`.
+    Health(DaemonHealth),
 }
 
 /// An event of the Daemon's subscription that the Kennel reads.
@@ -193,61 +211,257 @@ pub struct Wanted {
     pub progress: BTreeSet<RunId>,
 }
 
-/// Follows the Daemon until the Kennel stops: looks for it in `home`,
-/// connects, subscribes, keeps the reads in step with `wanted`, and reports
-/// each change. Once no Daemon answers, it looks again only when
-/// `look_again` asks (after a "Start Daemon"); a lost Connection makes it
-/// look again at once.
+/// What the Client follows the Daemon with.
+#[derive(Debug)]
+pub struct Follow {
+    /// The Goodfetch home, whose per-major folders hold the Daemons'
+    /// runtime files.
+    pub home: Home,
+    /// Asks the Client to look for the Daemon again, as after a "Start
+    /// Daemon", where the platform cannot watch the home.
+    pub look_again: mpsc::Receiver<()>,
+    /// The keep-alive setting: when on, `hello` asks the Daemon to count
+    /// the Connection as a Client that keeps it alive; a change reconnects.
+    pub keep_daemon_alive: watch::Receiver<bool>,
+    /// How often the Client asks the reached Daemon `daemon.health`.
+    pub health_every: Duration,
+    /// The reads the State wants.
+    pub wanted: watch::Receiver<Wanted>,
+}
+
+/// Follows the Daemon until the Kennel stops: looks for it in the home,
+/// connects, subscribes, keeps the reads in step with what is wanted, and
+/// reports each change. It looks again whenever the platform's file
+/// notifications report a change to a runtime file, which a Daemon that
+/// starts or hands over to its major's pick makes, never by polling; and
+/// when `look_again` asks. A lost Connection makes it look again at once,
+/// and so does a runtime file that now names another Daemon, or a change
+/// of the keep-alive setting, which `hello` carries. While connected, it
+/// asks the Daemon `daemon.health` every `health_every`, and reports each
+/// answer that differs from the last.
 ///
 /// # Cancel safety
 /// Dropping the future closes the Connection; nothing else is lost.
-pub async fn follow(
+pub async fn follow(tasks: Tasks, follow: Follow, report: impl Fn(Report) + Send + Sync + 'static) {
+    let mut follower = Follower {
+        tasks,
+        follow,
+        runtime_files: RuntimeFiles::new(),
+        report,
+    };
+    follower.run().await;
+}
+
+/// The Client while it follows the Daemon.
+struct Follower<R> {
     tasks: Tasks,
-    home: Home,
-    mut look_again: mpsc::Receiver<()>,
-    mut wanted: watch::Receiver<Wanted>,
-    report: impl Fn(Report) + Send + Sync + 'static,
-) {
-    loop {
-        let lookup = home.clone();
-        let found = tasks.blocking(move || lookup.running_daemon()).await;
-        let reached = match found {
-            None => None,
-            Some(runtime) => match Connection::open(&runtime).await {
-                Ok(connection) => Some(connection),
-                Err(Opening::Unreachable) => None,
-                Err(Opening::Refused(refusal)) => {
-                    tracing::warn!(?refusal, "the Daemon refused the Kennel");
-                    report(Report::Connection(ConnectionChange::Refused(refusal)));
-                    if look_again.recv().await.is_none() {
-                        return;
-                    }
+    follow: Follow,
+    runtime_files: RuntimeFiles,
+    report: R,
+}
+
+/// Why the Client left a Connection.
+#[derive(Debug)]
+enum Left {
+    /// The Daemon closed it.
+    Lost,
+    /// The runtime files name another Daemon now.
+    Replaced,
+    /// The keep-alive setting changed, which only a new `hello` carries.
+    KeepAliveChanged,
+}
+
+impl<R: Fn(Report)> Follower<R> {
+    /// Follows until the Kennel stops.
+    async fn run(&mut self) {
+        loop {
+            // The watch covers every per-major folder before the look, so
+            // no change after the look goes unreported.
+            self.runtime_files
+                .rewatch(&self.tasks, &self.follow.home)
+                .await;
+            let keep_daemon_alive = *self.follow.keep_daemon_alive.borrow_and_update();
+            let opened = match self.running_daemon().await {
+                None => Err(Opening::Unreachable),
+                Some(runtime) => Connection::open(&runtime, keep_daemon_alive)
+                    .await
+                    .map(|connection| (connection, runtime)),
+            };
+            match opened {
+                Ok((connection, runtime)) => {
+                    tracing::info!(
+                        product = connection.identity.product.as_str(),
+                        version = %connection.identity.product_version,
+                        keep_daemon_alive,
+                        "reached the Daemon"
+                    );
+                    let reads = Reads::new(&mut self.follow.wanted);
+                    (self.report)(Report::Connection(ConnectionChange::Connected(
+                        connection.identity.clone(),
+                    )));
+                    let left = self
+                        .serve(connection, reads, &runtime, keep_daemon_alive)
+                        .await;
+                    tracing::info!(?left, "left the Daemon");
                     continue;
                 }
-            },
-        };
-        if let Some(connection) = reached {
-            tracing::info!(
-                product = connection.identity.product.as_str(),
-                version = %connection.identity.product_version,
-                "reached the Daemon"
-            );
-            let reads = Reads::new(&mut wanted);
-            report(Report::Connection(ConnectionChange::Connected(
-                connection.identity.clone(),
-            )));
-            connection.serve(reads, &mut wanted, &report).await;
-            if wanted.has_changed().is_err() {
-                // The Kennel is quitting: nothing more is wanted.
-                return;
+                Err(Opening::Refused(refusal)) => {
+                    tracing::warn!(?refusal, "the Daemon refused the Kennel");
+                    (self.report)(Report::Connection(ConnectionChange::Refused(refusal)));
+                }
+                Err(Opening::Unreachable) => {
+                    (self.report)(Report::Connection(ConnectionChange::NoDaemon));
+                }
             }
-            tracing::info!("lost the Daemon");
-        } else {
-            report(Report::Connection(ConnectionChange::NoDaemon));
-            if look_again.recv().await.is_none() {
-                return;
+            tokio::select! {
+                asked = self.follow.look_again.recv() => {
+                    if asked.is_none() {
+                        return;
+                    }
+                }
+                () = self.runtime_files.changed() => {}
             }
         }
+    }
+
+    /// The running Daemon's runtime file.
+    async fn running_daemon(&self) -> Option<DaemonRuntimeFile> {
+        let home = self.follow.home.clone();
+        self.tasks.blocking(move || home.running_daemon()).await
+    }
+
+    /// Serves `connection`, opened with the runtime file `reached` and
+    /// the keep-alive setting `keep_daemon_alive`, until the Client
+    /// leaves it: reports the subscription's events and the reads'
+    /// answers, keeps the reads in step with what is wanted, renews the
+    /// subscription's credits and polls the Daemon's health.
+    async fn serve(
+        &mut self,
+        mut connection: Connection,
+        mut reads: Reads,
+        reached: &DaemonRuntimeFile,
+        keep_daemon_alive: bool,
+    ) -> Left {
+        // The first poll comes one period after `hello`, not at once.
+        let mut polls = tokio::time::interval(self.follow.health_every);
+        polls.reset();
+        polls.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut health = Health::default();
+        let mut setting_followed = true;
+        let mut wanted_followed = true;
+        let (applied, mut renewals) = watch::channel(0_u64);
+        let mut credited = 0_u64;
+        let first = reads.first.take().unwrap_or_default();
+        if connection.keep_in_step(&mut reads, &first).await.is_err() {
+            return Left::Lost;
+        }
+        loop {
+            let written = tokio::select! {
+                line = connection.lines.next_line() => {
+                    let Ok(Some(line)) = line else {
+                        return Left::Lost;
+                    };
+                    let message = serde_json::from_str::<Message>(&line);
+                    if let Ok(Message::Response(response)) = &message
+                        && let Some(reading) = health.answered(response)
+                    {
+                        (self.report)(Report::Connection(ConnectionChange::Health(reading)));
+                    }
+                    connection.read(message, &mut reads, &applied, &self.report).await
+                }
+                _ = polls.tick() => {
+                    let id = reads.next_id();
+                    send(&mut connection.writer, &health.ask(id)).await
+                }
+                () = self.runtime_files.changed() => {
+                    self.runtime_files.rewatch(&self.tasks, &self.follow.home).await;
+                    let found = self.running_daemon().await;
+                    if found.is_some_and(|found| !same_daemon(&found, reached)) {
+                        return Left::Replaced;
+                    }
+                    Ok(())
+                }
+                changed = self.follow.keep_daemon_alive.changed(), if setting_followed => {
+                    // A closed channel keeps the setting the Connection has.
+                    setting_followed = changed.is_ok();
+                    if setting_followed
+                        && *self.follow.keep_daemon_alive.borrow_and_update() != keep_daemon_alive
+                    {
+                        return Left::KeepAliveChanged;
+                    }
+                    Ok(())
+                }
+                changed = self.follow.wanted.changed(), if wanted_followed => {
+                    // A closed channel keeps the reads the Connection has.
+                    wanted_followed = changed.is_ok();
+                    if wanted_followed {
+                        let now = self.follow.wanted.borrow_and_update().clone();
+                        connection.keep_in_step(&mut reads, &now).await
+                    } else {
+                        Ok(())
+                    }
+                }
+                changed = renewals.changed() => {
+                    if changed.is_err() {
+                        return Left::Lost;
+                    }
+                    let total = *renewals.borrow_and_update();
+                    if total - credited >= RENEWAL {
+                        let renewed = total - credited;
+                        credited = total;
+                        connection.credit(renewed).await
+                    } else {
+                        Ok(())
+                    }
+                }
+            };
+            if written.is_err() {
+                return Left::Lost;
+            }
+        }
+    }
+}
+
+/// Whether two runtime files name the same Daemon: a Daemon's token may
+/// change while it runs, its process and endpoint do not.
+fn same_daemon(one: &DaemonRuntimeFile, other: &DaemonRuntimeFile) -> bool {
+    one.pid == other.pid && one.endpoint == other.endpoint
+}
+
+/// The health poll of one Connection.
+#[derive(Debug, Default)]
+struct Health {
+    /// The id of the last request sent, which no other request reuses.
+    asked: Option<i64>,
+    /// The last answer reported.
+    last: Option<DaemonHealth>,
+}
+
+impl Health {
+    /// The next `daemon.health` request, with the Connection's next id.
+    fn ask(&mut self, id: i64) -> Request {
+        self.asked = Some(id);
+        request(id, daemon::HEALTH.name, &DaemonParams {})
+    }
+
+    /// The reading `response` gives, when it answers the last request and
+    /// differs from the last reading.
+    fn answered(&mut self, response: &Response) -> Option<DaemonHealth> {
+        if Some(&response.id) != self.asked.map(RequestId::Number).as_ref() {
+            return None;
+        }
+        let reading = serde_json::from_value::<DaemonHealth>(response.result.clone()).ok()?;
+        if self.last.as_ref() == Some(&reading) {
+            return None;
+        }
+        tracing::info!(
+            live = reading.live,
+            ready = reading.ready,
+            unready = ?reading.unready,
+            "the Daemon's health"
+        );
+        self.last = Some(reading.clone());
+        Some(reading)
     }
 }
 
@@ -271,14 +485,15 @@ struct Connection {
 }
 
 impl Connection {
-    /// Opens the Connection to the Daemon of `runtime` with `hello`, then
+    /// Opens the Connection to the Daemon of `runtime` with `hello`,
+    /// asking it to stay alive when `keep_daemon_alive` is on, then
     /// subscribes to its events, starting from a resync.
-    async fn open(runtime: &DaemonRuntimeFile) -> Result<Self, Opening> {
+    async fn open(runtime: &DaemonRuntimeFile, keep_daemon_alive: bool) -> Result<Self, Opening> {
         let (reader, mut writer) = connect(&runtime.endpoint)
             .await
             .map_err(|_| Opening::Unreachable)?;
         let mut lines = BufReader::new(reader).lines();
-        send(&mut writer, &hello_request(runtime))
+        send(&mut writer, &hello_request(runtime, keep_daemon_alive))
             .await
             .map_err(|_| Opening::Unreachable)?;
         let accepted = loop {
@@ -349,64 +564,15 @@ impl Connection {
         send(&mut self.writer, &notification(CREDIT, &params)).await
     }
 
-    /// Reports the subscription's events and the reads' answers, and keeps
-    /// the reads in step with `wanted`, until the Daemon closes the
-    /// Connection.
-    async fn serve(
-        mut self,
-        mut reads: Reads,
-        wanted: &mut watch::Receiver<Wanted>,
-        report: &impl Fn(Report),
-    ) {
-        let (applied, mut renewals) = watch::channel(0_u64);
-        let mut credited = 0_u64;
-        let first = reads.first.take().unwrap_or_default();
-        if self.keep_in_step(&mut reads, &first).await.is_err() {
-            return;
-        }
-        loop {
-            let outcome = tokio::select! {
-                line = self.lines.next_line() => match line {
-                    Ok(Some(line)) => self.read(&line, &mut reads, &applied, report).await,
-                    Ok(None) | Err(_) => return,
-                },
-                changed = wanted.changed() => {
-                    if changed.is_err() {
-                        // The Kennel is quitting: nothing more is wanted.
-                        return;
-                    }
-                    let now = wanted.borrow_and_update().clone();
-                    self.keep_in_step(&mut reads, &now).await
-                }
-                changed = renewals.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                    let total = *renewals.borrow_and_update();
-                    if total - credited >= RENEWAL {
-                        let renewed = total - credited;
-                        credited = total;
-                        self.credit(renewed).await
-                    } else {
-                        Ok(())
-                    }
-                }
-            };
-            if outcome.is_err() {
-                return;
-            }
-        }
-    }
-
-    /// Reads one line of the Daemon.
+    /// Handles one message of the Daemon.
     async fn read(
         &mut self,
-        line: &str,
+        message: Result<Message, serde_json::Error>,
         reads: &mut Reads,
         applied: &watch::Sender<u64>,
         report: &impl Fn(Report),
     ) -> io::Result<()> {
-        match serde_json::from_str::<Message>(line) {
+        match message {
             Ok(Message::Notification(notification)) if notification.method == EVENTS => {
                 let Some(batch) = notification
                     .params
@@ -570,6 +736,7 @@ impl Reads {
         }
     }
 
+    /// The Connection's next request id, which no other request takes.
     fn next_id(&mut self) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -624,8 +791,9 @@ fn decoded(envelope: EventEnvelope) -> Option<DaemonEvent> {
         .ok()
 }
 
-/// The Kennel's `hello` to the Daemon of `runtime`.
-fn hello_request(runtime: &DaemonRuntimeFile) -> Request {
+/// The Kennel's `hello` to the Daemon of `runtime`, which carries the
+/// keep-alive flag only when `keep_daemon_alive` is on.
+fn hello_request(runtime: &DaemonRuntimeFile, keep_daemon_alive: bool) -> Request {
     let hello = HelloParams {
         protocol_version: PROTOCOL_VERSION,
         surface: Surface::Kennel,
@@ -635,7 +803,7 @@ fn hello_request(runtime: &DaemonRuntimeFile) -> Request {
         product_version: kennel_version(),
         log_level: None,
         client_surface: None,
-        keep_daemon_alive: false,
+        keep_daemon_alive,
     };
     request(HELLO_ID, HELLO, &hello)
 }

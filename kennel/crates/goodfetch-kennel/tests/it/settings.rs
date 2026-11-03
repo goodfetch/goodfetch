@@ -17,7 +17,30 @@ fn without_a_settings_file_the_defaults_apply() {
 
     let read = settings::read(&Home::new(folder.path()).settings_file());
 
-    assert_eq!(read, Ok(Settings { controls: true }));
+    assert_eq!(
+        read,
+        Ok(Settings {
+            controls: true,
+            keep_daemon_alive: false,
+        })
+    );
+}
+
+#[test]
+fn keeping_the_daemon_alive_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "keep_daemon_alive = true\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            controls: true,
+            keep_daemon_alive: true,
+        })
+    );
 }
 
 #[test]
@@ -42,8 +65,12 @@ fn the_settings_are_read_at_launch_and_again_when_their_file_changes() {
         }
     });
 
-    assert_eq!(at_launch, Ok(Settings { controls: true }));
-    assert_eq!(after_the_change, Ok(Settings { controls: false }));
+    let with_controls = |controls| Settings {
+        controls,
+        ..Settings::default()
+    };
+    assert_eq!(at_launch, Ok(with_controls(true)));
+    assert_eq!(after_the_change, Ok(with_controls(false)));
 }
 
 #[test]

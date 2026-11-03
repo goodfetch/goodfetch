@@ -12,7 +12,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::home::{Home, read_if_present};
+use crate::home::{Home, canonical, read_if_present};
 use crate::tasks::Tasks;
 
 /// The Kennel's settings.
@@ -21,11 +21,18 @@ use crate::tasks::Tasks;
 pub struct Settings {
     /// Whether the menu offers actions; off gives a read-only Kennel.
     pub controls: bool,
+    /// Whether the Kennel, while connected, keeps the Daemon alive: off, it
+    /// only observes, and the Daemon stops at its idle timeout and hands
+    /// over to its major's pick as if no Kennel were connected (ADR 0141).
+    pub keep_daemon_alive: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { controls: true }
+        Self {
+            controls: true,
+            keep_daemon_alive: false,
+        }
     }
 }
 
@@ -92,11 +99,6 @@ pub async fn follow(
             }
         }
     }
-}
-
-/// `folder`'s canonical path, or `folder` when it has none. Blocks.
-fn canonical(folder: &Path) -> PathBuf {
-    std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_owned())
 }
 
 /// Watches `folder` for changes to the file at `path`: an editor may

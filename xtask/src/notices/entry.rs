@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// A package ecosystem, or a set of declared inputs (ADRs 0018, 0035, 0043
 /// and 0047).
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Ecosystem {
     Cargo,

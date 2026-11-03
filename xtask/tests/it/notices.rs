@@ -488,3 +488,127 @@ fn uninstalled_package_reaches_no_verdict() {
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 2, "{}", outcome.stderr);
 }
+
+/// A comparison side (`just compare`'s Crawlee and Scrapy, ADR 0138): the
+/// `notices` fixture's lockfiles and installed packages in `side/`, a folder
+/// of its own outside the workspace's, which is left uninstalled.
+fn side_workspace() -> Workspace {
+    let workspace = Workspace::from_fixture("notices");
+    for lockfile in ["pnpm-lock.yaml", "uv.lock"] {
+        workspace.add_fixture_file(&format!("notices/{lockfile}"), &format!("side/{lockfile}"));
+    }
+    for (fixture, relative) in INSTALLED {
+        workspace.add_fixture_file(fixture, &format!("side/{relative}"));
+    }
+    workspace
+}
+
+/// `--side` checks a side's own npm and Python packages against the same
+/// allowlist, from its lockfiles and what its install left, and reads none
+/// of the workspace's: the workspace here is not installed, which its own
+/// check refuses.
+#[test]
+fn a_sides_packages_are_checked_against_the_allowlist() {
+    let workspace = side_workspace();
+
+    let passing = workspace.xtask(&["notices", "--side", "side"]);
+    workspace.edit(
+        &format!("side/{PERMISSIVE_DIST}"),
+        "License-Expression: BSD-3-Clause",
+        "License-Expression: SSPL-1.0",
+    );
+    let failing = workspace.xtask(&["notices", "--side", "side"]);
+
+    assert_eq!(
+        (passing.findings(), passing.code),
+        (vec![], 0),
+        "{}",
+        passing.stderr
+    );
+    assert_eq!(
+        (failing.findings(), failing.code),
+        (
+            vec![finding(
+                "license-not-allowed",
+                "python permissive-dist@1.0.0"
+            )],
+            1
+        ),
+        "{}",
+        failing.stderr
+    );
+}
+
+/// An npm manifest may list its licenses as an array of names, an older
+/// form npm still installs (pause-stream 0.0.11's `["MIT", "Apache2"]`):
+/// each is offered, as with `OR`.
+#[test]
+fn an_npm_license_array_offers_each_license() {
+    let workspace = installed_workspace();
+    workspace.edit(
+        PERMISSIVE_PACKAGE,
+        r#""license": "MIT""#,
+        r#""license": ["SSPL-1.0", "MIT"]"#,
+    );
+
+    let outcome = workspace.xtask(&["notices", "--out", "target/notices.json"]);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(
+        notice(&inventory(&workspace), "npm", "permissive-package")["license"],
+        "SSPL-1.0 OR MIT"
+    );
+}
+
+/// A side's `licenses.toml` accepts, for that side alone, the license it
+/// states for one package at one version, read from the package's own
+/// license file: one the package's metadata states in no SPDX expression,
+/// or one off the allowlist, since a side never ships. An exception no
+/// locked package uses is a finding, so none outlives its package.
+#[test]
+fn a_sides_license_exceptions_accept_their_package_and_no_other() {
+    let workspace = side_workspace();
+    workspace.edit(
+        &format!("side/{PERMISSIVE_DIST}"),
+        "License-Expression: BSD-3-Clause",
+        "License-Expression: SSPL-1.0",
+    );
+    workspace.write(
+        "side/licenses.toml",
+        br#"
+[[package]]
+ecosystem = "python"
+name = "permissive-dist"
+version = "1.0.0"
+license = "SSPL-1.0"
+reason = "a test"
+
+[[package]]
+ecosystem = "npm"
+name = "unlocked-package"
+version = "1.0.0"
+license = "MIT"
+reason = "no longer locked"
+"#,
+    );
+
+    let outcome = workspace.xtask(&["notices", "--side", "side"]);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding(
+                "license-exception-unused",
+                "npm unlocked-package@1.0.0"
+            )],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+}

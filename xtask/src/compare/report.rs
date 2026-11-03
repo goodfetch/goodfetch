@@ -11,10 +11,14 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use super::matrix::{CELLS, Cell, Scenario, Status};
+use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
     TRIALS, Trial,
 };
+
+/// The span of one window of the core sampling.
+const CORE_WINDOW_MILLISECONDS: u64 = CORE_WINDOW_SAMPLES as u64 * INTERVAL_MILLISECONDS;
 
 /// The Quality register's row the Callgrind cell gives (ADR 0140).
 const RATIO_ROW: &str = "foxhound.spider_instruction_ratio";
@@ -286,9 +290,21 @@ fn metrics(
             Unit::Cores,
         ),
     );
+    let cores: Option<Vec<f64>> = trials
+        .iter()
+        .map(|trial| trial.measured.sampled.as_ref()?.peak_cores)
+        .collect();
     put(
         "peak_cores",
-        sampled(&|sampled| sampled.peak_cores, Unit::Cores),
+        match cores {
+            Some(cores) => spread(&cores, Unit::Cores),
+            None if trials.iter().any(|trial| trial.measured.sampled.is_none()) => {
+                not("this OS has no /proc to sample the process tree from")
+            }
+            None => not(format!(
+                "a trial ended within one window of the core sampling ({CORE_WINDOW_MILLISECONDS} ms)"
+            )),
+        },
     );
     // Memory.
     put(

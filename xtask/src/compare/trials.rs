@@ -107,8 +107,9 @@ pub(crate) struct Sampled {
     pub(crate) peak_bytes: u64,
     pub(crate) average_bytes: u64,
     /// The most cores the tree used over any window of
-    /// [`super::sampler::CORE_WINDOW_SAMPLES`] samples.
-    pub(crate) peak_cores: f64,
+    /// [`super::sampler::CORE_WINDOW_SAMPLES`] samples; none for a crawl
+    /// that ended within one window.
+    pub(crate) peak_cores: Option<f64>,
     pub(crate) peak_threads: u64,
     pub(crate) peak_open_files: u64,
     /// The tree's resident memory when the site's `n`-th page was

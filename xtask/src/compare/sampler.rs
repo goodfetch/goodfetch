@@ -136,8 +136,10 @@ impl Sampler {
                             ..Sample::default()
                         };
                         let mut ticks = 0;
+                        let mut live = false;
                         for pid in tree(pid) {
                             if let Some((resident, cpu, threads, open_files)) = process(pid, page) {
+                                live = true;
                                 sample.resident_bytes += resident;
                                 ticks += cpu;
                                 sample.threads += threads;
@@ -150,7 +152,12 @@ impl Sampler {
                         )]
                         let seconds = ticks as f64 / ticks_per_second;
                         sample.cpu_seconds = seconds;
-                        samples.push(sample);
+                        // A tree with no live process, the tool exited or
+                        // killed before its resume, has nothing resident to
+                        // read: its sample would read as none.
+                        if live {
+                            samples.push(sample);
+                        }
                     }
                     std::thread::sleep(Duration::from_millis(INTERVAL_MILLISECONDS));
                 }
@@ -209,14 +216,14 @@ pub(crate) fn figures(samples: &[Sample], milestones: &[(u64, f64)]) -> Sampled 
         figures.peak_threads = figures.peak_threads.max(sample.threads);
         figures.peak_open_files = figures.peak_open_files.max(sample.open_files);
     }
+    // A crawl shorter than one window has no peak: none, not 0 cores.
     for window in samples.windows(CORE_WINDOW_SAMPLES) {
         let (first, last) = (window[0], window[window.len() - 1]);
         let elapsed = last.at - first.at;
         // A resumed tool's new process starts its CPU time from zero.
         if elapsed > 0.0 && last.cpu_seconds >= first.cpu_seconds {
-            figures.peak_cores = figures
-                .peak_cores
-                .max((last.cpu_seconds - first.cpu_seconds) / elapsed);
+            let cores = (last.cpu_seconds - first.cpu_seconds) / elapsed;
+            figures.peak_cores = Some(figures.peak_cores.map_or(cores, |peak| peak.max(cores)));
         }
     }
     figures.at_pages = milestones

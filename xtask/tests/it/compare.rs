@@ -338,6 +338,31 @@ fn a_metric_with_no_figure_says_why() {
     );
 }
 
+/// A crawl that ended within one window of the core sampling, as Spider's
+/// 1,000 pages can, gives no peak of cores rather than none used.
+#[test]
+fn a_crawl_shorter_than_the_core_window_gives_no_peak_cores() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["tool"] == "spider" {
+            trial["sampled"]["peak_cores"] = json!(null);
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 0, "spider")["metrics"]["peak_cores"]["status"],
+            &cell(&report, 0, "foxhound")["metrics"]["peak_cores"]["median"],
+        ),
+        (&json!("not_measured"), &json!(1.5))
+    );
+}
+
 /// The report writes each scenario's mapping: the settings each tool ran
 /// with, the Foxhound values still pending, and the cells a tool cannot
 /// run.

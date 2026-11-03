@@ -472,6 +472,52 @@ fn a_cell_short_of_its_declared_trials_fails() {
     );
 }
 
+/// The matrix asks for at least 10 trials of each cell: a report of fewer,
+/// a quicker try's, says it falls short, and one of 10 does not.
+#[test]
+fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
+    let short = Workspace::from_fixture("empty");
+    let enough = Workspace::from_fixture("empty");
+    let mut ten = trials();
+    ten["declared"]["trials"] = json!(10);
+    ten["trials"] = CELLS
+        .iter()
+        .flat_map(|(scenario, cell, tool)| {
+            (1..=10).map(move |number| {
+                let again = u64::from(*scenario == "durable");
+                trial(scenario, cell, tool, number, 2.0, 20 * MIB, &work(again))
+            })
+        })
+        .collect();
+
+    let outcomes = [report(&short, &trials()), report(&enough, &ten)];
+
+    assert_eq!(
+        outcomes.each_ref().map(|outcome| outcome.code),
+        [0, 0],
+        "{}{}",
+        outcomes[0].stderr,
+        outcomes[1].stderr
+    );
+    assert_eq!(
+        (
+            &written(&short)["enough_trials"],
+            &written(&enough)["enough_trials"]
+        ),
+        (&json!(false), &json!(true))
+    );
+    let fell_short = "short of the 10 the matrix asks";
+    assert_eq!(
+        (
+            short.read_text(MARKDOWN).contains(fell_short),
+            enough.read_text(MARKDOWN).contains(fell_short),
+        ),
+        (true, false),
+        "{}",
+        short.read_text(MARKDOWN)
+    );
+}
+
 #[test]
 fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
     let workspace = Workspace::from_fixture("empty");

@@ -13,7 +13,7 @@ use serde::Serialize;
 use super::matrix::{CELLS, Cell, Scenario, Status};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    Trial,
+    TRIALS, Trial,
 };
 
 /// The Quality register's row the Callgrind cell gives (ADR 0140).
@@ -118,6 +118,9 @@ pub(crate) struct Report<'a> {
     pub(crate) machine: &'a Machine,
     pub(crate) commit: &'a str,
     pub(crate) declared: &'a Declared,
+    /// Whether each measured cell ran the matrix's [`TRIALS`] trials at
+    /// least: a quicker try's report says it falls short.
+    pub(crate) enough_trials: bool,
     pub(crate) order_seed: u64,
     pub(crate) scenarios: Vec<ScenarioReport>,
     pub(crate) tools: BTreeMap<&'static str, Figures>,
@@ -559,6 +562,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         machine: &trials.machine,
         commit: &trials.commit,
         declared: &trials.declared,
+        enough_trials: trials.declared.trials >= TRIALS,
         order_seed: trials.order_seed,
         scenarios,
         tools,
@@ -685,6 +689,13 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.spider,
         declared.statistic,
     );
+    if !report.enough_trials {
+        let _ = writeln!(
+            text,
+            "\nOnly {} trials of each measured cell, short of the {TRIALS} the matrix asks: a quicker try, not the comparison's figures.",
+            declared.trials
+        );
+    }
     for scenario in &report.scenarios {
         let _ = writeln!(text, "\n## {}\n\nThe mapping:\n", scenario.title);
         for cell in &scenario.cells {

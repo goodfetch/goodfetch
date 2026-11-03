@@ -134,33 +134,87 @@ fn section_page(seed: u64, section: u64) -> String {
 /// its children in the site's tree of [`SITE_FAN_OUT`] children a page,
 /// so a crawl from page 1 reaches every page of the site and no other.
 fn site_page(seed: u64, rest: &str) -> Page {
-    let Some((size, page)) = rest.split_once('/') else {
+    let Some((size, page)) = site_place(rest) else {
         return Page::not_found();
     };
-    let (Some(size), Some(page)) = (
-        canonical_number(size).filter(|size| (1..=ITEMS).contains(size)),
-        canonical_number(page),
-    ) else {
-        return Page::not_found();
-    };
-    if !(1..=size).contains(&page) {
-        return Page::not_found();
-    }
+    Page::ok(tree_page(seed, size, page, &Links::Relative))
+}
+
+/// The size and page `<size>/<page>` names, each written without leading
+/// zeros, when the page is one of a site's.
+pub(super) fn site_place(rest: &str) -> Option<(u64, u64)> {
+    let (size, page) = rest.split_once('/')?;
+    let size = canonical_number(size).filter(|size| (1..=ITEMS).contains(size))?;
+    let page = canonical_number(page).filter(|page| (1..=size).contains(page))?;
+    Some((size, page))
+}
+
+/// How a page of a site's tree writes its links.
+pub(super) enum Links<'a> {
+    /// As paths on the page's own host: `scale.test`'s sites.
+    Relative,
+    /// As absolute URLs on the host `host(page)` names for each page, on
+    /// `port`, beside a link to `private`, a path on the page's own host:
+    /// the comparison's multi-domain site.
+    Hosts {
+        host: &'a dyn Fn(u64) -> String,
+        port: &'a str,
+        private: &'a str,
+    },
+    /// Only by the page's script, from the first and last child its list
+    /// names, so its markup holds no link to a child: the comparison's
+    /// script-rendered site.
+    Script(&'a str),
+}
+
+/// The children of `page` in a site of `size` pages.
+pub(super) fn children(size: u64, page: u64) -> std::ops::RangeInclusive<u64> {
+    let first = (page - 1) * SITE_FAN_OUT + 2;
+    first..=(first + SITE_FAN_OUT - 1).min(size)
+}
+
+/// The page `page` of a site's tree of `size` pages, its links written as
+/// `links` says.
+pub(super) fn tree_page(seed: u64, size: u64, page: u64, links: &Links<'_>) -> String {
     let (id, name) = (item_id(page), item_name(seed, page));
+    let href = |child: u64| match links {
+        Links::Relative | Links::Script(_) => format!("/sites/{size}/{child}"),
+        Links::Hosts { host, port, .. } => {
+            format!("http://{}:{port}/sites/{size}/{child}", host(child))
+        }
+    };
     let mut body = format!(
-        "<main>\n<article class=\"item\" data-id=\"{id}\">\n<h1 class=\"name\">{name}</h1>\n</article>\n<nav>\n<a href=\"/sites/{size}/1\">Home</a>\n<ul class=\"pages\">\n"
+        "<main>\n<article class=\"item\" data-id=\"{id}\">\n<h1 class=\"name\">{name}</h1>\n</article>\n<nav>\n<a href=\"{}\">Home</a>\n",
+        href(1)
     );
-    let first_child = (page - 1) * SITE_FAN_OUT + 2;
-    for child in first_child..=(first_child + SITE_FAN_OUT - 1).min(size) {
+    if let Links::Hosts { private, .. } = links {
+        writeln!(body, "<a href=\"{private}\">Private</a>")
+            .expect("invariant: writing to a String succeeds");
+    }
+    let children = children(size, page);
+    if let Links::Script(script) = links {
         writeln!(
             body,
-            "<li><a href=\"/sites/{size}/{child}\">{}</a></li>",
-            item_name(seed, child)
+            "<ul class=\"pages\" data-first=\"{}\" data-last=\"{}\"></ul>\n<script>\n{script}</script>",
+            children.start(),
+            children.end()
         )
         .expect("invariant: writing to a String succeeds");
+    } else {
+        body.push_str("<ul class=\"pages\">\n");
+        for child in children {
+            writeln!(
+                body,
+                "<li><a href=\"{}\">{}</a></li>",
+                href(child),
+                item_name(seed, child)
+            )
+            .expect("invariant: writing to a String succeeds");
+        }
+        body.push_str("</ul>\n");
     }
-    body.push_str("</ul>\n</nav>\n</main>\n");
-    Page::ok(document(&name, &body))
+    body.push_str("</nav>\n</main>\n");
+    document(&name, &body)
 }
 
 fn xml(text: String) -> Page {

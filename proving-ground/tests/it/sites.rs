@@ -63,3 +63,162 @@ fn a_site_of_another_size_holds_that_many_pages() {
 
     assert_eq!(crawled, (25, site_pages(&proving_ground, 25)));
 }
+
+/// The `href`s of a page's links, as its markup writes them.
+fn hrefs(body: &str) -> Vec<String> {
+    regex::Regex::new(r#"<a href="([^"]*)""#)
+        .expect("a valid expression")
+        .captures_iter(body)
+        .map(|captures| captures[1].to_owned())
+        .collect()
+}
+
+/// The multi-domain site's page `page` of `size`, on the host of its
+/// domain: `polite-<d>.localhost`, `d` being `page` modulo 50, from 1.
+fn polite_url(proving_ground: &ProvingGround, size: u64, page: u64) -> String {
+    format!(
+        "http://polite-{}.localhost:{}/sites/{size}/{page}",
+        (page - 1) % 50 + 1,
+        proving_ground.port()
+    )
+}
+
+/// The polite scenario's multi-domain site (#1903): a crawl from its first
+/// page that follows every link across its hosts and obeys each host's
+/// robots.txt reaches each of its 1,000 pages once, each on its own
+/// domain's host, 20 on each of 50 domains, and every robots.txt holds
+/// back the one other page they link, so a crawl that obeys none fetches
+/// a page of no site.
+#[test]
+fn a_polite_crawl_of_the_multi_domain_site_reaches_each_page_on_its_own_domain() {
+    let proving_ground = ProvingGround::start(SEED);
+    let first = polite_url(&proving_ground, 1000, 1);
+    let mut seen = BTreeSet::from([first.clone()]);
+    let mut queue = vec![first];
+    let mut held_back = BTreeSet::new();
+    let mut robots = BTreeSet::new();
+    while let Some(url) = queue.pop() {
+        let page = proving_ground.get(&url);
+        assert_eq!(page.status, 200, "{url}");
+        let origin = url[..url.find("/sites/").expect("a site page")].to_owned();
+        robots.insert(proving_ground.get(&format!("{origin}/robots.txt")).body);
+        for href in hrefs(&page.body) {
+            let link = if href.starts_with('/') {
+                format!("{origin}{href}")
+            } else {
+                href
+            };
+            if link.ends_with("/private") {
+                held_back.insert(link);
+            } else if seen.insert(link.clone()) {
+                queue.push(link);
+            }
+        }
+    }
+    let domains = seen
+        .iter()
+        .map(|url| {
+            url.split_once("://")
+                .expect("a URL")
+                .1
+                .split(':')
+                .next()
+                .expect("a host")
+        })
+        .collect::<BTreeSet<&str>>()
+        .len();
+    let private = proving_ground.get(&held_back.first().expect("a private page").clone());
+
+    assert_eq!(
+        (seen, domains, held_back.len(), robots, private.status),
+        (
+            (1..=1000)
+                .map(|page| polite_url(&proving_ground, 1000, page))
+                .collect(),
+            50,
+            50,
+            BTreeSet::from(["User-agent: *\nDisallow: /sites/*/private\n".to_owned()]),
+            200
+        )
+    );
+}
+
+/// A page of the multi-domain site asked for on another domain's host is
+/// none, so a crawl that sends a page to the wrong host fetches no page.
+#[test]
+fn a_multi_domain_page_on_another_domains_host_is_none() {
+    let proving_ground = ProvingGround::start(SEED);
+    let port = proving_ground.port();
+
+    let answers = [
+        proving_ground
+            .get(&polite_url(&proving_ground, 1000, 3))
+            .status,
+        proving_ground
+            .get(&format!("http://polite-4.localhost:{port}/sites/1000/3"))
+            .status,
+        proving_ground
+            .get(&format!("http://polite-51.localhost:{port}/sites/1000/51"))
+            .status,
+    ];
+
+    assert_eq!(answers, [200, 404, 404]);
+}
+
+/// The headless browser scenario's script-rendered site (#1903): a page's
+/// markup links only home, so a crawl that runs no script reaches the
+/// first page alone, while a browser sees its links to its ten children.
+#[test]
+fn the_script_rendered_sites_links_are_seen_only_by_a_browser() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://rendered.localhost:{}", proving_ground.port());
+    let page = proving_ground.get(&format!("{origin}/sites/1000/2"));
+    let mut crawler = Crawler::new(&proving_ground);
+    crawler.follow_scripts = false;
+    let crawled = crawler.crawl(&format!("{origin}/sites/25/1")).len();
+
+    let rendered = crate::browser::run(
+        "comparison",
+        "links",
+        &format!("{origin}/sites/1000/2"),
+        serde_json::json!({}),
+    );
+
+    assert_eq!(
+        (page.status, hrefs(&page.body), crawled, &rendered["links"]),
+        (
+            200,
+            vec!["/sites/1000/1".to_owned()],
+            1,
+            &serde_json::json!(
+                std::iter::once(format!("{origin}/sites/1000/1"))
+                    .chain((12..=21).map(|child| format!("{origin}/sites/1000/{child}")))
+                    .collect::<Vec<_>>()
+            )
+        )
+    );
+}
+
+/// The comparison's sites are observed, so `just compare`'s same-work check
+/// reads what each tool fetched from them.
+#[test]
+fn the_comparisons_sites_are_observed() {
+    let proving_ground = ProvingGround::start(SEED);
+    let port = proving_ground.port();
+    proving_ground.get(&polite_url(&proving_ground, 1000, 7));
+    proving_ground.get(&format!("http://rendered.localhost:{port}/sites/1000/7"));
+
+    let observations = proving_ground.observations();
+
+    let hosts: BTreeSet<&str> = observations["requests"]
+        .as_array()
+        .expect("requests")
+        .iter()
+        .filter(|request| request["target"] == "/sites/1000/7")
+        .filter_map(|request| request["host"].as_str())
+        .collect();
+    assert_eq!(
+        hosts,
+        BTreeSet::from(["polite-7.localhost", "rendered.localhost"])
+    );
+}

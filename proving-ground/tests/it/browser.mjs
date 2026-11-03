@@ -165,6 +165,15 @@ const askedText = (page) => page.locator("#ask .text").textContent();
 const AZERTY = { a: "KeyQ", q: "KeyA", z: "KeyW", w: "KeyZ", m: "Semicolon", " ": "Space" };
 
 const programs = {
+  /** Reads the page's links once its script ran: each `<a>`'s URL. */
+  links: async (page, { url }) => {
+    await page.goto(url);
+    return {
+      links: await page.evaluate(() =>
+        [...document.querySelectorAll("a")].map((link) => link.href),
+      ),
+    };
+  },
   /** Waits for the network to be idle, then reads the board. */
   "board-when-idle": async (page, { url, deadline_ms: deadlineMs = DEADLINE_MS }) => {
     const idle = await networkIdle(page, () => page.goto(url, { waitUntil: "load" }), deadlineMs);

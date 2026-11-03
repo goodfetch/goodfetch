@@ -31,8 +31,7 @@ static RELEASED: Condvar = Condvar::new();
 /// otherwise start them all at once. A count Callgrind reads does not depend
 /// on how many run beside it.
 pub fn bounded<T>(run: impl FnOnce() -> T) -> T {
-    let most = std::thread::available_parallelism()
-        .map_or(1, |cores| (cores.get() / 2).clamp(1, MOST_AT_ONCE));
+    let most = most_at_once();
     let mut running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
     while *running >= most {
         running = RELEASED
@@ -43,6 +42,12 @@ pub fn bounded<T>(run: impl FnOnce() -> T) -> T {
     drop(running);
     let _release = Release;
     run()
+}
+
+/// How many Callgrind children [`bounded`] lets run at once on this
+/// machine: half its cores, at least one and at most [`MOST_AT_ONCE`].
+fn most_at_once() -> usize {
+    std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).clamp(1, MOST_AT_ONCE))
 }
 
 /// Gives back its child's place in [`bounded`] once the child ended,

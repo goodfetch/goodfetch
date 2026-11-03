@@ -11,10 +11,6 @@
 //! what extraction-side removal took from its document, and what
 //! a fetch tier did, such as a hedge it sent or a response two requests
 //! shared (ADR 0040).
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the log's actor writes its file on the tasks module's dedicated thread, never on an async worker"
-)]
 
 use std::fs::OpenOptions;
 use std::io::{self, Write as _};
@@ -118,20 +114,23 @@ impl CommandLog {
     }
 }
 
+/// Appends `methods`' lines to `file`, creating its folder, each opening
+/// counted on `C1.file_opens` through [`CountedWork`] (ADR 0140). It runs on
+/// the log's actor, on the tasks module's dedicated thread, never on an async
+/// worker.
 fn append(file: &Path, methods: &[&'static str], work: &CountedWork) -> io::Result<()> {
     if let Some(folder) = file.parent() {
-        work.count(Row::CdpFileOpens);
-        std::fs::create_dir_all(folder)?;
+        work.create_dir_all(Row::CdpFileOpens, folder)?;
     }
     let mut lines = Vec::new();
     for method in methods {
         serde_json::to_writer(&mut lines, &serde_json::json!({ "method": method }))?;
         lines.push(b'\n');
     }
-    work.count(Row::CdpFileOpens);
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file)?
-        .write_all(&lines)
+    work.open_file(
+        Row::CdpFileOpens,
+        OpenOptions::new().create(true).append(true),
+        file,
+    )?
+    .write_all(&lines)
 }

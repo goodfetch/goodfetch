@@ -13,10 +13,11 @@
 
 mod tray;
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use goodfetch_kennel::client::{self, Report, Wanted};
+use goodfetch_kennel::client::{self, CONNECTION_LOST, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
@@ -28,6 +29,9 @@ use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
+
+/// How many calls a person makes may wait for the Client to send them.
+const CALLS_WAITING: usize = 16;
 
 /// How long the Kennel waits for its tasks once it quits.
 const STOP_GRACE: Duration = Duration::from_secs(1);
@@ -90,13 +94,15 @@ fn main() -> anyhow::Result<()> {
     let tasks = Tasks::new(runtime.handle().clone());
     let (look_again, looks) = mpsc::channel(1);
     let (wanted, wanted_now) = watch::channel(Wanted::default());
-    start_tasks(&tasks, &home, looks, wanted_now, &proxy);
+    let (calls, calls_made) = mpsc::channel(CALLS_WAITING);
+    start_tasks(&tasks, &home, looks, wanted_now, calls_made, &proxy);
     let mut kennel = Kennel {
         state: State::new(),
         tasks: tasks.clone(),
         proxy,
         look_again,
         wanted,
+        calls,
         installed: false,
         next_draw: None,
     };
@@ -113,6 +119,7 @@ fn start_tasks(
     home: &Home,
     looks: mpsc::Receiver<()>,
     wanted: watch::Receiver<Wanted>,
+    calls: mpsc::Receiver<Call>,
     proxy: &EventLoopProxy<UserEvent>,
 ) {
     let to_ui = |proxy: &EventLoopProxy<UserEvent>| {
@@ -132,6 +139,7 @@ fn start_tasks(
             keep_daemon_alive,
             health_every: client::HEALTH_EVERY,
             wanted,
+            calls,
         },
         move |client: Report| report(UserEvent::Client(client)),
     ));
@@ -168,6 +176,8 @@ struct Kennel {
     look_again: mpsc::Sender<()>,
     /// The reads the State wants the Client to keep in step with.
     wanted: watch::Sender<Wanted>,
+    /// The calls a person makes, which the Client sends.
+    calls: mpsc::Sender<Call>,
     /// Whether the icon is in the menu bar.
     installed: bool,
     /// When a paced redraw falls due.
@@ -178,9 +188,22 @@ impl Kennel {
     /// Carries out the State's `effects`, then keeps the Client's reads
     /// and the Tray in step with the State.
     fn carry_out(&mut self, event_loop: &ActiveEventLoop, effects: Vec<Effect>) {
-        for effect in effects {
+        let mut effects = VecDeque::from(effects);
+        while let Some(effect) = effects.pop_front() {
             match effect {
                 Effect::Quit => event_loop.exit(),
+                Effect::Call(call) => {
+                    if let Err(unsent) = self.calls.try_send(call) {
+                        // Full or closed: the Client is stuck or gone, and
+                        // the State hears that the call was not sent.
+                        let failure = CallFailure {
+                            code: CONNECTION_LOST.to_owned(),
+                            message: "The Kennel could not send it to the Daemon".to_owned(),
+                        };
+                        let call = unsent.into_inner();
+                        effects.extend(self.state.apply(Input::Answered(call, Err(failure))));
+                    }
+                }
                 Effect::StartDaemon(product) => {
                     tracing::info!(path = %product.path.display(), "starting the Daemon");
                     let proxy = self.proxy.clone();
@@ -291,6 +314,9 @@ impl ApplicationHandler<UserEvent> for Kennel {
             UserEvent::Client(Report::LiveRuns(rows)) => self.state.apply(Input::LiveRuns(rows)),
             UserEvent::Client(Report::Progress(progress)) => {
                 self.state.apply(Input::Progress(progress))
+            }
+            UserEvent::Client(Report::Answered(call, answer)) => {
+                self.state.apply(Input::Answered(call, answer))
             }
             UserEvent::MenuOpened => self.state.apply(Input::Menu(MenuChange::Opened(now()))),
             UserEvent::MenuClosed => self.state.apply(Input::Menu(MenuChange::Closed)),

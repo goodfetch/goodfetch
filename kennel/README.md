@@ -21,10 +21,21 @@ The icon shows one verdict for the Daemon, worst first, with no numbers:
 | A Run runs | a ring with its left half filled |
 | Idle | a filled disc |
 
-A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then Quit. With no Daemon running, the menu offers "Start Daemon".
+A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then the Needs you items, then Quit. With no Daemon running, the menu offers "Start Daemon".
 
 - **Each Run** shows its Recipe, or its Run ID when it ran none, and its Lifecycle. Its progress message goes on the line below. On a Foxhound Daemon, a crawl also shows its succeeded, failed and pending counts.
 - **What it lists.** The menu lists at most 10 Runs and counts the others. A Run that failed or was stopped by a Limit comes first. It stays in the menu and in the icon until the menu that showed it closes.
+- **Needs you.** The menu lists the Daemon's Needs you items, the longest waiting first, at most 10, and counts the others. Each item opens a submenu that says what waits and offers the actions the item allows, each through its operation:
+
+  | Action | Operation | Offered |
+  |---|---|---|
+  | Raise the Limit | `usage.raise` | to twice the amount the Limit allows now, the one amount a menu can offer without asking for a number; not for a Limit of nothing, which the CLI raises (`usage raise`) |
+  | Accept the consent walls of a domain | `needs_you.allow_consent_domain` | when the item allows it |
+  | Deny a domain | `needs_you.deny_wall_domain` | when the item allows it, with the reason the Audit log records: "Denied by a person from the Kennel's menu" |
+  | Remove a domain from the refetch domains | `needs_you.remove_refetch_domain` | unless only `*` lists the domain, which takes the list of domains that replace `*`: the CLI changes it |
+  | Dismiss | `needs_you.dismiss` | when the item allows it |
+
+  Resuming a Run, answering a changed certificate, answering a Human pause and reconciling are not offered from the menu. An action the engine refuses, or one no Daemon received, shows under the Daemon's state with the Error's message until the menu that showed it closes. An action that succeeds shows in the list: its item leaves it.
 - **Fresh and live.** The menu is rebuilt from the latest data when the click starts, before it opens, and it keeps updating while it stays open.
 - **Redraws.** There is at most one redraw a second, and no redraw of a hidden menu.
 - **Shown text.** Text from the Daemon, a Run's program or a crawled site is shown as plain text. Control and bidirectional characters are stripped and long text is truncated. Credentials are masked as `••••`: a URL's password, a credential's query parameter (`token`, `password`, `api_key`, a signed URL's signature) and the value after `Authorization:`. The engine already masks the Secret values a Run resolved.
@@ -73,7 +84,7 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 
 | Key | Default | Off |
 |---|---|---|
-| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon" included |
+| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon" and the Needs you items' actions included |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 
 Later features each add a switch here.

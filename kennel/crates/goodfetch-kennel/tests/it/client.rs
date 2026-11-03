@@ -11,14 +11,20 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_kennel::client::{
-    self, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Report, Wanted,
+    self, CONNECTION_LOST, Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity,
+    NO_DAEMON, Refusal, Report, Wanted,
 };
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, Unready};
+use goodfetch_protocol::needs_you::{
+    NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
+    NeedsYouRemoveRefetchDomainParams,
+};
 use goodfetch_protocol::run::{Lifecycle, RunId};
+use goodfetch_protocol::usage::UsageRaiseParams;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
 
@@ -36,6 +42,7 @@ struct Following {
     reports: mpsc::Receiver<Report>,
     keep_daemon_alive: watch::Sender<bool>,
     wanted: watch::Sender<Wanted>,
+    calls: mpsc::Sender<Call>,
     _look_again: mpsc::Sender<()>,
 }
 
@@ -58,6 +65,7 @@ impl Following {
         let (look_again_sender, look_again) = mpsc::channel(1);
         let (keep_alive_sender, keep_alive) = watch::channel(keep_daemon_alive);
         let (wanted_sender, wanted) = watch::channel(wanted);
+        let (calls_sender, calls) = mpsc::channel(16);
         tasks.spawn(client::follow(
             tasks.clone(),
             client::Follow {
@@ -66,6 +74,7 @@ impl Following {
                 keep_daemon_alive: keep_alive,
                 health_every,
                 wanted,
+                calls,
             },
             report,
         ));
@@ -74,7 +83,21 @@ impl Following {
             reports,
             keep_daemon_alive: keep_alive_sender,
             wanted: wanted_sender,
+            calls: calls_sender,
             _look_again: look_again_sender,
+        }
+    }
+
+    /// Makes `call` through the Client.
+    fn call(&self, call: Call) {
+        self.calls.try_send(call).unwrap();
+    }
+
+    /// The next report, which answers a call.
+    fn next_answer(&mut self) -> (Call, Result<(), CallFailure>) {
+        match self.next_report() {
+            Report::Answered(call, answer) => (call, answer),
+            other => panic!("a call's answer, not {other:?}"),
         }
     }
 
@@ -580,4 +603,115 @@ fn a_held_serving_lock_beside_a_socket_nothing_listens_on_is_no_daemon() {
     let seen = first_reports(&Home::new(folder.path()), 1);
 
     assert_eq!(seen, [ConnectionChange::NoDaemon]);
+}
+
+fn dismiss() -> Call {
+    Call::Dismiss(NeedsYouDismissParams {
+        item: "consent_wall:news.example".to_owned(),
+    })
+}
+
+#[test]
+fn each_call_a_person_makes_is_sent_to_its_operation_and_its_answer_reported() {
+    let Some(engine) = scripted_engine("each_call_a_person_makes_is_sent_to_its_operation") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(&engine, &home, &script("needs-you-actions.json"), TOKEN);
+    let mut kennel = Following::start(&home, false, NEVER);
+    let reached = kennel.next(1);
+    let raise = Call::RaiseLimit(
+        serde_json::from_value::<UsageRaiseParams>(serde_json::json!({
+            "scope": "daemon",
+            "scope_id": "0.4",
+            "usage_kind": "page_loads",
+            "period": {"every": "day", "time_zone": "Europe/Paris"},
+            "amount": 1000,
+        }))
+        .unwrap(),
+    );
+    let allow = Call::AllowConsentDomain(NeedsYouAllowConsentDomainParams {
+        domain: "news.example".to_owned(),
+    });
+    let deny = Call::DenyWallDomain(NeedsYouDenyWallDomainParams {
+        domain: "shop.example".to_owned(),
+        reason: "Denied by a person from the Kennel's menu".to_owned(),
+    });
+    let remove = Call::RemoveRefetchDomain(NeedsYouRemoveRefetchDomainParams {
+        domain: "shop.example".to_owned(),
+        instead_of_star: None,
+    });
+    let calls = [raise, allow, deny, remove, dismiss()];
+
+    for call in &calls {
+        kennel.call(call.clone());
+    }
+    let answers: Vec<(Call, Result<(), CallFailure>)> =
+        (0..calls.len()).map(|_| kennel.next_answer()).collect();
+
+    assert_eq!(reached, [foxhound_0_4_1()]);
+    let [raise, allow, deny, remove, dismiss] = calls;
+    assert_eq!(
+        answers,
+        [
+            (raise, Ok(())),
+            (
+                allow,
+                Err(CallFailure {
+                    code: "setting_locked".to_owned(),
+                    message: "An Operator policy locks consent.domains: ask its administrator."
+                        .to_owned(),
+                })
+            ),
+            (deny, Ok(())),
+            (remove, Ok(())),
+            (dismiss, Ok(())),
+        ]
+    );
+    drop(kennel);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw each call, with its params, in order"
+    );
+}
+
+#[test]
+fn a_call_made_while_no_daemon_is_reached_is_not_sent_and_fails() {
+    let folder = tempfile::tempdir().unwrap();
+    let mut kennel = Following::start(&Home::new(folder.path()), false, NEVER);
+    let before = kennel.next(1);
+
+    kennel.call(dismiss());
+
+    assert_eq!(before, [ConnectionChange::NoDaemon]);
+    let (call, answer) = kennel.next_answer();
+    assert_eq!(call, dismiss());
+    assert_eq!(answer.unwrap_err().code, NO_DAEMON);
+}
+
+#[test]
+fn a_call_whose_connection_closes_before_its_answer_fails() {
+    let Some(engine) = scripted_engine("a_call_whose_connection_closes_before_its_answer_fails")
+    else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("call-unanswered-then-closed.json"),
+        TOKEN,
+    );
+    let mut kennel = Following::start(&home, false, NEVER);
+    let reached = kennel.next(1);
+
+    kennel.call(dismiss());
+
+    assert_eq!(reached, [foxhound_0_4_1()]);
+    let (call, answer) = kennel.next_answer();
+    assert_eq!(call, dismiss());
+    assert_eq!(answer.unwrap_err().code, CONNECTION_LOST);
+    assert!(daemon.ended().success());
 }

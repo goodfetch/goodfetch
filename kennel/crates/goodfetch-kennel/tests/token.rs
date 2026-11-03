@@ -104,6 +104,7 @@ fn the_daemons_token_never_reaches_the_logs() {
     let (_look_again, look_again) = tokio::sync::mpsc::channel(1);
     let (_keep_alive, keep_daemon_alive) = tokio::sync::watch::channel(false);
     let (_wanted, wanted) = tokio::sync::watch::channel(Wanted::default());
+    let (_calls, calls) = tokio::sync::mpsc::channel(1);
     tasks.spawn(client::follow(
         tasks.clone(),
         client::Follow {
@@ -112,6 +113,7 @@ fn the_daemons_token_never_reaches_the_logs() {
             keep_daemon_alive,
             health_every: client::HEALTH_EVERY,
             wanted,
+            calls,
         },
         move |report| {
             if let Report::Connection(change) = report {

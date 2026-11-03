@@ -118,6 +118,7 @@ fn lines(state: &State) -> Vec<String> {
             Row::Detail(line) => format!("  {line}"),
             Row::Choice { label, .. } => label,
             Row::Separator => "---".to_owned(),
+            Row::Submenu { label, .. } => format!("{label} >"),
         })
         .collect()
 }

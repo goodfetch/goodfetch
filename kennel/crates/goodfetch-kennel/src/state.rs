@@ -20,6 +20,11 @@
 //!   progress of each Run it shows.
 //! - **Redraws**: at most one a second, and none of the menu while it is
 //!   hidden, since the Tray draws the latest view as it opens.
+//! - **Needs you**: the items, longest waiting first, each a submenu with
+//!   the actions the menu offers for it (`needs_you`). Choosing one gives
+//!   the call it makes, [`Effect::Call`], and a call that fails says so
+//!   in the menu, with the engine's Error message, until a menu that
+//!   showed it closes.
 //!
 //! Every string shown passes through the Text function.
 
@@ -29,14 +34,21 @@ use std::time::{Duration, Instant};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use goodfetch_protocol::foxhound::progress::RequestProgress;
+use goodfetch_protocol::needs_you::{NeedsYouChange, NeedsYouItem};
 use goodfetch_protocol::run::{
     Lifecycle, RECIPE_TAG, RunAxes, RunId, RunIndexRow, RunProgress, StopReason,
 };
 
-use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted};
+use crate::client::{
+    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted,
+};
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
+
+mod needs_you;
+
+pub use needs_you::Action;
 
 #[cfg(test)]
 mod tests;
@@ -74,6 +86,8 @@ pub enum Input {
     Settings(Result<Settings, SettingsError>),
     /// The `daemon start` the person chose has ended.
     StartEnded(Result<(), StartFailure>),
+    /// A call the person made through the Client was answered, or failed.
+    Answered(Call, Result<(), CallFailure>),
 }
 
 /// The menu opened or closed.
@@ -86,10 +100,17 @@ pub enum MenuChange {
 }
 
 /// What a person can choose in the menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Choice {
     /// Run the installed Product's `daemon start`.
     StartDaemon,
+    /// Resolve a Needs you item through one of its actions.
+    NeedsYou {
+        /// The item's ID.
+        item: String,
+        /// The action.
+        action: Action,
+    },
     /// Quit the Kennel, which stops none of the Runs.
     Quit,
 }
@@ -101,6 +122,9 @@ pub enum Effect {
     StartDaemon(InstalledProduct),
     /// Quit.
     Quit,
+    /// Make this call through the Client, and give its answer back as
+    /// [`Input::Answered`].
+    Call(Call),
 }
 
 /// The one verdict the icon shows, worst first (ADR 0141).
@@ -134,6 +158,33 @@ pub enum Row {
     },
     /// A separator.
     Separator,
+    /// A line that opens a submenu of its own rows.
+    Submenu {
+        /// What the line says.
+        label: String,
+        /// The submenu's rows, top to bottom.
+        rows: Vec<Row>,
+    },
+}
+
+impl Row {
+    /// The row with its text, and its submenu's, made safe to show by the
+    /// Text function.
+    fn shown(self) -> Self {
+        match self {
+            Self::Text(line) => Self::Text(text::shown(&line, LINE_MOST)),
+            Self::Detail(line) => Self::Detail(text::shown(&line, LINE_MOST)),
+            Self::Choice { label, choice } => Self::Choice {
+                label: text::shown(&label, LINE_MOST),
+                choice,
+            },
+            Self::Separator => Self::Separator,
+            Self::Submenu { label, rows } => Self::Submenu {
+                label: text::shown(&label, LINE_MOST),
+                rows: rows.into_iter().map(Self::shown).collect(),
+            },
+        }
+    }
 }
 
 /// What the Tray draws.
@@ -149,18 +200,7 @@ impl View {
     /// The view of `verdict` and `rows`, each row's text made safe to
     /// show by the Text function.
     fn new(verdict: Verdict, rows: Vec<Row>) -> Self {
-        let rows = rows
-            .into_iter()
-            .map(|row| match row {
-                Row::Text(line) => Row::Text(text::shown(&line, LINE_MOST)),
-                Row::Detail(line) => Row::Detail(text::shown(&line, LINE_MOST)),
-                Row::Choice { label, choice } => Row::Choice {
-                    label: text::shown(&label, LINE_MOST),
-                    choice,
-                },
-                Row::Separator => Row::Separator,
-            })
-            .collect();
+        let rows = rows.into_iter().map(Row::shown).collect();
         Self { verdict, rows }
     }
 }
@@ -271,6 +311,16 @@ struct Facts {
     message: Option<String>,
 }
 
+/// A call that failed, which the menu says until a menu that showed it
+/// closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Failed {
+    /// What the menu says.
+    line: String,
+    /// Whether an open menu showed it.
+    seen: bool,
+}
+
 /// What the Tray last drew.
 #[derive(Clone, Debug)]
 struct Drawn {
@@ -293,7 +343,9 @@ pub struct State {
     /// The live Runs' rows, as `run.list` last answered.
     facts: BTreeMap<RunId, Facts>,
     /// The Needs you items listed, by ID.
-    needs_you: BTreeSet<String>,
+    needs_you: BTreeMap<String, NeedsYouItem>,
+    /// The last call that failed, until a menu that showed it closes.
+    failed: Option<Failed>,
     /// Bumped each time the live Runs' rows are to be read again.
     live_runs: u64,
     menu_open: bool,
@@ -318,7 +370,8 @@ impl State {
             settings_error: None,
             runs: BTreeMap::new(),
             facts: BTreeMap::new(),
-            needs_you: BTreeSet::new(),
+            needs_you: BTreeMap::new(),
+            failed: None,
             live_runs: 0,
             menu_open: false,
             drawn: None,
@@ -366,6 +419,9 @@ impl State {
                 self.menu_open = false;
                 self.runs
                     .retain(|_, run| !(run.phase.needs_a_look() && run.seen));
+                if self.failed.as_ref().is_some_and(|failed| failed.seen) {
+                    self.failed = None;
+                }
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
@@ -378,6 +434,15 @@ impl State {
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
             Input::StartEnded(Err(failure)) => self.start = Start::Failed(failure),
+            // An answered call shows in what it changes, which the events
+            // bring.
+            Input::Answered(_, Ok(())) => {}
+            Input::Answered(call, Err(failure)) => {
+                self.failed = Some(Failed {
+                    line: format!("{} failed: {}", attempt(&call), failure.message),
+                    seen: false,
+                });
+            }
         }
         Vec::new()
     }
@@ -387,6 +452,14 @@ impl State {
     pub fn choose(&mut self, choice: Choice) -> Vec<Effect> {
         match choice {
             Choice::Quit => vec![Effect::Quit],
+            Choice::NeedsYou { item, action } => self
+                .needs_you
+                .get(&item)
+                .filter(|_| self.settings.controls && matches!(self.daemon, Daemon::Reached(..)))
+                .and_then(|item| needs_you::call(item, action))
+                .map(Effect::Call)
+                .into_iter()
+                .collect(),
             Choice::StartDaemon => match self.startable() {
                 Some(installed) => {
                     let effect = Effect::StartDaemon(installed.clone());
@@ -463,8 +536,12 @@ impl State {
                 "kennel.toml cannot be read, so the defaults apply: {error}"
             )));
         }
+        if let Some(failed) = &self.failed {
+            rows.push(Row::Text(failed.line.clone()));
+        }
         if let Daemon::Reached(identity, _) = &self.daemon {
             self.run_rows(identity.product, &mut rows);
+            needs_you::rows(&self.needs_you, self.settings.controls, &mut rows);
         }
         rows.push(Row::Separator);
         rows.push(Row::Choice {
@@ -553,7 +630,11 @@ impl State {
                 for axes in resync.runs {
                     self.axes(axes);
                 }
-                self.needs_you = resync.needs_you.into_iter().map(|item| item.id).collect();
+                self.needs_you = resync
+                    .needs_you
+                    .into_iter()
+                    .map(|item| (item.id.clone(), item))
+                    .collect();
                 self.live_runs += 1;
             }
             DaemonEvent::RunAxes(axes) => {
@@ -564,10 +645,10 @@ impl State {
                 self.axes(axes);
             }
             DaemonEvent::NeedsYou(change) => match change {
-                goodfetch_protocol::needs_you::NeedsYouChange::Listed { item } => {
-                    self.needs_you.insert(item.id);
+                NeedsYouChange::Listed { item } => {
+                    self.needs_you.insert(item.id.clone(), item);
                 }
-                goodfetch_protocol::needs_you::NeedsYouChange::Removed { id, .. } => {
+                NeedsYouChange::Removed { id, .. } => {
                     self.needs_you.remove(&id);
                 }
             },
@@ -712,6 +793,9 @@ impl State {
                 run.seen = true;
             }
         }
+        if let Some(failed) = &mut self.failed {
+            failed.seen = true;
+        }
     }
 
     /// The Product whose `daemon start` the menu offers now.
@@ -719,6 +803,21 @@ impl State {
         let idle = matches!(self.start, Start::Idle | Start::Failed(_));
         let offered = idle && self.daemon == Daemon::None && self.settings.controls;
         self.installed.as_ref().filter(|_| offered)
+    }
+}
+
+/// What the menu says a failed `call` was trying to do.
+fn attempt(call: &Call) -> String {
+    match call {
+        Call::RaiseLimit(params) => format!("Raising the Limit on {}", params.usage_kind),
+        Call::AllowConsentDomain(params) => {
+            format!("Accepting the consent walls of {}", params.domain)
+        }
+        Call::DenyWallDomain(params) => format!("Denying {}", params.domain),
+        Call::RemoveRefetchDomain(params) => {
+            format!("Removing {} from the refetch domains", params.domain)
+        }
+        Call::Dismiss(_) => "Dismissing a Needs you item".to_owned(),
     }
 }
 

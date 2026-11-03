@@ -854,7 +854,7 @@ impl Connection {
                         tracing::warn!(%error, run_id = %run, "a run.usage answer the Kennel cannot read");
                     }
                     Err(error) => {
-                        tracing::warn!(code = error.data.code, run_id = %run, "run.usage failed")
+                        tracing::warn!(code = error.data.code, run_id = %run, "run.usage failed");
                     }
                 }
                 Ok(())

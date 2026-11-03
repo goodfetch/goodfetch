@@ -330,3 +330,6 @@ pub(crate) fn run(
         instructions,
     })
 }
+
+#[cfg(test)]
+mod tests;

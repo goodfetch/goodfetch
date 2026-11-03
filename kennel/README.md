@@ -65,4 +65,5 @@ The first figures are [#1915](https://github.com/goodfetch/goodfetch/issues/1915
 | CPU below 0.5% with a live Run | not measured yet: measured on the first build that reaches a Daemon with a live Run | |
 | Window at most 100 MB once settled (no frame for 5 s), none when closed | 52 MB settled; 258 MB start-up peak | 2026-11-02, Mac15,11, macOS 27.2 |
 | One executable at most 6 MB, stripped, with LTO | 4.77 MB (4,773,024 bytes), glow only | 2026-11-02, Mac15,11, macOS 27.2 |
+| One executable, as above | 1.79 MB (1,789,744 bytes): this workspace's first build, the Tray alone, before the window | 2026-11-03, Mac15,11, macOS 27.2 |
 | At most one redraw a second, none while hidden | about one a second | 2026-11-02, Mac15,11, macOS 27.2 |

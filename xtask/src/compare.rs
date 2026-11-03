@@ -1,24 +1,33 @@
-//! `xtask compare-spider` (ADR 0134): a one-off comparison of Foxhound's
-//! crawl with Spider's, the Rust HTTP crawler nearest it, on the owner's
-//! machine. `run` crawls the Proving ground's 1,000-page site with each
-//! tool in the declared number of trials, interleaved in random order, each
-//! tool in a fresh process at the same concurrency, then `report`s: each
-//! tool's median pages per second and peak resident memory, labelled
-//! `local-controlled` with the machine and never published (ADR 0076),
-//! once every trial fetched the same pages and was served the same bytes,
-//! and a failure naming the trial that did other work otherwise. Its
-//! Callgrind cell counts each tool's instructions per page on ADR 0138's
-//! scenario 1 under the same check, and reports
-//! `foxhound.spider_instruction_ratio` (ADR 0140). It is no Live check, gates
-//! nothing and declares no Feature; M4's competitor adapters may absorb it.
+//! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
+//! against the crawlers nearest it, on one machine with nothing else
+//! running. Each scenario sets every tool to the closest equivalent
+//! configuration and the report writes that mapping; a tool that cannot do
+//! a scenario has a cell saying so, and a Foxhound value that does not
+//! exist yet is marked pending (the owner's comments of 2026-10-30 on
+//! #1577). `run` crawls the Proving ground's 1,000-page site with each
+//! measured cell's tool in the declared number of trials, interleaved in
+//! random order, each tool in a fresh process at the same concurrency,
+//! measuring every metric of the owner's list from outside the tools; then
+//! counts each cell's system calls under strace, crawls the 100,000-page
+//! site for the growth of resident memory when asked, and counts scenario
+//! 1's instructions per page under Callgrind, which gives
+//! `foxhound.spider_instruction_ratio` (ADR 0140). `report` holds every
+//! trial to the same-work check, then writes each cell's median and spread
+//! of every metric, labelled `local-controlled` with the machine and never
+//! published (ADR 0076); otherwise it fails naming each trial that did
+//! other work. It is no Live check, gates nothing and declares no Feature.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod foxhound;
+mod matrix;
+mod observed;
 mod report;
 mod run;
 mod same_work;
+mod sampler;
 mod trial;
 mod trials;
 
@@ -26,26 +35,27 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use serde::Deserialize;
 
 use crate::check;
 use crate::environment::Environment;
 use crate::output;
 
-use trials::{Comparison, Tool};
+use matrix::Scenario;
+use trials::Comparison;
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
-    /// Runs every declared trial of both tools, writes the trials file and
-    /// reports them.
+    /// Runs every declared trial of every measured cell, writes the trials
+    /// file and reports them.
     Run(RunArguments),
     /// Checks that every trial of the trials file did the same work, then
     /// writes the report beside it: `report.json` and `report.md`.
     Report(ReportArguments),
-    /// Runs one tool through one crawl as this process's only child and
-    /// prints `seconds=<s> peak-bytes=<n>`; `run` runs each trial through
-    /// it.
+    /// Runs one cell's tool through one crawl as this process's only child
+    /// and prints its figures as one JSON line; `run` runs each trial
+    /// through it.
     #[command(hide = true)]
     Trial(TrialArguments),
 }
@@ -60,8 +70,16 @@ pub(crate) struct RunArguments {
     #[arg(long)]
     spider: PathBuf,
     /// The trials file written; the report goes beside it.
-    #[arg(long, default_value = "target/compare-spider/trials.json")]
+    #[arg(long, default_value = "target/compare/trials.json")]
     out: PathBuf,
+    /// Also runs the growth cell: each measured cell crawls the
+    /// 100,000-page site, hours at `run_state.durability: full`.
+    #[arg(long)]
+    growth: bool,
+    /// Trials of each measured cell, for a quicker try; a report of fewer
+    /// than 10 says so.
+    #[arg(long, default_value_t = trials::TRIALS, hide = true)]
+    trials: u32,
     /// Gives Spider the site of this many pages instead, which the
     /// same-work check refuses: the check shown failing.
     #[arg(long, hide = true)]
@@ -71,14 +89,25 @@ pub(crate) struct RunArguments {
 #[derive(Args)]
 pub(crate) struct ReportArguments {
     /// The trials file.
-    #[arg(long, default_value = "target/compare-spider/trials.json")]
+    #[arg(long, default_value = "target/compare/trials.json")]
     trials: PathBuf,
+}
+
+/// How a trial runs its tool.
+#[derive(Clone, Copy, ValueEnum)]
+enum Mode {
+    Timed,
+    Syscalls,
+    Callgrind,
 }
 
 #[derive(Args)]
 pub(crate) struct TrialArguments {
     #[arg(long, value_enum)]
-    tool: Tool,
+    scenario: Scenario,
+    /// The cell's name in its scenario.
+    #[arg(long)]
+    cell: String,
     /// The tool's executable.
     #[arg(long)]
     executable: PathBuf,
@@ -90,10 +119,11 @@ pub(crate) struct TrialArguments {
     pages: u64,
     #[arg(long)]
     concurrency: u32,
-    /// Runs the tool under Callgrind on ADR 0138's scenario 1, its output
-    /// written here.
+    #[arg(long, value_enum)]
+    mode: Mode,
+    /// Where a counted trial's tool writes its counts.
     #[arg(long)]
-    callgrind: Option<PathBuf>,
+    output: Option<PathBuf>,
 }
 
 /// The entries of the test tool manifest a run takes.
@@ -123,7 +153,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     spider: &environment.path(&arguments.spider),
                 },
                 String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
-                arguments.spider_pages,
+                &run::Options {
+                    trials: arguments.trials,
+                    growth: arguments.growth,
+                    spider_pages: arguments.spider_pages,
+                },
             )?;
             let out = environment.path(&arguments.out);
             if let Some(folder) = out.parent() {
@@ -143,18 +177,37 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             report(&trials, &path)
         }
         Command::Trial(arguments) => {
-            let (seconds, peak) = trial::run(
-                arguments.tool,
-                &arguments.executable,
-                &crate::rss::crawl::Site {
+            let (cell, config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
+            let output_file = || {
+                arguments
+                    .output
+                    .clone()
+                    .context("a counted trial takes --output")
+            };
+            let mode = match arguments.mode {
+                Mode::Timed => trial::Mode::Timed,
+                Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
+                Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
+            };
+            let plan = trial::Plan {
+                cell,
+                config,
+                executable: &arguments.executable,
+                site: crate::rss::crawl::Site {
                     address: &arguments.address,
                     pages: arguments.pages,
                     concurrency: arguments.concurrency,
                 },
-                &environment.goodfetch_variables,
-                arguments.callgrind.as_deref(),
-            )?;
-            output::line(&format!("seconds={seconds} peak-bytes={peak}"));
+                mode,
+                goodfetch_variables: &environment.goodfetch_variables,
+            };
+            let line = match plan.mode {
+                trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,
+                trial::Mode::Syscalls(_) | trial::Mode::Callgrind(_) => {
+                    serde_json::to_string(&plan.counted()?)?
+                }
+            };
+            output::line(&line);
             Ok(ExitCode::SUCCESS)
         }
     }

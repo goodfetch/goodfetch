@@ -195,7 +195,8 @@ fn median(mut values: Vec<u64>) -> Option<u64> {
 /// A target's figure on `product` with where it comes from, or why it was
 /// not measured.
 fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figure>, String) {
-    let spider_source = |commit: &str| format!("`just compare-spider`'s report, commit `{commit}`");
+    let spider_source =
+        |commit: &str| format!("scenario 1 of `just compare`'s report, commit `{commit}`");
     match target {
         Target::StartupToHello => match measured.startup.get(&product) {
             Some(startup) => (
@@ -238,7 +239,7 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
                 }),
                 spider_source(&report.commit),
             ),
-            None => (None, "no `just compare-spider` report yet".to_owned()),
+            None => (None, "no `just compare` report yet".to_owned()),
         },
     }
 }

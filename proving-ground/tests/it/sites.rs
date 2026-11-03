@@ -1,5 +1,5 @@
 //! The `scale.test/sites/<size>/` sites (ADR 0134): a site of any size,
-//! each page linking only its own site's, which `just compare-spider`
+//! each page linking only its own site's, which `just compare`
 //! crawls with Foxhound and Spider at 1,000 pages. They belong to no task
 //! and declare no Feature (#1574).
 

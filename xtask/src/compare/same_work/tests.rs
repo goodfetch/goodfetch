@@ -1,0 +1,133 @@
+use super::check;
+use crate::compare::matrix::{self, Scenario};
+use crate::compare::trial::tool_of;
+use crate::compare::trials::{
+    Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, Trial, Work,
+};
+
+/// The work of a trial that fetched every page of the 4-page site once,
+/// 600 bytes each, plus `again` pages fetched a second time.
+fn work(again: u64) -> Work {
+    Work {
+        pages: 4,
+        missing: Vec::new(),
+        extra: Vec::new(),
+        requests: 4 + again,
+        bytes: 600 * (4 + again),
+        first_bytes: 2400,
+    }
+}
+
+/// Three trials of each measured cell over the 4-page site, each with the
+/// work `work` gives its scenario and number.
+fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
+    let trials = matrix::measured()
+        .flat_map(|(cell, config)| {
+            let work = &work;
+            (1..=3).map(move |number| Trial {
+                scenario: cell.scenario,
+                cell: cell.name.to_owned(),
+                tool: tool_of(config),
+                number,
+                site_pages: 4,
+                measured: Measured {
+                    seconds: 1.0,
+                    work: work(cell.scenario, number),
+                    ..Measured::default()
+                },
+            })
+        })
+        .collect();
+    Comparison {
+        declared: Declared {
+            trials: 3,
+            statistic: "median".to_owned(),
+            concurrency: 16,
+            site: "/sites/4/1".to_owned(),
+            spider: "2.53.9".to_owned(),
+        },
+        machine: Machine {
+            class: "local-controlled".to_owned(),
+            os: "linux".to_owned(),
+            arch: "x86_64".to_owned(),
+            cpu: "a CPU".to_owned(),
+            threads: 16,
+            load: None,
+        },
+        commit: "0".repeat(40),
+        order_seed: 7,
+        trials,
+        syscalls: CountedCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+        growth: GrowthCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+        instructions: CountedCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+    }
+}
+
+/// Each finding's kind and subject.
+fn named(trials: &Comparison) -> Vec<(&'static str, String)> {
+    check(trials)
+        .into_iter()
+        .map(|finding| (finding.kind, finding.subject))
+        .collect()
+}
+
+#[test]
+fn trials_that_did_the_same_work_pass() {
+    assert_eq!(named(&comparison(|_, _| work(0))), vec![]);
+}
+
+/// A resumed crawl fetches the pages in flight at its kill again: as many
+/// as it was killed with, which varies, and is no other work.
+#[test]
+fn a_resumed_crawls_pages_fetched_again_are_no_other_work() {
+    let trials = comparison(|scenario, number| match scenario {
+        Scenario::Durable => work(u64::from(number)),
+        Scenario::Raw => work(0),
+    });
+
+    assert_eq!(named(&trials), vec![]);
+}
+
+/// Without a kill, a page fetched twice is other work.
+#[test]
+fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
+    let trials = comparison(|scenario, number| match (scenario, number) {
+        (Scenario::Raw, 2) => work(1),
+        _ => work(0),
+    });
+
+    assert_eq!(
+        named(&trials),
+        vec![
+            ("different_bytes", "raw foxhound trial 2".to_owned()),
+            ("different_bytes", "raw spider trial 2".to_owned()),
+        ]
+    );
+}
+
+/// A resumed crawl served other bytes for its pages' first answers did
+/// other work.
+#[test]
+fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
+    let trials = comparison(|scenario, number| {
+        let mut work = work(0);
+        if (scenario, number) == (Scenario::Durable, 3) {
+            work.first_bytes += 1;
+        }
+        work
+    });
+
+    assert_eq!(
+        named(&trials),
+        vec![(
+            "different_bytes",
+            "durable foxhound full trial 3".to_owned()
+        )]
+    );
+}

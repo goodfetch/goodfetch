@@ -103,7 +103,7 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
          each from the engine's start to its exit once `hello` on its input is answered and its \
          input ends. Every resident-memory figure, idle and the crawl's peak, is the median of \
          the resident-memory check's scenario's peaks (`xtask rss measure`). Only the crawl's \
-         pages per second is Foxhound's median in the latest `just compare-spider` report{}.\n",
+         pages per second is Foxhound's median in scenario 1 of the latest `just compare` report{}.\n",
         if measured.spider.is_some() {
             ""
         } else {

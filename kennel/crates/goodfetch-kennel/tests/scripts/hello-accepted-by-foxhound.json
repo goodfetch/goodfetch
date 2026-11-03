@@ -1,5 +1,5 @@
 {
-  "description": "The Kennel says hello to the Daemon as the kennel surface, with the runtime file's token, needing Collie and leaving the keep-alive flag out; a Foxhound Daemon accepts it, then the play ends and the Daemon closes the Connection.",
+  "description": "The Kennel says hello to the Daemon as the kennel surface, with the runtime file's token, needing Collie and leaving the keep-alive flag out; a Foxhound Daemon accepts it, and the play ends once the Kennel closes the Connection.",
   "steps": [
     {
       "expect": {

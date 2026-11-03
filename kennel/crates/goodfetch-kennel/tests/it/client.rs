@@ -80,7 +80,7 @@ fn a_daemon_that_closes_the_connection_is_reported_gone() {
     let _daemon = ScriptedDaemon::start(
         &engine,
         &home,
-        &script("hello-accepted-by-foxhound.json"),
+        &script("hello-accepted-then-closed.json"),
         TOKEN,
     );
 

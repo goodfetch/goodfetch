@@ -82,7 +82,7 @@ fn the_daemons_token_never_reaches_the_logs() {
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scripts/hello-accepted-by-foxhound.json");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scripts/hello-accepted-then-closed.json");
     let mut daemon = Command::new(engine)
         .arg("--script")
         .arg(script)

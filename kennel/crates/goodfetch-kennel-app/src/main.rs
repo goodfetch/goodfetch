@@ -14,10 +14,11 @@
 mod ask;
 mod tray;
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use goodfetch_kennel::client::{self, Call, CallFailure, Report, Wanted};
+use goodfetch_kennel::client::{self, CONNECTION_LOST, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
@@ -30,12 +31,11 @@ use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
 
+/// How many calls a person makes may wait for the Client to send them.
+const CALLS_WAITING: usize = 16;
+
 /// How long the Kennel waits for its tasks once it quits.
 const STOP_GRACE: Duration = Duration::from_secs(1);
-
-/// How many of the person's calls may wait for the Client: one choice each,
-/// so a few is plenty.
-const CALLS_WAITING: usize = 8;
 
 /// What reaches the UI loop from elsewhere.
 #[derive(Debug)]
@@ -95,8 +95,8 @@ fn main() -> anyhow::Result<()> {
     let tasks = Tasks::new(runtime.handle().clone());
     let (look_again, looks) = mpsc::channel(1);
     let (wanted, wanted_now) = watch::channel(Wanted::default());
-    let (calls, calls_to_make) = mpsc::channel(CALLS_WAITING);
-    start_tasks(&tasks, &home, looks, wanted_now, calls_to_make, &proxy);
+    let (calls, calls_made) = mpsc::channel(CALLS_WAITING);
+    start_tasks(&tasks, &home, looks, wanted_now, calls_made, &proxy);
     let mut kennel = Kennel {
         state: State::new(),
         tasks: tasks.clone(),
@@ -177,7 +177,7 @@ struct Kennel {
     look_again: mpsc::Sender<()>,
     /// The reads the State wants the Client to keep in step with.
     wanted: watch::Sender<Wanted>,
-    /// The calls the person's choices make, which the Client makes.
+    /// The calls a person makes, which the Client sends.
     calls: mpsc::Sender<Call>,
     /// Whether the icon is in the menu bar.
     installed: bool,
@@ -189,21 +189,19 @@ impl Kennel {
     /// Carries out the State's `effects`, then keeps the Client's reads
     /// and the Tray in step with the State.
     fn carry_out(&mut self, event_loop: &ActiveEventLoop, effects: Vec<Effect>) {
-        let mut effects = std::collections::VecDeque::from(effects);
+        let mut effects = VecDeque::from(effects);
         while let Some(effect) = effects.pop_front() {
             match effect {
                 Effect::Quit => event_loop.exit(),
                 Effect::Call(call) => {
-                    if let Err(error) = self.calls.try_send(call) {
-                        // The Client answers each call: so many waiting
-                        // means it is stuck, and the menu says this one
-                        // was not made.
-                        tracing::warn!(%error, "a call was not made");
+                    if let Err(unsent) = self.calls.try_send(call) {
+                        // Full or closed: the Client is stuck or gone, and
+                        // the State hears that the call was not sent.
                         let failure = CallFailure {
-                            code: "not_made".to_owned(),
-                            message: "The Kennel did not make the call".to_owned(),
+                            code: CONNECTION_LOST.to_owned(),
+                            message: "The Kennel could not send it to the Daemon".to_owned(),
                         };
-                        let call = error.into_inner();
+                        let call = unsent.into_inner();
                         effects.extend(self.state.apply(Input::Answered(call, Err(failure))));
                     }
                 }

@@ -116,8 +116,9 @@ pub(super) fn lines(state: &State) -> Vec<String> {
         .map(|row| match row {
             Row::Text(line) => line,
             Row::Detail(line) => format!("  {line}"),
-            Row::Choice { label, .. } | Row::Submenu { label, .. } => label,
+            Row::Choice { label, .. } => label,
             Row::Separator => "---".to_owned(),
+            Row::Submenu { label, .. } => format!("{label} >"),
         })
         .collect()
 }
@@ -208,7 +209,7 @@ fn a_run_stopped_by_a_limit_counts_as_failed_once_its_stop_reason_is_read() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "capped-crawl — Stopped by a Limit",
+            "capped-crawl — Stopped by a Limit >",
             "---",
             "Quit"
         ]
@@ -271,8 +272,8 @@ fn the_menu_lists_each_live_run_with_its_recipe_or_run_id_lifecycle_and_progress
         [
             "Collie Daemon 0.4.1",
             "---",
-            "a-script-run — Running",
-            "nightly-prices — Running",
+            "a-script-run — Running >",
+            "nightly-prices — Running >",
             "  Fetching page 3 of 40",
             "---",
             "Quit"
@@ -296,7 +297,7 @@ fn a_runs_row_shows_the_progress_message_of_the_run_index_until_its_progress_is_
         [
             "Collie Daemon 0.4.1",
             "---",
-            "nightly-prices — Running",
+            "nightly-prices — Running >",
             "  Signing in",
             "---",
             "Quit"
@@ -329,7 +330,7 @@ fn a_crawls_succeeded_failed_and_pending_counts_show_under_its_row() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "shop-crawl — Running",
+            "shop-crawl — Running >",
             "  Crawling shop.example",
             "  120 succeeded, 3 failed, 45 pending",
             "---",
@@ -350,7 +351,7 @@ fn foxhounds_views_are_hidden_on_a_collie_daemon() {
         [
             "Collie Daemon 0.4.1",
             "---",
-            "shop-crawl — Running",
+            "shop-crawl — Running >",
             "  Crawling shop.example",
             "---",
             "Quit"
@@ -373,7 +374,7 @@ fn runs_that_need_a_look_are_listed_before_the_running_ones() {
             "Foxhound Daemon 0.4.1",
             "---",
             "z-broken — Failed",
-            "a-running — Running",
+            "a-running — Running >",
             "---",
             "Quit"
         ]
@@ -397,16 +398,16 @@ fn the_menu_lists_at_most_ten_runs_and_counts_the_others() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "run-01 — Running",
-            "run-02 — Running",
-            "run-03 — Running",
-            "run-04 — Running",
-            "run-05 — Running",
-            "run-06 — Running",
-            "run-07 — Running",
-            "run-08 — Running",
-            "run-09 — Running",
-            "run-10 — Running",
+            "run-01 — Running >",
+            "run-02 — Running >",
+            "run-03 — Running >",
+            "run-04 — Running >",
+            "run-05 — Running >",
+            "run-06 — Running >",
+            "run-07 — Running >",
+            "run-08 — Running >",
+            "run-09 — Running >",
+            "run-10 — Running >",
             "2 more Runs",
             "---",
             "Quit"
@@ -432,7 +433,7 @@ fn text_from_a_run_is_made_safe_before_the_menu_shows_it() {
     assert_eq!(
         lines(&state)[2..4],
         [
-            "shopgpj.exe — Running",
+            "shopgpj.exe — Running >",
             "  GET https://shop.example/?token=•••• [2J"
         ]
     );
@@ -491,7 +492,7 @@ fn a_resync_replaces_the_live_runs_and_the_needs_you_items() {
         [
             "Foxhound Daemon 0.4.1",
             "---",
-            "new-crawl — Running",
+            "new-crawl — Running >",
             "---",
             "Quit"
         ]

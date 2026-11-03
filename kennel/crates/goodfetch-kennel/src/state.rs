@@ -27,6 +27,11 @@
 //!   until the menu that showed it closes.
 //! - **Redraws**: at most one a second, and none of the menu while it is
 //!   hidden, since the Tray draws the latest view as it opens.
+//! - **Needs you**: the items, longest waiting first, each a submenu with
+//!   the actions the menu offers for it (`needs_you`). Choosing one gives
+//!   the call it makes, [`Effect::Call`], and a call that fails says so
+//!   in the menu, with the engine's Error message, until a menu that
+//!   showed it closes.
 //!
 //! Every string shown passes through the Text function.
 
@@ -38,6 +43,7 @@ use goodfetch_protocol::checkpoint::RunResumeParams;
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use goodfetch_protocol::foxhound::outcomes::RunRetryFailedParams;
 use goodfetch_protocol::foxhound::progress::RequestProgress;
+use goodfetch_protocol::needs_you::{NeedsYouChange, NeedsYouItem};
 use goodfetch_protocol::run::{
     Lifecycle, RECIPE_TAG, RunAbortParams, RunAxes, RunId, RunIndexRow, RunKind, RunParams,
     RunProgress, RunWaitParams, StopReason,
@@ -49,6 +55,10 @@ use crate::client::{
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
+
+mod needs_you;
+
+pub use needs_you::Action;
 
 #[cfg(test)]
 mod tests;
@@ -86,7 +96,7 @@ pub enum Input {
     Settings(Result<Settings, SettingsError>),
     /// The `daemon start` the person chose has ended.
     StartEnded(Result<(), StartFailure>),
-    /// A call the Kennel made was answered.
+    /// A call the person made through the Client was answered, or failed.
     Answered(Call, Result<(), CallFailure>),
 }
 
@@ -110,6 +120,13 @@ pub enum Choice {
         run: RunId,
         /// The control.
         control: Control,
+    },
+    /// Resolve a Needs you item through one of its actions.
+    NeedsYou {
+        /// The item's ID.
+        item: String,
+        /// The action.
+        action: Action,
     },
     /// Quit the Kennel, which stops none of the Runs.
     Quit,
@@ -140,8 +157,6 @@ pub enum Control {
 pub enum Effect {
     /// Run this Product's `daemon start`, then look for the Daemon again.
     StartDaemon(InstalledProduct),
-    /// Make this call on the reached Daemon.
-    Call(Call),
     /// Ask the person this, then give the State their yes with
     /// [`State::confirmed`].
     Confirm(Confirmation),
@@ -149,6 +164,9 @@ pub enum Effect {
     Copy(String),
     /// Quit.
     Quit,
+    /// Make this call through the Client, and give its answer back as
+    /// [`Input::Answered`].
+    Call(Call),
 }
 
 /// A question asked before a control acts: it names the Run and the
@@ -194,15 +212,35 @@ pub enum Row {
         /// What choosing it does.
         choice: Choice,
     },
-    /// A line that opens these rows beside it.
+    /// A separator.
+    Separator,
+    /// A line that opens a submenu of its own rows.
     Submenu {
         /// What the line says.
         label: String,
-        /// What it opens.
+        /// The submenu's rows, top to bottom.
         rows: Vec<Row>,
     },
-    /// A separator.
-    Separator,
+}
+
+impl Row {
+    /// The row with its text, and its submenu's, made safe to show by the
+    /// Text function.
+    fn shown(self) -> Self {
+        match self {
+            Self::Text(line) => Self::Text(text::shown(&line, LINE_MOST)),
+            Self::Detail(line) => Self::Detail(text::shown(&line, LINE_MOST)),
+            Self::Choice { label, choice } => Self::Choice {
+                label: text::shown(&label, LINE_MOST),
+                choice,
+            },
+            Self::Separator => Self::Separator,
+            Self::Submenu { label, rows } => Self::Submenu {
+                label: text::shown(&label, LINE_MOST),
+                rows: rows.into_iter().map(Self::shown).collect(),
+            },
+        }
+    }
 }
 
 /// What the Tray draws.
@@ -218,31 +256,9 @@ impl View {
     /// The view of `verdict` and `rows`, each row's text made safe to
     /// show by the Text function.
     fn new(verdict: Verdict, rows: Vec<Row>) -> Self {
-        Self {
-            verdict,
-            rows: shown(rows),
-        }
+        let rows = rows.into_iter().map(Row::shown).collect();
+        Self { verdict, rows }
     }
-}
-
-/// `rows`, each row's text, a submenu's included, made safe to show by
-/// the Text function.
-fn shown(rows: Vec<Row>) -> Vec<Row> {
-    rows.into_iter()
-        .map(|row| match row {
-            Row::Text(line) => Row::Text(text::shown(&line, LINE_MOST)),
-            Row::Detail(line) => Row::Detail(text::shown(&line, LINE_MOST)),
-            Row::Choice { label, choice } => Row::Choice {
-                label: text::shown(&label, LINE_MOST),
-                choice,
-            },
-            Row::Submenu { label, rows } => Row::Submenu {
-                label: text::shown(&label, LINE_MOST),
-                rows: shown(rows),
-            },
-            Row::Separator => Row::Separator,
-        })
-        .collect()
 }
 
 /// Whether the Tray redraws now.
@@ -355,9 +371,10 @@ struct Facts {
     message: Option<String>,
 }
 
-/// A call that failed, shown in the menu.
-#[derive(Clone, Debug)]
-struct Failure {
+/// A call that failed, which the menu says until a menu that showed it
+/// closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Failed {
     /// What the menu says.
     line: String,
     /// Whether an open menu showed it.
@@ -386,9 +403,9 @@ pub struct State {
     /// The live Runs' rows, as `run.list` last answered.
     facts: BTreeMap<RunId, Facts>,
     /// The Needs you items listed, by ID.
-    needs_you: BTreeSet<String>,
-    /// The calls that failed, until a menu that showed them closes.
-    failures: Vec<Failure>,
+    needs_you: BTreeMap<String, NeedsYouItem>,
+    /// The last call that failed, until a menu that showed it closes.
+    failed: Option<Failed>,
     /// Bumped each time the live Runs' rows are to be read again.
     live_runs: u64,
     menu_open: bool,
@@ -413,8 +430,8 @@ impl State {
             settings_error: None,
             runs: BTreeMap::new(),
             facts: BTreeMap::new(),
-            needs_you: BTreeSet::new(),
-            failures: Vec::new(),
+            needs_you: BTreeMap::new(),
+            failed: None,
             live_runs: 0,
             menu_open: false,
             drawn: None,
@@ -471,7 +488,9 @@ impl State {
                 self.menu_open = false;
                 self.runs
                     .retain(|_, run| !(run.phase.needs_a_look() && run.seen));
-                self.failures.retain(|failure| !failure.seen);
+                if self.failed.as_ref().is_some_and(|failed| failed.seen) {
+                    self.failed = None;
+                }
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
@@ -484,11 +503,16 @@ impl State {
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
             Input::StartEnded(Err(failure)) => self.start = Start::Failed(failure),
+            // An answered call shows in what it changes, which the events
+            // bring.
             Input::Answered(_, Ok(())) => {}
             Input::Answered(call, Err(failure)) => {
-                let (verb, run) = call_of(&call);
-                self.failures.push(Failure {
-                    line: format!("{verb} of {} failed: {}", self.name(run), failure.message),
+                self.failed = Some(Failed {
+                    line: format!(
+                        "{} failed: {}",
+                        attempt(&call, |run| self.name(run)),
+                        failure.message
+                    ),
                     seen: false,
                 });
             }
@@ -510,6 +534,14 @@ impl State {
                     None => self.act(run, control).into_iter().collect(),
                 }
             }
+            Choice::NeedsYou { item, action } => self
+                .needs_you
+                .get(&item)
+                .filter(|_| self.settings.controls && matches!(self.daemon, Daemon::Reached(..)))
+                .and_then(|item| needs_you::call(item, action))
+                .map(Effect::Call)
+                .into_iter()
+                .collect(),
             Choice::StartDaemon => match self.startable() {
                 Some(installed) => {
                     let effect = Effect::StartDaemon(installed.clone());
@@ -596,16 +628,12 @@ impl State {
                 "kennel.toml cannot be read, so the defaults apply: {error}"
             )));
         }
+        if let Some(failed) = &self.failed {
+            rows.push(Row::Text(failed.line.clone()));
+        }
         if let Daemon::Reached(identity, _) = &self.daemon {
             self.run_rows(identity.product, &mut rows);
-        }
-        if !self.failures.is_empty() {
-            rows.push(Row::Separator);
-            rows.extend(
-                self.failures
-                    .iter()
-                    .map(|failure| Row::Text(failure.line.clone())),
-            );
+            needs_you::rows(&self.needs_you, self.settings.controls, &mut rows);
         }
         rows.push(Row::Separator);
         rows.push(Row::Choice {
@@ -694,7 +722,11 @@ impl State {
                 for axes in resync.runs {
                     self.axes(axes);
                 }
-                self.needs_you = resync.needs_you.into_iter().map(|item| item.id).collect();
+                self.needs_you = resync
+                    .needs_you
+                    .into_iter()
+                    .map(|item| (item.id.clone(), item))
+                    .collect();
                 self.live_runs += 1;
             }
             DaemonEvent::RunAxes(axes) => {
@@ -705,10 +737,10 @@ impl State {
                 self.axes(axes);
             }
             DaemonEvent::NeedsYou(change) => match change {
-                goodfetch_protocol::needs_you::NeedsYouChange::Listed { item } => {
-                    self.needs_you.insert(item.id);
+                NeedsYouChange::Listed { item } => {
+                    self.needs_you.insert(item.id.clone(), item);
                 }
-                goodfetch_protocol::needs_you::NeedsYouChange::Removed { id, .. } => {
+                NeedsYouChange::Removed { id, .. } => {
                     self.needs_you.remove(&id);
                 }
             },
@@ -977,11 +1009,8 @@ impl State {
     }
 
     /// Marks each Run that needs a look and that the open menu lists as
-    /// seen, and each failed call it shows.
+    /// seen, and the failed call it shows.
     fn mark_seen(&mut self) {
-        for failure in &mut self.failures {
-            failure.seen = true;
-        }
         let listed: Vec<RunId> = self
             .listed()
             .0
@@ -994,6 +1023,9 @@ impl State {
                 run.seen = true;
             }
         }
+        if let Some(failed) = &mut self.failed {
+            failed.seen = true;
+        }
     }
 
     /// The Product whose `daemon start` the menu offers now.
@@ -1001,6 +1033,29 @@ impl State {
         let idle = matches!(self.start, Start::Idle | Start::Failed(_));
         let offered = idle && self.daemon == Daemon::None && self.settings.controls;
         self.installed.as_ref().filter(|_| offered)
+    }
+}
+
+/// What the menu says a failed `call` was trying to do, naming a Run by
+/// `name`.
+fn attempt(call: &Call, name: impl Fn(&RunId) -> String) -> String {
+    match call {
+        Call::RaiseLimit(params) => format!("Raising the Limit on {}", params.usage_kind),
+        Call::AllowConsentDomain(params) => {
+            format!("Accepting the consent walls of {}", params.domain)
+        }
+        Call::DenyWallDomain(params) => format!("Denying {}", params.domain),
+        Call::RemoveRefetchDomain(params) => {
+            format!("Removing {} from the refetch domains", params.domain)
+        }
+        Call::Dismiss(_) => "Dismissing a Needs you item".to_owned(),
+        Call::Pause(params) => format!("Pausing {}", name(&params.run_id)),
+        Call::Stop(params) => format!("Stopping {}", name(&params.run_id)),
+        Call::Abort(params) => format!("Aborting {}", name(&params.run_id)),
+        Call::Resume(params) => format!("Resuming {}", name(&params.run_id)),
+        Call::RetryFailed(params) => {
+            format!("Retrying the failed requests of {}", name(&params.run_id))
+        }
     }
 }
 
@@ -1023,17 +1078,6 @@ fn control_label(control: Control) -> &'static str {
         Control::RetryFailed => "Retry failed: its failed requests run again",
         Control::Resume => "Resume: the Daemon runs it again from where it stopped",
         Control::CopyResumeCommand => "Copy resume command",
-    }
-}
-
-/// What the menu calls `call`, and the Run it acts on.
-fn call_of(call: &Call) -> (&'static str, &RunId) {
-    match call {
-        Call::Stop(params) => ("Stop", &params.run_id),
-        Call::Abort(params) => ("Abort", &params.run_id),
-        Call::Pause(params) => ("Pause", &params.run_id),
-        Call::Resume(params) => ("Resume", &params.run_id),
-        Call::RetryFailed(params) => ("Retry failed", &params.run_id),
     }
 }
 

@@ -158,7 +158,7 @@ fn a_paused_run_stays_listed_as_paused_until_it_runs_again() {
         [
             "Collie Daemon 0.4.1",
             "---",
-            "a-run — Paused",
+            "a-run — Paused >",
             "---",
             "Quit"
         ]
@@ -352,13 +352,13 @@ fn a_failed_call_shows_in_the_menu_until_the_menu_that_showed_it_closes() {
     state.apply(Input::Menu(MenuChange::Opened(origin())));
     state.apply(Input::Menu(MenuChange::Closed));
 
-    assert!(shown.contains(&"Pause of nightly failed: Another engine holds the Run".to_owned()));
+    assert!(shown.contains(&"Pausing nightly failed: Another engine holds the Run".to_owned()));
     assert_eq!(
         lines(&state),
         [
             "Collie Daemon 0.4.1",
             "---",
-            "nightly — Running",
+            "nightly — Running >",
             "---",
             "Quit"
         ]

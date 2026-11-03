@@ -1,5 +1,5 @@
 {
-  "description": "The Daemon closes the Connection while the Kennel's run.stop waits for its answer.",
+  "description": "The Daemon closes the Connection before it answers the Kennel's needs_you.dismiss.",
   "steps": [
     {
       "expect": {
@@ -45,9 +45,9 @@
     },
     {
       "expect": {
-        "method": "run.stop",
+        "method": "needs_you.dismiss",
         "params": {
-          "run_id": "shop-crawl"
+          "item": "consent_wall:news.example"
         }
       }
     },

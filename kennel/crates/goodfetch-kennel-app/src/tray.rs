@@ -158,8 +158,8 @@ impl Tray {
     }
 }
 
-/// The menu item that draws `row`, a submenu with its own items; each
-/// choice it shows is added to `choices`.
+/// The menu item that draws `row`, each choice it holds, a submenu's
+/// included, added to `choices`.
 fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
     match row {
         Row::Text(text) => Box::new(MenuItem::new(label(text), false, None)),
@@ -176,6 +176,7 @@ fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
             choices.push((item.id().clone(), choice.clone()));
             Box::new(item)
         }
+        Row::Separator => Box::new(PredefinedMenuItem::separator()),
         Row::Submenu { label: text, rows } => {
             let submenu = Submenu::new(label(text), true);
             for row in rows {
@@ -185,7 +186,6 @@ fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
             }
             Box::new(submenu)
         }
-        Row::Separator => Box::new(PredefinedMenuItem::separator()),
     }
 }
 

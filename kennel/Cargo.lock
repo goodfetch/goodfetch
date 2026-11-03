@@ -819,6 +819,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "goodfetch-kennel",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",

@@ -46,6 +46,11 @@ pub enum Surface {
     Mcp,
     /// The Console.
     Console,
+    /// The Kennel, a person surface that observes the Daemon: its Runs
+    /// outlive its Connection, which holds the Daemon neither awake nor
+    /// back from a handover unless its `hello` sets `keep_daemon_alive`
+    /// (ADR 0141).
+    Kennel,
     /// Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
     /// takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
     /// Its `hello` names in `client_surface` the surface of the Client it
@@ -91,6 +96,7 @@ impl Surface {
             | Self::Rust
             | Self::Cli
             | Self::Console
+            | Self::Kennel
             | Self::Cloud
             | Self::BrowserHost => false,
         }
@@ -105,6 +111,7 @@ impl Surface {
             Self::Cli => "cli",
             Self::Mcp => "mcp",
             Self::Console => "console",
+            Self::Kennel => "kennel",
             Self::Cloud => "cloud",
             Self::BrowserHost => "browser_host",
             Self::Worker => "worker",
@@ -273,6 +280,14 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub client_surface: Option<Surface>,
+    /// On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
+    /// Connection as a Client that keeps it alive, holding off its idle
+    /// stop and a handover to its major's pick as every other surface's
+    /// Connection does (ADR 0141). Read only from a `kennel` Connection,
+    /// and ignored on any other surface's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub keep_daemon_alive: bool,
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the
@@ -661,10 +676,11 @@ pub struct EngineOutputInvalidDetails {
 
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
-/// asked by anything but the Console or an interactive CLI prompt.
+/// asked by anything but the Console, the Kennel or an interactive CLI
+/// prompt (ADR 0141).
 pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "person_required",
-    description: "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+    description: "Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,

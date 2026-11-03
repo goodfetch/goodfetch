@@ -910,11 +910,14 @@ impl Session<'_> {
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
                 // Each CLI command is a Connection of its own, and the Runs
-                // it starts on the Daemon outlive it (ADRs 0024 and 0088).
-                if surface == Surface::Cli {
+                // it starts on the Daemon outlive it (ADRs 0024 and 0088);
+                // so do those a person starts or resumes from the Kennel
+                // (ADR 0141).
+                if matches!(surface, Surface::Cli | Surface::Kennel) {
                     self.connection.runs.outlive_connection().await;
                 }
-                self.opened_client = daemon.map(|daemon| daemon.opened(surface));
+                let observes = accepted.observes;
+                self.opened_client = daemon.map(|daemon| daemon.opened(surface, observes));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
                 if let Access::Attached(private_endpoint, console_link) = &self.access {
                     accepted
@@ -969,7 +972,7 @@ impl Session<'_> {
             if handler.operation().reach == Reach::PersonOnly
                 && !matches!(
                     self.connection.surface.get(),
-                    Some(Surface::Cli | Surface::Console)
+                    Some(Surface::Cli | Surface::Console | Surface::Kennel)
                 )
             {
                 Some(person_required(&method))

@@ -236,8 +236,10 @@ pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub(crate) trait DaemonSide: Send + Sync {
     /// The per-launch token.
     fn token(&self) -> &str;
-    /// A Client of `surface` opened; it counts until the value drops.
-    fn opened(&self, surface: Surface) -> Box<dyn Send + Sync>;
+    /// A Client of `surface` opened; it counts until the value drops,
+    /// toward the idle stop and a handover too unless it only `observes`
+    /// (ADR 0141).
+    fn opened(&self, surface: Surface, observes: bool) -> Box<dyn Send + Sync>;
     /// A `hello` is being refused by Product or version: whether the Daemon
     /// hands over to its major's pick on it, which it has then begun.
     fn refusing(&self) -> Answering<'_, bool>;

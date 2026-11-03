@@ -29,6 +29,10 @@ pub(crate) struct Accepted {
     /// Whether it came from Goodfetch Cloud's gateway, which words
     /// `not_in_product` on the Connection (ADR 0096).
     pub(crate) behind_gateway: bool,
+    /// Whether the Connection only observes a Daemon, holding off neither
+    /// its idle stop nor a handover to its major's pick: a Kennel's, unless
+    /// its `hello` asks to keep the Daemon alive (ADR 0141).
+    pub(crate) observes: bool,
 }
 
 /// A `hello` the engine refused.
@@ -120,6 +124,7 @@ pub(crate) fn answer(
         },
         surface,
         behind_gateway,
+        observes: surface == Surface::Kennel && !hello.keep_daemon_alive,
     })
 }
 

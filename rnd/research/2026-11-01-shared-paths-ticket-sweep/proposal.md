@@ -63,6 +63,46 @@ These tickets opened after the first sweep's snapshot. The sweep used the same p
 | #1821 | untouched | - | - | - | `daemon install` port handling; no per-unit work. |
 | #1822 | untouched | - | - | - | Gate tooling and disk headroom; no runtime work. |
 
+## Tickets opened after #1822, and #1683's triage
+
+Checked on 2026-11-01. The children of #1836, #1837, #1838 and #1577 carry their path criteria from their own specs, so they aren't swept here.
+
+- **#1900:** criteria on F1 and E3 (benchmark B1), read from its text, and blocked by #1846.
+- **The Kennel map (#1823, #1827–#1835, #1915):** untouched. It is a separate local tool, and #1832 already asks the map's path question. #1824–#1826 are closed.
+- **Rows named:** 32 tickets now name the rows of ADR 0140's amendment (`421b780b8` on its branch) by ID. A note in a criterion that a count has no row still stands where the register has none: that ticket's pull request adds the row, a tightening.
+- **Gate blocks:** all 245 tickets on the list have a native block from a gate ticket under #1837. The tickets are linked by path. 39 of those links appeared from outside this session while this pass ran, and this pass added the ones for #1900 and #1695's C5.
+
+**#1683 moved to `ready-for-agent`,** with behavioural acceptance criteria and blocked by #959, #721, #726 and #1863. These reversible choices are recorded on the ticket:
+
+- Role and name come from the engine's own role engine (#721), not the `Accessibility` domain, so a pick's ladder can't drift from what replay checks.
+- Firefox and WebKit are refused for now, as the ticket's "Chromium only is acceptable to start" allows.
+- The right to read is the right to watch the Session's Live view.
+
+## Triage of the `needs-triage` issues
+
+On 2026-11-01 the 58 open `needs-triage` issues were triaged by hand from the `triage` skill, with the path check, under the owner's words « fait ce que tu paux faire, to spec, to tickets etc ». Each has a brief or question comment and one category and state label: 56 `ready-for-agent` and 2 `ready-for-human`, with no `wontfix`. The two left for the owner are #1709 (a ChatGPT-plan provider: terms of service) and #1689 (live-edited working copies: a new product surface). Nothing was run, so a confirmed claim means confirmed by reading.
+
+Spec #595 has no missing tickets: its stories are covered by #596's 56 sub-issues, and story 80 by #212.
+
+## Specs drafted after the triage
+
+On 2026-11-01, under the owner's « fait ce que tu paux faire, to spec, to tickets etc », eight specs were published with 90 new tickets, and 58 existing tickets were moved under them and rewritten. Each spec's decision log is a comment on the spec and a file here. The owner answered #1709 and #1689 with « Oui, garde-les ».
+
+| Spec | Subject | Decision log |
+|---|---|---|
+| #1937 | person-facing features | `decisions/person.md` |
+| #1943 | relay and remote Clients | `decisions/relay.md` |
+| #1957 | Attended Sessions | `decisions/attended.md` |
+| #1969 | crawl drafted from a prompt | `decisions/1717.md` |
+| #1978 | building Evaluations | `decisions/1712.md` |
+| #1995 | Working copies | `decisions/1689.md` |
+| #2006 | Building conversation | `decisions/1697.md` |
+| #2023 | Host gate | `decisions/gate.md` |
+
+Each spec's drafts also carried its own items for the owner, and each spec assumes its recommendation until the owner says otherwise. On 2026-11-01 the owner decided the items of the person-facing, relay and Working copies specs as recommended (« Oui, les trois »): ADR 0140 gains C6 and E7 (gate tickets #2036, #2037), with the Merge host; no CLI viewer page; ADR 0137's SDK note; no hosted relay, a sample with no release artefact, the loopback WebSocket, and the relay protocol as a public contract. Those specs state them as decided. #1994, Loro's Size budget and confirming Loro stay open. Six specs gained a first ticket that writes their ADRs and glossary terms; the Working copies and Building conversation specs drafted their own. Every open `ready-for-agent` ticket with no milestone moved to `M4 Everything else`, as `docs/agents/issue-tracker.md` asks.
+
+Blast-radius facts in these specs were checked by reading only, since nothing could run during the gate, and each spec names the first test that proves its fact.
+
 ## Owner decisions (ready-for-human)
 
 35 tickets, grouped into 14 decisions. Each ticket gains the `ready-for-human` label and a comment stating its decision, and keeps it until the owner answers; the answer then makes it criteria or rewrite.
@@ -1427,6 +1467,6 @@ Each line's criterion is added to the ticket's acceptance criteria, and the gate
 
 ## Tickets the gate's benchmark ticket must block
 
-244 tickets: the criteria, rewrite and decided tickets and those swept from #1805–#1822. The same list is in the comment on #1577.
+248 tickets, each blocked by its path's gate ticket under #1837. The same list is in the comment on #1577.
 
-#214 #217 #225 #227 #231 #232 #233 #234 #235 #238 #239 #240 #244 #248 #256 #258 #631 #632 #634 #635 #643 #655 #656 #657 #659 #671 #676 #677 #684 #685 #694 #699 #702 #703 #704 #707 #708 #709 #712 #713 #715 #717 #718 #720 #721 #722 #723 #724 #725 #726 #733 #739 #742 #744 #745 #749 #750 #751 #753 #754 #755 #757 #760 #762 #767 #768 #769 #775 #776 #777 #778 #779 #788 #791 #793 #794 #795 #796 #797 #799 #800 #801 #802 #803 #807 #810 #814 #823 #824 #825 #828 #829 #833 #834 #840 #841 #844 #848 #849 #853 #857 #863 #865 #867 #869 #871 #878 #882 #883 #893 #897 #902 #914 #920 #926 #929 #932 #936 #940 #945 #947 #951 #954 #956 #957 #958 #965 #979 #994 #998 #1003 #1009 #1015 #1018 #1021 #1022 #1024 #1026 #1029 #1030 #1031 #1032 #1033 #1037 #1040 #1058 #1065 #1080 #1087 #1090 #1095 #1097 #1098 #1104 #1106 #1109 #1111 #1113 #1117 #1121 #1131 #1137 #1140 #1144 #1145 #1150 #1151 #1154 #1157 #1158 #1164 #1167 #1205 #1217 #1291 #1304 #1306 #1375 #1386 #1390 #1396 #1400 #1401 #1441 #1448 #1453 #1473 #1474 #1475 #1476 #1481 #1482 #1484 #1486 #1491 #1503 #1514 #1525 #1541 #1546 #1547 #1550 #1551 #1558 #1566 #1596 #1602 #1604 #1611 #1612 #1621 #1626 #1629 #1637 #1641 #1642 #1649 #1651 #1652 #1653 #1666 #1674 #1683 #1692 #1693 #1694 #1695 #1715 #1747 #1775 #1782 #1783 #1784 #1805 #1807 #1808 #1809 #1810 #1811 #1812 #1813 #1815 #1817 #1820
+#214 #217 #225 #227 #231 #232 #233 #234 #235 #238 #239 #240 #244 #248 #256 #258 #631 #632 #634 #635 #643 #655 #656 #657 #659 #671 #676 #677 #684 #685 #694 #699 #702 #703 #704 #707 #708 #709 #712 #713 #715 #717 #718 #720 #721 #722 #723 #724 #725 #726 #733 #739 #742 #744 #745 #749 #750 #751 #753 #754 #755 #757 #760 #762 #767 #768 #769 #775 #776 #777 #778 #779 #788 #791 #793 #794 #795 #796 #797 #799 #800 #801 #802 #803 #807 #810 #814 #823 #824 #825 #828 #829 #833 #834 #840 #841 #844 #848 #849 #853 #857 #863 #865 #867 #869 #871 #878 #882 #883 #893 #897 #902 #914 #920 #926 #929 #932 #936 #940 #945 #947 #951 #954 #956 #957 #958 #965 #979 #994 #998 #1003 #1009 #1015 #1018 #1021 #1022 #1024 #1026 #1029 #1030 #1031 #1032 #1033 #1037 #1040 #1058 #1065 #1080 #1087 #1090 #1095 #1097 #1098 #1104 #1106 #1109 #1111 #1113 #1117 #1121 #1131 #1137 #1140 #1144 #1145 #1150 #1151 #1154 #1157 #1158 #1164 #1167 #1205 #1217 #1291 #1304 #1306 #1375 #1386 #1390 #1396 #1400 #1401 #1441 #1448 #1453 #1473 #1474 #1475 #1476 #1481 #1482 #1484 #1486 #1491 #1503 #1514 #1525 #1541 #1546 #1547 #1550 #1551 #1558 #1566 #1596 #1602 #1604 #1611 #1612 #1621 #1626 #1629 #1637 #1641 #1642 #1649 #1651 #1652 #1653 #1666 #1670 #1674 #1683 #1684 #1692 #1693 #1694 #1695 #1715 #1747 #1775 #1782 #1783 #1784 #1800 #1805 #1807 #1808 #1809 #1810 #1811 #1812 #1813 #1815 #1817 #1820 #1900

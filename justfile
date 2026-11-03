@@ -950,6 +950,24 @@ kennel:
 kennel-check:
     kennel/scripts/check.sh {{ test_profile }}
 
+# The Kennel's part of a release (ADRs 0039, 0094 and 0141), on macOS, in
+# `folder`: its `.app` built under its own version for this Mac, signed
+# with Developer ID and notarized where the release environment's
+# credentials are set and left ad hoc, the step inert, without them, then
+# archived with the install script that installs it from this folder
+# (kennel/scripts/release.sh build, sign and package). It publishes
+# nothing; `bash <folder>/install-kennel.sh` installs this build.
+# Builds and packages the Kennel's release files.
+kennel-release folder="kennel/target/release-files":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{ folder }}"
+    folder=$(cd "{{ folder }}" && pwd)
+    rm -rf "$folder"/*-apple-darwin "$folder"/goodfetch-kennel-*.zip "$folder/install-kennel.sh"
+    kennel/scripts/release.sh build "$folder"
+    kennel/scripts/release.sh sign "$folder"
+    kennel/scripts/release.sh package "$folder" "file://$folder"
+
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build, its startup to `hello`
 # with hyperfine (10 warm-up runs, then 100; median), and its idle Attached

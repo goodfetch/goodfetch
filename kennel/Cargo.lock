@@ -822,6 +822,7 @@ dependencies = [
  "goodfetch-kennel",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",

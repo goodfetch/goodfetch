@@ -1445,7 +1445,7 @@ The benchmarks are ADR 0140's: B1 is `goodfetch-foxhound`'s in-memory crawl (`cr
 
 ### Exceptions
 
-Each known gap between today's code and ADR 0140's contracts, recorded at adoption on 2026-11-01. A gap the first measure finds is added in the gate spec's pull request with the same expiry, and a gap the Shared paths spec's audits find (#1882, #1884) in the audit's pull request with that expiry too; that is adoption, not a loosening. On expiry, the gate fails again with no action from anyone. The spec that removes each gap writes the row's measured figure in the same pull request.
+Each known gap between today's code and ADR 0140's contracts, recorded at adoption on 2026-11-01. A gap the first measure finds is added in the gate spec's pull request with the same expiry; that is adoption, not a loosening. The gaps the Shared paths spec's audits found (#1882, #1884), X22 to X36, the owner approved on 2026-11-03, with the same expiry. On expiry, the gate fails again with no action from anyone. The spec that removes each gap writes the row's measured figure in the same pull request.
 
 | ID | Rule | Path | Reason | Owner | Expires | Removed by |
 |---|---|---|---|---|---|---|

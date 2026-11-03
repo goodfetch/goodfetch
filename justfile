@@ -68,7 +68,7 @@ lint: fmt-check
     ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
-    # Spider's side of `just compare-spider`, no workspace member, which no
+    # Spider's side of `just compare`, no workspace member, which no
     # gate builds: its lock's licenses, read without a build (ADR 0134).
     ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-shear cargo shear
@@ -902,31 +902,42 @@ rss-propose *scenarios:
     cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
-# Spider's comparison (ADR 0134), a one-off on the owner's machine: Foxhound's
-# and Spider 2.53.9's crawls (its HTTP mode, xtask/compare-spider) of the
-# Proving ground's 1,000-page site, both built with the release profile
-# (`profile` changes it for a quicker try), 10 trials of each in random
-# order, each tool in a fresh process against a fresh Proving ground at 16
-# requests at once. Once every trial fetched the same pages and was served
-# the same bytes, it writes each tool's median pages per second and peak RSS
-# to target/compare-spider/report.md and report.json, `local-controlled` and
-# never published (ADR 0076); otherwise it fails naming the trial. Its Callgrind
-# cell runs each tool 3 times under Callgrind, Foxhound on ADR 0138's scenario
-# 1, and reports `foxhound.spider_instruction_ratio` under the same check; a
-# host without Valgrind reports it as not run (ADR 0140). It gates nothing and
-# is no Live check. Spider's crate is downloaded once, free.
-# Compares Foxhound's crawl with Spider's on this machine.
-compare-spider profile="release":
-    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
+# The comparison matrix (ADRs 0134 and 0138; the owner's comments of
+# 2026-10-30 on #1577), on one machine with nothing else running: each
+# scenario sets every tool to its closest equivalent configuration and the
+# report writes that mapping, a cell saying so where a tool cannot do the
+# scenario and marking pending each Foxhound value that does not exist yet.
+# Scenario 1 (raw) and scenario 2 (durable, killed once half the site is
+# served, then resumed), Foxhound against Spider 2.53.9's HTTP mode
+# (xtask/compare-spider, no workspace member), both built with the release
+# profile (`profile` changes it for a quicker try): 10 trials of each
+# measured cell in random order, each tool in a fresh process against a
+# fresh Proving ground at 16 requests at once over the 1,000-page site.
+# Every metric is measured from outside the tools (the OS's accounting of
+# the waited-for children, /proc samples of the process tree, the Proving
+# ground's observations, the data folder left), then each cell's system
+# calls and syncs are counted under strace, and scenario 1's instructions
+# per page under Callgrind (`foxhound.spider_instruction_ratio`, ADR
+# 0140); `--growth` adds the 100,000-page crawls whose resident memory is
+# read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
+# the same-work check, it writes each cell's median and spread of every
+# metric to target/compare/report.md and report.json, `local-controlled`
+# and never published (ADR 0076); otherwise it fails naming the trial. A
+# host without strace or Valgrind reports that cell as not run. It gates
+# nothing and is no Live check; run it when the 1-minute load is under 4.
+# Spider's crate is downloaded once, free.
+# Runs the comparison matrix on this machine.
+compare profile="release" *args:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
-    cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+    cargo run --quiet -p xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider {{ args }}
 
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build, its startup to `hello`
 # with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
 # engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
 # of 5 runs each), with the pages per second of the latest
-# `just compare-spider` report. Writes target/targets/report.md: each
+# `just compare` report's scenario 1. Writes target/targets/report.md: each
 # target, its figure, met or missed with its gap and the optimization
 # pass's write-up from ci/performance-target-gaps.toml. Labelled
 # `local-controlled`, never published (ADR 0076); it fails on no miss.

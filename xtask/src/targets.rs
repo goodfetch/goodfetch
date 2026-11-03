@@ -3,7 +3,7 @@
 //! engine from its start to its answer to `hello` with hyperfine; `just
 //! targets` then measures the idle Attached engine's, the idle Daemon's
 //! and the crawl's peaks with `xtask rss measure`; `report` reads those and
-//! the latest `just compare-spider` report's pages per second and gives each
+//! the latest `just compare` report's pages per second and gives each
 //! target its figure: met at or under it, missed over it with the gap and
 //! the optimization pass's write-up, or not measured. It runs on the
 //! owner's machine, is labelled `local-controlled` and never published (ADR
@@ -54,8 +54,8 @@ pub(crate) struct ReportArguments {
     /// `startup-<product>.json` exports and the scenarios' peaks, `peaks.jsonl`.
     #[arg(long)]
     measured: PathBuf,
-    /// The latest `just compare-spider` report, its `report.json`.
-    #[arg(long, default_value = "target/compare-spider/report.json")]
+    /// The latest `just compare` report, its `report.json`.
+    #[arg(long, default_value = "target/compare/report.json")]
     spider: PathBuf,
     /// The optimization pass's write-ups, keyed by target and Product.
     #[arg(long, default_value = GAPS_FILE)]

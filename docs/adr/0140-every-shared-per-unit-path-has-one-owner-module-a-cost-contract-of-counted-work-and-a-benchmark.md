@@ -120,6 +120,7 @@ Adopted from recommendations R3, R4 and R9 of the 2026-10-31 research, as amendm
   > - The reference measures the head's selected targets it has, so a figure the head no longer measures is not compared; the ceilings keep their own check on a lost benchmark.
   > - The drift gate fails whatever `GATING` says, as this section says of this ADR's rows, and no "Performance change" section passes it.
   > - Scenario 1's `run_state.durability: off` and `frontier.learning: false` (ADR 0138) do not exist yet. Until #1577 adds them, the ratio's Foxhound runs use `fast`, the setting the 2026-10-30 profile ran in, and the default learning; #1577's pull request adds both to the cell, in `xtask/src/rss/crawl.rs`'s `Settings::Raw`, before it sets the ceiling.
+  >   - Note (agent decision, pending owner review), 2026-11-03, [#1901](https://github.com/goodfetch/goodfetch/issues/1901): `just compare` replaced `just compare-spider`, and the cell's settings moved from `Settings::Raw` to scenario 1's Foxhound cell in `xtask/src/compare/matrix.rs`, where #1927 and #1909 turn on `off` and `learning: false`.
   > - The cell counts each whole process under Callgrind, its start and exit included, and takes the median of 3 runs of each tool.
 
 ### Open questions

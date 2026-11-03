@@ -27,7 +27,7 @@
 //!
 //! Only the host names the Proving ground serves are observed; its own
 //! address (the task list, the oracle, this record) is not. At most
-//! [`REQUEST_LIMIT`] requests are kept in detail; later ones are counted in
+//! [`RECORDED_REQUEST_LIMIT`] requests are kept in detail; later ones are counted in
 //! `unrecorded_requests` and in their host's bytes, and at most
 //! [`FINDING_LIMIT`] findings, later ones counted in `unrecorded_findings`.
 
@@ -43,8 +43,14 @@ use crate::connection_record::{self, ConnectionRecord, Stamp};
 use crate::sync::Mutex;
 use crate::task::{Effect, Finding};
 
-/// The most requests kept in detail (STYLE.md: every buffer is bounded).
+/// The most reports and TLS handshakes kept (STYLE.md: every buffer is bounded).
 const REQUEST_LIMIT: usize = 100_000;
+
+/// The most requests kept in detail: twice [`REQUEST_LIMIT`], so a crawl of
+/// a 100,000-page site, as `just compare`'s growth cell runs, is kept
+/// whole with its robots.txt, retries and duplicates (STYLE.md: every
+/// buffer is bounded).
+const RECORDED_REQUEST_LIMIT: usize = 200_000;
 
 /// The most findings kept (STYLE.md: every buffer is bounded).
 const FINDING_LIMIT: usize = 10_000;
@@ -500,6 +506,14 @@ impl Observations {
         self.network_fixtures.lock().clone()
     }
 
+    /// The requests received on every observed host so far, recorded or
+    /// not: what a harness polls during a crawl, at the cost of one count
+    /// instead of the whole record.
+    pub(crate) fn request_count(&self) -> u64 {
+        let state = self.state();
+        state.requests.len() as u64 + state.unrecorded_requests
+    }
+
     /// The host names observed, each with its task, if any.
     pub(crate) fn hosts(&self) -> &BTreeMap<String, Option<String>> {
         &self.hosts
@@ -798,7 +812,7 @@ impl Connection {
         let stream = head.http2.as_ref().map_or(0, |http2| http2.stream);
         let arrived = self.observations.stopwatch.microseconds();
         let mut state = self.observations.state();
-        if state.requests.len() >= REQUEST_LIMIT {
+        if state.requests.len() >= RECORDED_REQUEST_LIMIT {
             state.unrecorded_requests += 1;
             return None;
         }

@@ -14,7 +14,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+eframe.workspace = true
 goodfetch-kennel.workspace = true
+goodfetch-protocol.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
@@ -22,7 +24,8 @@ tracing-subscriber.workspace = true
 tray-icon.workspace = true
 winit.workspace = true
 
-# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`.
+# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`, and
+# the details window brought forward, through `NSRunningApplication`.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
 objc2-app-kit.workspace = true

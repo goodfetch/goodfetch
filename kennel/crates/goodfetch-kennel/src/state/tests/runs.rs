@@ -210,6 +210,7 @@ fn a_run_stopped_by_a_limit_counts_as_failed_once_its_stop_reason_is_read() {
             "---",
             "capped-crawl — Stopped by a Limit",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -230,7 +231,10 @@ fn a_run_stopped_for_another_reason_leaves_the_menu() {
     )));
 
     assert_eq!(state.view().verdict, Verdict::Idle);
-    assert_eq!(lines(&state), ["Foxhound Daemon 0.4.1", "---", "Quit"]);
+    assert_eq!(
+        lines(&state),
+        ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]
+    );
 }
 
 #[test]
@@ -241,7 +245,10 @@ fn a_finished_run_leaves_the_menu() {
     state.apply(Input::Events(vec![axes("done-crawl", "finished")]));
 
     assert_eq!(state.view().verdict, Verdict::Idle);
-    assert_eq!(lines(&state), ["Foxhound Daemon 0.4.1", "---", "Quit"]);
+    assert_eq!(
+        lines(&state),
+        ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]
+    );
 }
 
 #[test]
@@ -275,6 +282,7 @@ fn the_menu_lists_each_live_run_with_its_recipe_or_run_id_lifecycle_and_progress
             "nightly-prices — Running",
             "  Fetching page 3 of 40",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -299,6 +307,7 @@ fn a_runs_row_shows_the_progress_message_of_the_run_index_until_its_progress_is_
             "nightly-prices — Running",
             "  Signing in",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -333,6 +342,7 @@ fn a_crawls_succeeded_failed_and_pending_counts_show_under_its_row() {
             "  Crawling shop.example",
             "  120 succeeded, 3 failed, 45 pending",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -353,6 +363,7 @@ fn foxhounds_views_are_hidden_on_a_collie_daemon() {
             "shop-crawl — Running",
             "  Crawling shop.example",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -375,6 +386,7 @@ fn runs_that_need_a_look_are_listed_before_the_running_ones() {
             "z-broken — Failed",
             "a-running — Running",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -409,6 +421,7 @@ fn the_menu_lists_at_most_ten_runs_and_counts_the_others() {
             "run-10 — Running",
             "2 more Runs",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -449,7 +462,10 @@ fn a_failed_run_stays_listed_until_the_menu_that_showed_it_closes() {
 
     assert_eq!(while_open, Verdict::Failed);
     assert_eq!(state.view().verdict, Verdict::Idle);
-    assert_eq!(lines(&state), ["Foxhound Daemon 0.4.1", "---", "Quit"]);
+    assert_eq!(
+        lines(&state),
+        ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]
+    );
 }
 
 #[test]
@@ -493,6 +509,7 @@ fn a_resync_replaces_the_live_runs_and_the_needs_you_items() {
             "---",
             "new-crawl — Running",
             "---",
+            "Open details",
             "Quit"
         ]
     );

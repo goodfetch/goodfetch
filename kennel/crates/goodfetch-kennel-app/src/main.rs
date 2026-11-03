@@ -1,5 +1,6 @@
 //! The Kennel's executable (ADR 0141): the Tray, over the modules of
-//! `goodfetch-kennel`.
+//! `goodfetch-kennel`; run with `window::ARGUMENT`, the details window, a
+//! second process the Tray starts (`details`).
 //!
 //! A plain `fn main` builds a one-worker multi-thread Tokio runtime and
 //! holds it, then runs the UI loop, `winit`'s, on the main thread (ADR
@@ -11,6 +12,8 @@
 //! view, which it draws as the menu opens, and draws what the State says is
 //! due, the loop waking at the instant a paced redraw falls due.
 
+mod details;
+mod fonts;
 mod tray;
 
 use std::time::{Duration, Instant};
@@ -22,6 +25,7 @@ use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
 use goodfetch_kennel::state::{Effect, Input, MenuChange, Redraw, State};
 use goodfetch_kennel::tasks::Tasks;
+use goodfetch_kennel::window;
 use tokio::sync::{mpsc, watch};
 use tray_icon::menu::MenuId;
 use winit::application::ApplicationHandler;
@@ -45,6 +49,8 @@ pub(crate) enum UserEvent {
     MenuOpened,
     /// The menu closed.
     MenuClosed,
+    /// The details window's process started, with this process ID.
+    DetailsOpened(u32),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -74,6 +80,17 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building the runtime")?;
 
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == window::ARGUMENT)
+    {
+        let tasks = Tasks::new(runtime.handle().clone());
+        let ran = details::run(home, &tasks, &runtime);
+        runtime.block_on(tasks.stop(STOP_GRACE));
+        runtime.shutdown_timeout(STOP_GRACE);
+        return ran;
+    }
+
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     #[cfg(target_os = "macos")]
     {
@@ -99,6 +116,7 @@ fn main() -> anyhow::Result<()> {
         wanted,
         installed: false,
         next_draw: None,
+        details: None,
     };
     let ran = event_loop.run_app(&mut kennel);
     runtime.block_on(tasks.stop(STOP_GRACE));
@@ -172,6 +190,8 @@ struct Kennel {
     installed: bool,
     /// When a paced redraw falls due.
     next_draw: Option<Instant>,
+    /// The details window's process ID, while it runs.
+    details: Option<u32>,
 }
 
 impl Kennel {
@@ -181,6 +201,14 @@ impl Kennel {
         for effect in effects {
             match effect {
                 Effect::Quit => event_loop.exit(),
+                Effect::OpenDetails => self.open_details(),
+                Effect::RaiseDetails => {
+                    if let Some(pid) = self.details {
+                        tray::raise(pid);
+                    } else {
+                        tracing::info!("the details window is starting");
+                    }
+                }
                 Effect::StartDaemon(product) => {
                     tracing::info!(path = %product.path.display(), "starting the Daemon");
                     let proxy = self.proxy.clone();
@@ -207,6 +235,30 @@ impl Kennel {
             tray::keep(self.state.view());
             self.redraw();
         }
+    }
+
+    /// Starts the details window's process from this executable, with no
+    /// more than its argument: it reads the runtime file and connects
+    /// itself. The State learns when it ends.
+    fn open_details(&self) {
+        let proxy = self.proxy.clone();
+        let executable = std::env::current_exe();
+        self.tasks.spawn(async move {
+            let opened = proxy.clone();
+            let ran = match executable {
+                Ok(executable) => {
+                    window::run(&executable, move |pid| {
+                        let _ = opened.send_event(UserEvent::DetailsOpened(pid));
+                    })
+                    .await
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = ran {
+                tracing::warn!(%error, "the details window did not start");
+            }
+            let _ = proxy.send_event(UserEvent::Input(Input::DetailsClosed));
+        });
     }
 
     /// Draws what the State says is due now, or wakes the loop when it is.
@@ -276,7 +328,12 @@ impl ApplicationHandler<UserEvent> for Kennel {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         let effects = match event {
-            UserEvent::Input(input) => self.state.apply(input),
+            UserEvent::Input(input) => {
+                if matches!(input, Input::DetailsClosed) {
+                    self.details = None;
+                }
+                self.state.apply(input)
+            }
             UserEvent::Client(Report::Connection(change)) => {
                 self.state.apply(Input::Connection(change))
             }
@@ -291,6 +348,14 @@ impl ApplicationHandler<UserEvent> for Kennel {
             UserEvent::Client(Report::LiveRuns(rows)) => self.state.apply(Input::LiveRuns(rows)),
             UserEvent::Client(Report::Progress(progress)) => {
                 self.state.apply(Input::Progress(progress))
+            }
+            // The details window's reads, which the Tray never asks for.
+            UserEvent::Client(
+                Report::Listed { .. } | Report::RunReport { .. } | Report::Usage { .. },
+            ) => Vec::new(),
+            UserEvent::DetailsOpened(pid) => {
+                self.details = Some(pid);
+                Vec::new()
             }
             UserEvent::MenuOpened => self.state.apply(Input::Menu(MenuChange::Opened(now()))),
             UserEvent::MenuClosed => self.state.apply(Input::Menu(MenuChange::Closed)),

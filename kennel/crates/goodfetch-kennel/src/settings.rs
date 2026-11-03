@@ -25,6 +25,9 @@ pub struct Settings {
     /// only observes, and the Daemon stops at its idle timeout and hands
     /// over to its major's pick as if no Kennel were connected (ADR 0141).
     pub keep_daemon_alive: bool,
+    /// Whether the menu offers "Open details", the details window; off
+    /// gives a menu-only Kennel.
+    pub window: bool,
 }
 
 impl Default for Settings {
@@ -32,6 +35,7 @@ impl Default for Settings {
         Self {
             controls: true,
             keep_daemon_alive: false,
+            window: true,
         }
     }
 }

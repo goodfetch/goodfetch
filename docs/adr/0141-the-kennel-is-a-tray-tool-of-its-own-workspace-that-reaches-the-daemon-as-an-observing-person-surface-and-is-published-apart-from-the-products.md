@@ -29,6 +29,7 @@ The research behind the choices is kept in `rnd/research/2026-11-01-kennel-toolk
 ### Toolkit and threads
 
 - **The tray process** uses `tray-icon` and `muda` on `winit`. **The window process** uses `eframe` with the glow renderer and default features off.
+  > Note (agent decision, pending owner review), 2026-11-03, [#2060](https://github.com/goodfetch/goodfetch/issues/2060): the window draws with the system's own fonts, read as it starts (SF and SF Mono on macOS), not with `eframe`'s `default_fonts`. egui's bundled fonts are under OFL-1.1 and the Ubuntu Font Licence, which ADR 0018's allowlist does not hold for a crate; with the system's fonts, no font ships in the executable. Allowing those licenses for `epaint_default_fonts` alone would bring egui's fonts back. The window also leaves out `accesskit`, whose Linux side adds unmaintained crates to the audit.
 - **Threads.** A plain `fn main` builds a one-worker multi-thread Tokio runtime and holds it, then runs the UI loop on the main thread. ADR 0060 allows a runtime in `main`. Tasks go through a `TaskTracker`. Tokio reaches the UI through the event loop's proxy, and the UI thread makes no blocking call. Opening the socket carries an `#[expect]` naming this ADR, as the conformance harness's does.
 - **Exceptions this ADR grants.** `STYLE.md` requires every dependency to build on static musl, and no graphical toolkit does, so the rule does not apply to the Kennel's graphical crates. The workspace pins its own toolchain, since `eframe` 0.37 needs rustc 1.95.
 

@@ -17,26 +17,56 @@
 //! `UserEvent::Menu`. `muda`'s items are not `Send`, and the mouse-down
 //! handler is a `'static` callback that cannot reach the application, so
 //! the Tray lives in a thread-local of the main thread, where both run.
+//!
+//! **On Linux** the Tray runs on a GTK thread of its own instead (`linux`):
+//! `tray-icon`'s `AppIndicator` backend and its `muda` menu are GTK's, which
+//! needs its main loop on the thread that builds them, and `AppIndicator`
+//! keeps the first menu it is given, so the rows change in place.
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod menu_closed;
 
+#[cfg(not(target_os = "linux"))]
 use std::cell::RefCell;
 
-use goodfetch_kennel::state::{Choice, Frame, Row, Verdict, View};
+use goodfetch_kennel::state::Verdict;
+#[cfg(not(target_os = "linux"))]
+use goodfetch_kennel::state::{Choice, Frame, Row, View};
+#[cfg(not(target_os = "linux"))]
+use goodfetch_kennel::tasks::Tasks;
+use tray_icon::Icon;
+#[cfg(not(target_os = "linux"))]
 use tray_icon::menu::{IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
-use tray_icon::{Icon, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+#[cfg(not(target_os = "linux"))]
+use tray_icon::{MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+#[cfg(not(target_os = "linux"))]
 use winit::event_loop::EventLoopProxy;
 
+#[cfg(target_os = "linux")]
+pub(crate) use linux::{confirm, draw, install, listen};
+
+#[cfg(not(target_os = "linux"))]
 use crate::UserEvent;
 
 /// What a detail line starts with, under the line it details.
 const INDENT: &str = "    ";
 
+/// The icon's colour. On macOS the icon is a template image, whose colour
+/// the menu bar replaces. Elsewhere nothing tints it, and a panel may be
+/// light or dark, so it is a grey that shows on both.
+const INK: [u8; 3] = if cfg!(target_os = "macos") {
+    [0, 0, 0]
+} else {
+    [0x80, 0x80, 0x80]
+};
+
 /// Whether the platform tells the Tray when its menu opens and closes.
 pub(crate) const FOLLOWS_THE_MENU: bool = cfg!(target_os = "macos");
 
 /// The icon in the menu bar and its menu.
+#[cfg(not(target_os = "linux"))]
 struct Tray {
     icon: TrayIcon,
     menu: Menu,
@@ -46,6 +76,7 @@ struct Tray {
     latest: View,
 }
 
+#[cfg(not(target_os = "linux"))]
 thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
 }
@@ -53,13 +84,16 @@ thread_local! {
 /// Sends menu choices to the event loop, rebuilds the menu from the
 /// latest view on each click's mouse-down, before it opens, and tells the
 /// event loop the menu opened and, on macOS, closed.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn listen(proxy: EventLoopProxy<UserEvent>) {
     let choices = proxy.clone();
+    #[cfg(target_os = "macos")]
+    let closed = proxy.clone();
+    let opened = proxy;
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         // The loop has stopped: the Kennel is quitting.
         let _ = choices.send_event(UserEvent::Menu(event.id));
     }));
-    let opened = proxy.clone();
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
         if let TrayIconEvent::Click {
             button_state: MouseButtonState::Down,
@@ -77,21 +111,26 @@ pub(crate) fn listen(proxy: EventLoopProxy<UserEvent>) {
     }));
     #[cfg(target_os = "macos")]
     menu_closed::observe(move || {
-        let _ = proxy.send_event(UserEvent::MenuClosed);
+        let _ = closed.send_event(UserEvent::MenuClosed);
     });
 }
 
 /// Puts the icon in the menu bar, drawing `view`. Call it once the event
 /// loop runs: on macOS the status item needs the running application.
-pub(crate) fn install(view: View) -> tray_icon::Result<()> {
+/// The Tray starts no task here: `_tasks` is for Linux's GTK thread.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn install(view: View, _tasks: &Tasks) -> tray_icon::Result<()> {
     let menu = Menu::new();
-    let icon = TrayIconBuilder::new()
+    let builder = TrayIconBuilder::new()
         .with_menu(Box::new(menu.clone()))
         .with_menu_on_left_click(true)
         .with_menu_on_right_click(true)
-        .with_icon_templated(icon(view.verdict))
-        .with_tooltip("Kennel")
-        .build()?;
+        .with_tooltip("Kennel");
+    #[cfg(target_os = "macos")]
+    let builder = builder.with_icon_templated(icon(view.verdict));
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.with_icon(icon(view.verdict));
+    let icon = builder.build()?;
     let mut tray = Tray {
         icon,
         menu,
@@ -106,17 +145,23 @@ pub(crate) fn install(view: View) -> tray_icon::Result<()> {
 
 /// Keeps `view` as the latest, which the menu draws as it opens; draws
 /// nothing.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn keep(view: View) {
     with_tray(|tray| tray.latest = view);
 }
 
 /// Draws `frame`: the icon of its verdict, its rows into the menu.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn draw(frame: Frame) {
     with_tray(|tray| {
-        if let Some(verdict) = frame.verdict
-            && let Err(error) = tray.icon.set_icon_templated(Some(icon(verdict)))
-        {
-            tracing::warn!(%error, "the icon was not redrawn");
+        if let Some(verdict) = frame.verdict {
+            #[cfg(target_os = "macos")]
+            let drawn = tray.icon.set_icon_templated(Some(icon(verdict)));
+            #[cfg(not(target_os = "macos"))]
+            let drawn = tray.icon.set_icon(Some(icon(verdict)));
+            if let Err(error) = drawn {
+                tracing::warn!(%error, "the icon was not redrawn");
+            }
         }
         if let Some(rows) = frame.rows {
             tray.draw_rows(&rows);
@@ -125,6 +170,7 @@ pub(crate) fn draw(frame: Frame) {
 }
 
 /// The choice behind the menu item `id`, if the menu still shows it.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn choice(id: &MenuId) -> Option<Choice> {
     TRAY.with(|cell| {
         cell.borrow().as_ref().and_then(|tray| {
@@ -136,6 +182,7 @@ pub(crate) fn choice(id: &MenuId) -> Option<Choice> {
     })
 }
 
+#[cfg(not(target_os = "linux"))]
 fn with_tray(change: impl FnOnce(&mut Tray)) {
     TRAY.with(|cell| {
         if let Some(tray) = cell.borrow_mut().as_mut() {
@@ -144,6 +191,7 @@ fn with_tray(change: impl FnOnce(&mut Tray)) {
     });
 }
 
+#[cfg(not(target_os = "linux"))]
 impl Tray {
     /// Replaces the menu's items with `rows`.
     fn draw_rows(&mut self, rows: &[Row]) {
@@ -160,6 +208,7 @@ impl Tray {
 
 /// The menu item that draws `row`, each choice it holds, a submenu's
 /// included, added to `choices`.
+#[cfg(not(target_os = "linux"))]
 fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
     match row {
         Row::Text(text) => Box::new(MenuItem::new(label(text), false, None)),
@@ -195,8 +244,8 @@ fn label(text: &str) -> String {
     text.replace('&', "&&")
 }
 
-/// The icon of `verdict`, drawn as a template image so the menu bar tints
-/// it, with no numbers (ADR 0141):
+/// The icon of `verdict`, with no numbers (ADR 0141), drawn in `INK`: on
+/// macOS a template image, which the menu bar tints:
 /// - unreachable: a ring;
 /// - a Needs you item: a disc with an exclamation mark cut out;
 /// - a Run failed or stopped by a Limit: a disc with a bar cut across it;
@@ -226,7 +275,8 @@ fn icon(verdict: Verdict) -> Icon {
                 }
             };
             let alpha = if filled { 255 } else { 0 };
-            rgba.extend_from_slice(&[0, 0, 0, alpha]);
+            let [red, green, blue] = INK;
+            rgba.extend_from_slice(&[red, green, blue, alpha]);
         }
     }
     Icon::from_rgba(rgba, SIZE, SIZE)

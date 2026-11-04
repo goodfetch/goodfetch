@@ -8,8 +8,9 @@
 #   Client, the State, the settings, the Daemon start), built and tested on
 #   every host, the display-less Linux gate's included;
 # - `goodfetch-kennel-app`: the executable, `goodfetch-kennel`, with the
-#   Tray on `tray-icon`, `muda` and `winit`, which the Linux gate only
-#   type-checks for macOS (`just kennel-check`).
+#   Tray on `tray-icon`, `muda` and `winit` (on Linux, on GTK's main loop),
+#   which the Linux gate only type-checks, for macOS and for Linux
+#   (`just kennel-check`).
 #
 # Clippy reads the root `clippy.toml`, the nearest in a parent folder of
 # each crate's manifest, so the Products' disallowed methods and types hold
@@ -48,16 +49,26 @@ tracing = { version = "0.1.44", default-features = false, features = ["std", "at
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The Tray (ADR 0141), at the versions #1915 checked on the owner's Mac.
 tray-icon = { version = "=0.26.1" }
-winit = { version = "=0.30.13" }
+# Without its default `wayland-csd-adwaita`: the Tray opens no `winit`
+# window, and the font parser those decorations bring (`ttf-parser`,
+# RUSTSEC-2026-0192) is unmaintained. The event loop keeps both Linux
+# backends, Wayland loaded at run time. The details window draws no
+# decorations of its own either: on Wayland it takes the compositor's,
+# where the compositor offers them (#2077).
+winit = { version = "=0.30.13", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
 # The details window (ADR 0141): glow, default features off, at the
 # version #1915 measured on the owner's Mac; `x11` and `wayland` reach only
 # Linux. No `default_fonts`: the window draws with the system's own fonts,
 # read at its start, so no font file ships in the executable.
 eframe = { version = "=0.37.0", default-features = false, features = ["glow", "x11", "wayland"] }
-# The Run controls' confirmations, a native message dialog (on Linux through
-# GTK 3, which `tray-icon` already links), and "Copy resume command"'s
-# clipboard, text only.
-rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
+# The Run controls' confirmations, a native message dialog on macOS and
+# Windows, and "Copy resume command"'s clipboard, text only. On Linux the
+# Tray's own GTK thread asks instead, so `rfd` starts no GTK thread beside it.
+rfd = { version = "0.17.2", default-features = false }
+# GTK 3 on Linux, whose main loop the Tray runs on a thread of its own:
+# `tray-icon`'s AppIndicator backend and its `muda` menu are built on it, at
+# the version they lock (#2077).
+gtk = { version = "0.18.2", default-features = false }
 arboard = { version = "3.7.0", default-features = false }
 # The menu's closing on macOS, from AppKit's notification, at the versions
 # `tray-icon` already locks.

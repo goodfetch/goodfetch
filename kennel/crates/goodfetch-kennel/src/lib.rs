@@ -9,6 +9,8 @@
 //!   change;
 //! - `daemon_start`: the installed Product's `daemon start`;
 //! - `home`: the Goodfetch home and the files the Kennel reads in it;
+//! - `menu`: the edits that turn a shown menu into the next view's rows in
+//!   place, for a Tray whose menu cannot be replaced;
 //! - `tasks`: the one tracker every task starts through;
 //! - `text`: the Text function, through which every shown string passes;
 //! - `window`: the details window's process, a second process of the
@@ -17,6 +19,7 @@
 pub mod client;
 pub mod daemon_start;
 pub mod home;
+pub mod menu;
 pub mod settings;
 pub mod state;
 pub mod tasks;

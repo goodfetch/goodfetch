@@ -1,17 +1,25 @@
 //! What the Kennel asks of the desktop for a Run's controls: the native
 //! confirmation dialog that Stop, Abort and Retry failed in the menu, and
-//! Add Seeds in the details window, show before they act, through `rfd`
-//! (`NSAlert` on macOS, GTK 3 on Linux, the message box on Windows), and
-//! the clipboard "Copy resume command" writes, through `arboard`. Both run
-//! on the main thread, while the person chooses.
+//! Add Seeds in the details window, show before they act, and the
+//! clipboard "Copy resume command" writes, through `arboard`. Each runs on
+//! the main thread, while the person chooses.
+//!
+//! - **macOS and Windows.** `rfd`: `NSAlert` on macOS, the message box on
+//!   Windows.
+//! - **Linux.** GTK's message dialog: the Tray's on its own GTK thread
+//!   (`tray::confirm`); the details window's here, on the window's main
+//!   thread, since that process runs no other GTK thread.
 
 use std::cell::RefCell;
 
+#[cfg(not(target_os = "linux"))]
 use goodfetch_kennel::state::Confirmation;
+#[cfg(not(target_os = "linux"))]
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 
 /// Asks `confirmation`'s question in a modal dialog: whether the person
-/// confirmed.
+/// confirmed. On Linux the Tray's GTK thread asks instead (`tray::confirm`).
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn confirmed(confirmation: &Confirmation) -> bool {
     asked(
         &confirmation.title,
@@ -22,6 +30,7 @@ pub(crate) fn confirmed(confirmation: &Confirmation) -> bool {
 
 /// Asks `title` in a modal dialog that says `consequence`, its confirming
 /// button labelled `confirm`: whether the person confirmed.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn asked(title: &str, consequence: &str, confirm: &str) -> bool {
     // Windows names custom buttons only with Common Controls 6, which the
     // Kennel's executable does not declare: there the buttons read OK and
@@ -42,6 +51,38 @@ pub(crate) fn asked(title: &str, consequence: &str, confirm: &str) -> bool {
         MessageDialogResult::Custom(label) => label == confirm,
         MessageDialogResult::No | MessageDialogResult::Cancel => false,
     }
+}
+
+/// Asks `title` in GTK's modal message dialog that says `consequence`, its
+/// confirming button labelled `confirm`: whether the person confirmed. The
+/// details window's only, on its main thread, the one GTK starts on in
+/// that process; GTK that cannot start answers no.
+#[cfg(target_os = "linux")]
+pub(crate) fn asked(title: &str, consequence: &str, confirm: &str) -> bool {
+    use gtk::prelude::{DialogExt as _, GtkWindowExt as _, MessageDialogExt as _};
+
+    if let Err(error) = gtk::init() {
+        tracing::warn!(%error, "GTK could not start, so nothing was asked or done");
+        return false;
+    }
+    let dialog = gtk::MessageDialog::new(
+        None::<&gtk::Window>,
+        gtk::DialogFlags::MODAL,
+        gtk::MessageType::Warning,
+        gtk::ButtonsType::None,
+        title,
+    );
+    dialog.set_secondary_text(Some(consequence));
+    dialog.add_button("Cancel", gtk::ResponseType::Cancel);
+    dialog.add_button(confirm, gtk::ResponseType::Accept);
+    dialog.set_default_response(gtk::ResponseType::Cancel);
+    let answer = dialog.run();
+    dialog.close();
+    // The closed dialog leaves the screen once GTK handles its events.
+    while gtk::events_pending() {
+        gtk::main_iteration();
+    }
+    answer == gtk::ResponseType::Accept
 }
 
 thread_local! {

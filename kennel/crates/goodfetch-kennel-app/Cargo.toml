@@ -18,13 +18,21 @@ arboard.workspace = true
 eframe.workspace = true
 goodfetch-kennel.workspace = true
 goodfetch-protocol.workspace = true
-rfd.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tray-icon.workspace = true
 winit.workspace = true
+
+# The confirmations' dialog; on Linux the Tray's GTK thread asks instead.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd.workspace = true
+
+# The Tray's GTK thread on Linux: GTK's start, its main loop and the
+# confirmations' dialog.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk.workspace = true
 
 # The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`,
 # the details window brought forward, through `NSRunningApplication`,

@@ -9,7 +9,9 @@ The Kennel is Goodfetch's local tool for watching and controlling the Runs of a 
 - **On macOS** it builds the release executable, assembles `Kennel.app` (bundle identifier `dev.goodfetch.kennel`), signs it ad hoc, installs it by rename into `~/Applications` and opens it with `open`. A Kennel already running is quit first.
   - Always start the Kennel through LaunchServices: with `open`, the Finder or a login item. Run directly, the binary inside the `.app` is refused desktop notices.
   - The bundle identifier stays the same across builds, so a rebuild keeps the notice permission.
-- **On Linux and Windows** it builds and runs the executable. On Linux the build needs the development files of GTK 3, libappindicator and libdbus (`libdbus-1-dev`), through `pkg-config`.
+- **On Linux and Windows** it builds and runs the executable.
+  - On Linux the build needs the development files of GTK 3 and libdbus (`libgtk-3-dev` and `libdbus-1-dev` on Debian and Ubuntu), through `pkg-config`. AppIndicator's library is loaded at run time.
+  - On Linux the icon goes in the panel through AppIndicator, which needs GTK 3 and an AppIndicator library (`libayatana-appindicator3-1` or `libappindicator3-1`), and a panel that shows AppIndicator icons: on GNOME, the AppIndicator extension. It needs no Linux setup of its own beyond that, and has no polish of its own (ADR 0141).
 
 The icon shows one verdict for the Daemon, worst first, with no numbers:
 
@@ -38,6 +40,7 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
   Answering a changed certificate, answering a Human pause and reconciling are not offered from the menu, nor is an item's resume: a Run resumes from its own submenu. An action the engine refuses, or one no Daemon received, shows under the Daemon's state with the Error's message until the menu that showed it closes. An action that succeeds shows in the list: its item leaves it.
 - **Fresh and live.** The menu is rebuilt from the latest data when the click starts, before it opens, and it keeps updating while it stays open.
 - **Redraws.** There is at most one redraw a second, and no redraw of a hidden menu.
+- **On Linux** the menu follows the same view as on macOS. AppIndicator keeps the first menu it is given, so the Kennel changes that menu's items in place: a row that keeps its kind keeps its item, and only a row of another kind, or a change in the number of rows, adds or removes items. An open submenu stays open while its Run's text changes. A left and a right click open the menu as the panel decides; AppIndicator reports neither.
 - **Run controls.** Each listed Run has a submenu of controls, each labelled with what it does:
 
   | Control | What it does | Offered for | Asks first |
@@ -49,7 +52,7 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
   | Resume | `run.resume` on the Daemon | a paused Run, or one stopped by a Limit, that a Recipe runs | never |
   | Copy resume command | copies `goodfetch-<product> run resume <run-id>`, for the Daemon's Product | a paused Run, or one stopped by a Limit, that a script runs: only its program can run it (ADR 0031) | never |
 
-  - A confirmation is the platform's own dialog, naming the Run and the consequence.
+  - A confirmation is the platform's own dialog, naming the Run and the consequence: GTK's on Linux.
   - A Run the person or a program paused stays in the menu as "Paused", with its Resume or "Copy resume command", until it runs again or ends. After a reconnection the Daemon lists only its live Runs, so a paused Run leaves the menu then.
   - Retry failed is not offered on an ended crawl: the engine would make the Connection that retries serve the crawl's handlers, which the Kennel cannot.
   - A failed Run offers no control.
@@ -174,8 +177,8 @@ Later features each add a switch here.
 
 | Path | What |
 |---|---|
-| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's and the desktop notices' included), the settings, the Daemon start, the window's process |
-| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit`, the details window, with `eframe` on glow, and the desktop notices' adapters, `UNUserNotificationCenter` on macOS and `notify-rust` elsewhere |
+| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's and the desktop notices' included), the settings, the Daemon start, the window's process, the menu's edits |
+| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit` (on Linux, on a GTK thread of its own, `src/tray/linux.rs`), the details window, with `eframe` on glow, and the desktop notices' adapters, `UNUserNotificationCenter` on macOS and `notify-rust` elsewhere |
 | `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `release.sh` (`just kennel-release`), `bundle.sh` (assembles `Kennel.app`), `install-kennel.sh` (the install script a release publishes), `measure.sh` |
 | `Info.plist` | The `.app`'s property list, which `bundle.sh` stamps with the Kennel's version |
 
@@ -183,8 +186,10 @@ Later features each add a switch here.
 - **Clippy.** Clippy reads the root `clippy.toml`, the nearest one in a parent folder, and the root's `[workspace.lints]` are copied into `Cargo.toml`.
 - **`just kennel-check`.** It runs Clippy and the tests. The Client's tests run `goodfetch-scripted-engine`, which the root workspace builds, as a process. One test runs a real Daemon of `goodfetch-collie`, also built by the root workspace with its Console build: a test program starts three Runs on its own Connection, and the Kennel's Client pauses one, stops one and aborts one from another Connection. Run straight from this folder without the test tool manifest that `just kennel-check` writes, those tests say they are skipped and pass.
 - **The release scripts' tests.** On macOS, `goodfetch-kennel-app`'s `tests/release.rs` runs `bundle.sh`, `release.sh` and the install script it writes on a stand-in executable, in a home of their own, with `open`, `pgrep` and `pkill` stood in.
+- **Off macOS.** The display-less Linux gate builds and tests `goodfetch-kennel` and type-checks `goodfetch-kennel-app` with Clippy, for macOS (`aarch64-apple-darwin`) and for the Linux host. The Linux type-check needs the development files of GTK 3 and libdbus (`libgtk-3-dev` and `libdbus-1-dev` on Debian and Ubuntu) and no display. Without the Rust target or those files, the check is listed in `target/skipped.txt` with the reason, and fails under `CI`.
 - **Which changes run it.** The merge gate runs `just kennel-check` for a change to `kennel/` or `goodfetch-protocol`.
 - **On every change.** `just lint` checks the formatting, the lockfile and the `cargo-deny` rules. `just audit` checks the advisories.
+- **Advisory exceptions.** `deny.toml` and `.cargo/audit.toml` ignore two advisories of the GTK 3 bindings (gtk-rs 0.18), which only Linux builds link: RUSTSEC-2024-0370 (`proc-macro-error`, build time only) and RUSTSEC-2024-0429 (`glib`'s `VariantStrIter`, which nothing here calls). No maintained GTK 3 binding exists; `tray-icon`'s `ksni` backend, with no GTK, would remove both. `winit` builds without its own Wayland window decorations, so their unmaintained font parser (`ttf-parser`, RUSTSEC-2026-0192) is gone: the Tray opens no `winit` window, and on Wayland the details window takes the compositor's decorations where it offers them (KDE Plasma does; GNOME does not, so there the window has no title bar).
 
 ## Performance targets
 

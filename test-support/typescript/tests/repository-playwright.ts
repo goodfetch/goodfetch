@@ -5,11 +5,12 @@
 // that folder's `target/` and its result documents into its own
 // `result-documents/`, never into the outer run's, and the folder goes when
 // the test ends.
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { onTestFinished } from "vitest";
 import type { ProcessRecord } from "@goodfetch/test-support";
+import { runnerProject } from "./runner-project.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
@@ -47,9 +48,7 @@ export async function runRepositoryPlaywright(
   processes: ProcessRecord,
   run: RepositoryPlaywright,
 ): Promise<RepositoryPlaywrightRun> {
-  // Inside the repository, so the copied configuration finds `@playwright/test`.
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const project = mkdtempSync(join(ROOT, "target", `${run.folder}-`));
+  const project = runnerProject(run.folder);
   onTestFinished(() => rmSync(project, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
   // The configuration reads the Feature inventory beside it.

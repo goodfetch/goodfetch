@@ -7,13 +7,14 @@
 // and a spec file that calls `testEachScreen` on that folder. The stand-in
 // Console serves each fixture screen only to the Product's Daemon, as its
 // `hello` answers, and only in the screen's sign-in state.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, onTestFinished } from "vitest";
 import { test, type TestSupportFixtures } from "@goodfetch/test-support";
 import type { StandInScreen } from "./console-stand-in.ts";
+import { runnerProject } from "./runner-project.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const FIXTURES = pathToFileURL(join(import.meta.dirname, "..", "src", "playwright.ts")).href;
@@ -46,8 +47,7 @@ async function runScreens(
   consoleFiles: Readonly<Record<string, string>> = {},
 ): Promise<Case[]> {
   // Inside the repository, so the copied configuration finds `@playwright/test`.
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const project = mkdtempSync(join(ROOT, "target", "screens-test-"));
+  const project = runnerProject("screens-test");
   onTestFinished(() => rmSync(project, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
   mkdirSync(join(project, "features"));

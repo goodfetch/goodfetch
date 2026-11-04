@@ -6,12 +6,13 @@
 // host's Chromium with GOODFETCH_VISUAL_IMAGE naming the pinned digest, as
 // ci/visual/run.sh does. The References it writes stay in that folder and
 // are deleted with it.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, onTestFinished } from "vitest";
 import { test } from "@goodfetch/test-support";
 import { measureRepeatability } from "../src/repeatability.ts";
+import { runnerProject } from "./runner-project.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const SOURCES = join(import.meta.dirname, "..", "src");
@@ -49,8 +50,7 @@ test("square", async ({ page }) => {
 
 /** A folder of its own with the repository's config and `files`. */
 function project(files: Readonly<Record<string, string>>): string {
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const folder = mkdtempSync(join(ROOT, "target", "repeatability-"));
+  const folder = runnerProject("repeatability");
   onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(folder, "playwright.config.ts"));
   // The config reads the Feature inventory beside itself (ADR 0072).

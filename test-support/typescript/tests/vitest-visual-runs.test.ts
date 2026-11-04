@@ -10,7 +10,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -20,6 +19,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, onTestFinished } from "vitest";
 import { test, type ProcessRecord } from "@goodfetch/test-support";
+import { runnerProject } from "./runner-project.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const VITEST = join(
@@ -78,8 +78,7 @@ test("caret and animation", async () => {
 
 /** A folder of its own with the repository's config and the test file. */
 function project(): string {
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const folder = mkdtempSync(join(ROOT, "target", "vitest-visual-runs-"));
+  const folder = runnerProject("vitest-visual-runs");
   onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "vitest.config.ts"), join(folder, "vitest.config.ts"));
   // The config reads the Feature inventory and the Journey catalog beside

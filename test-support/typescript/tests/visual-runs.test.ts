@@ -10,7 +10,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -21,6 +20,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, onTestFinished } from "vitest";
 import { test, type ProcessRecord } from "@goodfetch/test-support";
+import { runnerProject } from "./runner-project.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
@@ -80,8 +80,7 @@ test("caret and animation", async ({ page }) => {
 
 /** A folder of its own with the repository's config and the spec file. */
 function project(): string {
-  mkdirSync(join(ROOT, "target"), { recursive: true });
-  const folder = mkdtempSync(join(ROOT, "target", "visual-runs-"));
+  const folder = runnerProject("visual-runs");
   onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(folder, "playwright.config.ts"));
   // The config reads the Feature inventory beside itself (ADR 0072).

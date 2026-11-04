@@ -68,29 +68,40 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     pub(crate) fn findings(&self) -> Vec<Finding> {
-        self.reported("error[")
+        reported(&self.stdout, "error[")
     }
 
     /// The `note[<kind>] <subject>: <message>` lines a check printed beside
     /// its findings.
     pub(crate) fn notes(&self) -> Vec<Finding> {
-        self.reported("note[")
+        reported(&self.stdout, "note[")
     }
 
-    fn reported(&self, prefix: &str) -> Vec<Finding> {
-        self.stdout
-            .lines()
-            .filter_map(|line| {
-                let rest = line.strip_prefix(prefix)?;
-                let (kind, rest) = rest.split_once("] ")?;
-                let (subject, _message) = rest.split_once(": ")?;
-                Some(Finding {
-                    kind: kind.to_owned(),
-                    subject: subject.to_owned(),
-                })
-            })
-            .collect()
+    /// The findings of a command whose stdout is its result, such as `xtask
+    /// stress select`'s selection: it writes them on stderr.
+    pub(crate) fn stderr_findings(&self) -> Vec<Finding> {
+        reported(&self.stderr, "error[")
     }
+
+    /// The notes such a command writes on stderr beside its findings.
+    pub(crate) fn stderr_notes(&self) -> Vec<Finding> {
+        reported(&self.stderr, "note[")
+    }
+}
+
+fn reported(output: &str, prefix: &str) -> Vec<Finding> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix(prefix)?;
+            let (kind, rest) = rest.split_once("] ")?;
+            let (subject, _message) = rest.split_once(": ")?;
+            Some(Finding {
+                kind: kind.to_owned(),
+                subject: subject.to_owned(),
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn finding(kind: &str, subject: &str) -> Finding {
@@ -299,20 +310,26 @@ impl Workspace {
     /// Commits the workspace in its own Git repository and returns the
     /// commit's tree.
     pub(crate) fn commit(&self) -> String {
-        self.commit_workspace();
+        self.commit_workspace("Fixture");
         self.git(&["rev-parse", "HEAD^{tree}"]).trim().to_owned()
     }
 
     /// Commits the workspace in its own Git repository and returns the new
     /// head commit.
     pub(crate) fn commit_all(&self) -> String {
-        self.commit_workspace();
+        self.commit_all_with("Fixture")
+    }
+
+    /// Commits the workspace with `message`, whose trailers a check may read,
+    /// and returns the new head commit.
+    pub(crate) fn commit_all_with(&self, message: &str) -> String {
+        self.commit_workspace(message);
         self.git(&["rev-parse", "HEAD"]).trim().to_owned()
     }
 
     /// Makes the repository on the first call (`git init` again is harmless),
     /// then commits everything in the workspace.
-    fn commit_workspace(&self) {
+    fn commit_workspace(&self, message: &str) {
         self.git(&["init", "--quiet"]);
         self.git(&["add", "--all"]);
         self.git(&[
@@ -321,7 +338,7 @@ impl Workspace {
             "--no-verify",
             "--allow-empty",
             "--message",
-            "Fixture",
+            message,
         ]);
     }
 

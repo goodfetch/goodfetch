@@ -59,7 +59,7 @@ scan = ["check", "github", "issues", "output", "results"]
 screenshots = ["check", "environment", "output", "tree"]
 self_hosted = ["check", "environment", "output", "workflow"]
 size = ["acceptance", "check", "environment", "github", "output"]
-stress = ["affected", "console", "environment", "metadata", "output", "quarantine"]
+stress = ["affected", "check", "console", "environment", "floor_guard", "metadata", "output", "quarantine"]
 targets = ["environment", "output", "rss"]
 telemetry = ["check"]
 test_tools = ["console", "environment", "metadata"]
@@ -81,6 +81,10 @@ document = []
 diff = []
 moves = ["diff"]
 register = []
+
+# Which of `stress`'s own modules may import which.
+[submodules.stress]
+deleted = []
 
 # Which of `budgets`'s own modules may import which.
 [submodules.budgets]

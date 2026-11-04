@@ -10,6 +10,9 @@
 //!   The incremental gate (ADR 0135) narrows it `--within` the members the
 //!   change since an earlier gate run reaches, and adds every test whose
 //!   file that change (`--since` the earlier run's head) changed.
+//!   A test the base lists and the head does not fails the selection,
+//!   unless a `Quality-change` trailer of the change names its ID (the
+//!   Floor; `deleted`).
 //! - **listings**: saves the head's four listings for later changes' bases.
 //!
 //! A count is never lowered and nothing skips the run.
@@ -17,6 +20,8 @@
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
 )]
+
+mod deleted;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -26,6 +31,7 @@ use std::process::{Command as Process, ExitCode};
 use anyhow::{Context as _, Result, bail};
 
 use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
+use crate::check::{self, Finding};
 use crate::console;
 use crate::environment::Environment;
 use crate::metadata::{self, Package};
@@ -54,6 +60,15 @@ struct Selected {
     count: u32,
     runner: Runner,
     test: TestId,
+}
+
+/// What `select` chose, and what the change deleted.
+struct Selection {
+    stressed: Vec<Selected>,
+    /// A `quality-change` note for each deleted test a trailer names.
+    accepted: Vec<Finding>,
+    /// A `deleted-test` finding for each one no trailer names.
+    deleted: Vec<Finding>,
 }
 
 /// Where the runners run, and how nextest builds.
@@ -151,14 +166,15 @@ fn changed_since(root: &Path, commit: &str) -> Result<BTreeSet<String>> {
     .collect())
 }
 
-/// The tests the change from `base` to the workspace at `root` stresses.
+/// The tests the change from `base` to the workspace at `root` stresses,
+/// and those it deletes.
 fn select(
     root: &Path,
     runners: &Runners<'_>,
     base: &str,
     saved: Option<&Path>,
     narrowing: Option<&Narrowing>,
-) -> Result<Vec<Selected>> {
+) -> Result<Selection> {
     let base = commit(root, base)?;
     let changed = changed_since(root, &base)?;
     let since = match narrowing.and_then(|narrowing| narrowing.since.as_deref()) {
@@ -183,8 +199,15 @@ fn select(
     let root = canonical(root)?;
 
     let mut selection = Vec::new();
+    let mut head_listings = BTreeMap::new();
     for runner in Runner::ALL.into_iter().filter(|runner| lists(*runner)) {
         let head = listing::parse(runner, &root, &runners.output(runner, &root, None)?)?;
+        head_listings.insert(
+            runner,
+            head.iter()
+                .map(|listed| listed.test.clone())
+                .collect::<BTreeSet<TestId>>(),
+        );
         let reached: BTreeSet<TestId> = match runner {
             Runner::Vitest | Runner::Playwright => {
                 listing::parse(runner, &root, &runners.output(runner, &root, Some(&base))?)?
@@ -227,7 +250,12 @@ fn select(
             });
         }
     }
-    Ok(selection)
+    let deleted = deleted::judge(&root, &base, &base_listings, &head_listings)?;
+    Ok(Selection {
+        stressed: selection,
+        accepted: deleted.accepted,
+        deleted: deleted.refused,
+    })
 }
 
 /// The base commit's quarantine list; none when it has no list.
@@ -566,7 +594,13 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     members: WorkspaceMembers::read(&environment.cargo, root)?,
                 })
             };
-            for selected in select(root, &runners, &base, saved.as_deref(), narrowing.as_ref())? {
+            let selection = select(root, &runners, &base, saved.as_deref(), narrowing.as_ref())?;
+            // Stdout is the selection, which `just stress` reads.
+            check::note_to(&selection.accepted, output::error);
+            if !selection.deleted.is_empty() {
+                return Ok(check::report_to(&selection.deleted, output::error));
+            }
+            for selected in selection.stressed {
                 output::line(&format!(
                     "{}\t{}\t{}",
                     selected.count,

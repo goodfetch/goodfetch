@@ -26,12 +26,19 @@ tracing-subscriber.workspace = true
 tray-icon.workspace = true
 winit.workspace = true
 
-# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`, and
-# the details window brought forward, through `NSRunningApplication`.
+# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`,
+# the details window brought forward, through `NSRunningApplication`,
+# and the desktop notices, from `UNUserNotificationCenter`.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
+objc2.workspace = true
 objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
+objc2-user-notifications.workspace = true
+
+# The desktop notices on Linux and Windows.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

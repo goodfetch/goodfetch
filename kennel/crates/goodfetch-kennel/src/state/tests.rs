@@ -4,6 +4,7 @@
 
 mod controls;
 mod needs_you;
+mod notices;
 mod runs;
 
 use std::path::PathBuf;

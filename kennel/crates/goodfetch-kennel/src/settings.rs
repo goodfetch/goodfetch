@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
@@ -35,9 +36,72 @@ pub struct Settings {
     /// Whether the menu offers "Open details", the details window; off
     /// gives a menu-only Kennel.
     pub window: bool,
+    /// The desktop notices, the `[notifications]` table.
+    pub notifications: Notifications,
     /// The details window's views, each a switch of its own: `[views]` in
     /// the file.
     pub views: Views,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            controls: true,
+            confirm_stop: true,
+            keep_daemon_alive: false,
+            window: true,
+            notifications: Notifications::default(),
+            views: Views::default(),
+        }
+    }
+}
+
+/// The desktop notices (ADR 0141): a switch for them all, one per type,
+/// and the period over which a burst coalesces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a switch a person writes in the settings file as a TOML boolean"
+)]
+pub struct Notifications {
+    /// Whether the Kennel sends desktop notices at all: off, no notice
+    /// code runs, and macOS is never asked for the permission.
+    pub enabled: bool,
+    /// A new Needs you item.
+    pub needs_you: bool,
+    /// A Run failed.
+    pub run_failed: bool,
+    /// A Run was stopped by a Limit.
+    pub run_stopped_by_limit: bool,
+    /// The Daemon was lost while a Run was live.
+    pub daemon_lost: bool,
+    /// A Run ended well.
+    pub run_finished: bool,
+    /// The minutes over which a burst coalesces: the first notice goes
+    /// out at once, then one summary per period; 0 sends each at once.
+    pub period_minutes: u32,
+}
+
+impl Notifications {
+    /// The period over which a burst coalesces.
+    pub fn period(&self) -> Duration {
+        Duration::from_secs(u64::from(self.period_minutes) * 60)
+    }
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            needs_you: true,
+            run_failed: true,
+            run_stopped_by_limit: true,
+            daemon_lost: true,
+            run_finished: false,
+            period_minutes: 20,
+        }
+    }
 }
 
 /// The details window's views beside its Runs table, which `window`
@@ -60,18 +124,6 @@ impl Default for Views {
             records: true,
             daemon_settings: true,
             governor: true,
-        }
-    }
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            controls: true,
-            confirm_stop: true,
-            keep_daemon_alive: false,
-            window: true,
-            views: Views::default(),
         }
     }
 }

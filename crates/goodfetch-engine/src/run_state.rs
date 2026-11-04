@@ -419,16 +419,21 @@ impl RunState {
     ) -> Result<Self, RunStateError> {
         let opened = options.clone();
         let opened_path = path.clone();
-        let connection = owner
+        let (connection, checkpointing) = owner
             .blocking(move || {
                 let connection = open_file(&opened_path, &opened, &tables)?;
                 // It replaces SQLite's automatic checkpoint, which this
                 // connection then never runs (ADR 0138).
                 connection.wal_hook(Some(note_wal_pages));
-                Ok::<_, RunStateError>(connection)
+                // Opened beside the writer's, before any write: once the
+                // writer closed, an open would meet its last close.
+                let checkpointing =
+                    open_wal_checkpointer(&opened_path, opened.vfs.as_deref(), opened.durability)
+                        .map_err(|error| sqlite_error(&opened_path, &error))?;
+                Ok::<_, RunStateError>((connection, checkpointing))
             })
             .await?;
-        let checkpointer = WalCheckpointer::start(&path, options, owner)
+        let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
             .map_err(|error| sqlite_error(&path, &error))?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
@@ -867,8 +872,8 @@ enum WalCheckpoint {
 }
 
 /// The writer's side of its checkpointer: an actor of the writer's owner,
-/// which runs each checkpoint on a connection of its own, opened at its
-/// first, and ends once the writer is gone (ADR 0138).
+/// which runs each checkpoint on a connection of its own, opened with the
+/// writer's, and ends once the writer is gone (ADR 0138).
 struct WalCheckpointer {
     requests: mpsc::Sender<WalCheckpoint>,
     /// The WAL's pages past which a commit asks for a `PASSIVE` checkpoint.
@@ -877,15 +882,17 @@ struct WalCheckpointer {
 
 impl WalCheckpointer {
     /// Starts the checkpointer of the run file at `path`, opened as
-    /// `options` say, as one of `owner`'s actors.
-    fn start(path: &Path, options: &RunStateOptions, owner: &TaskOwner) -> std::io::Result<Self> {
+    /// `options` say, on `connection`, as one of `owner`'s actors.
+    fn start(
+        path: &Path,
+        options: &RunStateOptions,
+        connection: Connection,
+        owner: &TaskOwner,
+    ) -> std::io::Result<Self> {
         // Room for one `PASSIVE` request, which the writer sends only into an
         // empty mailbox, and its last write's `TRUNCATE` one.
         let (requests, mailbox) = mpsc::channel(2);
         let path = path.to_owned();
-        let vfs = options.vfs.clone();
-        let durability = options.durability;
-        let mut connection: Option<Connection> = None;
         owner.actor(
             "run-state-wal-checkpointer",
             mailbox,
@@ -895,18 +902,7 @@ impl WalCheckpointer {
                 } else {
                     WalCheckpoint::Passive
                 };
-                if connection.is_none() {
-                    match open_wal_checkpointer(&path, vfs.as_deref(), durability) {
-                        Ok(opened) => connection = Some(opened),
-                        Err(error) => {
-                            tracing::warn!(path = %path.display(), %error, "the run file's WAL checkpointer could not open it");
-                            return;
-                        }
-                    }
-                }
-                if let Some(connection) = &connection
-                    && let Err(error) = checkpoint_wal(connection, mode)
-                {
+                if let Err(error) = checkpoint_wal(&connection, mode) {
                     tracing::warn!(path = %path.display(), %error, ?mode, "a WAL checkpoint of the run file failed");
                 }
             },

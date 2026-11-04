@@ -15,7 +15,7 @@ use crate::workspace::Workspace;
 /// Every step of `just pre-merge all`: the host's in the order it runs them,
 /// Collie's Console build first, which the steps beside find in the
 /// workspace they mount, then those beside them.
-const STEPS: [&str; 23] = [
+const STEPS: [&str; 24] = [
     "console-build",
     "dco",
     "commit-messages",
@@ -33,6 +33,7 @@ const STEPS: [&str; 23] = [
     "journeys-tasks --check",
     "features-tests clients-tests",
     "_tlc all",
+    "_kennel all",
     "msrv",
     "miri",
     "notices",
@@ -339,8 +340,8 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
     &[
         "console-build", "perf", "linux", "visual", "dco", "commit-messages", "floor-guard",
         "lint", "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
-        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "msrv", "miri",
-        "notices",
+        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "kennel", "msrv",
+        "miri", "notices",
     ],
 )]
 #[case::quick(
@@ -595,6 +596,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         "stress",
         "journeys-tasks",
         "features-tests",
+        "kennel",
         "msrv",
         "miri",
         "notices",

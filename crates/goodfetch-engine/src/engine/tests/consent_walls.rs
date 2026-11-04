@@ -423,9 +423,10 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
 /// Kennel's; an SDK's is still refused with `person_required` and writes
 /// nothing.
 ///
-/// Covers: operation:needs_you.allow_consent_domain, error:person_required
+/// Covers: operation:needs_you.allow_consent_domain
 #[rstest]
 #[case::from_the_kennel("kennel", json!(true), Value::Null, &["kennel"])]
+/// Covers: error:person_required
 #[case::from_an_sdk("sdk_python", Value::Null, json!("person_required"), &[])]
 fn a_persons_answer_is_admitted_from_the_kennel_and_refused_from_an_sdk(
     #[case] surface: &str,

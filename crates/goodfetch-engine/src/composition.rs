@@ -227,6 +227,17 @@ pub(crate) struct ConnectionContext {
     pub(crate) work: CountedWork,
 }
 
+/// Whether a Client's Connection holds the Daemon it reaches (ADR 0141).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Holding {
+    /// It holds the Daemon off its idle stop, and off a handover to its
+    /// major's pick when its surface does (`Surface::holds_off_handover`).
+    Holds,
+    /// It only observes, holding off neither: a Kennel's, unless its
+    /// `hello` asks to keep the Daemon alive.
+    Observes,
+}
+
 /// A boxed future of a [`DaemonSide`]'s answer.
 pub(crate) type Answering<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -237,9 +248,9 @@ pub(crate) trait DaemonSide: Send + Sync {
     /// The per-launch token.
     fn token(&self) -> &str;
     /// A Client of `surface` opened; it counts until the value drops,
-    /// toward the idle stop and a handover too unless it only `observes`
-    /// (ADR 0141).
-    fn opened(&self, surface: Surface, observes: bool) -> Box<dyn Send + Sync>;
+    /// toward the idle stop and a handover too as `holding` says (ADR
+    /// 0141).
+    fn opened(&self, surface: Surface, holding: Holding) -> Box<dyn Send + Sync>;
     /// A `hello` is being refused by Product or version: whether the Daemon
     /// hands over to its major's pick on it, which it has then begun.
     fn refusing(&self) -> Answering<'_, bool>;

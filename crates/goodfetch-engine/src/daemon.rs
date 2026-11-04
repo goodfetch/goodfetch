@@ -41,7 +41,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
-use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
+use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler, Holding};
 use crate::events::Events;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
@@ -255,13 +255,14 @@ impl Presence {
     /// What one Client of `surface` counts toward each figure.
     ///
     /// A Console holds off the idle stop, as a visible tab does, but not a
-    /// handover (ADR 0098). A Kennel that only `observes` holds off neither
+    /// handover (ADR 0098). A Kennel that only observes holds off neither
     /// (ADR 0141).
-    fn of_one(surface: Surface, observes: bool) -> Self {
+    fn of_one(surface: Surface, holding: Holding) -> Self {
+        let holds = holding == Holding::Holds;
         Self {
             clients: 1,
-            holding_off_idle_stop: u32::from(!observes),
-            holding_off_handover: u32::from(!observes && surface != Surface::Console),
+            holding_off_idle_stop: u32::from(holds),
+            holding_off_handover: u32::from(holds && surface.holds_off_handover()),
         }
     }
 
@@ -441,8 +442,8 @@ impl DaemonSide for ConnectionSide {
         &self.shared.token
     }
 
-    fn opened(&self, surface: Surface, observes: bool) -> Box<dyn Send + Sync> {
-        let counted = Presence::of_one(surface, observes);
+    fn opened(&self, surface: Surface, holding: Holding) -> Box<dyn Send + Sync> {
+        let counted = Presence::of_one(surface, holding);
         self.shared
             .presence
             .send_modify(|presence| presence.add(counted));

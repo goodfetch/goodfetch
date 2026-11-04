@@ -102,6 +102,59 @@ impl Surface {
         }
     }
 
+    /// Whether a person drives a Client of this surface, so the engine
+    /// admits from it the operations only a person may call
+    /// (`Reach::PersonOnly`): the CLI, the Console and the Kennel.
+    pub fn is_a_person(self) -> bool {
+        match self {
+            Self::Cli | Self::Console | Self::Kennel => true,
+            Self::SdkTypescript
+            | Self::SdkPython
+            | Self::Rust
+            | Self::Mcp
+            | Self::Cloud
+            | Self::BrowserHost
+            | Self::Worker => false,
+        }
+    }
+
+    /// Whether the Runs a Connection of this surface starts or resumes on
+    /// a Daemon outlive that Connection: each CLI command is a Connection
+    /// of its own (ADRs 0024 and 0088), and so are a person's controls from
+    /// the Kennel (ADR 0141).
+    pub fn runs_outlive_connection(self) -> bool {
+        match self {
+            Self::Cli | Self::Kennel => true,
+            Self::SdkTypescript
+            | Self::SdkPython
+            | Self::Rust
+            | Self::Mcp
+            | Self::Console
+            | Self::Cloud
+            | Self::BrowserHost
+            | Self::Worker => false,
+        }
+    }
+
+    /// Whether a Client of this surface that holds a Daemon holds it back
+    /// from a handover to its major's pick: every surface's but the
+    /// Console's, which holds off only the idle stop, as a visible tab does
+    /// (ADR 0098).
+    pub fn holds_off_handover(self) -> bool {
+        match self {
+            Self::Console => false,
+            Self::SdkTypescript
+            | Self::SdkPython
+            | Self::Rust
+            | Self::Cli
+            | Self::Mcp
+            | Self::Kennel
+            | Self::Cloud
+            | Self::BrowserHost
+            | Self::Worker => true,
+        }
+    }
+
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
         match self {

@@ -913,11 +913,11 @@ impl Session<'_> {
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel
                 // (ADR 0141).
-                if matches!(surface, Surface::Cli | Surface::Kennel) {
+                if surface.runs_outlive_connection() {
                     self.connection.runs.outlive_connection().await;
                 }
-                let observes = accepted.observes;
-                self.opened_client = daemon.map(|daemon| daemon.opened(surface, observes));
+                let holding = accepted.holding;
+                self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
                 if let Access::Attached(private_endpoint, console_link) = &self.access {
                     accepted
@@ -970,10 +970,12 @@ impl Session<'_> {
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
             if handler.operation().reach == Reach::PersonOnly
-                && !matches!(
-                    self.connection.surface.get(),
-                    Some(Surface::Cli | Surface::Console | Surface::Kennel)
-                )
+                && !self
+                    .connection
+                    .surface
+                    .get()
+                    .copied()
+                    .is_some_and(Surface::is_a_person)
             {
                 Some(person_required(&method))
             } else {

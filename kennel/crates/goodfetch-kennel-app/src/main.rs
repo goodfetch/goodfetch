@@ -14,10 +14,16 @@
 //!
 //! On Linux the Tray runs GTK's main loop on a thread of its own, through
 //! the `Tasks` tracker, and draws the frames this loop sends it (`tray`).
+//!
+//! The State also decides the desktop notices, and the Kennel shows them
+//! through the platform's adapter (`notices`), which it builds only while
+//! the settings turn them on, waking the loop when a held summary falls
+//! due.
 
 mod ask;
 mod details;
 mod fonts;
+mod notices;
 mod tray;
 
 use std::collections::VecDeque;
@@ -139,6 +145,8 @@ fn main() -> anyhow::Result<()> {
         installed: false,
         next_draw: None,
         details: None,
+        notifier: Notifier::Off,
+        next_notice: None,
     };
     let ran = event_loop.run_app(&mut kennel);
     runtime.block_on(tasks.stop(STOP_GRACE));
@@ -218,6 +226,21 @@ struct Kennel {
     next_draw: Option<Instant>,
     /// The details window's process ID, while it runs.
     details: Option<u32>,
+    /// The desktop notices' adapter, while the settings turn them on.
+    notifier: Notifier,
+    /// When the summary of the held desktop notices falls due.
+    next_notice: Option<Instant>,
+}
+
+/// The desktop notices' adapter, as the settings and the platform allow.
+enum Notifier {
+    /// The settings turn desktop notices off, or are not read yet: no
+    /// notice code runs.
+    Off,
+    /// Built, and showing them.
+    On(Box<dyn notices::Adapter>),
+    /// On, but the platform cannot show them here, as the log said once.
+    Unavailable,
 }
 
 impl Kennel {
@@ -287,6 +310,30 @@ impl Kennel {
             tray::keep(self.state.view());
             self.redraw();
         }
+        self.notify();
+    }
+
+    /// Shows the desktop notices the State says are due now, building the
+    /// adapter when the settings turn them on and dropping it when they
+    /// turn them off, or wakes the loop when held ones fall due.
+    fn notify(&mut self) {
+        match (self.state.notifying(), &self.notifier) {
+            (false, _) => self.notifier = Notifier::Off,
+            (true, Notifier::Off) => {
+                self.notifier = match notices::adapter(&self.tasks) {
+                    Some(adapter) => Notifier::On(adapter),
+                    None => Notifier::Unavailable,
+                };
+            }
+            (true, Notifier::On(_) | Notifier::Unavailable) => {}
+        }
+        let due = self.state.notices(now());
+        if let Notifier::On(adapter) = &self.notifier {
+            for notice in due.send {
+                adapter.show(notice);
+            }
+        }
+        self.next_notice = due.due;
     }
 
     /// Starts the details window's process from this executable, with no
@@ -326,11 +373,12 @@ impl Kennel {
     }
 }
 
-/// The instant the State paces its redraws by.
+/// The instant the State paces its redraws and coalesces its desktop
+/// notices by.
 fn now() -> Instant {
     #[expect(
         clippy::disallowed_methods,
-        reason = "the Tray's one clock read: the State takes the instant it paces redraws by, and reads no clock itself (ADR 0059)"
+        reason = "the Tray's one clock read: the State takes the instant it paces redraws and notices by, and reads no clock itself (ADR 0059)"
     )]
     Instant::now()
 }
@@ -356,13 +404,20 @@ impl ApplicationHandler<UserEvent> for Kennel {
                     event_loop.exit();
                 }
             },
-            StartCause::ResumeTimeReached { .. } => self.redraw(),
+            StartCause::ResumeTimeReached { .. } => {
+                self.redraw();
+                self.notify();
+            }
             StartCause::WaitCancelled { .. } | StartCause::Poll => {}
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(match self.next_draw {
+        let next = match (self.next_draw, self.next_notice) {
+            (Some(draw), Some(notice)) => Some(draw.min(notice)),
+            (draw, notice) => draw.or(notice),
+        };
+        event_loop.set_control_flow(match next {
             Some(due) => ControlFlow::WaitUntil(due),
             None => ControlFlow::Wait,
         });

@@ -10,6 +10,7 @@ The Kennel is Goodfetch's local tool for watching and controlling the Runs of a 
   - Always start the Kennel through LaunchServices: with `open`, the Finder or a login item. Run directly, the binary inside the `.app` is refused desktop notices.
   - The bundle identifier stays the same across builds, so a rebuild keeps the notice permission.
 - **On Linux and Windows** it builds and runs the executable.
+  - On Linux the build needs the development files of GTK 3 and libdbus (`libgtk-3-dev` and `libdbus-1-dev` on Debian and Ubuntu), through `pkg-config`. AppIndicator's library is loaded at run time.
   - On Linux the icon goes in the panel through AppIndicator, which needs GTK 3 and an AppIndicator library (`libayatana-appindicator3-1` or `libappindicator3-1`), and a panel that shows AppIndicator icons: on GNOME, the AppIndicator extension. It needs no Linux setup of its own beyond that, and has no polish of its own (ADR 0141).
 
 The icon shows one verdict for the Daemon, worst first, with no numbers:
@@ -71,6 +72,26 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 - **Repaints.** The window asks for a repaint only when what it shows changed, at most once a second. The person's own clicks and typing are drawn as they come.
 - **Fonts.** The window draws with the system's own fonts, read as it starts (SF and SF Mono on macOS, with Helvetica and Menlo after them), so no font ships in the executable.
 
+## Desktop notices
+
+The Kennel shows a desktop notice when a Run or the Daemon changes to a state that needs a person. Each type is a setting (see Settings):
+
+| Notice | When | On by default |
+|---|---|---|
+| Needs you | a new Needs you item, with what waits | yes |
+| Run failed | a Run failed, named by its Recipe or its Run ID | yes |
+| Run stopped by a Limit | a Run was stopped by a Limit | yes |
+| Daemon lost | the Daemon's Connection ended with no Daemon in its place while a Run was live, with how many | yes |
+| Run finished | a Run ended well | no |
+
+- **Not for what the Kennel finds.** Nothing fires for the state the Kennel finds when it starts, or for what a resync lists, at a Connection's start or after a full queue. A Run the Kennel saw running that a resync leaves out did end while it watched: its end fires once its progress says how it ended.
+- **One notice for a Limit.** A Run stopped by a Limit also makes a Needs you item: whichever of the two notices comes first is sent, not both.
+- **Bursts coalesce.** The first notice goes out at once. Those that come within the period after it are held, and when the period ends one summary goes out, titled such as "3 more changes" and saying "1 new Needs you item; 2 Runs failed", which starts a new period. A summary of one notice is that notice. A period with nothing held ends the burst.
+- **Text.** A notice's title and body go through the Text function, like the menu's lines: at most 60 characters of title and 200 of body.
+- **Off means no notice code.** With `notifications.enabled` off, the Kennel builds no notice adapter, and on macOS it never asks for the permission. It builds the adapter once the settings are read and turn notices on, and drops it when they turn them off.
+- **macOS.** The notices go through `UNUserNotificationCenter`, from `Kennel.app` started through LaunchServices; a binary run directly gets none, and the log says so. The Kennel asks for the permission as the adapter is built, so the prompt shows at the first launch, and the grant survives `just kennel`'s rebuilds under the same bundle identifier. Banners show even while the Kennel counts as the frontmost app, after a menu click.
+- **Linux and Windows.** The notices go through `notify-rust`: the desktop's notification service over D-Bus (the system's libdbus) on Linux, a toast on Windows. A body that looks like markup shows as written.
+
 ## Release
 
 The Kennel is first published with the Products' first publish, never before, under its own version: `[workspace.package]`'s `version` in `Cargo.toml`, which `Kennel.app`'s `Info.plist` carries. It is built from the same commit as the Products, through its path dependency on `goodfetch-protocol`, so a Kennel released with a preview minor of the Products speaks that minor's protocol.
@@ -119,6 +140,21 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | `confirm_stop` | `true` | Stop acts at once, without asking. Abort and Retry failed always ask, and Pause never does |
 | `window` | `true` | a menu-only Kennel: the menu offers no "Open details" |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
+| `notifications.enabled` | `true` | no desktop notice, and no notice code runs (see Desktop notices) |
+| `notifications.needs_you` | `true` | no notice of a new Needs you item |
+| `notifications.run_failed` | `true` | no notice of a failed Run |
+| `notifications.run_stopped_by_limit` | `true` | no notice of a Run stopped by a Limit |
+| `notifications.daemon_lost` | `true` | no notice of a Daemon lost while a Run was live |
+| `notifications.run_finished` | `false` | no notice of a Run that ended well |
+| `notifications.period_minutes` | `20` | `0`: each notice goes out at once, with no summary |
+
+The `notifications.` keys go in a `[notifications]` table:
+
+```toml
+[notifications]
+run_finished = true
+period_minutes = 5
+```
 
 Later features each add a switch here.
 
@@ -126,8 +162,8 @@ Later features each add a switch here.
 
 | Path | What |
 |---|---|
-| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's included), the settings, the Daemon start, the window's process, the menu's edits |
-| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit` (on Linux, on a GTK thread of its own, `src/tray/linux.rs`), and the details window, with `eframe` on glow |
+| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's and the desktop notices' included), the settings, the Daemon start, the window's process, the menu's edits |
+| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit` (on Linux, on a GTK thread of its own, `src/tray/linux.rs`), the details window, with `eframe` on glow, and the desktop notices' adapters, `UNUserNotificationCenter` on macOS and `notify-rust` elsewhere |
 | `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `release.sh` (`just kennel-release`), `bundle.sh` (assembles `Kennel.app`), `install-kennel.sh` (the install script a release publishes), `measure.sh` |
 | `Info.plist` | The `.app`'s property list, which `bundle.sh` stamps with the Kennel's version |
 

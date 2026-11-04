@@ -74,7 +74,17 @@ arboard = { version = "3.7.0", default-features = false }
 # `tray-icon` already locks.
 block2 = { version = "0.6.2", default-features = false, features = ["std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSMenu", "NSRunningApplication"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSString"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSBundle", "NSError", "NSNotification", "NSOperation", "NSString"] }
+# The desktop notices (ADR 0141): on macOS, `UNUserNotificationCenter` from
+# the `.app`, at the versions #1915 checked on the owner's Mac; on Linux
+# and Windows, `notify-rust`. On Linux it talks to the notification
+# service through the system's libdbus (`d`), not its default `zbus` 5,
+# whose `zvariant` crates RustSec lists as unmaintained since they merged
+# into `zbus` 6, which no `notify-rust` release takes yet; and `zbus`'s
+# own executor would start a thread outside the Kennel's runtime.
+notify-rust = { version = "4.18.2", default-features = false, features = ["d"] }
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 
 # The root workspace's `[workspace.lints]`, copied (see above).
 [workspace.lints.rust]

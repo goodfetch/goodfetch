@@ -128,7 +128,11 @@ impl Connection {
                 {
                     return Err(Opening::Refused(refusal(failure.error)));
                 }
-                Ok(_) | Err(_) => {}
+                // Anything else answers no `hello`: the Kennel waits on.
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "a message the Kennel cannot read before hello's answer");
+                }
             }
         };
         let mut connection = Self {

@@ -569,7 +569,7 @@ impl State {
             }
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
-                self.notices.settings(settings.notifications);
+                self.notices.settings(settings.desktop_notices);
                 if self.start_at_login != Some(settings.start_at_login) {
                     self.start_at_login = Some(settings.start_at_login);
                     effects.push(Effect::StartAtLogin(settings.start_at_login));
@@ -580,7 +580,7 @@ impl State {
             }
             Input::Settings(Err(error)) => {
                 self.settings = Settings::default();
-                self.notices.settings(self.settings.notifications);
+                self.notices.settings(self.settings.desktop_notices);
                 self.settings_error = Some(error);
                 effects.extend(self.ask_icon_check());
             }

@@ -122,7 +122,7 @@ pub(super) fn view(settings: &Settings, note: Option<&str>) -> KennelSettingsVie
                     "A burst coalesces over, in minutes (0: each at once)",
                     LINE_MOST,
                 ),
-                minutes: settings.notifications.period_minutes,
+                minutes: settings.desktop_notices.period_minutes,
             }),
         })
         .collect();

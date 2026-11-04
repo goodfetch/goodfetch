@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use goodfetch_protocol::catalog::Product;
 
-use crate::settings::Notifications;
+use crate::settings::DesktopNotices;
 use crate::text;
 
 /// The most characters of a notice's title.
@@ -70,13 +70,13 @@ pub(super) enum Kind {
 
 impl Kind {
     /// Whether `notifications` turns this type on.
-    fn on(self, notifications: &Notifications) -> bool {
+    fn on(self, notices: &DesktopNotices) -> bool {
         match self {
-            Self::DaemonLost => notifications.daemon_lost,
-            Self::NeedsYou => notifications.needs_you,
-            Self::RunFailed => notifications.run_failed,
-            Self::RunStoppedByLimit => notifications.run_stopped_by_limit,
-            Self::RunFinished => notifications.run_finished,
+            Self::DaemonLost => notices.daemon_lost,
+            Self::NeedsYou => notices.needs_you,
+            Self::RunFailed => notices.run_failed,
+            Self::RunStoppedByLimit => notices.run_stopped_by_limit,
+            Self::RunFinished => notices.run_finished,
         }
     }
 
@@ -181,7 +181,7 @@ fn summary(mut held: Vec<Pending>) -> Notice {
 #[derive(Debug, Default)]
 pub(super) struct Coalescer {
     /// The settings' notices, once read.
-    settings: Option<Notifications>,
+    settings: Option<DesktopNotices>,
     /// Decided since the last [`Coalescer::take`].
     fresh: Vec<Pending>,
     /// Held for the summary at the period's end.
@@ -193,28 +193,27 @@ pub(super) struct Coalescer {
 impl Coalescer {
     /// The settings read now: off drops every notice not sent and ends
     /// the burst; a type turned off drops its own.
-    pub(super) fn settings(&mut self, notifications: Notifications) {
-        if notifications.enabled {
-            self.fresh.retain(|pending| pending.kind.on(&notifications));
-            self.held.retain(|pending| pending.kind.on(&notifications));
+    pub(super) fn settings(&mut self, notices: DesktopNotices) {
+        if notices.enabled {
+            self.fresh.retain(|pending| pending.kind.on(&notices));
+            self.held.retain(|pending| pending.kind.on(&notices));
         } else {
             self.fresh.clear();
             self.held.clear();
             self.sent_at = None;
         }
-        self.settings = Some(notifications);
+        self.settings = Some(notices);
     }
 
     /// Whether desktop notices are on: the settings are read and say so.
     pub(super) fn notifying(&self) -> bool {
-        self.settings
-            .is_some_and(|notifications| notifications.enabled)
+        self.settings.is_some_and(|notices| notices.enabled)
     }
 
     /// Whether a notice of `kind` would be sent.
     pub(super) fn wants(&self, kind: Kind) -> bool {
         self.settings
-            .is_some_and(|notifications| notifications.enabled && kind.on(&notifications))
+            .is_some_and(|notices| notices.enabled && kind.on(&notices))
     }
 
     /// Adds the notice `make` gives, when its `kind` is wanted.
@@ -230,14 +229,13 @@ impl Coalescer {
     /// The notices to send at `now`, and when the held ones fall due.
     pub(super) fn take(&mut self, now: Instant) -> Notices {
         let fresh = std::mem::take(&mut self.fresh);
-        let Some(notifications) = self.settings.filter(|notifications| notifications.enabled)
-        else {
+        let Some(notices) = self.settings.filter(|notices| notices.enabled) else {
             return Notices {
                 send: Vec::new(),
                 due: None,
             };
         };
-        let period = notifications.period();
+        let period = notices.period();
         let mut send = Vec::new();
         if period.is_zero() {
             send.extend(

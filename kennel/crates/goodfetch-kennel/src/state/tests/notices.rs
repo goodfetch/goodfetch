@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::super::{Input, Notice, Notices, State};
 use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity};
-use crate::settings::{Notifications, Settings, SettingsError};
+use crate::settings::{DesktopNotices, Settings, SettingsError};
 
 fn foxhound() -> ConnectionChange {
     ConnectionChange::Connected(DaemonIdentity {
@@ -21,9 +21,9 @@ fn foxhound() -> ConnectionChange {
     })
 }
 
-fn settings(notifications: Notifications) -> Input {
+fn settings(notices: DesktopNotices) -> Input {
     Input::Settings(Ok(Settings {
-        notifications,
+        desktop_notices: notices,
         ..Settings::default()
     }))
 }
@@ -31,16 +31,16 @@ fn settings(notifications: Notifications) -> Input {
 /// A State past its start: its settings read with `notifications`, a
 /// Foxhound Daemon reached, and the subscription's opening resync applied
 /// with `runs` running and no Needs you item.
-fn watching_with(notifications: Notifications, runs: &[&str]) -> State {
+fn watching_with(notices: DesktopNotices, runs: &[&str]) -> State {
     let mut state = State::new();
-    state.apply(settings(notifications));
+    state.apply(settings(notices));
     state.apply(Input::Connection(foxhound()));
     state.apply(Input::Events(vec![resync(runs, &[])]));
     state
 }
 
 fn watching(runs: &[&str]) -> State {
-    watching_with(Notifications::default(), runs)
+    watching_with(DesktopNotices::default(), runs)
 }
 
 fn axes(run: &str, lifecycle: &str) -> DaemonEvent {
@@ -179,13 +179,13 @@ impl Transition {
         }
     }
 
-    fn switched(self, notifications: &mut Notifications, on: bool) {
+    fn switched(self, notices: &mut DesktopNotices, on: bool) {
         let switch = match self {
-            Self::NeedsYou => &mut notifications.needs_you,
-            Self::RunFailed => &mut notifications.run_failed,
-            Self::RunStoppedByLimit => &mut notifications.run_stopped_by_limit,
-            Self::DaemonLost => &mut notifications.daemon_lost,
-            Self::RunFinished => &mut notifications.run_finished,
+            Self::NeedsYou => &mut notices.needs_you,
+            Self::RunFailed => &mut notices.run_failed,
+            Self::RunStoppedByLimit => &mut notices.run_stopped_by_limit,
+            Self::DaemonLost => &mut notices.daemon_lost,
+            Self::RunFinished => &mut notices.run_finished,
         };
         *switch = on;
     }
@@ -236,9 +236,9 @@ fn each_transition_sends_its_notice_when_its_type_is_on_by_default(
 #[case::the_daemon_lost_while_a_run_was_live(Transition::DaemonLost)]
 #[case::a_run_that_ended_well(Transition::RunFinished)]
 fn each_notice_type_has_a_switch_of_its_own(#[case] transition: Transition) {
-    let mut on = Notifications::default();
+    let mut on = DesktopNotices::default();
     transition.switched(&mut on, true);
-    let mut off = Notifications::default();
+    let mut off = DesktopNotices::default();
     transition.switched(&mut off, false);
     let mut switched_on = watching_with(on, &["crawl"]);
     let mut switched_off = watching_with(off, &["crawl"]);
@@ -256,9 +256,9 @@ fn each_notice_type_has_a_switch_of_its_own(#[case] transition: Transition) {
 #[test]
 fn with_notifications_off_no_notice_is_sent_and_no_notice_code_is_wanted() {
     let mut state = watching_with(
-        Notifications {
+        DesktopNotices {
             enabled: false,
-            ..Notifications::default()
+            ..DesktopNotices::default()
         },
         &["crawl"],
     );
@@ -288,9 +288,9 @@ fn notices_are_wanted_only_once_the_settings_are_read_and_say_so() {
         "unknown field `contrls`".to_owned(),
     ))));
     let with_the_defaults = state.notifying();
-    state.apply(settings(Notifications {
+    state.apply(settings(DesktopNotices {
         enabled: false,
-        ..Notifications::default()
+        ..DesktopNotices::default()
     }));
     let turned_off = state.notifying();
 
@@ -524,16 +524,16 @@ fn a_summary_starts_a_new_period_and_a_quiet_period_ends_the_burst() {
 #[test]
 fn the_period_is_a_setting_and_zero_sends_each_notice_at_once() {
     let mut five = watching_with(
-        Notifications {
+        DesktopNotices {
             period_minutes: 5,
-            ..Notifications::default()
+            ..DesktopNotices::default()
         },
         &[],
     );
     let mut zero = watching_with(
-        Notifications {
+        DesktopNotices {
             period_minutes: 0,
-            ..Notifications::default()
+            ..DesktopNotices::default()
         },
         &[],
     );
@@ -570,9 +570,9 @@ fn turning_a_type_off_drops_its_held_notices() {
     ]));
     state.notices(start);
 
-    state.apply(settings(Notifications {
+    state.apply(settings(DesktopNotices {
         needs_you: false,
-        ..Notifications::default()
+        ..DesktopNotices::default()
     }));
 
     assert_eq!(
@@ -591,11 +591,11 @@ fn turning_notifications_off_drops_every_held_notice() {
     ]));
     state.notices(start);
 
-    state.apply(settings(Notifications {
+    state.apply(settings(DesktopNotices {
         enabled: false,
-        ..Notifications::default()
+        ..DesktopNotices::default()
     }));
-    state.apply(settings(Notifications::default()));
+    state.apply(settings(DesktopNotices::default()));
 
     assert_eq!(state.notices(minutes(start, 20)).send, []);
 }

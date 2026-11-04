@@ -48,7 +48,8 @@ pub struct Settings {
     /// hidden behind the notch or in the overflow (macOS).
     pub hidden_icon_check: bool,
     /// The desktop notices, the `[notifications]` table.
-    pub notifications: Notifications,
+    #[serde(rename = "notifications")]
+    pub desktop_notices: DesktopNotices,
     /// The details window's views, each a switch of its own: `[views]` in
     /// the file.
     pub views: Views,
@@ -63,7 +64,7 @@ impl Default for Settings {
             window: true,
             start_at_login: false,
             hidden_icon_check: true,
-            notifications: Notifications::default(),
+            desktop_notices: DesktopNotices::default(),
             views: Views::default(),
         }
     }
@@ -77,7 +78,7 @@ impl Default for Settings {
     clippy::struct_excessive_bools,
     reason = "each is a switch a person writes in the settings file as a TOML boolean"
 )]
-pub struct Notifications {
+pub struct DesktopNotices {
     /// Whether the Kennel sends desktop notices at all: off, no notice
     /// code runs, and macOS is never asked for the permission.
     pub enabled: bool,
@@ -96,14 +97,14 @@ pub struct Notifications {
     pub period_minutes: u32,
 }
 
-impl Notifications {
+impl DesktopNotices {
     /// The period over which a burst coalesces.
     pub fn period(&self) -> Duration {
         Duration::from_secs(u64::from(self.period_minutes) * 60)
     }
 }
 
-impl Default for Notifications {
+impl Default for DesktopNotices {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -222,7 +223,7 @@ impl Switch {
 
     /// Whether `settings` turn it on.
     pub fn of(self, settings: &Settings) -> bool {
-        let notices = &settings.notifications;
+        let notices = &settings.desktop_notices;
         match self {
             Self::Controls => settings.controls,
             Self::ConfirmStop => settings.confirm_stop,

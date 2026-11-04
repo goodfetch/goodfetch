@@ -1147,7 +1147,7 @@ mod kennel_settings {
     //! change in the file shown, and the view a setting of its own.
 
     use super::super::{Details, Input, KennelSettingsView, View};
-    use crate::settings::{Notifications, Settings, SettingsError, Switch, Views};
+    use crate::settings::{DesktopNotices, Settings, SettingsError, Switch, Views};
 
     fn shown_settings(details: &Details) -> KennelSettingsView {
         let view = details.view();
@@ -1169,10 +1169,10 @@ mod kennel_settings {
         let mut details = Details::new();
         details.apply(Input::Settings(Ok(Settings {
             start_at_login: true,
-            notifications: Notifications {
+            desktop_notices: DesktopNotices {
                 run_finished: true,
                 period_minutes: 5,
-                ..Notifications::default()
+                ..DesktopNotices::default()
             },
             ..Settings::default()
         })));

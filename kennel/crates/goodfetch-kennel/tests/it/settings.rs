@@ -8,7 +8,7 @@ use std::fs;
 
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::settings::{
-    self, Edit, Notifications, Settings, SettingsError, Switch, Views,
+    self, DesktopNotices, Edit, Settings, SettingsError, Switch, Views,
 };
 use rstest::rstest;
 
@@ -26,7 +26,7 @@ fn without_a_settings_file_the_defaults_apply() {
             controls: true,
             confirm_stop: true,
             keep_daemon_alive: false,
-            notifications: Notifications {
+            desktop_notices: DesktopNotices {
                 enabled: true,
                 needs_you: true,
                 run_failed: true,
@@ -119,11 +119,11 @@ fn each_desktop_notice_type_and_the_period_are_settings_of_their_own() {
     assert_eq!(
         read,
         Ok(Settings {
-            notifications: Notifications {
+            desktop_notices: DesktopNotices {
                 run_failed: false,
                 run_finished: true,
                 period_minutes: 5,
-                ..Notifications::default()
+                ..DesktopNotices::default()
             },
             ..Settings::default()
         })
@@ -139,7 +139,7 @@ fn desktop_notices_turn_off_as_a_whole() {
     let read = settings::read(&home.settings_file());
 
     assert_eq!(
-        read.map(|settings| settings.notifications.enabled),
+        read.map(|settings| settings.desktop_notices.enabled),
         Ok(false)
     );
 }

@@ -8,6 +8,8 @@
 //! - `settings`: the Kennel's own settings file, read at launch and on
 //!   change;
 //! - `daemon_start`: the installed Product's `daemon start`;
+//! - `fonts`: where the system keeps the fonts the details window draws
+//!   with;
 //! - `home`: the Goodfetch home and the files the Kennel reads in it;
 //! - `login`: start at login, the launchd user agent that opens the
 //!   installed `.app` (macOS);
@@ -22,6 +24,7 @@
 
 pub mod client;
 pub mod daemon_start;
+pub mod fonts;
 pub mod home;
 pub mod login;
 pub mod menu;

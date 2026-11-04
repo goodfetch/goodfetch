@@ -3,6 +3,7 @@
 [modules]
 client = ["home", "reports", "tasks"]
 daemon_start = ["home"]
+fonts = []
 home = []
 login = ["home"]
 menu = ["state"]

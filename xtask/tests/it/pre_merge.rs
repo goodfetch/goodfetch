@@ -757,6 +757,53 @@ fn after_a_red_nextest_run_the_pre_merge_suite_still_runs_the_doctests(
     );
 }
 
+/// Under `GOODFETCH_TEST_KEEP_GOING`, which `just coverage` sets so one red
+/// test still leaves a figure (ADR 0072), a red nextest run no longer stops
+/// the suite: Vitest, Playwright and pytest still run, the failed runners are
+/// named last, and the suite fails with the first failure's status.
+#[rstest]
+#[case::the_doctests_pass(None, Some(100), &["nextest"])]
+#[case::the_doctests_fail(Some("101"), Some(101), &["doctests", "nextest"])]
+fn under_keep_going_a_red_nextest_run_still_runs_every_other_runner(
+    #[case] doctests: Option<&str>,
+    #[case] code: Option<i32>,
+    #[case] failed: &[&str],
+) {
+    let fixture = crate::head_order::fixture();
+    fixture.fail("insta", "100");
+    if let Some(status) = doctests {
+        fixture.fail("test", status);
+    }
+    fixture.workspace.commit_all();
+
+    let run = fixture.test_with_env(&["pre-merge"], &[("GOODFETCH_TEST_KEEP_GOING", "1")]);
+
+    assert_eq!(run.code, code, "{}", run.output);
+    for runner in [
+        "pnpm exec vitest run",
+        "pnpm exec playwright test",
+        "uv run pytest",
+    ] {
+        assert!(
+            run.calls.iter().any(|call| call.starts_with(runner)),
+            "{runner}: {:?}",
+            run.calls
+        );
+    }
+    let named = run
+        .output
+        .lines()
+        .find_map(|line| line.strip_prefix("Failed runners: "))
+        .unwrap_or_default()
+        .split(", ")
+        .collect::<Vec<_>>();
+    // pytest may fail too: the fixture's `ordered` member fails in about
+    // half the orders a seed gives.
+    for runner in failed {
+        assert!(named.contains(runner), "{runner}: {}", run.output);
+    }
+}
+
 /// A step beside the host's that ended before a host step failed keeps its
 /// result, so the next run reuses it where the change since does not reach
 /// it (the test-gate audit's option 3).

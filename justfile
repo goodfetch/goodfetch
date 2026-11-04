@@ -287,9 +287,9 @@ features *change:
 # Pre-merge suite's tests of what changed, or of the whole workspace with
 # `all`, with every Rust crate built for coverage (so each SDK, Journey and
 # Console run starts the instrumented executables), Vitest's `v8` provider
-# and coverage.py with branches. Reports go to target/coverage/. Takes
-# `xtask affected`'s change, `--local` by default; listed as skipped without
-# cargo-llvm-cov.
+# and coverage.py with branches. Reports go to target/coverage/, written even
+# when a test fails or a profile is unreadable. Takes `xtask affected`'s
+# change, `--local` by default; listed as skipped without cargo-llvm-cov.
 # Measures code coverage, never gated: `just coverage [all | <change>…]`.
 coverage *change:
     JUST="{{ just_executable() }}" ci/tool.sh cargo-llvm-cov ci/coverage.sh {{ change }}
@@ -481,7 +481,19 @@ test suite *packages:
         # with 100, nextest's status for failed tests, when they passed, so
         # the incremental gate can judge each crate by the run's JUnit file
         # (ADR 0135; the test-gate audit's option 4b). Vitest, Playwright and
-        # pytest do not run after it.
+        # pytest do not run after it, unless GOODFETCH_TEST_KEEP_GOING is set,
+        # as `just coverage` sets it so one red test still leaves a figure
+        # (ADR 0072): then a failed runner is named and the next one still
+        # runs, and the suite fails with the first failure's status once all
+        # have run. Without it, a failed doctest, Vitest, Playwright or pytest
+        # run ends the suite with its own status.
+        failed_runners=() first_failure=0
+        runner_failed() {
+          [[ -n "${GOODFETCH_TEST_KEEP_GOING:-}" ]] || exit "$2"
+          echo "$1 failed with status $2; the other runners still run (GOODFETCH_TEST_KEEP_GOING)" >&2
+          failed_runners+=("$1")
+          [[ $first_failure -ne 0 ]] || first_failure=$2
+        }
         nextest=0
         if $rust && [[ ${#select_nextest[@]} -gt 0 ]]; then
           # `cargo insta test` hands nextest no filterset, so a selection runs
@@ -508,27 +520,38 @@ test suite *packages:
             done
           fi
           if [[ ${#doc_packages[@]} -gt 0 ]]; then
-            cargo test "${doc_packages[@]}" --doc --profile {{ test_profile }}
+            cargo test "${doc_packages[@]}" --doc --profile {{ test_profile }} || runner_failed doctests $?
           else
             echo "Doctests: no selected package has a library target"
           fi
         fi
         if [[ $nextest -ne 0 ]]; then
-          echo "nextest failed with status $nextest; Vitest, Playwright and pytest do not run after it" >&2
-          exit 100
+          if [[ -z "${GOODFETCH_TEST_KEEP_GOING:-}" ]]; then
+            echo "nextest failed with status $nextest; Vitest, Playwright and pytest do not run after it" >&2
+            exit 100
+          fi
+          runner_failed nextest "$nextest"
         fi
         if $vitest_runs; then
-          pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}
+          pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"} \
+            || runner_failed Vitest $?
         fi
         if $playwright_runs; then
           # The harness reads each `conformance` document the run wrote (ADR 0068).
           written=$(mktemp)
-          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"}
+          pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"} \
+            || runner_failed Playwright $?
           ci/read-conformance-documents.sh "$written"
           rm -f "$written"
         fi
         if $python; then
-          uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} \
+            || { code=$?; [[ $code -eq 5 ]] || runner_failed pytest "$code"; }
+        fi
+        if [[ ${#failed_runners[@]} -gt 0 ]]; then
+          printf -v named '%s, ' "${failed_runners[@]}"
+          echo "Failed runners: ${named%, }" >&2
+          exit "$first_failure"
         fi
         ;;
       *)

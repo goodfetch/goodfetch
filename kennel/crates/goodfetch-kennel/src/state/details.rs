@@ -31,40 +31,47 @@
 //! - **Repaints**: only when the view changed, at most once each
 //!   [`REDRAW_PERIOD`], and none once the window is closed.
 //!
+//! Its parts: `fields`, how the Daemon's values are worded; `records`,
+//! the Records view; `seeds`, Add Seeds; and `kennel_settings`, the Kennel
+//! settings view.
+//!
 //! Every string shown passes through the Text function.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::progress::RequestProgress;
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
-use goodfetch_protocol::foxhound::sql_tab::{DatasetQueryParams, DatasetQueryResult};
-use goodfetch_protocol::governor::{
-    AllowanceSource, GovernorLevel, KindConcurrency, PressureSource, SystemInfo,
-};
+use goodfetch_protocol::foxhound::sql_tab::DatasetQueryResult;
+use goodfetch_protocol::governor::SystemInfo;
 use goodfetch_protocol::run::{
-    Lifecycle, ProgressMessage, RECIPE_TAG, RunId, RunIndexRow, RunKind, RunListParams,
-    RunProgress, RunReport, RunUsage, StopReason,
+    Lifecycle, ProgressMessage, RECIPE_TAG, RunId, RunIndexRow, RunListParams, RunProgress,
+    RunReport, RunUsage,
 };
-use goodfetch_protocol::settings::{
-    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
-};
-use serde_json::{Map, Value};
+use goodfetch_protocol::settings::SettingsExplanation;
 
-use super::{Daemon, REDRAW_PERIOD, attempt, health_text, product_name, refused};
+use super::{Daemon, REDRAW_PERIOD, health_text, product_name, refused};
 use crate::client::{
     Call, CallFailure, ConnectionChange, DaemonEvent, Generation, Listing, Query, SeedsAdded,
-    SeedsToAdd, UsageRead, Wanted,
+    UsageRead, Wanted,
 };
 use crate::settings::{Settings, SettingsError};
 use crate::text;
 
+mod fields;
 mod kennel_settings;
+mod records;
+mod seeds;
 
 pub use kennel_settings::{KennelSettingsView, PeriodLine, SettingsSection, SwitchLine};
+pub use seeds::{SeedsConfirmation, SeedsOffer};
+
+use fields::{
+    governor_fields, lifecycle, part, progress_fields, report_fields, unreported, usage_fields,
+};
+use records::records_query;
+use seeds::Seeding;
 
 #[cfg(test)]
 mod tests;
@@ -338,85 +345,6 @@ pub struct RunPanel {
     pub seeds: Option<String>,
 }
 
-/// Add Seeds, offered for a live crawl on a Foxhound Daemon while
-/// `controls` is on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeedsOffer {
-    run_id: RunId,
-    /// The crawl's name, shown.
-    name: String,
-}
-
-impl SeedsOffer {
-    /// The question Add Seeds asks before it adds the seeds `urls`, one a
-    /// line, with the Label `label`: naming the Run and the consequence;
-    /// or what the person has yet to give.
-    ///
-    /// # Errors
-    ///
-    /// The Label is blank, or no line holds a URL.
-    pub fn confirmation(&self, label: &str, urls: &str) -> Result<SeedsConfirmation, String> {
-        let label = label.trim();
-        if label.is_empty() {
-            return Err("Give the Label of the handler the seeds go to".to_owned());
-        }
-        let seeds: Vec<Seed> = urls
-            .lines()
-            .map(str::trim)
-            .filter(|url| !url.is_empty())
-            .map(|url| {
-                Seed::Request(RequestSeed {
-                    url: url.to_owned(),
-                    label: label.to_owned(),
-                    payload: None,
-                    priority: 0,
-                    forefront: false,
-                    method: HttpMethod::default(),
-                    body: None,
-                    key: None,
-                })
-            })
-            .collect();
-        if seeds.is_empty() {
-            return Err("Give at least one URL, one a line".to_owned());
-        }
-        let described = if self.name == self.run_id.as_str() {
-            self.name.clone()
-        } else {
-            format!("{} ({})", self.name, self.run_id)
-        };
-        Ok(SeedsConfirmation {
-            title: text::shown(
-                &format!("Add {} to {}?", counted(seeds.len(), "seed"), self.name),
-                VALUE_MOST,
-            ),
-            consequence: text::shown(
-                &format!(
-                    "The crawl {described} fetches them with the Label {label}, beside its other requests. A seed it already holds is not added again, and adding cannot be undone."
-                ),
-                VALUE_MOST * 2,
-            ),
-            confirm: "Add seeds".to_owned(),
-            run_id: self.run_id.clone(),
-            seeds,
-        })
-    }
-}
-
-/// The question Add Seeds asks: the person's yes, given to
-/// [`Details::confirmed`], adds the seeds.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeedsConfirmation {
-    /// The question, naming the Run and how many seeds.
-    pub title: String,
-    /// What adding does to the crawl.
-    pub consequence: String,
-    /// The label of the button that confirms.
-    pub confirm: String,
-    run_id: RunId,
-    seeds: Vec<Seed>,
-}
-
 /// A labelled value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field {
@@ -493,17 +421,6 @@ pub struct Details {
     seeds: Option<(RunId, Seeding)>,
     /// When the window last repainted, and what.
     drawn: Option<(Instant, DetailsView)>,
-}
-
-/// Where an Add Seeds is.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Seeding {
-    /// Its seeds are being added.
-    Adding(usize),
-    /// The crawl answered.
-    Added(SeedsAdded),
-    /// It failed.
-    Failed(CallFailure),
 }
 
 impl Default for Details {
@@ -657,15 +574,6 @@ impl Details {
         }
     }
 
-    /// The person said yes to `confirmation`: the call that adds its
-    /// seeds, unless the Run no longer offers Add Seeds.
-    pub fn confirmed(&mut self, confirmation: SeedsConfirmation) -> Option<Call> {
-        let SeedsConfirmation { run_id, seeds, .. } = confirmation;
-        self.seeds_offer(&run_id)?;
-        self.seeds = Some((run_id.clone(), Seeding::Adding(seeds.len())));
-        Some(Call::AddSeeds(SeedsToAdd { run_id, seeds }))
-    }
-
     /// Shows `view`: a view shown again reads afresh what it shows.
     fn show(&mut self, view: View) {
         if view != self.view {
@@ -745,25 +653,6 @@ impl Details {
         }
     }
 
-    /// Add Seeds for the Run `id`, when it offers it: a live crawl, on a
-    /// Foxhound Daemon, while the settings, once read, leave `controls`
-    /// on.
-    fn seeds_offer(&self, id: &RunId) -> Option<SeedsOffer> {
-        let controls = self
-            .settings
-            .as_ref()
-            .is_some_and(|settings| settings.controls);
-        let row = self.row(id)?;
-        let offered = controls
-            && self.product() == Some(Product::Foxhound)
-            && row.kind == RunKind::Crawl
-            && self.runs(id);
-        offered.then(|| SeedsOffer {
-            run_id: id.clone(),
-            name: text::shown(&name(row), NAME_MOST),
-        })
-    }
-
     /// The reads the view needs now: none while the window is closed or
     /// no Daemon is reached.
     pub fn wanted(&self) -> Wanted {
@@ -841,7 +730,8 @@ impl Details {
             views: self.views(),
             shown,
             records: (shown == View::Records).then(|| self.records_panel()),
-            daemon_settings: (shown == View::DaemonSettings).then(|| self.settings_panel()),
+            daemon_settings: (shown == View::DaemonSettings)
+                .then(|| fields::settings_panel(self.explained.as_ref())),
             governor: (shown == View::Governor).then(|| GovernorPanel {
                 note: self
                     .reading
@@ -858,110 +748,6 @@ impl Details {
                 .as_ref()
                 .filter(|_| shown == View::KennelSettings)
                 .map(|settings| kennel_settings::view(settings, self.settings_note.as_deref())),
-        }
-    }
-
-    /// The Records view of the chosen Run.
-    fn records_panel(&self) -> RecordsPanel {
-        let mut panel = RecordsPanel {
-            title: "Records".to_owned(),
-            note: None,
-            columns: Vec::new(),
-            rows: Vec::new(),
-            range: String::new(),
-            previous: false,
-            next: false,
-        };
-        let Some(id) = &self.chosen else {
-            panel.note = Some("Choose a Run in the Runs view to read its Records".to_owned());
-            return panel;
-        };
-        let named = match self.row(id).map(name) {
-            Some(name) if name != id.as_str() => format!("{name} ({id})"),
-            Some(_) | None => id.as_str().to_owned(),
-        };
-        panel.title = text::shown(&format!("Records of {named}"), VALUE_MOST);
-        match &self.records {
-            None => panel.note = Some("Reading the Records…".to_owned()),
-            Some(Err(failure)) => {
-                panel.note = Some(text::shown(
-                    &format!(
-                        "The Daemon refused the query: {} ({})",
-                        failure.message, failure.code
-                    ),
-                    VALUE_MOST,
-                ));
-            }
-            Some(Ok(result)) => {
-                panel.columns = result
-                    .columns
-                    .iter()
-                    .map(|column| text::shown(&column.name, NAME_MOST))
-                    .collect();
-                panel.rows = result
-                    .rows
-                    .iter()
-                    .map(|row| row.iter().map(cell).collect())
-                    .collect();
-                let shown = u64::try_from(panel.rows.len()).unwrap_or(u64::MAX);
-                let total = self.records_from + result.total;
-                if shown == 0 {
-                    panel.note = Some(if self.records_from == 0 {
-                        "The Run has no Record".to_owned()
-                    } else {
-                        "No Record on this page".to_owned()
-                    });
-                } else {
-                    panel.range = format!(
-                        "Records {} to {} of {total}",
-                        self.records_from + 1,
-                        self.records_from + shown
-                    );
-                }
-                panel.previous = self.records_from > 0;
-                panel.next = shown < result.total;
-            }
-        }
-        panel
-    }
-
-    /// The Daemon settings view.
-    fn settings_panel(&self) -> SettingsPanel {
-        match &self.explained {
-            None => SettingsPanel {
-                note: Some("Reading the settings…".to_owned()),
-                sources: Vec::new(),
-                settings: Vec::new(),
-            },
-            Some(Err(failure)) => SettingsPanel {
-                note: Some(text::shown(
-                    &format!(
-                        "The Daemon did not explain its settings: {} ({})",
-                        failure.message, failure.code
-                    ),
-                    VALUE_MOST,
-                )),
-                sources: Vec::new(),
-                settings: Vec::new(),
-            },
-            Some(Ok(explanation)) => {
-                let mut sources = Vec::new();
-                if let Some(version) = &explanation.policy_version {
-                    sources.push(Field::new("Operator policy", version));
-                }
-                for file in &explanation.files {
-                    let found = if file.found { "" } else { " (not found)" };
-                    sources.push(Field::new(
-                        &format!("{} file", file_layer(file.layer)),
-                        &format!("{}{found}", file.path),
-                    ));
-                }
-                SettingsPanel {
-                    note: None,
-                    sources,
-                    settings: explanation.settings.iter().map(setting_line).collect(),
-                }
-            }
         }
     }
 
@@ -1127,42 +913,6 @@ impl Details {
                 .map(|(_, seeding)| self.seeding(id, seeding)),
         }
     }
-
-    /// What the window says of an Add Seeds of the Run `id`.
-    fn seeding(&self, id: &RunId, seeding: &Seeding) -> String {
-        let said = match seeding {
-            Seeding::Adding(count) => format!("Adding {}…", counted(*count, "seed")),
-            Seeding::Added(added) => {
-                let count = usize::try_from(added.added).unwrap_or(usize::MAX);
-                let not_added: u64 = added.not_added.values().sum();
-                if not_added == 0 {
-                    format!("{} added", counted(count, "seed"))
-                } else {
-                    let reasons: Vec<String> = added
-                        .not_added
-                        .iter()
-                        .map(|(reason, count)| format!("{reason} {count}"))
-                        .collect();
-                    format!(
-                        "{} added; {not_added} not added: {}",
-                        counted(count, "seed"),
-                        reasons.join(", ")
-                    )
-                }
-            }
-            Seeding::Failed(failure) => {
-                let call = Call::AddSeeds(SeedsToAdd {
-                    run_id: id.clone(),
-                    seeds: Vec::new(),
-                });
-                let tried = attempt(&call, |run| {
-                    self.row(run).map_or_else(|| run.as_str().to_owned(), name)
-                });
-                format!("{tried} failed: {} ({})", failure.message, failure.code)
-            }
-        };
-        text::shown(&said, VALUE_MOST)
-    }
 }
 
 /// `count` of `thing`, plural past one.
@@ -1174,355 +924,9 @@ fn counted(count: usize, thing: &str) -> String {
     }
 }
 
-/// The `dataset.query` of a page of `run`'s Records, from the Record
-/// `from`: each Dataset's in order.
-fn records_query(run: &RunId, from: u64) -> DatasetQueryParams {
-    // A quote in the Run ID is doubled, as SQL quotes it.
-    let run_literal = run.as_str().replace('\'', "''");
-    let offset = if from > 0 {
-        format!(" OFFSET {from}")
-    } else {
-        String::new()
-    };
-    DatasetQueryParams {
-        sql: format!(
-            "SELECT dataset, number, url, committed_at, value FROM records('{run_literal}') ORDER BY dataset, number{offset}"
-        ),
-        runs: vec![run.clone()],
-        limit: Some(RECORDS_PAGE),
-    }
-}
-
-/// A Record's value as the Records view shows it: a text as written,
-/// anything else as JSON.
-fn cell(value: &Value) -> String {
-    let written = match value {
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    };
-    text::shown(&written, VALUE_MOST)
-}
-
-/// One setting's line of the Daemon settings view.
-fn setting_line(setting: &ExplainedSetting) -> SettingLine {
-    let mut value = match &setting.value {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    };
-    if let Some(cap) = &setting.cap {
-        value = format!("{value}, capped at {cap}");
-    }
-    if !setting.applied {
-        let products: Vec<&str> = setting
-            .products
-            .iter()
-            .map(|product| product_name(*product))
-            .collect();
-        let honour = if products.len() == 1 {
-            "honours"
-        } else {
-            "honour"
-        };
-        value = format!(
-            "{value}, not applied: only {} {honour} it",
-            products.join(" and ")
-        );
-    }
-    let set_by = match (setting.layer, setting.origin) {
-        (SettingsLayer::Run, Some(origin)) => format!("the Run ({})", run_origin(origin)),
-        (layer, _) => layer_name(layer).to_owned(),
-    };
-    SettingLine {
-        key: text::shown(&setting.key, VALUE_MOST),
-        value: text::shown(&value, VALUE_MOST),
-        set_by: text::shown(&set_by, VALUE_MOST),
-        locked_by: setting
-            .locked_by
-            .map_or_else(String::new, |layer| layer_name(layer).to_owned()),
-    }
-}
-
-/// What the window calls the layer that set or locked a setting.
-fn layer_name(layer: SettingsLayer) -> &'static str {
-    match layer {
-        SettingsLayer::Default => "the default",
-        SettingsLayer::OperatorPolicy => "the Operator policy",
-        SettingsLayer::UserConfiguration => "user configuration",
-        SettingsLayer::ProjectConfiguration => "project configuration",
-        SettingsLayer::Recipe => "the Recipe",
-        SettingsLayer::Run => "the Run",
-    }
-}
-
-/// What the window calls the layer a configuration file is of.
-fn file_layer(layer: SettingsLayer) -> &'static str {
-    match layer {
-        SettingsLayer::Default => "Default",
-        SettingsLayer::OperatorPolicy => "Operator policy",
-        SettingsLayer::UserConfiguration => "User configuration",
-        SettingsLayer::ProjectConfiguration => "Project configuration",
-        SettingsLayer::Recipe => "Recipe",
-        SettingsLayer::Run => "Run",
-    }
-}
-
-/// Where a run-layer value came from.
-fn run_origin(origin: RunOrigin) -> &'static str {
-    match origin {
-        RunOrigin::Argument => "a call's argument",
-        RunOrigin::Settings => "a scope's settings",
-        RunOrigin::Flag => "a CLI flag",
-        RunOrigin::Form => "an Integration's form",
-    }
-}
-
-/// The Resource governor's reading, as its view shows it.
-fn governor_fields(reading: &SystemInfo) -> Vec<Field> {
-    let level = match reading.pressure_source {
-        Some(source) => format!(
-            "{}, held by {}",
-            governor_level(reading.level),
-            pressure_source(source)
-        ),
-        None => governor_level(reading.level).to_owned(),
-    };
-    let mut fields = vec![Field::new("Level", &level)];
-    if reading.last_resort {
-        fields.push(Field::new(
-            "Last resort",
-            "memory stayed critical at the floor",
-        ));
-    }
-    let memory = &reading.memory;
-    fields.push(Field::new(
-        "Memory",
-        &format!(
-            "{} used of {}, {}",
-            bytes(memory.used),
-            bytes(memory.allowance),
-            allowance_source(memory.allowance_source)
-        ),
-    ));
-    fields.push(Field::new("Browsers' memory", &bytes(memory.browsers)));
-    fields.push(Field::new("Host memory", governor_level(memory.host)));
-    fields.push(Field::new(
-        "CPU",
-        &format!(
-            "{}% busy, {} threads",
-            reading.cpu.busy, reading.cpu.parallelism
-        ),
-    ));
-    fields.push(Field::new(
-        "Tokio workers",
-        &format!("{}% busy", reading.cpu.tokio_busy),
-    ));
-    let concurrency = &reading.concurrency;
-    for (label, kind) in [
-        ("HTTP fetches", &concurrency.http),
-        ("Browser pages", &concurrency.browser_page),
-        ("Model calls", &concurrency.model_call),
-    ] {
-        fields.push(Field::new(label, &kind_concurrency(kind)));
-    }
-    fields
-}
-
-fn kind_concurrency(kind: &KindConcurrency) -> String {
-    format!(
-        "{} in use of {} (from {} to {})",
-        kind.in_use, kind.target, kind.floor, kind.ceiling
-    )
-}
-
-fn governor_level(level: GovernorLevel) -> &'static str {
-    match level {
-        GovernorLevel::Normal => "normal",
-        GovernorLevel::Pressure => "pressure",
-        GovernorLevel::Critical => "critical",
-    }
-}
-
-fn pressure_source(source: PressureSource) -> &'static str {
-    match source {
-        PressureSource::Memory => "memory",
-        PressureSource::HostMemory => "the host's memory",
-        PressureSource::Cpu => "CPU",
-        PressureSource::Tokio => "the Tokio workers",
-    }
-}
-
-fn allowance_source(source: AllowanceSource) -> &'static str {
-    match source {
-        AllowanceSource::Cgroup => "its cgroup's limit",
-        AllowanceSource::JobObject => "its Job object's limit",
-        AllowanceSource::Setting => "governor.memory_allowance",
-        AllowanceSource::Physical => "half of physical memory",
-    }
-}
-
-/// A count of bytes in GiB, or in MiB below one.
-#[expect(clippy::cast_precision_loss, reason = "a reading shown to one decimal")]
-fn bytes(count: u64) -> String {
-    const MIB: f64 = 1024.0 * 1024.0;
-    let count = count as f64;
-    if count >= 1024.0 * MIB {
-        format!("{:.1} GiB", count / (1024.0 * MIB))
-    } else {
-        format!("{:.1} MiB", count / MIB)
-    }
-}
-
-/// The chosen Run's progress, from its last progress read, or else its
-/// row.
-fn progress_fields(
-    row: Option<&RunIndexRow>,
-    progress: Option<&RunProgress>,
-    crawls: bool,
-) -> Vec<Field> {
-    let mut fields = Vec::new();
-    let Some(progress) = progress else {
-        if let Some(row) = row {
-            fields.push(Field::new("Lifecycle", lifecycle(row.lifecycle)));
-            if let Some(message) = &row.progress_message {
-                fields.push(Field::new("Message", message));
-            }
-        }
-        return fields;
-    };
-    fields.push(Field::new("Lifecycle", lifecycle(progress.lifecycle)));
-    if let Some(message) = &progress.message {
-        fields.push(Field::new("Message", message.as_str()));
-    }
-    if let Some(reason) = &progress.stop_reason {
-        fields.push(Field::new("Stop reason", &stop_reason(reason)));
-    }
-    if !progress.pauses.is_empty() {
-        fields.push(Field::new(
-            "Human pauses",
-            &progress.pauses.len().to_string(),
-        ));
-    }
-    if crawls && let Some(requests) = part::<RequestProgress>(&progress.kind_parts) {
-        fields.push(Field::new(
-            "Requests",
-            &format!(
-                "{} succeeded, {} failed, {} skipped, {} blocked, {} pending, {} in flight",
-                requests.succeeded,
-                requests.failed,
-                requests.skipped,
-                requests.blocked,
-                requests.pending,
-                requests.fetching + requests.handling
-            ),
-        ));
-    }
-    fields
-}
-
-/// A Run's Usage, with the Limits that apply to it.
-fn usage_fields(usage: &RunUsage) -> Vec<Field> {
-    let mut fields = vec![
-        Field::new("Requests", &usage.requests.to_string()),
-        Field::new("Model calls", &usage.model.calls.to_string()),
-        Field::new("Model tokens", &usage.model.tokens.to_string()),
-        Field::new("Browser time", &format!("{} s", usage.browser_time / 1000)),
-        Field::new("Proxy bytes", &usage.proxy_bytes.to_string()),
-    ];
-    for limit in &usage.limits {
-        fields.push(Field::new(
-            "Limit",
-            &format!(
-                "{}: {} left of {}",
-                limit.usage_kind, limit.left, limit.amount
-            ),
-        ));
-    }
-    if usage.uncapped {
-        fields.push(Field::new(
-            "Uncapped",
-            "it spent in a currency no Limit caps",
-        ));
-    }
-    fields
-}
-
-/// A Run's report: its axes with their reasons, its times, its error and
-/// its warnings.
-fn report_fields(report: &RunReport) -> Vec<Field> {
-    let mut fields = vec![Field::new("Lifecycle", lifecycle(report.lifecycle))];
-    if let Some(reason) = &report.stop_reason {
-        fields.push(Field::new("Stop reason", &stop_reason(reason)));
-    }
-    fields.push(Field::new("Verdict", report.verdict.as_str()));
-    for reason in &report.verdict_reasons {
-        fields.push(Field::new(
-            "Why",
-            &format!("{}: {}", reason.code, reason.message),
-        ));
-    }
-    fields.push(Field::new("Completeness", report.completeness.as_str()));
-    for reason in &report.completeness_reasons {
-        fields.push(Field::new(
-            "Why",
-            &format!("{}: {}", reason.code, reason.message),
-        ));
-    }
-    fields.push(Field::new("Started", report.started_at.as_str()));
-    fields.push(Field::new("Ended", report.ended_at.as_str()));
-    if let Some(error) = &report.error {
-        fields.push(Field::new(
-            "Error",
-            &format!("{}: {}", error.code, error.message),
-        ));
-    }
-    for warning in &report.warnings {
-        fields.push(Field::new(
-            "Warning",
-            &format!("{}: {}", warning.code, warning.message),
-        ));
-    }
-    fields
-}
-
-/// What the window says of a report read that failed with `code`.
-fn unreported(code: &str) -> String {
-    if code == goodfetch_protocol::run::RUN_INTERRUPTED.name {
-        format!("None: no engine works the Run, and a start with its Run ID resumes it ({code})")
-    } else {
-        format!("None: the Daemon answered {code}")
-    }
-}
-
-/// A crawl's part `T` among a progress's or a report's kind parts, under
-/// its `requests` key.
-fn part<T: serde::de::DeserializeOwned>(parts: &Map<String, Value>) -> Option<T> {
-    parts
-        .get("requests")
-        .and_then(|requests| serde_json::from_value(requests.clone()).ok())
-}
-
-/// A stop reason by its kind, as the wire names it.
-fn stop_reason(reason: &StopReason) -> String {
-    serde_json::to_value(reason)
-        .ok()
-        .and_then(|value| value.get("kind").and_then(Value::as_str).map(str::to_owned))
-        .unwrap_or_default()
-}
-
 /// A Run's Recipe, or its Run ID when it ran none.
 fn name(row: &RunIndexRow) -> String {
     row.tags
         .reserved(RECIPE_TAG)
         .map_or_else(|| row.run_id.as_str().to_owned(), str::to_owned)
-}
-
-/// What the window says of a Lifecycle.
-fn lifecycle(lifecycle: Lifecycle) -> &'static str {
-    match lifecycle {
-        Lifecycle::Running => "Running",
-        Lifecycle::Stopped => "Stopped",
-        Lifecycle::Finished => "Finished",
-        Lifecycle::Failed => "Failed",
-    }
 }

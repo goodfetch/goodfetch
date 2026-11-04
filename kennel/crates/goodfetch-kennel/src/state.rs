@@ -45,6 +45,11 @@
 //!   at login, [`Effect::StartAtLogin`], at the first read and at each
 //!   change of its setting, never from a file that cannot be read.
 //!
+//! Its parts: `runs`, the Runs it follows and their rows; `controls`, each
+//! Run's controls and their confirmations; `needs_you`, the Needs you
+//! items' rows and actions; `notices`, the desktop notices; and `details`,
+//! the details window's own model.
+//!
 //! Every string shown, a notice's included, passes through the Text
 //! function.
 
@@ -52,15 +57,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::checkpoint::RunResumeParams;
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
-use goodfetch_protocol::foxhound::outcomes::RunRetryFailedParams;
-use goodfetch_protocol::foxhound::progress::RequestProgress;
-use goodfetch_protocol::needs_you::{NeedsYouChange, NeedsYouItem, RUN_STOPPED_BY_LIMIT};
-use goodfetch_protocol::run::{
-    Lifecycle, RECIPE_TAG, RunAbortParams, RunAxes, RunId, RunIndexRow, RunKind, RunParams,
-    RunProgress, RunWaitParams, StopReason,
-};
+use goodfetch_protocol::needs_you::NeedsYouItem;
+use goodfetch_protocol::run::{RECIPE_TAG, RunId, RunIndexRow, RunProgress};
 
 use crate::client::{
     Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Generation, Refusal, Wanted,
@@ -70,14 +69,19 @@ use crate::settings::{Settings, SettingsError};
 use crate::text;
 use crate::window::Opening;
 
+mod controls;
 pub mod details;
 mod needs_you;
 mod notices;
+mod runs;
 
+pub use controls::{Confirmation, Control};
 pub use needs_you::Action;
 pub use notices::{Notice, Notices};
 
-use notices::{Coalescer, Ended, Kind};
+use controls::attempt;
+use notices::{Coalescer, Kind};
+use runs::{Facts, Phase, Run};
 
 #[cfg(test)]
 mod tests;
@@ -168,26 +172,6 @@ pub enum Choice {
     Quit,
 }
 
-/// A Run's control in its submenu, each labelled with what it does (ADR
-/// 0141).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Control {
-    /// A Checkpoint and a stop, resumable: `run.pause`.
-    Pause,
-    /// A Checkpoint, and the Run can resume: `run.stop`.
-    Stop,
-    /// No attempt in flight commits; not immediate: `run.abort`.
-    Abort,
-    /// The crawl's failed requests run again: `run.retry_failed`.
-    RetryFailed,
-    /// The Daemon runs the stopped Run again: `run.resume`, for a Run the
-    /// engine can run itself, a Recipe's.
-    Resume,
-    /// Copies the command that resumes a script's Run, which only its
-    /// program can run (ADR 0031).
-    CopyResumeCommand,
-}
-
 /// What the Kennel carries out for the State.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
@@ -214,20 +198,6 @@ pub enum Effect {
     /// Make the login agent as start at login now says: on, an agent that
     /// opens the installed `.app`; off, none.
     StartAtLogin(bool),
-}
-
-/// A question asked before a control acts: it names the Run and the
-/// consequence (ADR 0141).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Confirmation {
-    /// The question, naming the Run.
-    pub title: String,
-    /// What the control does to the Run.
-    pub consequence: String,
-    /// The label of the button that confirms.
-    pub confirm: String,
-    run: RunId,
-    control: Control,
 }
 
 /// The one verdict the icon shows, worst first (ADR 0141).
@@ -354,72 +324,6 @@ enum Start {
     Started,
     /// The last one failed.
     Failed(StartFailure),
-}
-
-/// Where a Run the State follows is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
-    /// It runs.
-    Running,
-    /// It stopped, and its stop reason is read.
-    Stopping,
-    /// It was paused, to be resumed: it stays listed until it runs again
-    /// or ends.
-    Paused,
-    /// It failed.
-    Failed,
-    /// It was stopped by a Limit.
-    StoppedByLimit,
-}
-
-impl Phase {
-    /// Whether it ended in a state that needs the person.
-    fn needs_a_look(self) -> bool {
-        matches!(self, Self::Failed | Self::StoppedByLimit)
-    }
-}
-
-/// A Run the State follows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Run {
-    phase: Phase,
-    /// Its progress message, from its last progress read.
-    message: Option<String>,
-    /// A crawl's counts, from its last progress read.
-    counts: Option<Counts>,
-    /// Whether an open menu showed it since it ended.
-    seen: bool,
-    /// Whether its phase came from a resync's replayed state, whose end
-    /// sends no desktop notice.
-    replayed: bool,
-}
-
-impl Run {
-    fn new(phase: Phase) -> Self {
-        Self {
-            phase,
-            message: None,
-            counts: None,
-            seen: false,
-            replayed: false,
-        }
-    }
-}
-
-/// A crawl's requests the menu counts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Counts {
-    succeeded: u64,
-    failed: u64,
-    pending: u64,
-}
-
-/// What the Run index's row says of a live Run.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Facts {
-    kind: RunKind,
-    recipe: Option<String>,
-    message: Option<String>,
 }
 
 /// A call that failed, which the menu says until a menu that showed it
@@ -869,187 +773,6 @@ impl State {
         }
     }
 
-    fn event(&mut self, event: DaemonEvent) {
-        match event {
-            DaemonEvent::Resync(resync) => {
-                let live: BTreeSet<&RunId> = resync.runs.iter().map(|axes| &axes.run_id).collect();
-                // A Run held as running that the resync leaves out ended.
-                for (id, run) in &mut self.runs {
-                    if run.phase == Phase::Running && !live.contains(id) {
-                        run.phase = Phase::Stopping;
-                    }
-                }
-                for axes in resync.runs {
-                    self.axes(axes, true);
-                }
-                self.needs_you = resync
-                    .needs_you
-                    .into_iter()
-                    .map(|item| (item.id.clone(), item))
-                    .collect();
-                self.live_runs.bump();
-            }
-            DaemonEvent::RunAxes(axes) => {
-                let known = self.facts.contains_key(&axes.run_id);
-                if axes.lifecycle == Lifecycle::Running && !known {
-                    self.live_runs.bump();
-                }
-                self.axes(axes, false);
-            }
-            DaemonEvent::NeedsYou(change) => match change {
-                NeedsYouChange::Listed { item } => {
-                    if !self.needs_you.contains_key(&item.id) && !self.limit_noticed(&item) {
-                        let summary = item.summary.clone();
-                        self.notices
-                            .push(Kind::NeedsYou, || notices::needs_you(&summary));
-                    }
-                    self.needs_you.insert(item.id.clone(), item);
-                }
-                NeedsYouChange::Removed { id, .. } => {
-                    self.needs_you.remove(&id);
-                }
-            },
-        }
-    }
-
-    /// A Run's axes as they are now, `replayed` by a resync or changed.
-    fn axes(&mut self, axes: RunAxes, replayed: bool) {
-        let phase = match axes.lifecycle {
-            Lifecycle::Running => Phase::Running,
-            Lifecycle::Failed => Phase::Failed,
-            // Its stop reason, which says whether a Limit stopped it, is
-            // read from its progress.
-            Lifecycle::Stopped => Phase::Stopping,
-            Lifecycle::Finished => {
-                // A Run the State does not follow ended before it learned
-                // of it, or its progress already said so.
-                if let Some(run) = self.runs.remove(&axes.run_id)
-                    && !replayed
-                    && !run.replayed
-                {
-                    self.ended(&axes.run_id, Some(run.phase), Ended::Finished);
-                }
-                return;
-            }
-        };
-        let id = axes.run_id;
-        let was = self.runs.get(&id).map(|run| run.phase);
-        let run = self
-            .runs
-            .entry(id.clone())
-            .or_insert_with(|| Run::new(phase));
-        if was != Some(phase) {
-            run.phase = phase;
-            run.seen = false;
-            // A running Run's end is a change, whatever listed it.
-            run.replayed = replayed && phase != Phase::Running;
-            if phase == Phase::Failed && !replayed {
-                self.ended(&id, was, Ended::Failed);
-            }
-        }
-    }
-
-    /// Sends the notice of the Run `id` ending as `ended` says, from the
-    /// phase `was` it was followed in, if any; none when it had already
-    /// ended in a state that needs a look, or when the notice of its Needs
-    /// you item tells the same.
-    fn ended(&mut self, id: &RunId, was: Option<Phase>, ended: Ended) {
-        if was.is_some_and(Phase::needs_a_look) {
-            return;
-        }
-        if ended == Ended::StoppedByLimit && self.notices.wants(Kind::NeedsYou) {
-            let told = self
-                .needs_you
-                .values()
-                .any(|item| item.kind == RUN_STOPPED_BY_LIMIT && item.run.as_ref() == Some(id));
-            if told {
-                return;
-            }
-        }
-        let name = self.run_name(id);
-        self.notices
-            .push(ended.kind(), || notices::run_ended(ended, &name));
-    }
-
-    /// Whether `item` says a Run stopped by a Limit whose own notice was
-    /// already sent.
-    fn limit_noticed(&self, item: &NeedsYouItem) -> bool {
-        item.kind == RUN_STOPPED_BY_LIMIT
-            && self.notices.wants(Kind::RunStoppedByLimit)
-            && item
-                .run
-                .as_ref()
-                .and_then(|id| self.runs.get(id))
-                .is_some_and(|run| run.phase == Phase::StoppedByLimit && !run.replayed)
-    }
-
-    /// What names the Run `id`: its Recipe, or its Run ID when it ran
-    /// none.
-    fn run_name(&self, id: &RunId) -> String {
-        self.facts
-            .get(id)
-            .and_then(|facts| facts.recipe.as_deref())
-            .map_or_else(
-                || id.as_str().to_owned(),
-                |recipe| text::shown(recipe, NAME_MOST),
-            )
-    }
-
-    fn progress(&mut self, progress: &RunProgress) {
-        let Some(run) = self.runs.get_mut(&progress.run_id) else {
-            return;
-        };
-        if let Some(message) = &progress.message {
-            run.message = Some(message.as_str().to_owned());
-        }
-        if let Some(requests) = progress
-            .kind_parts
-            .get("requests")
-            .and_then(|requests| serde_json::from_value::<RequestProgress>(requests.clone()).ok())
-        {
-            run.counts = Some(Counts {
-                succeeded: requests.succeeded,
-                failed: requests.failed,
-                pending: requests.pending,
-            });
-        }
-        let phase = match (progress.lifecycle, &progress.stop_reason, progress.last) {
-            (Lifecycle::Running, _, _) => Phase::Running,
-            (Lifecycle::Failed, _, _) => Phase::Failed,
-            (Lifecycle::Stopped, Some(StopReason::Limit(_)), _) => Phase::StoppedByLimit,
-            (Lifecycle::Stopped, Some(StopReason::Pause), _) => Phase::Paused,
-            (Lifecycle::Stopped, _, false) => Phase::Stopping,
-            (Lifecycle::Stopped, _, true) => {
-                self.runs.remove(&progress.run_id);
-                return;
-            }
-            (Lifecycle::Finished, _, _) => {
-                let (was, replayed) = (run.phase, run.replayed);
-                self.runs.remove(&progress.run_id);
-                if !replayed {
-                    self.ended(&progress.run_id, Some(was), Ended::Finished);
-                }
-                return;
-            }
-        };
-        let (was, replayed) = (run.phase, run.replayed);
-        if was != phase {
-            run.phase = phase;
-            run.seen = false;
-            run.replayed = replayed && phase != Phase::Running;
-            let ended = match phase {
-                Phase::Failed => Some(Ended::Failed),
-                Phase::StoppedByLimit => Some(Ended::StoppedByLimit),
-                Phase::Running | Phase::Stopping | Phase::Paused => None,
-            };
-            if let Some(ended) = ended
-                && !replayed
-            {
-                self.ended(&progress.run_id, Some(was), ended);
-            }
-        }
-    }
-
     /// The verdict, worst first.
     fn verdict(&self) -> Verdict {
         if !matches!(self.daemon, Daemon::Reached(..)) {
@@ -1065,265 +788,11 @@ impl State {
         }
     }
 
-    /// The Runs the menu lists, those that need a look first, then by Run
-    /// ID, and how many more it leaves out.
-    fn listed(&self) -> (Vec<(&RunId, &Run)>, usize) {
-        let mut listed: Vec<(&RunId, &Run)> = self
-            .runs
-            .iter()
-            .filter(|(_, run)| run.phase != Phase::Stopping)
-            .collect();
-        listed.sort_by_key(|(id, run)| (!run.phase.needs_a_look(), *id));
-        let more = listed.len().saturating_sub(MENU_RUNS);
-        listed.truncate(MENU_RUNS);
-        (listed, more)
-    }
-
-    /// The menu's rows of the Runs, under a Daemon of `product`.
-    fn run_rows(&self, product: Product, rows: &mut Vec<Row>) {
-        let (listed, more) = self.listed();
-        if listed.is_empty() {
-            return;
-        }
-        rows.push(Row::Separator);
-        for (id, run) in listed {
-            let facts = self.facts.get(id);
-            let label = format!("{} — {}", self.name(id), lifecycle(run.phase));
-            let controls = self.offered(id);
-            rows.push(if controls.is_empty() {
-                Row::Text(label)
-            } else {
-                Row::Submenu {
-                    label,
-                    rows: controls
-                        .into_iter()
-                        .map(|control| Row::Choice {
-                            label: control_label(control).to_owned(),
-                            choice: Choice::Control {
-                                run: id.clone(),
-                                control,
-                            },
-                        })
-                        .collect(),
-                }
-            });
-            let message = run
-                .message
-                .as_deref()
-                .or_else(|| facts.and_then(|facts| facts.message.as_deref()));
-            if let Some(message) = message {
-                rows.push(Row::Detail(message.to_owned()));
-            }
-            // A crawl's counts are Foxhound's.
-            if let (Product::Foxhound, Some(counts)) = (product, run.counts) {
-                rows.push(Row::Detail(format!(
-                    "{} succeeded, {} failed, {} pending",
-                    counts.succeeded, counts.failed, counts.pending
-                )));
-            }
-        }
-        if more > 0 {
-            rows.push(Row::Text(format!(
-                "{more} more {}",
-                if more == 1 { "Run" } else { "Runs" }
-            )));
-        }
-    }
-
-    /// What the menu calls `id`: its Recipe, or its Run ID when it ran
-    /// none.
-    fn name(&self, id: &RunId) -> String {
-        self.facts
-            .get(id)
-            .and_then(|facts| facts.recipe.as_deref())
-            .map_or_else(
-                || id.as_str().to_owned(),
-                |recipe| text::shown(recipe, NAME_MOST),
-            )
-    }
-
-    /// The controls the menu offers for `id`, in their order: none in a
-    /// read-only Kennel, for a Run it does not list, or with no Daemon.
-    fn offered(&self, id: &RunId) -> Vec<Control> {
-        let Daemon::Reached(identity, _) = &self.daemon else {
-            return Vec::new();
-        };
-        let listed = self
-            .listed()
-            .0
-            .into_iter()
-            .find(|(listed, _)| *listed == id);
-        let (Some((_, run)), true) = (listed, self.settings.controls) else {
-            return Vec::new();
-        };
-        let facts = self.facts.get(id);
-        match run.phase {
-            Phase::Running => {
-                let mut controls = vec![Control::Pause, Control::Stop, Control::Abort];
-                // A crawl's retry is Foxhound's.
-                let crawl = facts.is_some_and(|facts| facts.kind == RunKind::Crawl);
-                if crawl && identity.product == Product::Foxhound {
-                    controls.push(Control::RetryFailed);
-                }
-                controls
-            }
-            // The engine runs a Recipe's Run itself; only its program runs
-            // a script's (ADR 0031).
-            Phase::Paused | Phase::StoppedByLimit => {
-                if facts.is_some_and(|facts| facts.recipe.is_some()) {
-                    vec![Control::Resume]
-                } else {
-                    vec![Control::CopyResumeCommand]
-                }
-            }
-            Phase::Stopping | Phase::Failed => Vec::new(),
-        }
-    }
-
-    /// The question `control` asks before it acts on `run`: Abort and
-    /// Retry failed always ask, Stop as the settings say, the others never.
-    fn confirmation(&self, run: &RunId, control: Control) -> Option<Confirmation> {
-        let name = self.name(run);
-        let (title, consequence, confirm) = match control {
-            Control::Stop if self.settings.confirm_stop => (
-                format!("Stop {name}?"),
-                "It stops at its next safe point with a Checkpoint, and it can resume.",
-                "Stop",
-            ),
-            Control::Abort => (
-                format!("Abort {name}?"),
-                "It stops at its next safe point, not at once. No attempt in flight commits, and its work items return to pending.",
-                "Abort",
-            ),
-            Control::RetryFailed => (
-                format!("Retry the failed requests of {name}?"),
-                "Each request whose latest outcome is failed runs again in this crawl, with its retries counted afresh.",
-                "Retry failed",
-            ),
-            Control::Stop | Control::Pause | Control::Resume | Control::CopyResumeCommand => {
-                return None;
-            }
-        };
-        Some(Confirmation {
-            title: text::shown(&title, LINE_MOST),
-            consequence: text::shown(consequence, LINE_MOST * 2),
-            confirm: text::shown(confirm, LINE_MOST),
-            run: run.clone(),
-            control,
-        })
-    }
-
-    /// What `control` does to `run` once it may act.
-    fn act(&self, run: RunId, control: Control) -> Option<Effect> {
-        let call = match control {
-            Control::Pause => Call::Pause(RunParams { run_id: run }),
-            Control::Stop => Call::Stop(RunWaitParams {
-                run_id: run,
-                timeout: None,
-            }),
-            Control::Abort => Call::Abort(RunAbortParams {
-                run_id: run,
-                forwarded: false,
-            }),
-            Control::RetryFailed => Call::RetryFailed(RunRetryFailedParams {
-                run_id: run,
-                blocked: false,
-                settings: serde_json::Map::new(),
-                project: None,
-            }),
-            Control::Resume => Call::Resume(RunResumeParams {
-                run_id: run,
-                checkpoint: None,
-                settings: serde_json::Map::new(),
-                project: None,
-            }),
-            Control::CopyResumeCommand => {
-                let Daemon::Reached(identity, _) = &self.daemon else {
-                    return None;
-                };
-                // A Run ID holds only lowercase letters, digits, `.`, `_`
-                // and `-`: the command needs no quoting.
-                return Some(Effect::Copy(format!(
-                    "goodfetch-{} run resume {}",
-                    identity.product.as_str(),
-                    run.as_str()
-                )));
-            }
-        };
-        Some(Effect::Call(call))
-    }
-
-    /// Marks each Run that needs a look and that the open menu lists as
-    /// seen, and the failed call it shows.
-    fn mark_seen(&mut self) {
-        let listed: Vec<RunId> = self
-            .listed()
-            .0
-            .into_iter()
-            .filter(|(_, run)| run.phase.needs_a_look())
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in listed {
-            if let Some(run) = self.runs.get_mut(&id) {
-                run.seen = true;
-            }
-        }
-        if let Some(failed) = &mut self.failed {
-            failed.seen = true;
-        }
-    }
-
     /// The Product whose `daemon start` the menu offers now.
     fn startable(&self) -> Option<&InstalledProduct> {
         let idle = matches!(self.start, Start::Idle | Start::Failed(_));
         let offered = idle && self.daemon == Daemon::None && self.settings.controls;
         self.installed.as_ref().filter(|_| offered)
-    }
-}
-
-/// What the menu says a failed `call` was trying to do, naming a Run by
-/// `name`.
-fn attempt(call: &Call, name: impl Fn(&RunId) -> String) -> String {
-    match call {
-        Call::RaiseLimit(params) => format!("Raising the Limit on {}", params.usage_kind),
-        Call::AllowConsentDomain(params) => {
-            format!("Accepting the consent walls of {}", params.domain)
-        }
-        Call::DenyWallDomain(params) => format!("Denying {}", params.domain),
-        Call::RemoveRefetchDomain(params) => {
-            format!("Removing {} from the refetch domains", params.domain)
-        }
-        Call::Dismiss(_) => "Dismissing a Needs you item".to_owned(),
-        Call::Pause(params) => format!("Pausing {}", name(&params.run_id)),
-        Call::Stop(params) => format!("Stopping {}", name(&params.run_id)),
-        Call::Abort(params) => format!("Aborting {}", name(&params.run_id)),
-        Call::Resume(params) => format!("Resuming {}", name(&params.run_id)),
-        Call::RetryFailed(params) => {
-            format!("Retrying the failed requests of {}", name(&params.run_id))
-        }
-        Call::AddSeeds(seeds) => format!("Adding seeds to {}", name(&seeds.run_id)),
-    }
-}
-
-/// What the menu says of a Run's Lifecycle.
-fn lifecycle(phase: Phase) -> &'static str {
-    match phase {
-        Phase::Running | Phase::Stopping => "Running",
-        Phase::Paused => "Paused",
-        Phase::Failed => "Failed",
-        Phase::StoppedByLimit => "Stopped by a Limit",
-    }
-}
-
-/// What a control's line in a Run's submenu says it does (ADR 0141).
-fn control_label(control: Control) -> &'static str {
-    match control {
-        Control::Pause => "Pause: a Checkpoint and a stop",
-        Control::Stop => "Stop: a Checkpoint, and the Run can resume",
-        Control::Abort => "Abort: no attempt in flight commits; not immediate",
-        Control::RetryFailed => "Retry failed: its failed requests run again",
-        Control::Resume => "Resume: the Daemon runs it again from where it stopped",
-        Control::CopyResumeCommand => "Copy resume command",
     }
 }
 

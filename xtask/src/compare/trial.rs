@@ -67,7 +67,7 @@ const POLL: Duration = Duration::from_millis(20);
     clippy::disallowed_methods,
     reason = "xtask has no Clock handle (ADR 0059): a trial's seconds are measured on the OS's monotonic clock"
 )]
-fn now() -> Instant {
+pub(crate) fn now() -> Instant {
     Instant::now()
 }
 
@@ -104,7 +104,7 @@ fn mark(site: &Site<'_>, host: &str) -> Result<()> {
 }
 
 /// The requests the Proving ground at `address` received so far.
-fn request_count(address: &str) -> Result<u64> {
+pub(crate) fn request_count(address: &str) -> Result<u64> {
     let answer: Value = ureq::get(&format!("http://{address}/request-count"))
         .call()
         .context("asking the Proving ground's request count")?
@@ -352,7 +352,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
     unsafe_code,
     reason = "a process other than the child is killed through the OS's C interface: kill"
 )]
-fn kill(pid: u32) -> Result<()> {
+pub(crate) fn kill(pid: u32) -> Result<()> {
     let pid = libc::pid_t::try_from(pid).context("a process ID fits a pid_t")?;
     // SAFETY: `kill` takes any process ID and signal number.
     if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
@@ -362,7 +362,7 @@ fn kill(pid: u32) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn kill(_pid: u32) -> Result<()> {
+pub(crate) fn kill(_pid: u32) -> Result<()> {
     bail!("a resumed scenario kills its tool with SIGKILL, which only Unix has")
 }
 

@@ -3,8 +3,10 @@
 //! cell's (when asked for) and the Callgrind cell's runs in the same way,
 //! written to the trials file.
 
+use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -12,12 +14,13 @@ use crate::output;
 use crate::rss::crawl::serve;
 
 use super::matrix::{self, Cell, Config, Scenario};
-use super::trial::{Counted, callgrind_missing, strace_missing};
+use super::sampler;
+use super::trial::{self, Counted, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
     GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
     QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
-    SPIDER_VERSION, STATISTIC, Trial,
+    SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
 };
 
 /// The executables a run takes.
@@ -186,7 +189,8 @@ fn drawn_seed() -> u64 {
 
 /// One trial of `cell` against a fresh Proving ground, through `xtask
 /// compare trial`, which prints its figures as one JSON line. `mode` and
-/// `output` name a counted trial's tool and file.
+/// `output` name a counted trial's tool and file; `watched`, the number of a
+/// counted run the comparison stops once [`stopped`] says why.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
@@ -197,7 +201,8 @@ fn trial<T: serde::de::DeserializeOwned>(
     config: Config,
     pages: u64,
     mode: (&str, Option<&Path>),
-) -> Result<T> {
+    watched: Option<u32>,
+) -> Result<Outcome<T>> {
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound,
         Config::Spider { chrome: false } => executables.spider,
@@ -219,24 +224,116 @@ fn trial<T: serde::de::DeserializeOwned>(
     if let Some(output) = mode.1 {
         command.arg("--output").arg(output);
     }
-    let output = command
+    // A file rather than a pipe: a watched trial is waited for by polling,
+    // with no reader of a pipe beside it.
+    let mut printed = tempfile::tempfile().context("creating the trial's output file")?;
+    let mut child = command
+        .stdout(
+            printed
+                .try_clone()
+                .context("sharing the trial's output file")?,
+        )
         .stderr(Stdio::inherit())
-        .output()
+        .spawn()
         .context("running xtask compare trial")?;
+    if let Some(number) = watched
+        && let Some(reason) = watch(&mut child, &serving.address, number)?
+    {
+        return Ok(Outcome::Stopped(reason));
+    }
+    let status = child.wait().context("waiting for xtask compare trial")?;
     drop(serving);
-    if !output.status.success() {
+    if !status.success() {
         bail!(
             "{}'s trial in scenario {} failed",
             cell.name,
             cell.scenario.name()
         );
     }
-    serde_json::from_slice(&output.stdout).with_context(|| {
+    let mut figures = Vec::new();
+    printed
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| printed.read_to_end(&mut figures))
+        .context("reading the trial's figures")?;
+    serde_json::from_slice(&figures)
+        .map(Outcome::Done)
+        .with_context(|| {
+            format!(
+                "parsing the trial's figures: {}",
+                String::from_utf8_lossy(&figures)
+            )
+        })
+}
+
+/// A trial's figures, or why the comparison stopped it.
+enum Outcome<T> {
+    Done(T),
+    Stopped(String),
+}
+
+/// How long a counted run may go with the Proving ground receiving no
+/// request before it is stopped as stalled.
+pub(crate) const STALL_SECONDS: u64 = 120;
+/// The longest a counted run may take.
+pub(crate) const COUNTED_BOUND_SECONDS: u64 = 1800;
+
+/// Why the counted run `number`, `seconds` into its crawl and `quiet`
+/// seconds since the Proving ground's count of requests last grew, at
+/// `requests`, is stopped; none while it goes on.
+fn stopped(number: u32, seconds: u64, quiet: u64, requests: u64) -> Option<String> {
+    if quiet >= STALL_SECONDS {
+        return Some(format!(
+            "under `strace -f`, run {number} stopped after {seconds} s: the Proving ground received no request for {quiet} s after {requests} requests"
+        ));
+    }
+    (seconds >= COUNTED_BOUND_SECONDS).then(|| {
         format!(
-            "parsing the trial's figures: {}",
-            String::from_utf8_lossy(&output.stdout)
+            "under `strace -f`, run {number} stopped after {seconds} s, the longest a counted run may take, at {requests} requests"
         )
     })
+}
+
+/// Waits for the counted trial `child` on the Proving ground at `address`
+/// to exit, reading its count of requests each second; once [`stopped`]
+/// says why, kills the trial's processes, each by its own ID, and returns
+/// the reason.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: a counted run is watched by sleeping between reads of its Proving ground's request count (STYLE.md)"
+)]
+fn watch(child: &mut Child, address: &str, number: u32) -> Result<Option<String>> {
+    let started = trial::now();
+    let (mut requests, mut grew) = (0, started);
+    loop {
+        if child
+            .try_wait()
+            .context("waiting for xtask compare trial")?
+            .is_some()
+        {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        let count = trial::request_count(address)?;
+        if count != requests {
+            (requests, grew) = (count, trial::now());
+        }
+        let reason = stopped(
+            number,
+            started.elapsed().as_secs(),
+            grew.elapsed().as_secs(),
+            requests,
+        );
+        if let Some(reason) = reason {
+            // Every process of the trial's tree, gathered before any dies
+            // and leaves its children to another parent.
+            for pid in sampler::tree(child.id()) {
+                // One may have exited meanwhile.
+                let _ = trial::kill(pid);
+            }
+            child.wait().context("waiting for the stopped trial")?;
+            return Ok(Some(reason));
+        }
+    }
 }
 
 /// The pages of the site `config`'s tool crawls.
@@ -264,7 +361,11 @@ fn timed(
         } else {
             load()
         };
-        let measured: Measured = trial(executables, cell, config, site_pages, ("timed", None))?;
+        let Outcome::Done(measured): Outcome<Measured> =
+            trial(executables, cell, config, site_pages, ("timed", None), None)?
+        else {
+            bail!("an unwatched trial is never stopped");
+        };
         output::line(&format!(
             "{pass}{} {} trial {number}: {} pages in {:.3} s, peak {} bytes",
             cell.scenario.name(),
@@ -286,25 +387,59 @@ fn timed(
     Ok(trials)
 }
 
-/// Runs a counted cell: `runs` runs of each of `cells` under `mode`.
+/// Runs a counted cell: `runs` runs of each of `cells` under `mode`. Under
+/// strace (`watched`), a run whose crawl stalls is stopped (see
+/// [`stopped`]): its cell is not measured, and its later runs do not run.
 fn counted(
     executables: &Executables<'_>,
     options: &Options,
     cells: &[(&'static Cell, Config)],
     runs: u32,
-    mode: &str,
+    (mode, watched): (&str, bool),
     state: &mut u64,
 ) -> Result<CountedCell> {
     let folder = tempfile::tempdir().context("creating the counts' folder")?;
     let mut done = Vec::new();
+    let mut stopped: Vec<StoppedRun> = Vec::new();
     for (cell, config, number) in order(cells, runs, state) {
+        if stopped
+            .iter()
+            .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
+        {
+            continue;
+        }
         let out = folder.path().join(format!(
             "{}-{}-{number}.out",
             cell.scenario.name(),
             cell.name
         ));
         let pages = pages_of(config, SITE_PAGES, options.spider_pages);
-        let counted: Counted = trial(executables, cell, config, pages, (mode, Some(&out)))?;
+        let outcome = trial(
+            executables,
+            cell,
+            config,
+            pages,
+            (mode, Some(&out)),
+            watched.then_some(number),
+        )?;
+        let counted: Counted = match outcome {
+            Outcome::Done(counted) => counted,
+            Outcome::Stopped(reason) => {
+                output::line(&format!(
+                    "{} {} under {mode} {number}: {reason}; the cell is not measured.",
+                    cell.scenario.name(),
+                    cell.name,
+                ));
+                stopped.push(StoppedRun {
+                    scenario: cell.scenario,
+                    cell: cell.name.to_owned(),
+                    tool: config.tool(),
+                    number,
+                    reason,
+                });
+                continue;
+            }
+        };
         output::line(&format!(
             "{} {} under {mode} {number}: {} pages, {} counted, {} syncs",
             cell.scenario.name(),
@@ -326,6 +461,7 @@ fn counted(
     Ok(CountedCell::Measured {
         trials: runs,
         runs: done,
+        stopped,
     })
 }
 
@@ -350,7 +486,7 @@ pub(crate) fn run(
             options,
             &measured,
             options.trials,
-            "syscalls",
+            ("syscalls", true),
             &mut state,
         )?,
     };
@@ -389,7 +525,7 @@ pub(crate) fn run(
             options,
             &scenario_1,
             INSTRUCTION_RUNS,
-            "callgrind",
+            ("callgrind", false),
             &mut state,
         )?,
     };

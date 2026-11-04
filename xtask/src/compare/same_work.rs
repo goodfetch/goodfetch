@@ -41,6 +41,9 @@ struct Pass<'a> {
     scenarios: &'a [Scenario],
     tools: &'a [Tool],
     done: Vec<Done<'a>>,
+    /// The cells whose run the comparison stopped: not measured, so not
+    /// short of their declared runs.
+    stopped: Vec<(Scenario, &'a str)>,
 }
 
 impl Pass<'_> {
@@ -113,6 +116,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         scenarios: ran,
         tools: &Tool::ALL,
         done: of_trials(&trials.trials),
+        stopped: Vec::new(),
     });
     for (suffix, cell, scenarios, tools, empty) in [
         (
@@ -133,6 +137,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         if let CountedCell::Measured {
             trials: declared,
             runs,
+            stopped,
         } = cell
         {
             let pass = Pass {
@@ -142,6 +147,10 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 scenarios,
                 tools,
                 done: of_runs(runs),
+                stopped: stopped
+                    .iter()
+                    .map(|run| (run.scenario, run.cell.as_str()))
+                    .collect(),
             };
             findings.extend(check_pass(&pass));
             for (run, done) in runs.iter().zip(&pass.done) {
@@ -164,6 +173,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             scenarios: ran,
             tools: &Tool::ALL,
             done: of_trials(trials_run),
+            stopped: Vec::new(),
         }));
     }
     findings
@@ -175,7 +185,9 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
-        pass.scenarios.contains(&cell.scenario) && pass.tools.contains(&config.tool())
+        pass.scenarios.contains(&cell.scenario)
+            && pass.tools.contains(&config.tool())
+            && !pass.stopped.contains(&(cell.scenario, cell.name))
     }) {
         let count = pass
             .done

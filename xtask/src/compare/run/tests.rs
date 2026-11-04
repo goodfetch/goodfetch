@@ -43,3 +43,33 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
 
     assert_eq!((waits(10), waits(3), waits(1)), (true, false, false));
 }
+
+/// A counted run goes on while its crawl progresses: it is stopped, with the
+/// measured reason, once the Proving ground has received no request for
+/// [`super::STALL_SECONDS`], or once it reaches
+/// [`super::COUNTED_BOUND_SECONDS`].
+#[test]
+fn a_counted_run_is_stopped_once_its_crawl_stalls_or_reaches_the_bound() {
+    let stall = super::STALL_SECONDS;
+    let bound = super::COUNTED_BOUND_SECONDS;
+
+    let going = (
+        super::stopped(1, 300, stall - 1, 240),
+        super::stopped(1, bound - 1, 0, 990),
+    );
+    let stalled = super::stopped(1, 400, stall, 240);
+    let bounded = super::stopped(2, bound, 3, 990);
+
+    assert_eq!(
+        (going, stalled, bounded),
+        (
+            (None, None),
+            Some(format!(
+                "under `strace -f`, run 1 stopped after 400 s: the Proving ground received no request for {stall} s after 240 requests"
+            )),
+            Some(format!(
+                "under `strace -f`, run 2 stopped after {bound} s, the longest a counted run may take, at 990 requests"
+            )),
+        )
+    );
+}

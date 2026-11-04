@@ -440,14 +440,21 @@ fn metrics(
     metrics
 }
 
-/// The runs of `cell` in a counted cell, or why there are none.
+/// The runs of `cell` in a counted cell, or why there are none: the cell
+/// did not run, or a run of `cell` was stopped.
 fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedRun>, &'a str> {
+    let of_cell = |scenario: Scenario, name: &str| scenario == cell.scenario && name == cell.name;
     match counted {
         CountedCell::NotRun { reason } => Err(reason),
-        CountedCell::Measured { runs, .. } => Ok(runs
-            .iter()
-            .filter(|run| run.scenario == cell.scenario && run.cell == cell.name)
-            .collect()),
+        CountedCell::Measured { runs, stopped, .. } => {
+            match stopped.iter().find(|run| of_cell(run.scenario, &run.cell)) {
+                Some(run) => Err(&run.reason),
+                None => Ok(runs
+                    .iter()
+                    .filter(|run| of_cell(run.scenario, &run.cell))
+                    .collect()),
+            }
+        }
     }
 }
 

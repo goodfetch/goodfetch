@@ -625,6 +625,50 @@ fn the_system_call_cell_gives_each_cells_syncs() {
     );
 }
 
+/// A run under strace that the comparison stopped, its crawl no longer
+/// progressing, leaves its cell's system calls not measured with the
+/// measured reason, and the cell short of its declared runs is no failure.
+#[test]
+fn a_cell_whose_strace_run_was_stopped_reports_its_system_calls_not_measured_with_why() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let mut syscalls = strace();
+    syscalls["runs"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|run| !(run["scenario"] == "browser" && run["cell"] == "spider"));
+    let why = "under `strace -f`, run 1 stopped after 400 s: the Proving ground received no request for 120 s after 240 requests";
+    syscalls["stopped"] = json!([{
+        "scenario": "browser",
+        "cell": "spider",
+        "tool": "spider",
+        "number": 1,
+        "reason": why,
+    }]);
+    trials["syscalls"] = syscalls;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let not_measured = json!({ "status": "not_measured", "reason": why });
+    let spider = &cell(&report, 4, "spider")["metrics"];
+    let crawlee = &cell(&report, 4, "crawlee")["metrics"];
+    assert_eq!(
+        (
+            &spider["syncs"],
+            &spider["system_calls_per_page"],
+            &crawlee["system_calls_per_page"]["median"],
+        ),
+        (&not_measured, &not_measured, &json!(300.0))
+    );
+}
+
 #[test]
 fn a_tool_given_a_different_page_set_fails_the_same_work_check_and_reports_no_figure() {
     let workspace = Workspace::from_fixture("empty");

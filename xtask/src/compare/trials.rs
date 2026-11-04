@@ -252,7 +252,24 @@ pub(crate) enum CountedCell {
         /// Runs of each cell.
         trials: u32,
         runs: Vec<CountedRun>,
+        /// The runs the comparison stopped, their crawl no longer
+        /// progressing; each leaves its cell not measured, and the cell's
+        /// later runs do not run.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stopped: Vec<StoppedRun>,
     },
+}
+
+/// A counted run stopped before its crawl finished: [`CountedCell`]'s
+/// `stopped`.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct StoppedRun {
+    pub(crate) scenario: Scenario,
+    pub(crate) cell: String,
+    pub(crate) tool: Tool,
+    pub(crate) number: u32,
+    /// Why, from what the run measured.
+    pub(crate) reason: String,
 }
 
 /// The growth cell: each measured cell's crawl of the

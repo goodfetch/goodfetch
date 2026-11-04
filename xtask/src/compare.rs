@@ -8,10 +8,11 @@
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
 //! script-rendered site for the headless browser) with each measured cell's
 //! tool in the declared number of trials, interleaved in random order, each
-//! tool in a fresh process at the same concurrency and once the machine is
-//! quiet, measuring every metric of the owner's list from outside the
-//! tools; then
-//! counts each cell's system calls under strace, crawls the 100,000-page
+//! tool in a fresh process at the same concurrency and, in a run of the
+//! full trials, once the machine is quiet, measuring every metric of the
+//! owner's list from outside the tools; then
+//! counts each cell's system calls under strace, stopping a run whose crawl
+//! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
 //! `foxhound.spider_instruction_ratio` (ADR 0140). `report` holds every

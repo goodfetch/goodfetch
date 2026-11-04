@@ -38,6 +38,13 @@
 //!   resync's replayed state, and nothing before the settings are read or
 //!   while `notifications` is off.
 //!
+//! - **At launch**, once the settings are read: the hidden-icon check,
+//!   asked for once with [`Effect::CheckIcon`] while the setting and the
+//!   window are on, whose [`IconCheck::Hidden`] opens the details window
+//!   with a note asking the person to free space in the menu bar; and start
+//!   at login, [`Effect::StartAtLogin`], at the first read and at each
+//!   change of its setting, never from a file that cannot be read.
+//!
 //! Every string shown, a notice's included, passes through the Text
 //! function.
 
@@ -61,6 +68,7 @@ use crate::client::{
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
+use crate::window::Opening;
 
 pub mod details;
 mod needs_you;
@@ -112,6 +120,18 @@ pub enum Input {
     DetailsClosed,
     /// A call the person made through the Client was answered, or failed.
     Answered(Call, Result<(), CallFailure>),
+    /// What the hidden-icon check read, once at launch.
+    IconChecked(IconCheck),
+}
+
+/// Whether the Kennel's icon shows in the menu bar, as the status item
+/// window's occlusion state says (macOS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconCheck {
+    /// It shows.
+    Shown,
+    /// It is hidden, behind the notch or in the menu bar's overflow.
+    Hidden,
 }
 
 /// The menu opened or closed.
@@ -174,8 +194,8 @@ pub enum Effect {
     /// Run this Product's `daemon start`, then look for the Daemon again.
     StartDaemon(InstalledProduct),
     /// Start the details window's process, which reads the runtime file
-    /// and connects itself.
-    OpenDetails,
+    /// and connects itself, opened as this says.
+    OpenDetails(Opening),
     /// Bring the open details window forward.
     RaiseDetails,
     /// Ask the person this, then give the State their yes with
@@ -188,6 +208,12 @@ pub enum Effect {
     /// Make this call through the Client, and give its answer back as
     /// [`Input::Answered`].
     Call(Call),
+    /// Check once whether the icon shows, and give what it read back as
+    /// [`Input::IconChecked`].
+    CheckIcon,
+    /// Make the login agent as start at login now says: on, an agent that
+    /// opens the installed `.app`; off, none.
+    StartAtLogin(bool),
 }
 
 /// A question asked before a control acts: it names the Run and the
@@ -406,6 +432,17 @@ struct Failed {
     seen: bool,
 }
 
+/// Where the hidden-icon check stands: it is made once, at launch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Check {
+    /// The settings are not read yet.
+    Waiting,
+    /// Asked for, and its reading not in yet.
+    Asked,
+    /// Made, or not asked for by the settings at launch.
+    Done,
+}
+
 /// What the Tray last drew.
 #[derive(Clone, Debug)]
 struct Drawn {
@@ -422,6 +459,10 @@ pub struct State {
     installed: Option<InstalledProduct>,
     settings: Settings,
     settings_error: Option<SettingsError>,
+    /// Where the hidden-icon check stands.
+    icon_check: Check,
+    /// What start at login was last made, from a readable settings file.
+    start_at_login: Option<bool>,
     /// The Runs followed: the live ones, those that stopped for a reason
     /// not yet read, and those that ended in a state that needs a look.
     runs: BTreeMap<RunId, Run>,
@@ -457,6 +498,8 @@ impl State {
             installed: None,
             settings: Settings::default(),
             settings_error: None,
+            icon_check: Check::Waiting,
+            start_at_login: None,
             runs: BTreeMap::new(),
             facts: BTreeMap::new(),
             needs_you: BTreeMap::new(),
@@ -469,9 +512,10 @@ impl State {
         }
     }
 
-    /// Takes `input` in, and gives the effects it calls for: none so far,
-    /// since the Kennel never starts a Daemon by itself.
+    /// Takes `input` in, and gives the effects it calls for: the launch's
+    /// hidden-icon check and start at login, never a Daemon's start.
     pub fn apply(&mut self, input: Input) -> Vec<Effect> {
+        let mut effects = Vec::new();
         match input {
             Input::Connection(change) => self.connection(change),
             Input::Events(events) => {
@@ -526,13 +570,30 @@ impl State {
             Input::Installed(installed) => self.installed = installed,
             Input::Settings(Ok(settings)) => {
                 self.notices.settings(settings.notifications);
+                if self.start_at_login != Some(settings.start_at_login) {
+                    self.start_at_login = Some(settings.start_at_login);
+                    effects.push(Effect::StartAtLogin(settings.start_at_login));
+                }
                 self.settings = settings;
                 self.settings_error = None;
+                effects.extend(self.ask_icon_check());
             }
             Input::Settings(Err(error)) => {
                 self.settings = Settings::default();
                 self.notices.settings(self.settings.notifications);
                 self.settings_error = Some(error);
+                effects.extend(self.ask_icon_check());
+            }
+            Input::IconChecked(check) => {
+                let opens = check == IconCheck::Hidden
+                    && self.icon_check == Check::Asked
+                    && self.checks_the_icon()
+                    && !self.details_open;
+                self.icon_check = Check::Done;
+                if opens {
+                    self.details_open = true;
+                    effects.push(Effect::OpenDetails(Opening::HiddenIcon));
+                }
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
             Input::StartEnded(Err(failure)) => self.start = Start::Failed(failure),
@@ -551,7 +612,27 @@ impl State {
                 });
             }
         }
-        Vec::new()
+        effects
+    }
+
+    /// Whether the settings ask for the hidden-icon check: it is on, and
+    /// the window it would open is too.
+    fn checks_the_icon(&self) -> bool {
+        self.settings.hidden_icon_check && self.settings.window
+    }
+
+    /// The hidden-icon check, asked for once, at the first read of the
+    /// settings that asks for it.
+    fn ask_icon_check(&mut self) -> Option<Effect> {
+        if self.icon_check != Check::Waiting {
+            return None;
+        }
+        if !self.checks_the_icon() {
+            self.icon_check = Check::Done;
+            return None;
+        }
+        self.icon_check = Check::Asked;
+        Some(Effect::CheckIcon)
     }
 
     /// The person chose `choice` in the menu; a choice the menu no longer
@@ -563,7 +644,7 @@ impl State {
             Choice::OpenDetails if self.details_open => vec![Effect::RaiseDetails],
             Choice::OpenDetails => {
                 self.details_open = true;
-                vec![Effect::OpenDetails]
+                vec![Effect::OpenDetails(Opening::Asked)]
             }
             Choice::Control { run, control } => {
                 if !self.offered(&run).contains(&control) {

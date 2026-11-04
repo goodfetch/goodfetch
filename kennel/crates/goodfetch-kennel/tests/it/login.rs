@@ -1,5 +1,5 @@
 //! Start at login: the launchd user agent that opens the installed `.app`
-//! through LaunchServices, written and removed in a test's folder, with
+//! through `LaunchServices`, written and removed in a test's folder, with
 //! `launchctl` replaced by a recorder.
 #![expect(
     clippy::disallowed_methods,

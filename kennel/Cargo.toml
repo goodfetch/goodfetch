@@ -65,7 +65,7 @@ arboard = { version = "3.7.0", default-features = false }
 # The menu's closing on macOS, from AppKit's notification, at the versions
 # `tray-icon` already locks.
 block2 = { version = "0.6.2", default-features = false, features = ["std"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSMenu", "NSRunningApplication"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSButton", "NSControl", "NSMenu", "NSResponder", "NSRunningApplication", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSBundle", "NSError", "NSNotification", "NSOperation", "NSString"] }
 # The desktop notices (ADR 0141): on macOS, `UNUserNotificationCenter` from
 # the `.app`, at the versions #1915 checked on the owner's Mac; on Linux

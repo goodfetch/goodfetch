@@ -3,6 +3,7 @@
 //! socket.
 
 mod controls;
+mod launch;
 mod needs_you;
 mod notices;
 mod runs;
@@ -18,6 +19,7 @@ use super::{Choice, Effect, Input, Row, State, Verdict};
 use crate::client::{ConnectionChange, DaemonIdentity, Refusal};
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
+use crate::window::Opening;
 
 fn foxhound_daemon() -> ConnectionChange {
     ConnectionChange::Connected(DaemonIdentity {
@@ -135,7 +137,12 @@ fn the_kennel_never_starts_a_daemon_by_itself(#[case] inputs: Vec<Input>) {
         .flat_map(|input| state.apply(input))
         .collect();
 
-    assert_eq!(effects, []);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::StartDaemon(_))),
+        "{effects:?}"
+    );
 }
 
 #[test]
@@ -353,7 +360,7 @@ fn open_details_opens_the_details_window() {
             ("Quit".to_owned(), Choice::Quit),
         ]
     );
-    assert_eq!(effects, [Effect::OpenDetails]);
+    assert_eq!(effects, [Effect::OpenDetails(Opening::Asked)]);
 }
 
 #[test]
@@ -366,7 +373,7 @@ fn open_details_while_the_window_is_open_brings_it_forward_and_opens_none() {
     let once_closed = state.choose(Choice::OpenDetails);
 
     assert_eq!(while_open, [Effect::RaiseDetails]);
-    assert_eq!(once_closed, [Effect::OpenDetails]);
+    assert_eq!(once_closed, [Effect::OpenDetails(Opening::Asked)]);
 }
 
 #[test]

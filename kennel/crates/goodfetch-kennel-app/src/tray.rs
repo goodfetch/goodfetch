@@ -23,7 +23,7 @@ mod menu_closed;
 
 use std::cell::RefCell;
 
-use goodfetch_kennel::state::{Choice, Frame, Row, Verdict, View};
+use goodfetch_kennel::state::{Choice, Frame, IconCheck, Row, Verdict, View};
 use tray_icon::menu::{IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use winit::event_loop::EventLoopProxy;
@@ -231,6 +231,37 @@ fn icon(verdict: Verdict) -> Icon {
     }
     Icon::from_rgba(rgba, SIZE, SIZE)
         .expect("invariant: the icon's buffer holds SIZE × SIZE pixels")
+}
+
+/// Whether the icon shows in the menu bar, from the occlusion state of the
+/// status item's window, never from its frame against the notch: macOS 27
+/// reports items hidden in the overflow as on screen, and only the
+/// occlusion state tells them apart (#1915). None when it cannot be read.
+#[cfg(target_os = "macos")]
+pub(crate) fn icon_check() -> Option<IconCheck> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSWindowOcclusionState;
+    let main_thread = MainThreadMarker::new()?;
+    TRAY.with(|cell| {
+        let tray = cell.borrow();
+        let item = tray.as_ref()?.icon.ns_status_item()?;
+        let window = item.button(main_thread)?.window()?;
+        let shown = window
+            .occlusionState()
+            .contains(NSWindowOcclusionState::Visible);
+        Some(if shown {
+            IconCheck::Shown
+        } else {
+            IconCheck::Hidden
+        })
+    })
+}
+
+/// Whether the icon shows: Linux and Windows have no notch, nor a state
+/// that tells it, so the check is made on macOS only.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn icon_check() -> Option<IconCheck> {
+    None
 }
 
 /// Brings the details window's process `pid` forward, with its windows.

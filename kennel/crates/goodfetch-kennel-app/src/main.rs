@@ -12,6 +12,10 @@
 //! view, which it draws as the menu opens, and draws what the State says is
 //! due, the loop waking at the instant a paced redraw falls due.
 //!
+//! At launch, once the settings are read, the State asks for the
+//! hidden-icon check, which the Tray makes once the status item has had
+//! time to settle, and makes the login agent as start at login says.
+//!
 //! The State also decides the desktop notices, and the Kennel shows them
 //! through the platform's adapter (`notices`), which it builds only while
 //! the settings turn them on, waking the loop when a held summary falls
@@ -30,10 +34,11 @@ use anyhow::Context;
 use goodfetch_kennel::client::{self, CONNECTION_LOST, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
+use goodfetch_kennel::login::{self, LoginAgent, SystemLaunchctl};
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
 use goodfetch_kennel::state::{Effect, Input, MenuChange, Redraw, State};
 use goodfetch_kennel::tasks::Tasks;
-use goodfetch_kennel::window;
+use goodfetch_kennel::window::{self, Opening};
 use tokio::sync::{mpsc, watch};
 use tray_icon::menu::MenuId;
 use winit::application::ApplicationHandler;
@@ -46,6 +51,11 @@ const CALLS_WAITING: usize = 16;
 
 /// How long the Kennel waits for its tasks once it quits.
 const STOP_GRACE: Duration = Duration::from_secs(1);
+
+/// How long after the hidden-icon check is asked for the Tray reads the
+/// status item's occlusion state: the time #1915 read it at, once the menu
+/// bar had placed the item.
+const ICON_SETTLES: Duration = Duration::from_secs(3);
 
 /// What reaches the UI loop from elsewhere.
 #[derive(Debug)]
@@ -62,6 +72,8 @@ pub(crate) enum UserEvent {
     MenuClosed,
     /// The details window's process started, with this process ID.
     DetailsOpened(u32),
+    /// The hidden-icon check falls due.
+    CheckIcon,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -91,12 +103,9 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building the runtime")?;
 
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|argument| argument == window::ARGUMENT)
-    {
+    if let Some(opening) = Opening::from_arguments(std::env::args_os().skip(1)) {
         let tasks = Tasks::new(runtime.handle().clone());
-        let ran = details::run(home, &tasks, &runtime);
+        let ran = details::run(home, opening, &tasks, &runtime);
         runtime.block_on(tasks.stop(STOP_GRACE));
         runtime.shutdown_timeout(STOP_GRACE);
         return ran;
@@ -119,7 +128,9 @@ fn main() -> anyhow::Result<()> {
     let (look_again, looks) = mpsc::channel(1);
     let (wanted, wanted_now) = watch::channel(Wanted::default());
     let (calls, calls_made) = mpsc::channel(CALLS_WAITING);
+    let (start_at_login, login_wanted) = watch::channel(None);
     start_tasks(&tasks, &home, looks, wanted_now, calls_made, &proxy);
+    tasks.spawn(follow_start_at_login(tasks.clone(), login_wanted));
     let mut kennel = Kennel {
         state: State::new(),
         tasks: tasks.clone(),
@@ -127,6 +138,7 @@ fn main() -> anyhow::Result<()> {
         look_again,
         wanted,
         calls,
+        start_at_login,
         installed: false,
         next_draw: None,
         details: None,
@@ -205,6 +217,8 @@ struct Kennel {
     wanted: watch::Sender<Wanted>,
     /// The calls a person makes, which the Client sends.
     calls: mpsc::Sender<Call>,
+    /// Start at login as the State last asked it made.
+    start_at_login: watch::Sender<Option<bool>>,
     /// Whether the icon is in the menu bar.
     installed: bool,
     /// When a paced redraw falls due.
@@ -236,7 +250,17 @@ impl Kennel {
         while let Some(effect) = effects.pop_front() {
             match effect {
                 Effect::Quit => event_loop.exit(),
-                Effect::OpenDetails => self.open_details(),
+                Effect::OpenDetails(opening) => self.open_details(opening),
+                Effect::CheckIcon => {
+                    let proxy = self.proxy.clone();
+                    self.tasks.spawn(async move {
+                        tokio::time::sleep(ICON_SETTLES).await;
+                        let _ = proxy.send_event(UserEvent::CheckIcon);
+                    });
+                }
+                Effect::StartAtLogin(on) => {
+                    self.start_at_login.send_replace(Some(on));
+                }
                 Effect::RaiseDetails => {
                     if let Some(pid) = self.details {
                         tray::raise(pid);
@@ -315,16 +339,16 @@ impl Kennel {
     }
 
     /// Starts the details window's process from this executable, with no
-    /// more than its argument: it reads the runtime file and connects
-    /// itself. The State learns when it ends.
-    fn open_details(&self) {
+    /// more than its arguments, `opening`'s: it reads the runtime file and
+    /// connects itself. The State learns when it ends.
+    fn open_details(&self, opening: Opening) {
         let proxy = self.proxy.clone();
         let executable = std::env::current_exe();
         self.tasks.spawn(async move {
             let opened = proxy.clone();
             let ran = match executable {
                 Ok(executable) => {
-                    window::run(&executable, move |pid| {
+                    window::run(&executable, opening, move |pid| {
                         let _ = opened.send_event(UserEvent::DetailsOpened(pid));
                     })
                     .await
@@ -348,6 +372,50 @@ impl Kennel {
             Redraw::At(due) => Some(due),
             Redraw::Nothing => None,
         };
+    }
+}
+
+/// Makes the login agent as each change of `wanted` says, one change at a
+/// time, so the latest wins.
+async fn follow_start_at_login(tasks: Tasks, mut wanted: watch::Receiver<Option<bool>>) {
+    while wanted.changed().await.is_ok() {
+        let on = *wanted.borrow_and_update();
+        if let Some(on) = on {
+            tasks.blocking(move || start_at_login(on)).await;
+        }
+    }
+}
+
+/// Makes the login agent as start at login says (`on`): an agent that
+/// opens the `.app` the Kennel runs from, or none. Blocks.
+fn start_at_login(on: bool) {
+    if !cfg!(target_os = "macos") {
+        if on {
+            tracing::warn!("start at login is made on macOS only for now");
+        }
+        return;
+    }
+    let Some(agent) = LoginAgent::of_the_person() else {
+        tracing::warn!("the OS names no home folder, so start at login is not made");
+        return;
+    };
+    let bundle = if on {
+        let bundle = std::env::current_exe()
+            .ok()
+            .and_then(|executable| login::bundle_of(&executable));
+        if bundle.is_none() {
+            tracing::warn!(
+                "start at login opens the Kennel's installed .app, and this Kennel runs outside one: install it with `just kennel`"
+            );
+            return;
+        }
+        bundle
+    } else {
+        None
+    };
+    match agent.apply(bundle.as_deref(), &SystemLaunchctl) {
+        Ok(change) => tracing::info!(?change, "start at login made"),
+        Err(error) => tracing::warn!(%error, "start at login could not be made"),
     }
 }
 
@@ -442,6 +510,10 @@ impl ApplicationHandler<UserEvent> for Kennel {
                 self.details = Some(pid);
                 Vec::new()
             }
+            UserEvent::CheckIcon => match tray::icon_check() {
+                Some(check) => self.state.apply(Input::IconChecked(check)),
+                None => Vec::new(),
+            },
             UserEvent::Client(Report::Answered(call, answer)) => {
                 self.state.apply(Input::Answered(call, answer))
             }

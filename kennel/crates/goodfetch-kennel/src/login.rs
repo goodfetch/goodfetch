@@ -1,6 +1,6 @@
 //! Start at login (ADR 0141), on macOS: a launchd user agent in the
 //! person's `~/Library/LaunchAgents` that runs `/usr/bin/open` on the
-//! installed `.app`, so the Kennel starts through LaunchServices, which
+//! installed `.app`, so the Kennel starts through `LaunchServices`, which
 //! desktop notices need (#1915). The setting `start_at_login` writes it,
 //! and turning it off removes it.
 //!
@@ -28,7 +28,7 @@ use crate::home::{read_if_present, replace};
 /// The agent's launchd label, after the `.app`'s bundle identifier.
 pub const LABEL: &str = "dev.goodfetch.kennel.login";
 
-/// What starts the Kennel through LaunchServices.
+/// What starts the Kennel through `LaunchServices`.
 const OPEN: &str = "/usr/bin/open";
 
 /// `launchctl`, by its absolute path.
@@ -111,27 +111,23 @@ impl LoginAgent {
     /// not hold is no error.
     pub fn apply(&self, bundle: Option<&Path>, launchctl: &impl Launchctl) -> io::Result<Change> {
         let present = read_if_present(&self.file)?;
-        match bundle {
-            Some(bundle) => {
-                let wanted = agent(bundle)?;
-                if present.as_deref() == Some(wanted.as_bytes()) {
-                    return Ok(Change::Unchanged);
-                }
-                replace(&self.file, wanted.as_bytes())?;
-                Ok(Change::Installed)
+        if let Some(bundle) = bundle {
+            let wanted = agent(bundle)?;
+            if present.as_deref() == Some(wanted.as_bytes()) {
+                return Ok(Change::Unchanged);
             }
-            None => {
-                if present.is_none() {
-                    return Ok(Change::Unchanged);
-                }
-                fs::remove_file(&self.file)?;
-                if let Err(error) = launchctl.unload(LABEL) {
-                    // Not loaded: it was written at this login.
-                    tracing::debug!(%error, "the login agent was not unloaded");
-                }
-                Ok(Change::Removed)
-            }
+            replace(&self.file, wanted.as_bytes())?;
+            return Ok(Change::Installed);
         }
+        if present.is_none() {
+            return Ok(Change::Unchanged);
+        }
+        fs::remove_file(&self.file)?;
+        if let Err(error) = launchctl.unload(LABEL) {
+            // Not loaded: it was written at this login.
+            tracing::debug!(%error, "the login agent was not unloaded");
+        }
+        Ok(Change::Removed)
     }
 }
 

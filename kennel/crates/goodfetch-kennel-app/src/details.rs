@@ -27,6 +27,7 @@ use goodfetch_kennel::state::details::{
     Details, DetailsView, Field, Filter, Input, Repaint, RunLine, RunPanel,
 };
 use goodfetch_kennel::tasks::Tasks;
+use goodfetch_kennel::window::Opening;
 use goodfetch_protocol::run::{Lifecycle, RunId};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -45,9 +46,11 @@ enum ToModel {
     Person(Input),
 }
 
-/// Runs the details window until the person closes it.
+/// Runs the details window, opened as `opening` says, until the person
+/// closes it.
 pub(crate) fn run(
     home: Home,
+    opening: Opening,
     tasks: &Tasks,
     runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<()> {
@@ -94,6 +97,7 @@ pub(crate) fn run(
         ..eframe::NativeOptions::default()
     };
     let window = Window {
+        note: opening.note(),
         to_model,
         latest,
         filter: Filter::default(),
@@ -190,6 +194,8 @@ fn now() -> Instant {
 /// The window on the UI thread: it draws the latest view and sends what
 /// the person does to the model.
 struct Window {
+    /// Why the window opened, when it says so, as for a hidden icon.
+    note: Option<String>,
     to_model: mpsc::UnboundedSender<ToModel>,
     latest: watch::Receiver<Option<DetailsView>>,
     /// The filters as the person set them.
@@ -371,6 +377,11 @@ impl eframe::App for Window {
             // model reads nothing more.
             self.closed = true;
             self.send(Input::Closed);
+        }
+        if let Some(note) = &self.note {
+            egui::Panel::top("note").show(ui, |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(note).strong()).wrap());
+            });
         }
         let view = self.latest.borrow().clone();
         let Some(view) = view else {

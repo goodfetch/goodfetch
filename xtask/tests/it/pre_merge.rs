@@ -300,13 +300,22 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
 /// and before any step beside the host's starts, so a gate that fails in
 /// seconds never starts perf (the test-gate audit's F3).
 #[rstest]
-#[case::dco("dco")]
-#[case::commit_messages("commit-messages")]
-#[case::floor_guard("floor-guard")]
-#[case::commit_leaks("commit-leaks")]
-#[case::audit("audit")]
-#[case::notices("notices")]
-fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(#[case] check: &str) {
+#[case::dco("dco", &["dco"])]
+#[case::commit_messages("commit-messages", &["dco", "commit-messages"])]
+#[case::floor_guard("floor-guard", &["dco", "commit-messages", "floor-guard"])]
+#[case::commit_leaks(
+    "commit-leaks",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks"]
+)]
+#[case::audit(
+    "audit",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks", "audit"]
+)]
+#[case::notices("notices", &WHOLE_CHANGE)]
+fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
+    #[case] check: &str,
+    #[case] through: &[&str],
+) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("failing"), check).unwrap();
@@ -327,19 +336,19 @@ fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(#[case] 
         .map(String::as_str)
         .filter(|call| !HOST_SETUP.contains(call) && *call != "_skips-report")
         .collect();
-    let through = WHOLE_CHANGE.iter().position(|step| *step == check).unwrap();
-    assert_eq!(ran, WHOLE_CHANGE[..=through]);
+    assert_eq!(ran, through);
 }
 
 /// The gate's forms run every step with every thread, whatever thread or job
 /// cap the shell that started them exported, and say which they removed
 /// (the test-gate audit's F1); a run over what changed keeps the caller's.
 #[rstest]
-#[case::all("all", true)]
-#[case::quick("quick", true)]
-#[case::what_changed("", false)]
+#[case::all("all", "|unset|unset", true)]
+#[case::quick("quick", "|unset|unset", true)]
+#[case::what_changed("", "|4|4", false)]
 fn the_gate_forms_run_without_the_callers_thread_and_job_caps(
     #[case] form: &str,
+    #[case] seen: &str,
     #[case] removed: bool,
 ) {
     let workspace = Workspace::from_fixture("empty");
@@ -355,11 +364,10 @@ fn the_gate_forms_run_without_the_callers_thread_and_job_caps(
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     let caps = std::fs::read_to_string(stand_in.join("caps")).unwrap();
-    let expected = if removed { "|unset|unset" } else { "|4|4" };
     for call in caps.lines() {
-        assert!(call.ends_with(expected), "{call}");
+        assert!(call.ends_with(seen), "{call}");
     }
-    assert!(!caps.is_empty());
+    assert_ne!(caps.lines().count(), 0, "no step ran");
     assert_eq!(
         run.stdout
             .contains("The gate removed NEXTEST_TEST_THREADS=4 CARGO_BUILD_JOBS=4"),

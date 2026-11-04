@@ -2,14 +2,14 @@
 // every Playwright visual case of a browser many times in the pinned image
 // before that browser may join the `visual` projects. Each test copies the
 // repository's `playwright.config.ts` unchanged into a folder of its own
-// under target/, beside one visual spec file, and measures there on this
+// (`runner-project.ts`), beside one visual spec file, and measures there on this
 // host's Chromium with GOODFETCH_VISUAL_IMAGE naming the pinned digest, as
 // ci/visual/run.sh does. The References it writes stay in that folder and
 // are deleted with it.
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, onTestFinished } from "vitest";
+import { describe, expect } from "vitest";
 import { test } from "@goodfetch/test-support";
 import { measureRepeatability } from "../src/repeatability.ts";
 import { runnerProject } from "./runner-project.ts";
@@ -51,7 +51,6 @@ test("square", async ({ page }) => {
 /** A folder of its own with the repository's config and `files`. */
 function project(files: Readonly<Record<string, string>>): string {
   const folder = runnerProject("repeatability");
-  onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(folder, "playwright.config.ts"));
   // The config reads the Feature inventory beside itself (ADR 0072).
   mkdirSync(join(folder, "features"));

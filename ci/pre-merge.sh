@@ -91,17 +91,18 @@ if [[ $all == all || $all == quick ]]; then
   fi
 fi
 
+# The checks that judge the whole change in seconds, which both forms run
+# first: a red one ends the gate before any build (the test-gate audit's F3).
+whole_change=(dco commit-messages floor-guard commit-leaks audit notices)
+
 rm -f target/skipped.txt
 if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
   os_services
   echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
-  timed dco just dco
-  timed commit-messages just commit-messages
-  timed floor-guard just floor-guard
-  timed commit-leaks just commit-leaks
-  timed audit just audit
-  timed notices just notices
+  for step in "${whole_change[@]}"; do
+    timed "$step" just "$step"
+  done
   timed lint just lint
   timed quick just _suite quick all
   timed journeys-tasks just journeys-tasks --check
@@ -277,14 +278,11 @@ gated() {
 whole() {
   if [[ $(action "$1") == reuse ]]; then reused "$1"; else gated "$@"; fi
 }
-# The checks that judge the whole change in seconds, first: a red one ends
-# the gate before the Console build and before any step beside starts.
-gated dco just dco
-gated commit-messages just commit-messages
-gated floor-guard just floor-guard
-gated commit-leaks just commit-leaks
-gated audit just audit
-gated notices just notices
+# The whole change's checks before the Console build and before any step
+# beside starts.
+for step in "${whole_change[@]}"; do
+  gated "$step" just "$step"
+done
 # Collie's executable embeds its Console build (ADR 0057), which the steps
 # beside, in their containers, find in the workspace they mount.
 timed console-build just console-build

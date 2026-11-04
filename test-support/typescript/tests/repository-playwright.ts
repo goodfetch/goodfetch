@@ -1,14 +1,13 @@
 // The harness of test support's own tests of its Playwright fixtures and
 // reporter: Playwright runs the repository's own `playwright.config.ts`,
-// copied unchanged into a folder of its own under `target/` with the Feature
-// inventory it reads, on one spec file. The run writes its JUnit file under
+// copied unchanged into a folder of its own (`runner-project.ts`) with the
+// Feature inventory it reads, on one spec file. The run writes its JUnit file under
 // that folder's `target/` and its result documents into its own
 // `result-documents/`, never into the outer run's, and the folder goes when
 // the test ends.
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { onTestFinished } from "vitest";
 import type { ProcessRecord } from "@goodfetch/test-support";
 import { runnerProject } from "./runner-project.ts";
 
@@ -17,7 +16,7 @@ const CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
 
 /** What one run is given. */
 export interface RepositoryPlaywright {
-  /** The start of its folder's name under `target/`. */
+  /** The start of its folder's name under `.runner-projects/`. */
   readonly folder: string;
   /** The spec file's name and text. */
   readonly spec: { readonly name: string; readonly text: string };
@@ -49,7 +48,6 @@ export async function runRepositoryPlaywright(
   run: RepositoryPlaywright,
 ): Promise<RepositoryPlaywrightRun> {
   const project = runnerProject(run.folder);
-  onTestFinished(() => rmSync(project, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
   // The configuration reads the Feature inventory beside it.
   mkdirSync(join(project, "features"));

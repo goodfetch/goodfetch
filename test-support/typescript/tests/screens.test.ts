@@ -7,11 +7,11 @@
 // and a spec file that calls `testEachScreen` on that folder. The stand-in
 // Console serves each fixture screen only to the Product's Daemon, as its
 // `hello` answers, and only in the screen's sign-in state.
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, onTestFinished } from "vitest";
+import { describe, expect } from "vitest";
 import { test, type TestSupportFixtures } from "@goodfetch/test-support";
 import type { StandInScreen } from "./console-stand-in.ts";
 import { runnerProject } from "./runner-project.ts";
@@ -46,9 +46,7 @@ async function runScreens(
   orphans: readonly string[] = [],
   consoleFiles: Readonly<Record<string, string>> = {},
 ): Promise<Case[]> {
-  // Inside the repository, so the copied configuration finds `@playwright/test`.
   const project = runnerProject("screens-test");
-  onTestFinished(() => rmSync(project, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "playwright.config.ts"), join(project, "playwright.config.ts"));
   mkdirSync(join(project, "features"));
   const features = screens.map(({ feature, products }) => ({

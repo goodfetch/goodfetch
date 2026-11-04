@@ -6,13 +6,19 @@
 // repository, where Node finds neither and refuses the configuration as an
 // ES module. Git ignores the folder, and Vitest and Playwright skip the dot
 // folders at the repository's root.
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { onTestFinished } from "vitest";
 
 const PROJECTS = join(import.meta.dirname, "..", "..", "..", ".runner-projects");
 
-/** Makes a new folder whose name starts with `prefix`, and returns its path. */
+/**
+ * Makes a new folder whose name starts with `prefix` for the running test,
+ * and returns its path; the folder goes when the test ends.
+ */
 export function runnerProject(prefix: string): string {
   mkdirSync(PROJECTS, { recursive: true });
-  return mkdtempSync(join(PROJECTS, `${prefix}-`));
+  const folder = mkdtempSync(join(PROJECTS, `${prefix}-`));
+  onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
+  return folder;
 }

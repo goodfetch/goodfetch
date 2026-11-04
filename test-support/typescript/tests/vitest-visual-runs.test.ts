@@ -1,7 +1,7 @@
 // Seam B (spec #326): Vitest's `visual` project, as the shared visual config
 // gives it inside the pinned image (ADR 0073). Each test copies the
-// repository's `vitest.config.ts` unchanged into a folder of its own under
-// target/, beside one visual test file, and runs Vitest's `visual` project
+// repository's `vitest.config.ts` unchanged into a folder of its own
+// (`runner-project.ts`), beside one visual test file, and runs Vitest's `visual` project
 // there with GOODFETCH_VISUAL_IMAGE naming the pinned digest, as
 // ci/visual/run.sh does. Its Reference screenshot is written by the run
 // itself, into that folder, and deleted with it: no screenshot rendered here
@@ -12,12 +12,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { describe, expect, onTestFinished } from "vitest";
+import { describe, expect } from "vitest";
 import { test, type ProcessRecord } from "@goodfetch/test-support";
 import { runnerProject } from "./runner-project.ts";
 
@@ -79,7 +78,6 @@ test("caret and animation", async () => {
 /** A folder of its own with the repository's config and the test file. */
 function project(): string {
   const folder = runnerProject("vitest-visual-runs");
-  onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
   copyFileSync(join(ROOT, "vitest.config.ts"), join(folder, "vitest.config.ts"));
   // The config reads the Feature inventory and the Journey catalog beside
   // itself, for its tags (ADRs 0063 and 0072).

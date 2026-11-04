@@ -147,6 +147,28 @@ pub enum MenuChange {
     Opened(Instant),
     /// It closed.
     Closed,
+    /// The platform reports neither its opening nor its closing (Linux
+    /// and Windows): it counts as open from this instant on, and a Run
+    /// that needs a look, or a failed call, leaves [`SHOWN_FOR`] after it
+    /// was first drawn.
+    Unreported(Instant),
+}
+
+/// Where the platform reports no menu closing, how long a Run that failed
+/// or was stopped by a Limit, or a failed call, stays listed once it was
+/// drawn: long enough for a person away for a meeting to find it, short
+/// enough that the icon does not keep a stale verdict for the day. Its
+/// desktop notice and the details window keep it after.
+pub const SHOWN_FOR: Duration = Duration::from_mins(30);
+
+/// Whether the menu is open, as the platform reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Menu {
+    Closed,
+    Open,
+    /// It counts as open, the platform reporting neither its opening nor
+    /// its closing.
+    Unreported,
 }
 
 /// What a person can choose in the menu.
@@ -338,8 +360,8 @@ enum Start {
 struct Failed {
     /// What the menu says.
     line: String,
-    /// Whether an open menu showed it.
-    seen: bool,
+    /// When an open menu first showed it.
+    seen: Option<Instant>,
 }
 
 /// Where the hidden-icon check stands: it is made once, at launch.
@@ -384,7 +406,7 @@ pub struct State {
     failed: Option<Failed>,
     /// Bumped each time the live Runs' rows are to be read again.
     live_runs: Generation,
-    menu_open: bool,
+    menu: Menu,
     /// Whether the details window's process runs.
     details_open: bool,
     drawn: Option<Drawn>,
@@ -415,7 +437,7 @@ impl State {
             needs_you: BTreeMap::new(),
             failed: None,
             live_runs: Generation::default(),
-            menu_open: false,
+            menu: Menu::Closed,
             details_open: false,
             drawn: None,
             notices: Coalescer::default(),
@@ -455,8 +477,12 @@ impl State {
                 self.facts = facts;
             }
             Input::Progress(progress) => self.progress(&progress),
-            Input::Menu(MenuChange::Opened(at)) => {
-                self.menu_open = true;
+            Input::Menu(change @ (MenuChange::Opened(at) | MenuChange::Unreported(at))) => {
+                self.menu = if matches!(change, MenuChange::Unreported(_)) {
+                    Menu::Unreported
+                } else {
+                    Menu::Open
+                };
                 let view = self.view();
                 let verdict = self
                     .drawn
@@ -467,13 +493,17 @@ impl State {
                     verdict,
                     rows: view.rows,
                 });
-                self.mark_seen();
+                self.mark_seen(at);
             }
             Input::Menu(MenuChange::Closed) => {
-                self.menu_open = false;
+                self.menu = Menu::Closed;
                 self.runs
-                    .retain(|_, run| !(run.phase.needs_a_look() && run.seen));
-                if self.failed.as_ref().is_some_and(|failed| failed.seen) {
+                    .retain(|_, run| !(run.phase.needs_a_look() && run.seen.is_some()));
+                if self
+                    .failed
+                    .as_ref()
+                    .is_some_and(|failed| failed.seen.is_some())
+                {
                     self.failed = None;
                 }
             }
@@ -516,7 +546,7 @@ impl State {
                         attempt(&call, |run| self.name(run)),
                         failure.message
                     ),
-                    seen: false,
+                    seen: None,
                 });
             }
         }
@@ -640,7 +670,7 @@ impl State {
             .filter(|(_, run)| run.phase == Phase::Stopping)
             .map(|(id, _)| id.clone())
             .collect();
-        if self.menu_open && matches!(self.daemon, Daemon::Reached(..)) {
+        if self.menu != Menu::Closed && matches!(self.daemon, Daemon::Reached(..)) {
             progress.extend(
                 self.listed()
                     .0
@@ -734,8 +764,46 @@ impl State {
 
     /// Whether the Tray redraws at `now`: when the view changed since its
     /// last draw, at most once each [`REDRAW_PERIOD`], and the menu's rows
-    /// only while the menu is open.
+    /// only while the menu is open. Where the platform reports no menu
+    /// closing, what needs a look and was drawn [`SHOWN_FOR`] ago leaves
+    /// first, and the redraw falls due when the next one leaves.
     pub fn redraw(&mut self, now: Instant) -> Redraw {
+        let leaves = self.shown_long_enough(now);
+        match (self.paced(now), leaves) {
+            (Redraw::Nothing, Some(at)) => Redraw::At(at),
+            (Redraw::At(due), Some(at)) => Redraw::At(due.min(at)),
+            (redraw, _) => redraw,
+        }
+    }
+
+    /// Where the platform reports no menu closing, drops what needs a look
+    /// and was drawn [`SHOWN_FOR`] before `now`; gives when the next of
+    /// those left leaves.
+    fn shown_long_enough(&mut self, now: Instant) -> Option<Instant> {
+        if self.menu != Menu::Unreported {
+            return None;
+        }
+        let leaves = |seen: Option<Instant>| seen.map(|at| at + SHOWN_FOR);
+        self.runs.retain(|_, run| {
+            !(run.phase.needs_a_look() && leaves(run.seen).is_some_and(|at| at <= now))
+        });
+        if self
+            .failed
+            .as_ref()
+            .is_some_and(|failed| leaves(failed.seen).is_some_and(|at| at <= now))
+        {
+            self.failed = None;
+        }
+        self.runs
+            .values()
+            .filter(|run| run.phase.needs_a_look())
+            .filter_map(|run| leaves(run.seen))
+            .chain(self.failed.as_ref().and_then(|failed| leaves(failed.seen)))
+            .min()
+    }
+
+    /// The redraw at `now` of the view as it is, paced.
+    fn paced(&mut self, now: Instant) -> Redraw {
         let view = self.view();
         let Some(drawn) = &self.drawn else {
             self.drawn = Some(Drawn {
@@ -749,7 +817,7 @@ impl State {
             });
         };
         let verdict = (drawn.verdict != view.verdict).then_some(view.verdict);
-        let rows = (self.menu_open && drawn.rows != view.rows).then_some(view.rows);
+        let rows = (self.menu != Menu::Closed && drawn.rows != view.rows).then_some(view.rows);
         if verdict.is_none() && rows.is_none() {
             return Redraw::Nothing;
         }
@@ -764,7 +832,7 @@ impl State {
             rows: drawn_rows,
         });
         if rows.is_some() {
-            self.mark_seen();
+            self.mark_seen(now);
         }
         Redraw::Now(Frame { verdict, rows })
     }

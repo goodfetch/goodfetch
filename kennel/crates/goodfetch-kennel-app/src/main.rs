@@ -407,8 +407,9 @@ impl Kennel {
         self.installed = true;
         if !tray::FOLLOWS_THE_MENU {
             // Nothing says when the menu opens or closes here, so it
-            // counts as open from launch.
-            let effects = self.state.apply(Input::Menu(MenuChange::Opened(now())));
+            // counts as open from launch, and what needs a look leaves a
+            // while after it was drawn.
+            let effects = self.state.apply(Input::Menu(MenuChange::Unreported(now())));
             self.carry_out(event_loop, effects);
         }
         self.redraw();

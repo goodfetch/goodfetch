@@ -6,12 +6,13 @@ use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::needs_you::NeedsYouDismissParams;
 use goodfetch_protocol::run::{RunId, RunIndexRow, RunProgress};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::super::{Frame, Input, MenuChange, Redraw, Row, State, Verdict};
-use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Generation};
+use super::super::{Frame, Input, MenuChange, Redraw, Row, SHOWN_FOR, State, Verdict};
+use crate::client::{Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Generation};
 
 /// A State that reached a Daemon of `product`.
 pub(super) fn reached(product: Product) -> State {
@@ -463,6 +464,103 @@ fn a_failed_run_stays_listed_until_the_menu_that_showed_it_closes() {
 
     assert_eq!(while_open, Verdict::Failed);
     assert_eq!(state.view().verdict, Verdict::Idle);
+    assert_eq!(
+        lines(&state),
+        ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]
+    );
+}
+
+/// What `redraw` gives at `now`: whether it draws, and when it wakes.
+fn redrawn(state: &mut State, now: Instant) -> Redraw {
+    state.redraw(now)
+}
+
+#[test]
+fn where_the_menu_is_unreported_a_failed_run_leaves_once_drawn_and_its_period_passed() {
+    let mut state = reached(Product::Foxhound);
+    let launch = origin();
+    state.apply(Input::Menu(MenuChange::Unreported(launch)));
+    let drawn_at = after(launch, 5_000);
+    state.apply(Input::Events(vec![axes("broken-crawl", "failed")]));
+    let drawn = redrawn(&mut state, drawn_at);
+
+    let waking = redrawn(
+        &mut state,
+        drawn_at + SHOWN_FOR.saturating_sub(Duration::from_secs(1)),
+    );
+    let before = state.view().verdict;
+    let gone = redrawn(&mut state, drawn_at + SHOWN_FOR);
+
+    assert!(
+        matches!(drawn, Redraw::Now(Frame { rows: Some(_), .. })),
+        "{drawn:?}"
+    );
+    assert_eq!(waking, Redraw::At(drawn_at + SHOWN_FOR));
+    assert_eq!(before, Verdict::Failed);
+    assert_eq!(
+        gone,
+        Redraw::Now(Frame {
+            verdict: Some(Verdict::Idle),
+            rows: Some(state.view().rows),
+        })
+    );
+    assert_eq!(
+        lines(&state),
+        ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]
+    );
+}
+
+#[test]
+fn where_the_menu_is_unreported_a_failed_run_not_drawn_yet_waits_for_its_draw() {
+    let mut state = reached(Product::Foxhound);
+    let launch = origin();
+    state.apply(Input::Menu(MenuChange::Unreported(launch)));
+    state.apply(Input::Events(vec![axes("broken-crawl", "failed")]));
+
+    // The last draw was at launch: the failed Run waits for the next one,
+    // and its period starts only then.
+    let paced = redrawn(&mut state, after(launch, 500));
+
+    assert_eq!(paced, Redraw::At(after(launch, 1_000)));
+    assert_eq!(state.view().verdict, Verdict::Failed);
+}
+
+#[test]
+fn where_the_menu_follows_its_closing_a_failed_run_stays_past_the_period() {
+    let mut state = reached(Product::Foxhound);
+    state.apply(Input::Events(vec![axes("broken-crawl", "failed")]));
+    state.apply(Input::Menu(MenuChange::Opened(origin())));
+
+    let later = redrawn(&mut state, origin() + SHOWN_FOR * 2);
+
+    assert_eq!(later, Redraw::Nothing);
+    assert_eq!(state.view().verdict, Verdict::Failed);
+}
+
+#[test]
+fn where_the_menu_is_unreported_a_failed_call_leaves_once_drawn_and_its_period_passed() {
+    let mut state = reached(Product::Foxhound);
+    let launch = origin();
+    state.apply(Input::Menu(MenuChange::Unreported(launch)));
+    state.apply(Input::Answered(
+        Call::Dismiss(NeedsYouDismissParams {
+            item: "storage_level:1".to_owned(),
+        }),
+        Err(CallFailure {
+            code: "needs_you_unknown".to_owned(),
+            message: "No such item".to_owned(),
+        }),
+    ));
+    let drawn_at = after(launch, 5_000);
+    redrawn(&mut state, drawn_at);
+    let shown = lines(&state);
+
+    redrawn(&mut state, drawn_at + SHOWN_FOR);
+
+    assert!(
+        shown.contains(&"Dismissing a Needs you item failed: No such item".to_owned()),
+        "{shown:?}"
+    );
     assert_eq!(
         lines(&state),
         ["Foxhound Daemon 0.4.1", "---", "Open details", "Quit"]

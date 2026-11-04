@@ -26,7 +26,11 @@
 //!   icon is in the panel through the event loop's proxy, as
 //!   `UserEvent::Installed`, and the UI loop draws nothing before.
 //! - **The menu's opening and closing** are not reported by `AppIndicator`,
-//!   so the menu counts as open from launch, as on Windows.
+//!   so the menu counts as open from launch, as on Windows. The panel
+//!   sends dbusmenu's `opened` and `closed` events, but `libdbusmenu-gtk`
+//!   turns them into GTK's `show` and `hide` only on a submenu's widget,
+//!   never on the root menu `AppIndicator` is given, so no GTK signal says
+//!   when the person opens the menu.
 
 use std::cell::{Cell, RefCell};
 

@@ -26,7 +26,7 @@ The icon shows one verdict for the Daemon, worst first, with no numbers:
 A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then the Needs you items, then "Open details" and Quit. With no Daemon running, the menu offers "Start Daemon".
 
 - **Each Run** shows its Recipe, or its Run ID when it ran none, and its Lifecycle. Its progress message goes on the line below. On a Foxhound Daemon, a crawl also shows its succeeded, failed and pending counts.
-- **What it lists.** The menu lists at most 10 Runs and counts the others. A Run that failed or was stopped by a Limit comes first. It stays in the menu and in the icon until the menu that showed it closes.
+- **What it lists.** The menu lists at most 10 Runs and counts the others. A Run that failed or was stopped by a Limit comes first. It stays in the menu and in the icon until the menu that showed it closes. On Linux and Windows, where nothing reports the menu's closing, it stays 30 minutes from the first time the menu drew it instead, and so does a failed action's line: long enough for a person away for a meeting to find it, short enough that the icon does not keep a stale verdict for the day; its desktop notice and the details window keep it after.
 - **Needs you.** The menu lists the Daemon's Needs you items, the longest waiting first, at most 10, and counts the others. Each item opens a submenu that says what waits and offers the actions the item allows, each through its operation:
 
   | Action | Operation | Offered |
@@ -157,7 +157,7 @@ The Kennel is first published with the Products' first publish, never before, un
   - **The subscription.** It subscribes with `events.subscribe` and grants 64 credits. It renews them, at least 32 at a time, once it has applied the events they took. Each subscription starts with `events.resync`, which gives the live Runs and the Needs you items. A queue that filled while the Kennel was slow also comes back as `events.resync`.
   - **The live Runs' rows.** It reads `run.list` of the running Runs after each resync, and when a Run it has no row for starts. A row gives the Run's Recipe and progress message.
   - **Stop reasons.** It reads one `run.progress` of each Run that stopped, to learn whether a Limit stopped it.
-  - **While the menu is open.** It follows `run.progress` of each Run the menu lists: one read at once, then reads that wait for the next change. Closing the menu cancels them. This is how a crawl's counts and a Run's progress message stay current. On Linux and Windows, `tray-icon` does not report when the menu opens or closes, so the menu counts as open for as long as the Kennel runs.
+  - **While the menu is open.** It follows `run.progress` of each Run the menu lists: one read at once, then reads that wait for the next change. Closing the menu cancels them. This is how a crawl's counts and a Run's progress message stay current. On Linux and Windows, `tray-icon` does not report when the menu opens or closes, so the menu counts as open for as long as the Kennel runs. On Linux the panel sends dbusmenu's `opened` and `closed` events, but `libdbusmenu-gtk` turns them into GTK's `show` and `hide` only on a submenu's widget, never on the root menu AppIndicator exports, so no signal says when the menu opens.
 - **Start Daemon.**
   - The action runs `daemon start` of an installed Product, with no shell.
   - It uses the absolute path that the Product's executable recorded in `<home>/installed-executables.json`. Foxhound is preferred, since it contains Collie.

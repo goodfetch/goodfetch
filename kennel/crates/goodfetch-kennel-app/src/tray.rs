@@ -10,8 +10,10 @@
 //! - **Its closing.** On macOS the Tray learns it from `AppKit`
 //!   (`menu_closed`). `tray-icon` reports neither the opening nor the
 //!   closing elsewhere, so on Linux and Windows the menu counts as open
-//!   from launch: it applies every change, paced, and the State follows
-//!   the progress of the Runs it lists for as long as the Kennel runs.
+//!   from launch (`MenuChange::Unreported`): it applies every change,
+//!   paced, the State follows the progress of the Runs it lists for as
+//!   long as the Kennel runs, and a failed or Limit-stopped Run, or a
+//!   failed call, leaves `state::SHOWN_FOR` after it was first drawn.
 //!
 //! Menu choices reach the event loop through its proxy, as
 //! `UserEvent::Menu`. `muda`'s items are not `Send`, and the mouse-down

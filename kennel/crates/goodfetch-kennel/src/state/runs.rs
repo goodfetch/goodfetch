@@ -6,6 +6,7 @@
 //! The menu's rows of the Runs come from here too.
 
 use std::collections::BTreeSet;
+use std::time::Instant;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::progress::RequestProgress;
@@ -49,8 +50,8 @@ pub(super) struct Run {
     pub(super) message: Option<String>,
     /// A crawl's counts, from its last progress read.
     pub(super) counts: Option<Counts>,
-    /// Whether an open menu showed it since it ended.
-    pub(super) seen: bool,
+    /// When an open menu first showed it since it ended.
+    pub(super) seen: Option<Instant>,
     /// Whether its phase came from a resync's replayed state, whose end
     /// sends no desktop notice.
     pub(super) replayed: bool,
@@ -62,7 +63,7 @@ impl Run {
             phase,
             message: None,
             counts: None,
-            seen: false,
+            seen: None,
             replayed: false,
         }
     }
@@ -156,7 +157,7 @@ impl State {
             .or_insert_with(|| Run::new(phase));
         if was != Some(phase) {
             run.phase = phase;
-            run.seen = false;
+            run.seen = None;
             // A running Run's end is a change, whatever listed it.
             run.replayed = replayed && phase != Phase::Running;
             if phase == Phase::Failed && !replayed {
@@ -239,7 +240,7 @@ impl State {
         let (was, replayed) = (run.phase, run.replayed);
         if was != phase {
             run.phase = phase;
-            run.seen = false;
+            run.seen = None;
             run.replayed = replayed && phase != Phase::Running;
             let ended = match phase {
                 Phase::Failed => Some(Ended::Failed),
@@ -332,8 +333,9 @@ impl State {
     }
 
     /// Marks each Run that needs a look and that the open menu lists as
-    /// seen, and the failed call it shows.
-    pub(super) fn mark_seen(&mut self) {
+    /// seen at `at`, and the failed call it shows, each from the first
+    /// time an open menu showed it.
+    pub(super) fn mark_seen(&mut self, at: Instant) {
         let listed: Vec<RunId> = self
             .listed()
             .0
@@ -343,11 +345,11 @@ impl State {
             .collect();
         for id in listed {
             if let Some(run) = self.runs.get_mut(&id) {
-                run.seen = true;
+                run.seen.get_or_insert(at);
             }
         }
         if let Some(failed) = &mut self.failed {
-            failed.seen = true;
+            failed.seen.get_or_insert(at);
         }
     }
 }

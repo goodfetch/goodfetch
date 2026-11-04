@@ -138,11 +138,8 @@ async fn failed_requests(
 /// none.
 fn has_outcomes(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'outcomes'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'outcomes'")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some())
 }
@@ -152,11 +149,13 @@ fn last_position(connection: &Connection) -> rusqlite::Result<u64> {
     if !has_outcomes(connection)? {
         return Ok(0);
     }
-    connection.query_row(
-        "SELECT coalesce(max(position), 0) FROM outcomes",
-        [],
-        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
-    )
+    connection
+        .prepare_cached("SELECT coalesce(max(position), 0) FROM outcomes")
+        .and_then(|mut cached| {
+            cached.query_row([], |row| {
+                Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default())
+            })
+        })
 }
 
 /// The outcomes after `after` that `filter` takes, at most a page, in
@@ -171,7 +170,7 @@ fn page(connection: &Connection, after: u64, filter: &Filter) -> rusqlite::Resul
     let transaction = connection.unchecked_transaction()?;
     let last = last_position(&transaction)?;
     let outcomes = transaction
-        .prepare(
+        .prepare_cached(
             "SELECT outcome FROM outcomes
              WHERE position > ?1 AND position <= ?2
                AND (?3 IS NULL OR kind IN (SELECT value FROM json_each(?3)))
@@ -215,7 +214,7 @@ fn latest_of_readmitted(
     let statuses = serde_json::to_string(work_items::readmitted(blocked))
         .expect("invariant: names encode as JSON");
     connection
-        .prepare(
+        .prepare_cached(
             "SELECT outcomes.outcome FROM outcomes
              JOIN work_items ON work_items.id = outcomes.work_item
              WHERE work_items.status IN (SELECT value FROM json_each(?1))

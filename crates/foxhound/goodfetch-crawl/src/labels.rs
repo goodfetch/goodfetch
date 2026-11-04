@@ -89,8 +89,9 @@ impl Fragments {
     ///
     /// The run file's, when the rows cannot be written.
     pub(crate) fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
-        let mut insert = connection
-            .prepare("INSERT OR REPLACE INTO url_fragments (scope, keeps) VALUES (?1, ?2)")?;
+        let mut insert = connection.prepare_cached(
+            "INSERT OR REPLACE INTO url_fragments (scope, keeps) VALUES (?1, ?2)",
+        )?;
         insert.execute(params![RUN, self.run])?;
         for (label, keeps) in &self.labels {
             insert.execute(params![format!("{LABEL}{label}"), keeps])?;
@@ -104,7 +105,7 @@ impl Fragments {
     ///
     /// The run file's, when the rows cannot be read.
     pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        let mut select = connection.prepare("SELECT scope, keeps FROM url_fragments")?;
+        let mut select = connection.prepare_cached("SELECT scope, keeps FROM url_fragments")?;
         let rows = select.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
         })?;
@@ -167,8 +168,8 @@ pub(crate) fn record(
     connection: &Connection,
     labels: &BTreeMap<String, LabelDeclaration>,
 ) -> rusqlite::Result<()> {
-    let mut insert =
-        connection.prepare("INSERT OR REPLACE INTO labels (name, declaration) VALUES (?1, ?2)")?;
+    let mut insert = connection
+        .prepare_cached("INSERT OR REPLACE INTO labels (name, declaration) VALUES (?1, ?2)")?;
     for (name, declaration) in labels {
         let declaration = serde_json::to_string(declaration)
             .expect("invariant: a Label's declaration encodes as JSON");
@@ -186,7 +187,8 @@ pub(crate) fn record(
 pub(crate) fn read(
     connection: &Connection,
 ) -> rusqlite::Result<BTreeMap<String, LabelDeclaration>> {
-    let mut select = connection.prepare("SELECT name, declaration FROM labels ORDER BY name")?;
+    let mut select =
+        connection.prepare_cached("SELECT name, declaration FROM labels ORDER BY name")?;
     let rows = select.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;

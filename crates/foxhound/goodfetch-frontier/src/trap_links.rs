@@ -254,10 +254,11 @@ pub enum Mark {
 ///
 /// The run state's.
 pub fn suspect(connection: &Connection, id: &str, mark: Mark) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT OR IGNORE INTO trap_link_suspected (work_item, revealable) VALUES (?1, ?2)",
-        rusqlite::params![id, mark == Mark::Revealable],
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT OR IGNORE INTO trap_link_suspected (work_item, revealable) VALUES (?1, ?2)",
+        )
+        .and_then(|mut cached| cached.execute(rusqlite::params![id, mark == Mark::Revealable]))?;
     Ok(())
 }
 
@@ -286,7 +287,8 @@ pub fn seen_again(
     revealable: bool,
 ) -> rusqlite::Result<()> {
     let any_marked = connection
-        .query_row("SELECT 1 FROM trap_link_suspected LIMIT 1", [], |_| Ok(()))
+        .prepare_cached("SELECT 1 FROM trap_link_suspected LIMIT 1")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !any_marked {
@@ -310,15 +312,13 @@ pub fn seen_again(
         Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
     };
     if revealable {
-        connection.execute(
-            "UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1",
-            [reached],
-        )?;
+        connection
+            .prepare_cached("UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1")
+            .and_then(|mut cached| cached.execute([reached]))?;
     } else {
-        connection.execute(
-            "DELETE FROM trap_link_suspected WHERE work_item = ?1",
-            [reached],
-        )?;
+        connection
+            .prepare_cached("DELETE FROM trap_link_suspected WHERE work_item = ?1")
+            .and_then(|mut cached| cached.execute([reached]))?;
     }
     Ok(())
 }
@@ -331,17 +331,16 @@ pub fn seen_again(
 /// The run state's.
 pub fn suspected(connection: &Connection, id: &str) -> rusqlite::Result<Option<Mark>> {
     connection
-        .query_row(
-            "SELECT revealable FROM trap_link_suspected WHERE work_item = ?1",
-            [id],
-            |row| {
+        .prepare_cached("SELECT revealable FROM trap_link_suspected WHERE work_item = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([id], |row| {
                 Ok(if row.get::<_, bool>(0)? {
                     Mark::Revealable
                 } else {
                     Mark::Hidden
                 })
-            },
-        )
+            })
+        })
         .optional()
 }
 

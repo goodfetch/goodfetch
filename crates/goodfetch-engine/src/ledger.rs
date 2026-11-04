@@ -951,7 +951,8 @@ fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Resu
 }
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {
-    let mut statement = connection.prepare(
+    // Kept prepared: each admission of a page reads the Limits (ADR 0138).
+    let mut statement = connection.prepare_cached(
         "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major, set_at
          FROM limits ORDER BY limit_id",
     )?;

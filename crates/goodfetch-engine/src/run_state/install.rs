@@ -276,6 +276,7 @@ fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateE
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
+    connection.set_prepared_statement_cache_capacity(super::STATEMENTS);
     crate::sqlite_wal::enter(&connection, super::SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
@@ -437,11 +438,11 @@ impl State {
     /// without syncing.
     fn commit(&mut self, work: impl FnOnce(&Self) -> rusqlite::Result<()>) -> rusqlite::Result<()> {
         let done = (|| {
-            self.connection.execute_batch("BEGIN IMMEDIATE")?;
+            super::run_cached(&self.connection, "BEGIN IMMEDIATE")?;
             match work(self) {
-                Ok(()) => self.connection.execute_batch("COMMIT"),
+                Ok(()) => super::run_cached(&self.connection, "COMMIT"),
                 Err(error) => {
-                    let _ = self.connection.execute_batch("ROLLBACK");
+                    let _ = super::run_cached(&self.connection, "ROLLBACK");
                     Err(error)
                 }
             }

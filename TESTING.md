@@ -1215,7 +1215,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 ### Profiling
 
-- **CPU: samply,** on macOS and Linux (`samply setup` once on macOS).
+- **CPU: samply 0.13.1,** built from source (`cargo install --locked samply@0.13.1`), on macOS and Linux (`samply setup` once on macOS; on Linux, `kernel.perf_event_paranoid` at most 1 and, where the user's locked memory is short, a larger `kernel.perf_event_mlock_kb`, each set at runtime for the profile only and put back after).
 - **Heap: gungraun's DHAT and heaptrack, on Linux,** with the gnu build and the system allocator `benches/heap.rs` uses; on the owner's machine, in the Lima VM. Instruments' Allocations on macOS when a question needs it.
 - **Async: the ops listener's metrics and Tokio's stable runtime metrics,** through `tracing`. tokio-console is not used: it needs `tokio_unstable`, its own thread and its own TCP listener (ADR 0060).
 

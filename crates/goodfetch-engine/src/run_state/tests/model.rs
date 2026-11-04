@@ -4,7 +4,11 @@
 //! through the crash VFS, each followed by reopening the file. Each case
 //! draws its layout, a run file of its own or one inside the install
 //! database, which then opens through the crash VFS itself, and its
-//! durability, `full` or `fast`. After every step the writer's view, and
+//! durability, `full` or `fast`. Its checkpointer copies the WAL past a
+//! threshold of two pages, so it runs beside nearly every commit, and a
+//! group may run a `PASSIVE` checkpoint of its own connection while the
+//! writer holds the group's transaction: the checkpoint is never refused as
+//! busy, and the writer commits every write of the group (ADR 0138). After every step the writer's view, and
 //! after every crash the reopened file, holds nothing that was never
 //! written, nothing twice, and every acknowledged commit, except those a
 //! power cut may take in `fast` mode; and the run file, and the install
@@ -45,10 +49,13 @@ enum Layout {
 
 #[derive(Clone, Debug)]
 enum Transition {
-    /// `count` writes queued together, the one at `failing` failing.
+    /// `count` writes queued together, the one at `failing` failing, the
+    /// first running a checkpoint on a connection of its own when
+    /// `checkpoint`.
     Commit {
         count: usize,
         failing: Option<usize>,
+        checkpoint: bool,
     },
     /// One write queued, then a crash before the writer commits it.
     CrashDuringCommit(CrashKind),
@@ -81,12 +88,13 @@ impl ReferenceStateMachine for Reference {
 
     fn transitions(_: &Self) -> BoxedStrategy<Transition> {
         prop_oneof![
-            4 => (1_usize..5, proptest::option::of(0_usize..5)).prop_map(|(count, failing)| {
-                Transition::Commit {
+            4 => (1_usize..5, proptest::option::of(0_usize..5), any::<bool>()).prop_map(
+                |(count, failing, checkpoint)| Transition::Commit {
                     count,
                     failing: failing.filter(|failing| *failing < count),
+                    checkpoint,
                 }
-            }),
+            ),
             1 => crash_kind().prop_map(Transition::CrashDuringCommit),
             1 => crash_kind().prop_map(Transition::Crash),
         ]
@@ -95,7 +103,7 @@ impl ReferenceStateMachine for Reference {
 
     fn apply(mut state: Self, transition: &Transition) -> Self {
         match transition {
-            Transition::Commit { count, failing } => {
+            Transition::Commit { count, failing, .. } => {
                 for index in 0..*count {
                     let value = state.next + i64::try_from(index).unwrap();
                     if Some(index) != *failing {
@@ -164,6 +172,7 @@ impl Subject {
         let options = RunStateOptions {
             vfs: Some(self.run_file_vfs()),
             durability: self.durability,
+            wal_checkpoint_after: CHECKPOINT_AFTER,
             ..RunStateOptions::default()
         };
         let state = self
@@ -223,6 +232,24 @@ impl Subject {
     fn state(&self) -> &RunState {
         self.state.as_ref().unwrap()
     }
+}
+
+/// The checkpointer's threshold in the model: two pages of WAL.
+const CHECKPOINT_AFTER: u64 = 2 * 4096;
+
+/// Runs a `PASSIVE` checkpoint of the run file at `path` on a connection of
+/// its own through `vfs`, as the checkpointer does, and answers whether it
+/// was refused as busy (1) or not (0).
+fn passive_checkpoint(path: &str, vfs: &str) -> i64 {
+    let connection = Connection::open_with_flags_and_vfs(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        vfs,
+    )
+    .unwrap();
+    connection
+        .query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| row.get(0))
+        .unwrap()
 }
 
 /// Opens the run file at `path` through `vfs` as the next process would,
@@ -309,22 +336,34 @@ impl StateMachineTest for Subject {
 
     fn apply(mut subject: Self, reference: &Reference, transition: Transition) -> Self {
         match transition {
-            Transition::Commit { count, failing } => {
+            Transition::Commit {
+                count,
+                failing,
+                checkpoint,
+            } => {
                 let first = reference.next - i64::try_from(count).unwrap();
                 let state = subject.state().clone();
+                let (path, vfs) = (subject.path.clone(), subject.run_file_vfs());
                 let answers = subject.runtime.block_on(async {
                     let writes = (0..count).map(|index| {
                         let state = state.clone();
                         let value = first + i64::try_from(index).unwrap();
                         let fails = Some(index) == failing;
+                        let checkpoints = checkpoint && index == 0;
+                        let (path, vfs) = (path.clone(), vfs.clone());
                         async move {
                             state
                                 .write(move |connection| {
                                     insert(value)(connection)?;
+                                    let busy = if checkpoints {
+                                        passive_checkpoint(&path, &vfs)
+                                    } else {
+                                        0
+                                    };
                                     if fails {
                                         return Err(rusqlite::Error::InvalidQuery);
                                     }
-                                    Ok(())
+                                    Ok(busy)
                                 })
                                 .await
                         }
@@ -334,6 +373,12 @@ impl StateMachineTest for Subject {
                 for (index, answer) in answers.iter().enumerate() {
                     assert_eq!(answer.is_ok(), Some(index) != failing, "{answers:?}");
                 }
+                assert!(
+                    answers
+                        .iter()
+                        .all(|answer| answer.as_ref().map_or(true, |busy| *busy == 0)),
+                    "a checkpoint beside the writer's transaction was refused as busy: {answers:?}"
+                );
             }
             Transition::CrashDuringCommit(kind) => {
                 let value = reference.next - 1;

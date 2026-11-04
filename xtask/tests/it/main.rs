@@ -70,6 +70,7 @@ mod perf_drift;
 mod perf_reference;
 #[cfg(unix)]
 mod perf_run;
+mod perf_script;
 mod pre_merge;
 mod quarantine;
 mod received_requests;

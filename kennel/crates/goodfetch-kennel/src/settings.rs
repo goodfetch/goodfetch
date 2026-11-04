@@ -4,6 +4,10 @@
 //! platform's file notifications report. A missing file gives the
 //! defaults; a file that cannot be read gives the defaults and says why.
 //! Each later feature adds its switch here, with a free off state.
+//!
+//! The window's Kennel settings view changes them through [`edit`], which
+//! rewrites only the key it changes, keeping the file's other keys and its
+//! comments as written; the watch then reports the change like any other.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,7 +17,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::home::{Home, canonical, read_if_present};
+use crate::home::{self, Home, canonical, read_if_present};
 use crate::tasks::Tasks;
 
 /// The Kennel's settings.
@@ -36,8 +40,17 @@ pub struct Settings {
     /// Whether the menu offers "Open details", the details window; off
     /// gives a menu-only Kennel.
     pub window: bool,
+    /// Whether the Kennel starts when the person logs in, through a
+    /// launchd user agent that opens the installed `.app` (macOS).
+    pub start_at_login: bool,
+    /// Whether the Kennel checks once at launch that its icon shows in the
+    /// menu bar, and opens the details window with a note when it is
+    /// hidden behind the notch or in the overflow (macOS).
+    pub hidden_icon_check: bool,
     /// The desktop notices, the `[notifications]` table.
     pub notifications: Notifications,
+    /// The details window's views, the `[views]` table.
+    pub views: Views,
 }
 
 impl Default for Settings {
@@ -47,7 +60,27 @@ impl Default for Settings {
             confirm_stop: true,
             keep_daemon_alive: false,
             window: true,
+            start_at_login: false,
+            hidden_icon_check: true,
             notifications: Notifications::default(),
+            views: Views::default(),
+        }
+    }
+}
+
+/// A switch for each of the details window's views (ADR 0141); the Runs
+/// table's is `window` itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Views {
+    /// The Kennel's own settings, which the view edits.
+    pub kennel_settings: bool,
+}
+
+impl Default for Views {
+    fn default() -> Self {
+        Self {
+            kennel_settings: true,
         }
     }
 }
@@ -108,6 +141,145 @@ pub enum SettingsError {
     /// says where, for the person who edits it.
     #[error("{0}")]
     Unreadable(String),
+    /// The edited file could not be written; the text says why.
+    #[error("{0}")]
+    Unwritable(String),
+}
+
+/// A switch of the settings, which the Kennel settings view turns on or
+/// off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Switch {
+    /// `controls`.
+    Controls,
+    /// `confirm_stop`.
+    ConfirmStop,
+    /// `window`.
+    Window,
+    /// `keep_daemon_alive`.
+    KeepDaemonAlive,
+    /// `start_at_login`.
+    StartAtLogin,
+    /// `hidden_icon_check`.
+    HiddenIconCheck,
+    /// `notifications.enabled`.
+    Notices,
+    /// `notifications.needs_you`.
+    NeedsYouNotice,
+    /// `notifications.run_failed`.
+    RunFailedNotice,
+    /// `notifications.run_stopped_by_limit`.
+    RunStoppedByLimitNotice,
+    /// `notifications.daemon_lost`.
+    DaemonLostNotice,
+    /// `notifications.run_finished`.
+    RunFinishedNotice,
+    /// `views.kennel_settings`.
+    KennelSettingsView,
+}
+
+impl Switch {
+    /// Every switch, in the order the Kennel settings view lists them.
+    pub const ALL: [Self; 13] = [
+        Self::Controls,
+        Self::ConfirmStop,
+        Self::Window,
+        Self::KeepDaemonAlive,
+        Self::StartAtLogin,
+        Self::HiddenIconCheck,
+        Self::Notices,
+        Self::NeedsYouNotice,
+        Self::RunFailedNotice,
+        Self::RunStoppedByLimitNotice,
+        Self::DaemonLostNotice,
+        Self::RunFinishedNotice,
+        Self::KennelSettingsView,
+    ];
+
+    /// Whether `settings` turn it on.
+    pub fn of(self, settings: &Settings) -> bool {
+        let notices = &settings.notifications;
+        match self {
+            Self::Controls => settings.controls,
+            Self::ConfirmStop => settings.confirm_stop,
+            Self::Window => settings.window,
+            Self::KeepDaemonAlive => settings.keep_daemon_alive,
+            Self::StartAtLogin => settings.start_at_login,
+            Self::HiddenIconCheck => settings.hidden_icon_check,
+            Self::Notices => notices.enabled,
+            Self::NeedsYouNotice => notices.needs_you,
+            Self::RunFailedNotice => notices.run_failed,
+            Self::RunStoppedByLimitNotice => notices.run_stopped_by_limit,
+            Self::DaemonLostNotice => notices.daemon_lost,
+            Self::RunFinishedNotice => notices.run_finished,
+            Self::KennelSettingsView => settings.views.kennel_settings,
+        }
+    }
+
+    /// Its key in the file: its table, if any, and its name.
+    fn key(self) -> (Option<&'static str>, &'static str) {
+        match self {
+            Self::Controls => (None, "controls"),
+            Self::ConfirmStop => (None, "confirm_stop"),
+            Self::Window => (None, "window"),
+            Self::KeepDaemonAlive => (None, "keep_daemon_alive"),
+            Self::StartAtLogin => (None, "start_at_login"),
+            Self::HiddenIconCheck => (None, "hidden_icon_check"),
+            Self::Notices => (Some(NOTIFICATIONS), "enabled"),
+            Self::NeedsYouNotice => (Some(NOTIFICATIONS), "needs_you"),
+            Self::RunFailedNotice => (Some(NOTIFICATIONS), "run_failed"),
+            Self::RunStoppedByLimitNotice => (Some(NOTIFICATIONS), "run_stopped_by_limit"),
+            Self::DaemonLostNotice => (Some(NOTIFICATIONS), "daemon_lost"),
+            Self::RunFinishedNotice => (Some(NOTIFICATIONS), "run_finished"),
+            Self::KennelSettingsView => (Some(VIEWS), "kennel_settings"),
+        }
+    }
+}
+
+/// The `[notifications]` table's name.
+const NOTIFICATIONS: &str = "notifications";
+/// The `[views]` table's name.
+const VIEWS: &str = "views";
+
+/// A change the Kennel settings view makes to the settings file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edit {
+    /// Turns the switch on or off.
+    Switch(Switch, bool),
+    /// Sets the minutes over which a burst of desktop notices coalesces.
+    Period(u32),
+}
+
+/// Makes `edit` to the settings file at `path`, which it makes when
+/// missing: only the key it changes is rewritten, so the file's other
+/// keys, even those the Kennel does not know, and its comments stay as
+/// written. The file is replaced by rename, never written in place. A
+/// file that is not TOML is left as it is. Blocks.
+pub fn edit(path: &Path, edit: Edit) -> Result<(), SettingsError> {
+    let unreadable = |error: &dyn std::fmt::Display| SettingsError::Unreadable(error.to_string());
+    let text = match read_if_present(path).map_err(|error| unreadable(&error))? {
+        Some(bytes) => String::from_utf8(bytes).map_err(|error| unreadable(&error))?,
+        None => String::new(),
+    };
+    let mut document: toml_edit::DocumentMut = text.parse().map_err(|error| unreadable(&error))?;
+    let ((table, key), value) = match edit {
+        Edit::Switch(switch, on) => (switch.key(), toml_edit::value(on)),
+        Edit::Period(minutes) => (
+            (Some(NOTIFICATIONS), "period_minutes"),
+            toml_edit::value(i64::from(minutes)),
+        ),
+    };
+    let keys = match table {
+        None => document.as_table_mut() as &mut dyn toml_edit::TableLike,
+        Some(table) => document
+            .entry(table)
+            .or_insert_with(toml_edit::table)
+            .as_table_like_mut()
+            .ok_or_else(|| SettingsError::Unreadable(format!("`{table}` is not a table")))?,
+    };
+    keys.insert(key, value);
+    home::replace(path, document.to_string().as_bytes())
+        .map_err(|error| SettingsError::Unwritable(error.to_string()))
 }
 
 /// The settings in the file at `path`, or the defaults when it does not

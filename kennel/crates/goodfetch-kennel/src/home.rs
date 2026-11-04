@@ -11,7 +11,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, TryLockError};
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
@@ -155,4 +155,21 @@ pub(crate) fn read_if_present(path: &Path) -> io::Result<Option<Vec<u8>>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// Replaces the file at `path` with `bytes`, safely: they are written to a
+/// temporary file in the same folder, which then takes the file's place by
+/// rename, so a reader sees the old contents or the new, never a part.
+/// The folder is made when missing. Blocks.
+pub(crate) fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let folder = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(folder)?;
+    let mut file = tempfile::NamedTempFile::new_in(folder)?;
+    file.write_all(bytes)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }

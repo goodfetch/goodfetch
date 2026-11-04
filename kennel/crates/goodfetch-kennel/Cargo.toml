@@ -17,10 +17,13 @@ jiff.workspace = true
 notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The settings file and the login agent, replaced by rename.
+tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 toml.workspace = true
+toml_edit.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

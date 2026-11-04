@@ -7,7 +7,10 @@
 use std::fs;
 
 use goodfetch_kennel::home::Home;
-use goodfetch_kennel::settings::{self, Notifications, Settings, SettingsError};
+use goodfetch_kennel::settings::{
+    self, Edit, Notifications, Settings, SettingsError, Switch, Views,
+};
+use rstest::rstest;
 
 use crate::support::{next, reports, runtime};
 
@@ -33,6 +36,33 @@ fn without_a_settings_file_the_defaults_apply() {
                 period_minutes: 20,
             },
             window: true,
+            start_at_login: false,
+            hidden_icon_check: true,
+            views: Views {
+                kennel_settings: true,
+            },
+        })
+    );
+}
+
+#[test]
+fn starting_at_login_and_the_hidden_icon_check_are_settings_of_their_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(
+        home.settings_file(),
+        "start_at_login = true\nhidden_icon_check = false\n",
+    )
+    .unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            start_at_login: true,
+            hidden_icon_check: false,
+            ..Settings::default()
         })
     );
 }
@@ -185,6 +215,157 @@ fn turning_the_window_off_is_a_setting_of_its_own() {
         read,
         Ok(Settings {
             window: false,
+            ..Settings::default()
+        })
+    );
+}
+
+#[rstest]
+#[case::controls(Edit::Switch(Switch::Controls, false), "controls = false")]
+#[case::confirm_stop(Edit::Switch(Switch::ConfirmStop, false), "confirm_stop = false")]
+#[case::window(Edit::Switch(Switch::Window, false), "window = false")]
+#[case::keep_daemon_alive(
+    Edit::Switch(Switch::KeepDaemonAlive, true),
+    "keep_daemon_alive = true"
+)]
+#[case::start_at_login(Edit::Switch(Switch::StartAtLogin, true), "start_at_login = true")]
+#[case::hidden_icon_check(
+    Edit::Switch(Switch::HiddenIconCheck, false),
+    "hidden_icon_check = false"
+)]
+#[case::notices(
+    Edit::Switch(Switch::Notices, false),
+    "[notifications]\nenabled = false"
+)]
+#[case::needs_you(
+    Edit::Switch(Switch::NeedsYouNotice, false),
+    "[notifications]\nneeds_you = false"
+)]
+#[case::run_failed(
+    Edit::Switch(Switch::RunFailedNotice, false),
+    "[notifications]\nrun_failed = false"
+)]
+#[case::run_stopped_by_limit(
+    Edit::Switch(Switch::RunStoppedByLimitNotice, false),
+    "[notifications]\nrun_stopped_by_limit = false"
+)]
+#[case::daemon_lost(
+    Edit::Switch(Switch::DaemonLostNotice, false),
+    "[notifications]\ndaemon_lost = false"
+)]
+#[case::run_finished(
+    Edit::Switch(Switch::RunFinishedNotice, true),
+    "[notifications]\nrun_finished = true"
+)]
+#[case::kennel_settings_view(
+    Edit::Switch(Switch::KennelSettingsView, false),
+    "[views]\nkennel_settings = false"
+)]
+#[case::period(Edit::Period(5), "[notifications]\nperiod_minutes = 5")]
+fn an_edit_writes_its_key_into_a_missing_settings_file(#[case] edit: Edit, #[case] written: &str) {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let expected = folder.path().join("expected.toml");
+    fs::write(&expected, written).unwrap();
+
+    settings::edit(&home.settings_file(), edit).unwrap();
+
+    assert_eq!(
+        settings::read(&home.settings_file()),
+        settings::read(&expected)
+    );
+    assert_ne!(settings::read(&expected), Ok(Settings::default()));
+}
+
+#[test]
+fn an_edit_keeps_the_files_other_keys_and_comments_as_written() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let before = "# my Kennel\ncontrols = false # read-only\n\n[notifications]\n# quiet\nperiod_minutes = 5\nlater_key = \"kept\"\n";
+    fs::write(home.settings_file(), before).unwrap();
+
+    settings::edit(
+        &home.settings_file(),
+        Edit::Switch(Switch::RunFinishedNotice, true),
+    )
+    .unwrap();
+    settings::edit(
+        &home.settings_file(),
+        Edit::Switch(Switch::StartAtLogin, true),
+    )
+    .unwrap();
+
+    let after = fs::read_to_string(home.settings_file()).unwrap();
+    assert_eq!(
+        after,
+        "# my Kennel\ncontrols = false # read-only\nstart_at_login = true\n\n[notifications]\n# quiet\nperiod_minutes = 5\nlater_key = \"kept\"\nrun_finished = true\n"
+    );
+}
+
+#[test]
+fn an_edit_of_a_file_that_is_not_toml_changes_nothing_and_says_why() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "controls = \n").unwrap();
+
+    let edited = settings::edit(&home.settings_file(), Edit::Switch(Switch::Controls, false));
+
+    assert!(
+        matches!(edited, Err(SettingsError::Unreadable(_))),
+        "{edited:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(home.settings_file()).unwrap(),
+        "controls = \n"
+    );
+}
+
+#[test]
+fn an_edit_into_a_table_written_as_another_value_changes_nothing() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "notifications = false\n").unwrap();
+
+    let edited = settings::edit(&home.settings_file(), Edit::Period(5));
+
+    assert!(
+        matches!(edited, Err(SettingsError::Unreadable(_))),
+        "{edited:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(home.settings_file()).unwrap(),
+        "notifications = false\n"
+    );
+}
+
+#[test]
+fn an_edit_shows_through_the_watch_of_the_settings_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let runtime = runtime();
+    let (tasks, report, mut reports) = reports(&runtime);
+    tasks.spawn(settings::follow(tasks.clone(), home.clone(), report));
+    let at_launch = runtime.block_on(next(&mut reports));
+
+    settings::edit(
+        &home.settings_file(),
+        Edit::Switch(Switch::StartAtLogin, true),
+    )
+    .unwrap();
+    let after_the_edit = runtime.block_on(async {
+        loop {
+            let read = next(&mut reports).await;
+            if read != at_launch {
+                return read;
+            }
+        }
+    });
+
+    assert_eq!(at_launch, Ok(Settings::default()));
+    assert_eq!(
+        after_the_edit,
+        Ok(Settings {
+            start_at_login: true,
             ..Settings::default()
         })
     );

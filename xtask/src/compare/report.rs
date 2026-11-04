@@ -78,6 +78,10 @@ pub(crate) enum CellStatus {
     Pending {
         reason: &'static str,
     },
+    /// Its timed trial was stopped twice (see `run::stopped`).
+    NotMeasured {
+        reason: String,
+    },
 }
 
 /// One scenario's report.
@@ -461,10 +465,20 @@ fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedR
 fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, &'a str> {
     match growth {
         GrowthCell::NotRun { reason } => Err(reason),
-        GrowthCell::Measured { trials_run, .. } => Ok(trials_run
+        GrowthCell::Measured {
+            trials_run,
+            stopped,
+            ..
+        } => match stopped
             .iter()
-            .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
-            .collect()),
+            .find(|run| run.scenario == cell.scenario && run.cell == cell.name)
+        {
+            Some(run) => Err(&run.reason),
+            None => Ok(trials_run
+                .iter()
+                .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
+                .collect()),
+        },
     }
 }
 
@@ -496,6 +510,15 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
 }
 
 /// The report of trials that passed the same-work check.
+/// Why `cell`'s timed trial was stopped twice, if it was.
+fn stopped_reason(trials: &Comparison, cell: &Cell) -> Option<String> {
+    trials
+        .stopped
+        .iter()
+        .find(|run| run.scenario == cell.scenario && run.cell == cell.name)
+        .map(|run| run.reason.clone())
+}
+
 pub(crate) fn of(trials: &Comparison) -> Report<'_> {
     let mut scenarios = Vec::new();
     let mut tools = BTreeMap::new();
@@ -505,6 +528,9 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
             let status = match cell.status {
                 Status::NotSupported(reason) => CellStatus::NotSupported { reason },
                 Status::Pending(reason) => CellStatus::Pending { reason },
+                Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
+                    CellStatus::NotMeasured { reason }
+                }
                 Status::Measured(_) => {
                     let ran: Vec<&Trial> = trials
                         .trials
@@ -742,6 +768,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 CellStatus::Pending { reason } => {
                     let _ = writeln!(text, "  - pending: {reason}.");
                 }
+                CellStatus::NotMeasured { reason } => {
+                    let _ = writeln!(text, "  - not measured: {reason}.");
+                }
                 CellStatus::Measured {
                     trials,
                     pages,
@@ -760,7 +789,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             .iter()
             .filter_map(|cell| match &cell.status {
                 CellStatus::Measured { metrics, curve, .. } => Some((cell.cell, metrics, curve)),
-                CellStatus::NotSupported { .. } | CellStatus::Pending { .. } => None,
+                CellStatus::NotSupported { .. }
+                | CellStatus::Pending { .. }
+                | CellStatus::NotMeasured { .. } => None,
             })
             .collect();
         if measured.is_empty() {
@@ -843,7 +874,10 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             "| {} | {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
             trial.scenario.name(),
             trial.cell,
-            trial.number,
+            trial.retried.as_ref().map_or_else(
+                || trial.number.to_string(),
+                |why| format!("{} (retried: {why})", trial.number)
+            ),
             trial
                 .load
                 .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),

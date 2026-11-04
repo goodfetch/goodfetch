@@ -78,9 +78,9 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles, Stop,
-    TierChoice, infer_plan, tier_serves,
+    AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
+    Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
+    Stop, TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -270,6 +270,9 @@ pub(super) struct Gating {
     /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
     /// file and RSL licenses, each once for all its requests.
     pub(super) signal_files: SignalFiles,
+    /// The attempt's HTTP admission, given back once its document is
+    /// fetched, else once it ends.
+    pub(super) fetch_admission: FetchAdmission,
 }
 
 impl Gating {
@@ -324,6 +327,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            fetch_admission: self.fetch_admission.clone(),
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),

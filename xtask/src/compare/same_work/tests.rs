@@ -30,6 +30,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
                 number,
                 site_pages: 4,
                 load: None,
+                retried: None,
                 measured: Measured {
                     seconds: 1.0,
                     work: work(cell.scenario, number),
@@ -63,6 +64,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
         commit: "0".repeat(40),
         order_seed: 7,
         trials,
+        stopped: Vec::new(),
         syscalls: CountedCell::NotRun {
             reason: "a test".to_owned(),
         },

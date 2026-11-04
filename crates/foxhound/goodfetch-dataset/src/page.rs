@@ -23,7 +23,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
 use serde_json::Value;
 
-use crate::declaration::Datasets;
+use crate::declaration::Declarations;
 use crate::records::{RECORD_COLUMNS, dataset_record, last_number};
 
 /// The handler of `dataset.page`.
@@ -61,7 +61,7 @@ async fn page(params: DatasetPageParams, context: CallContext) -> Result<Dataset
         .await
         .map_err(failed)?;
     reader
-        .read(Datasets::read)
+        .read(Declarations::read)
         .await
         .map_err(failed)?
         .readable(&params.dataset)?;

@@ -69,6 +69,7 @@ use std::time::SystemTime;
 
 use futures_util::future::join_all;
 use goodfetch_counted_work::Row;
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -282,6 +283,7 @@ fn wall_ms(run: &Run) -> u64 {
 fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
+        .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())
 }
 
@@ -497,18 +499,18 @@ pub(crate) async fn resume(
                 labels::read(connection)?,
                 labels::Fragments::read(connection)?,
                 tier_choice::read(connection)?,
-                code_free::read(connection)?,
+                (code_free::read(connection)?, Datasets::read(connection)?),
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices, extraction)| {
+    let left = left.map(|(left, declared, fragments, choices, declarations)| {
         let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::default()
         });
-        (left, (labels, choices, extraction))
+        (left, (labels, choices, declarations))
     });
-    let (labels, choices, extraction) = match left {
+    let (labels, choices, (extraction, datasets)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -523,7 +525,7 @@ pub(crate) async fn resume(
         Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
-    let opened = crawls.open(&run, egress).await;
+    let opened = crawls.open(&run, egress, datasets).await;
     let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
     drive(
         run,

@@ -6,7 +6,7 @@
 //! writer, so it works on a Run no program holds; a Run no crawl wrote
 //! declares none.
 
-use goodfetch_dataset::Datasets;
+use goodfetch_dataset::Declarations;
 use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::RunError;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -49,7 +49,7 @@ fn listed(connection: &Connection) -> rusqlite::Result<DatasetList> {
         });
     }
     let (_, counted) = crate::report::ended(connection)?;
-    let datasets = Datasets::read(connection)?
+    let datasets = Declarations::read(connection)?
         .declarations()
         .iter()
         .map(|declared| {

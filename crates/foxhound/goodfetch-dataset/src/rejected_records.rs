@@ -15,7 +15,7 @@ use goodfetch_protocol::foxhound::rejections::{
 
 use rusqlite::{Connection, OptionalExtension as _};
 
-use crate::declaration::Datasets;
+use crate::declaration::Declarations;
 use crate::rejections::{self, Page};
 
 /// The handler of `run.rejected_records`.
@@ -43,9 +43,9 @@ async fn rejected_records(
     reader
         .read(move |connection| {
             if has_rejection_table(connection)? {
-                Datasets::read(connection)
+                Declarations::read(connection)
             } else {
-                Ok(Datasets::default())
+                Ok(Declarations::default())
             }
         })
         .await

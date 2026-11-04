@@ -38,11 +38,12 @@ fn counted(work: &CountedWork) -> (u64, u64) {
     )
 }
 
-/// F4's check is counted on both of its ways in, and a Dataset with no schema
-/// does neither; declaring a schema, once as the crawl starts, is no Record's
-/// work.
+/// F4's check validates once on both of its ways in, under a validator built
+/// when the crawl starts, and a Dataset with no schema validates nothing;
+/// building each schema's validator, once as the crawl starts, is no Record's
+/// work (ADR 0138).
 #[test]
-fn a_records_check_counts_its_validator_and_its_validation_only_under_a_schema() {
+fn a_records_check_validates_only_under_a_schema_and_builds_no_validator() {
     let datasets = declared();
     let work = CountedWork::default();
     assert_eq!(counted(&work), (0, 0));
@@ -50,27 +51,27 @@ fn a_records_check_counts_its_validator_and_its_validation_only_under_a_schema()
     datasets
         .check(vec![pushed("books", json!({ "title": "Dune" }))], &work)
         .unwrap();
-    assert_eq!(counted(&work), (1, 1));
+    assert_eq!(counted(&work), (0, 1));
 
     datasets
         .check_pushed(pushed("books", json!({ "title": "Emma" })), &work)
         .unwrap();
-    assert_eq!(counted(&work), (2, 2));
+    assert_eq!(counted(&work), (0, 2));
 
     datasets
         .check_pushed(pushed("free", json!({ "title": "Kim" })), &work)
         .unwrap();
-    assert_eq!(counted(&work), (2, 2));
+    assert_eq!(counted(&work), (0, 2));
 }
 
-/// A refused push's rejection names its issues by checking the Record again:
-/// that second check is counted, so the row sees it.
+/// A refused push's rejection names the issues its one check found: the
+/// Record is validated once, refused or not (the audit's F4-1).
 #[test]
-fn a_refused_push_counts_the_second_check_its_rejection_makes() {
+fn a_refused_push_validates_its_record_once() {
     let work = CountedWork::default();
 
     let refused = declared().check_pushed(pushed("books", json!({})), &work);
 
     assert!(refused.is_err());
-    assert_eq!(counted(&work), (2, 2));
+    assert_eq!(counted(&work), (0, 1));
 }

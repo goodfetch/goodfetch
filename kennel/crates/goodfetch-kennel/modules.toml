@@ -1,0 +1,14 @@
+# Which of goodfetch-kennel's top-level modules may import which (ADR 0126),
+# checked by `xtask modules --workspace kennel` in `just kennel-check`.
+[modules]
+client = ["home", "reports", "tasks"]
+daemon_start = ["home"]
+home = []
+login = ["home"]
+menu = ["state"]
+reports = []
+settings = ["home", "reports", "tasks"]
+state = ["client", "daemon_start", "settings", "text", "window"]
+tasks = []
+text = []
+window = ["text"]

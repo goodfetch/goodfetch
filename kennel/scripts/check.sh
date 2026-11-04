@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The Kennel's checks (ADR 0141), `just kennel-check`, the gate's `kennel`
-# step: its workspace's Clippy, with `-D warnings`, and its tests. The
+# step: the module and size check of its crates (ADR 0126, through the
+# root's `xtask modules`, which reads their source and builds nothing),
+# its workspace's Clippy, with `-D warnings`, and its tests. The
 # Client's tests run goodfetch-scripted-engine as a process (ADR 0069), and
 # the Run controls' test runs a real Daemon of goodfetch-collie; the root
 # workspace builds both here with the tests' Cargo profile, and the tests
@@ -41,6 +43,7 @@ skip() {
 # Collie's executable embeds its Console build, made first (ADR 0057), and
 # needs its `executable` feature (ADR 0094), as `xtask test-tools` builds it.
 cargo run --quiet --locked -p xtask -- console build
+cargo run --quiet --locked -p xtask -- modules --workspace kennel
 built=$(cargo build --quiet --locked --profile "$profile" -p goodfetch-test-support \
   --bin goodfetch-scripted-engine -p goodfetch-collie --bin goodfetch-collie \
   --features executable --message-format json)

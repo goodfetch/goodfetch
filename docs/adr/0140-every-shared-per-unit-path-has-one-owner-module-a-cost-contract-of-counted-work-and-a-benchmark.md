@@ -177,7 +177,7 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The prepares row is not a series of `goodfetch.counted_work`:** the Daemon runs under no Callgrind, and a series that stays 0 would say something false.
 > - **A Payload reaches B1 on a seed,** as a code-free crawl's links carry none: its validator, validation and serializations are counted on `frontier_payload`, whoever checks it. The batch's own Payload cost is reached once B1 has a handler.
 
-> Note (agent decisions of #1907, pending owner review), 2026-11-04, on `F2.prepares`:
+> Note (agent decisions of #1907, accepted by the owner on 2026-11-04), 2026-11-04, on `F2.prepares`:
 > - **`F2.prepares` counts what each page more prepares beneath the `run_state` writer's functions,** not every preparation of the process over a whole cell. Each cell runs twice under Callgrind, on the whole site and on a site linking half its pages, and the row is the difference over the pages the whole site adds (`added_pages`). A Run's once-only preparations (its file's tables, each statement's first preparation in the cache, its end) would otherwise keep a contract of 0 out of reach whatever the cache holds, and the difference still counts each statement the cache let go and prepared again. Only the preparations with a `goodfetch_engine::run_state::` function among their 32 nearest callers count: the Politeness file's are `E6.opens`', and the Run index and Usage ledger have their own rows; a statement of another store run inside a run-state write (the Limits an admission reads) counts, since it runs on the attempt's path.
 
 > Note (agent decisions of #1861, pending owner review), 2026-11-02, on how B2's tracer builds "The benchmarks" and C1's rows:

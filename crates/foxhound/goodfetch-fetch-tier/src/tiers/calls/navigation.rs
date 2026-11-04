@@ -143,11 +143,11 @@ pub(super) async fn navigate(
     // A handler's own navigation takes no `fetch.encoding` and no
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
-    // is never served. The document is read on the blocking pool.
+    // is never served. The document is read on the CPU pool.
     let opened = {
         let (reading, read) = (run.clone(), fetched.clone());
         run.owner()
-            .blocking(move || Opened::of(&reading, read, (None, extractor)))
+            .analysis(move || Opened::of(&reading, read, (None, extractor)))
             .await
     };
     if opened.read.is_none() && opened.not_document.is_none() {

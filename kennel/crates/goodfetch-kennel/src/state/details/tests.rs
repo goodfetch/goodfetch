@@ -556,3 +556,172 @@ fn field(label: &str, value: &str) -> Field {
         value: value.to_owned(),
     }
 }
+
+mod kennel_settings {
+    //! The Kennel settings view: the settings as the file holds them, a
+    //! change in the file shown, and the view a setting of its own.
+
+    use super::super::{Details, Input, KennelSettingsView, View};
+    use crate::settings::{Notifications, Settings, SettingsError, Switch, Views};
+
+    fn shown_settings(details: &Details) -> KennelSettingsView {
+        let view = details.view();
+        assert_eq!(view.shown, View::KennelSettings);
+        view.kennel_settings
+            .expect("the Kennel settings view shows the settings")
+    }
+
+    fn switches(view: &KennelSettingsView) -> Vec<(Switch, bool)> {
+        view.sections
+            .iter()
+            .flat_map(|section| &section.switches)
+            .map(|line| (line.switch, line.on))
+            .collect()
+    }
+
+    #[test]
+    fn the_view_shows_each_setting_as_the_file_holds_it() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings {
+            start_at_login: true,
+            notifications: Notifications {
+                run_finished: true,
+                period_minutes: 5,
+                ..Notifications::default()
+            },
+            ..Settings::default()
+        })));
+
+        details.apply(Input::Show(View::KennelSettings));
+
+        let view = shown_settings(&details);
+        assert_eq!(
+            switches(&view),
+            [
+                (Switch::Controls, true),
+                (Switch::ConfirmStop, true),
+                (Switch::Window, true),
+                (Switch::KeepDaemonAlive, false),
+                (Switch::StartAtLogin, true),
+                (Switch::HiddenIconCheck, true),
+                (Switch::Notices, true),
+                (Switch::NeedsYouNotice, true),
+                (Switch::RunFailedNotice, true),
+                (Switch::RunStoppedByLimitNotice, true),
+                (Switch::DaemonLostNotice, true),
+                (Switch::RunFinishedNotice, true),
+                (Switch::KennelSettingsView, true),
+            ]
+        );
+        assert_eq!(
+            view.sections
+                .iter()
+                .filter_map(|section| section.period.as_ref())
+                .map(|period| period.minutes)
+                .collect::<Vec<_>>(),
+            [5]
+        );
+        assert_eq!(view.note, None);
+    }
+
+    #[test]
+    fn a_change_in_the_file_shows_in_the_view() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings::default())));
+        details.apply(Input::Show(View::KennelSettings));
+
+        details.apply(Input::Settings(Ok(Settings {
+            hidden_icon_check: false,
+            ..Settings::default()
+        })));
+
+        assert!(switches(&shown_settings(&details)).contains(&(Switch::HiddenIconCheck, false)));
+    }
+
+    #[test]
+    fn an_unreadable_file_shows_the_defaults_and_says_why() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings {
+            controls: false,
+            ..Settings::default()
+        })));
+        details.apply(Input::Show(View::KennelSettings));
+
+        details.apply(Input::Settings(Err(SettingsError::Unreadable(
+            "unknown field `contrls`".to_owned(),
+        ))));
+
+        let view = shown_settings(&details);
+        assert!(switches(&view).contains(&(Switch::Controls, true)));
+        assert!(
+            view.note
+                .as_deref()
+                .is_some_and(|note| note.contains("unknown field `contrls`")),
+            "{:?}",
+            view.note
+        );
+    }
+
+    #[test]
+    fn a_failed_edit_says_why_until_the_file_is_read_again() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings::default())));
+        details.apply(Input::Show(View::KennelSettings));
+
+        details.apply(Input::EditFailed(SettingsError::Unwritable(
+            "permission denied".to_owned(),
+        )));
+        let failed = shown_settings(&details).note;
+        details.apply(Input::Settings(Ok(Settings::default())));
+        let read_again = shown_settings(&details).note;
+
+        assert!(
+            failed
+                .as_deref()
+                .is_some_and(|note| note.contains("permission denied")),
+            "{failed:?}"
+        );
+        assert_eq!(read_again, None);
+    }
+
+    #[test]
+    fn with_its_switch_off_the_view_is_not_offered_and_the_runs_show() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings::default())));
+        details.apply(Input::Show(View::KennelSettings));
+
+        details.apply(Input::Settings(Ok(Settings {
+            views: Views {
+                kennel_settings: false,
+            },
+            ..Settings::default()
+        })));
+
+        let view = details.view();
+        assert_eq!(view.views, [View::Runs]);
+        assert_eq!(view.shown, View::Runs);
+        assert_eq!(view.kennel_settings, None);
+    }
+
+    #[test]
+    fn before_the_settings_are_read_only_the_runs_are_offered() {
+        let mut details = Details::new();
+
+        details.apply(Input::Show(View::KennelSettings));
+
+        let view = details.view();
+        assert_eq!(view.views, [View::Runs]);
+        assert_eq!(view.shown, View::Runs);
+    }
+
+    #[test]
+    fn the_runs_show_until_the_person_chooses_another_view() {
+        let mut details = Details::new();
+        details.apply(Input::Settings(Ok(Settings::default())));
+
+        let view = details.view();
+
+        assert_eq!(view.views, [View::Runs, View::KennelSettings]);
+        assert_eq!(view.shown, View::Runs);
+    }
+}

@@ -14,6 +14,13 @@
 //!   chosen Run's report, which a live Run answers at its end; its Usage,
 //!   read again at each new progress while it runs. Nothing while the
 //!   window is closed or no Daemon is reached.
+//! - **The Kennel settings view** (`kennel_settings`): the Kennel's own
+//!   settings as `kennel.toml` holds them, which the window edits; a
+//!   change in the file, the window's own edits included, comes back
+//!   through the settings' watch.
+//! - **The views offered**: the Runs, and each other view its setting turns
+//!   on once the settings are read; the Runs show until the person chooses
+//!   another, and again when the one shown is no longer offered.
 //! - **Repaints**: only when the view changed, at most once each
 //!   [`REDRAW_PERIOD`], and none once the window is closed.
 //!
@@ -33,7 +40,12 @@ use serde_json::{Map, Value};
 
 use super::{Daemon, REDRAW_PERIOD, health_text, product_name, refused};
 use crate::client::{ConnectionChange, DaemonEvent, Listing, UsageRead, Wanted};
+use crate::settings::{Settings, SettingsError};
 use crate::text;
+
+mod kennel_settings;
+
+pub use kennel_settings::{KennelSettingsView, PeriodLine, SettingsSection, SwitchLine};
 
 #[cfg(test)]
 mod tests;
@@ -82,6 +94,33 @@ pub enum Input {
     OnScreen(BTreeSet<RunId>),
     /// The person closed the window.
     Closed,
+    /// The person chose the view to show.
+    Show(View),
+    /// The Kennel's settings, read at the window's start and on each change
+    /// of their file.
+    Settings(Result<Settings, SettingsError>),
+    /// The person's edit of the settings file was not made, and why.
+    EditFailed(SettingsError),
+}
+
+/// A view of the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum View {
+    /// The Runs table and the chosen Run.
+    #[default]
+    Runs,
+    /// The Kennel's own settings.
+    KennelSettings,
+}
+
+impl View {
+    /// Its name, as the window offers it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Runs => "Runs",
+            Self::KennelSettings => "Kennel settings",
+        }
+    }
 }
 
 /// The Runs table's filters.
@@ -119,6 +158,12 @@ pub struct DetailsView {
     pub runs: Vec<RunLine>,
     /// The chosen Run.
     pub chosen: Option<RunPanel>,
+    /// The views offered, in order.
+    pub views: Vec<View>,
+    /// The view shown.
+    pub shown: View,
+    /// The Kennel's settings, while their view is offered.
+    pub kennel_settings: Option<KennelSettingsView>,
 }
 
 /// A row of the Runs table.
@@ -216,6 +261,12 @@ pub struct Details {
     report: Option<(RunId, Result<Box<RunReport>, String>)>,
     /// When the window last repainted, and what.
     drawn: Option<(Instant, DetailsView)>,
+    /// The view the person chose.
+    chose_view: View,
+    /// The Kennel's settings, once read.
+    settings: Option<Settings>,
+    /// Why the settings file cannot be read, or why the last edit failed.
+    settings_note: Option<String>,
 }
 
 impl Default for Details {
@@ -241,6 +292,9 @@ impl Details {
             usage: None,
             report: None,
             drawn: None,
+            chose_view: View::Runs,
+            settings: None,
+            settings_note: None,
         }
     }
 
@@ -303,7 +357,34 @@ impl Details {
             }
             Input::OnScreen(runs) => self.on_screen = runs,
             Input::Closed => self.open = false,
+            Input::Show(view) => self.chose_view = view,
+            Input::Settings(Ok(settings)) => {
+                self.settings = Some(settings);
+                self.settings_note = None;
+            }
+            Input::Settings(Err(error)) => {
+                self.settings = Some(Settings::default());
+                self.settings_note = Some(format!(
+                    "kennel.toml cannot be read, so the defaults apply: {error}"
+                ));
+            }
+            Input::EditFailed(error) => {
+                self.settings_note = Some(format!("The change was not made: {error}"));
+            }
         }
+    }
+
+    /// The views offered: the Runs, and each other its setting turns on.
+    fn views(&self) -> Vec<View> {
+        let mut views = vec![View::Runs];
+        if self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.views.kennel_settings)
+        {
+            views.push(View::KennelSettings);
+        }
+        views
     }
 
     /// The reads the view needs now: none while the window is closed or
@@ -363,7 +444,22 @@ impl Details {
             }
             _ => None,
         };
+        let views = self.views();
+        let shown = if views.contains(&self.chose_view) {
+            self.chose_view
+        } else {
+            View::Runs
+        };
+        // Drawn whenever offered, so the window switches to it at once.
+        let kennel_settings = self
+            .settings
+            .as_ref()
+            .filter(|_| views.contains(&View::KennelSettings))
+            .map(|settings| kennel_settings::view(settings, self.settings_note.as_deref()));
         DetailsView {
+            views,
+            shown,
+            kennel_settings,
             daemon: text::shown(&daemon, VALUE_MOST),
             health: health.map(|health| text::shown(&health, VALUE_MOST)),
             note: note.map(str::to_owned),

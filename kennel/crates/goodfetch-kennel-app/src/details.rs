@@ -12,19 +12,25 @@
 //!   the view needs, and it publishes each view it paces. The UI thread
 //!   only reads the latest view and sends the person's inputs, so it never
 //!   waits.
+//! - **The Kennel settings view.** The window follows `kennel.toml` with
+//!   the settings' watch, and the model task makes the person's edits on
+//!   the tracker's blocking threads, then reads the file again.
 //! - **Repaints.** The model asks for a repaint only when its view
 //!   changed, at most once a second; the person's own input is drawn by
 //!   `egui` as it comes.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Context as _;
 use eframe::egui;
 use goodfetch_kennel::client::{self, Report, Wanted};
 use goodfetch_kennel::home::Home;
+use goodfetch_kennel::settings::{self, Edit, Settings, SettingsError};
 use goodfetch_kennel::state::details::{
-    Details, DetailsView, Field, Filter, Input, Repaint, RunLine, RunPanel,
+    Details, DetailsView, Field, Filter, Input, KennelSettingsView, PeriodLine, Repaint, RunLine,
+    RunPanel, View,
 };
 use goodfetch_kennel::tasks::Tasks;
 use goodfetch_kennel::window::Opening;
@@ -44,6 +50,8 @@ enum ToModel {
     Client(Report),
     /// What the person did.
     Person(Input),
+    /// The person changed a setting.
+    Edit(Edit),
 }
 
 /// Runs the details window, opened as `opening` says, until the person
@@ -68,6 +76,15 @@ pub(crate) fn run(
     let (_look_again, looks) = mpsc::channel(1);
     let (_keep_alive, keep_daemon_alive) = watch::channel(false);
     let (_calls, calls) = mpsc::channel(1);
+    let settings_file = home.settings_file();
+    let reports = to_model.clone();
+    tasks.spawn(settings::follow(
+        tasks.clone(),
+        home.clone(),
+        move |settings: Result<Settings, SettingsError>| {
+            let _ = reports.send(ToModel::Person(Input::Settings(settings)));
+        },
+    ));
     let reports = to_model.clone();
     tasks.spawn(client::follow(
         tasks.clone(),
@@ -84,7 +101,16 @@ pub(crate) fn run(
             let _ = reports.send(ToModel::Client(report));
         },
     ));
-    tasks.spawn(model(inputs, wanted, views, ctx.clone(), tasks.stopping()));
+    tasks.spawn(model(
+        Model {
+            wanted,
+            views,
+            ctx: ctx.clone(),
+            tasks: tasks.clone(),
+            settings_file,
+        },
+        inputs,
+    ));
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -104,6 +130,8 @@ pub(crate) fn run(
         chosen: None,
         on_screen: BTreeSet::new(),
         closed: false,
+        view: View::Runs,
+        period: None,
     };
     eframe::run_native_ext(
         "Kennel",
@@ -114,16 +142,30 @@ pub(crate) fn run(
     .map_err(|error| anyhow::anyhow!("the details window failed: {error}"))
 }
 
-/// The window's model: applies each input, keeps the Client's reads in
-/// step with the view, and publishes the views it paces, asking `ctx` to
-/// repaint them.
-async fn model(
-    mut inputs: mpsc::UnboundedReceiver<ToModel>,
+/// What the window's model task keeps in step.
+struct Model {
+    /// The reads the view needs, which the Client follows.
     wanted: watch::Sender<Wanted>,
+    /// The latest view, which the UI thread draws.
     views: watch::Sender<Option<DetailsView>>,
     ctx: egui::Context,
-    stop: CancellationToken,
-) {
+    tasks: Tasks,
+    /// The settings file, which the person's edits change.
+    settings_file: PathBuf,
+}
+
+/// The window's model: applies each input, makes the person's edits of
+/// the settings, keeps the Client's reads in step with the view, and
+/// publishes the views it paces, asking `ctx` to repaint them.
+async fn model(model: Model, mut inputs: mpsc::UnboundedReceiver<ToModel>) {
+    let Model {
+        wanted,
+        views,
+        ctx,
+        tasks,
+        settings_file,
+    } = model;
+    let stop: CancellationToken = tasks.stopping();
     let mut details = Details::new();
     loop {
         let now_wanted = details.wanted();
@@ -147,6 +189,21 @@ async fn model(
                 None => return,
                 Some(ToModel::Person(input)) => details.apply(input),
                 Some(ToModel::Client(report)) => apply(&mut details, report),
+                Some(ToModel::Edit(edit)) => {
+                    let file = settings_file.clone();
+                    let edited = tasks
+                        .blocking(move || {
+                            let edited = settings::edit(&file, edit);
+                            // The watch reports the change too; reading it
+                            // here shows it without waiting for the watch.
+                            edited.map(|()| settings::read(&file))
+                        })
+                        .await;
+                    match edited {
+                        Ok(read) => details.apply(Input::Settings(read)),
+                        Err(error) => details.apply(Input::EditFailed(error)),
+                    }
+                }
             },
             () = sleep_until(due), if due.is_some() => {}
         }
@@ -205,6 +262,11 @@ struct Window {
     /// The table's rows on screen at the last frame.
     on_screen: BTreeSet<RunId>,
     closed: bool,
+    /// The view the person chose, shown at once.
+    view: View,
+    /// The coalescing period as the person types it, until they leave the
+    /// field.
+    period: Option<u32>,
 }
 
 impl Window {
@@ -213,7 +275,8 @@ impl Window {
         let _ = self.to_model.send(ToModel::Person(input));
     }
 
-    /// The Daemon's line, its health and the table's filters.
+    /// The Daemon's line, its health, the views offered and, on the Runs
+    /// view, the table's filters.
     fn header(&mut self, ui: &mut egui::Ui, view: &DetailsView) {
         ui.horizontal(|ui| {
             ui.strong(&view.daemon);
@@ -221,6 +284,23 @@ impl Window {
                 ui.label(health);
             }
         });
+        if view.views.len() > 1 {
+            ui.horizontal(|ui| {
+                for offered in &view.views {
+                    if ui
+                        .selectable_label(self.view == *offered, offered.label())
+                        .clicked()
+                        && self.view != *offered
+                    {
+                        self.view = *offered;
+                        self.send(Input::Show(*offered));
+                    }
+                }
+            });
+        }
+        if self.view != View::Runs {
+            return;
+        }
         let before = self.filter.clone();
         ui.horizontal(|ui| {
             ui.label("Filter");
@@ -317,6 +397,57 @@ impl Window {
     }
 }
 
+impl Window {
+    /// The Kennel settings view: a switch for each setting and the
+    /// coalescing period, each change an edit of the file.
+    fn kennel_settings(&mut self, ui: &mut egui::Ui, settings: &KennelSettingsView) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            if let Some(note) = &settings.note {
+                ui.add(egui::Label::new(egui::RichText::new(note).strong()).wrap());
+            }
+            ui.weak(&settings.about);
+            for section in &settings.sections {
+                ui.add_space(8.0);
+                ui.strong(&section.title);
+                for line in &section.switches {
+                    let mut on = line.on;
+                    if ui.checkbox(&mut on, &line.label).changed() {
+                        self.edit(Edit::Switch(line.switch, on));
+                    }
+                }
+                if let Some(period) = &section.period {
+                    self.period(ui, period);
+                }
+            }
+        });
+    }
+
+    /// The coalescing period's field, which edits the file once the person
+    /// leaves it or stops dragging.
+    fn period(&mut self, ui: &mut egui::Ui, period: &PeriodLine) {
+        let saved = period.minutes;
+        ui.horizontal(|ui| {
+            ui.label(&period.label);
+            let mut minutes = self.period.unwrap_or(saved);
+            let field = ui.add(egui::DragValue::new(&mut minutes).range(0..=1440));
+            if field.changed() {
+                self.period = Some(minutes);
+            }
+            if (field.drag_stopped() || field.lost_focus())
+                && let Some(minutes) = self.period.take()
+                && minutes != saved
+            {
+                self.edit(Edit::Period(minutes));
+            }
+        });
+    }
+
+    fn edit(&self, edit: Edit) {
+        // The model has stopped: the window is closing.
+        let _ = self.to_model.send(ToModel::Edit(edit));
+    }
+}
+
 /// The table's columns.
 const COLUMNS: [&str; 7] = [
     "Run",
@@ -390,7 +521,17 @@ impl eframe::App for Window {
             });
             return;
         };
+        if !view.views.contains(&self.view) {
+            // No longer offered: the model shows the Runs.
+            self.view = View::Runs;
+        }
         egui::Panel::top("daemon").show(ui, |ui| self.header(ui, &view));
+        if self.view == View::KennelSettings
+            && let Some(settings) = &view.kennel_settings
+        {
+            egui::CentralPanel::default().show(ui, |ui| self.kennel_settings(ui, settings));
+            return;
+        }
         if let Some(chosen) = &view.chosen {
             egui::Panel::right("run")
                 .resizable(true)

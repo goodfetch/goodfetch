@@ -284,7 +284,9 @@ pub(crate) struct CrawlProgress;
 
 impl ProgressPart for CrawlProgress {
     fn fill(&self, connection: &Connection, progress: &mut RunProgress) -> rusqlite::Result<()> {
-        let kind: String = connection.query_row("SELECT kind FROM run", [], |row| row.get(0))?;
+        let kind: String = connection
+            .prepare_cached("SELECT kind FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         if kind != RunKind::Crawl.as_str() {
             return Ok(());
         }

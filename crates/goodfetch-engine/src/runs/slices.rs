@@ -125,18 +125,23 @@ pub(super) fn journal(
     uncapped: bool,
 ) -> rusqlite::Result<()> {
     if uncapped {
-        connection.execute("UPDATE run SET uncapped = 1", [])?;
+        connection
+            .prepare_cached("UPDATE run SET uncapped = 1")
+            .and_then(|mut cached| cached.execute([]))?;
     }
     for (slice, used) in used {
-        connection.execute(
-            "INSERT INTO usage (slice_id, epoch, used) VALUES (?1, ?2, ?3)
+        connection
+            .prepare_cached(
+                "INSERT INTO usage (slice_id, epoch, used) VALUES (?1, ?2, ?3)
              ON CONFLICT (slice_id, epoch) DO UPDATE SET used = excluded.used",
-            (
-                slice,
-                i64::try_from(epoch).unwrap_or(i64::MAX),
-                i64::try_from(*used).unwrap_or(i64::MAX),
-            ),
-        )?;
+            )
+            .and_then(|mut cached| {
+                cached.execute((
+                    slice,
+                    i64::try_from(epoch).unwrap_or(i64::MAX),
+                    i64::try_from(*used).unwrap_or(i64::MAX),
+                ))
+            })?;
     }
     Ok(())
 }
@@ -160,9 +165,11 @@ fn read(file: &Path, vfs: Option<&str>, epoch: u64) -> Result<(u64, BTreeMap<Sli
         let Some(connection) = open_reader(file, vfs)? else {
             return Ok(None);
         };
-        let now: i64 = connection.query_row("SELECT epoch FROM run", [], |row| row.get(0))?;
+        let now: i64 = connection
+            .prepare_cached("SELECT epoch FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         let mut statement =
-            connection.prepare("SELECT slice_id, used FROM usage WHERE epoch = ?1")?;
+            connection.prepare_cached("SELECT slice_id, used FROM usage WHERE epoch = ?1")?;
         let used = statement
             .query_map([i64::try_from(epoch).unwrap_or(i64::MAX)], |row| {
                 Ok((row.get::<_, SliceId>(0)?, row.get::<_, i64>(1)?))

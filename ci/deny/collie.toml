@@ -130,11 +130,9 @@ reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
 crate = "sqlx-mysql"
 reason = "only Foxhound's MySQL and MariaDB Sinks use it (ADRs 0026 and 0088)"
 
-# rusqlite's statement cache, which only the Frontier turns on (its `cache`
-# feature) to keep its per-seed scope insert prepared.
-[[bans.deny]]
-crate = "hashlink"
-reason = "only the Frontier's statement cache uses it, through rusqlite's `cache` feature"
+# hashlink is not banned: it is rusqlite's statement cache (its `cache`
+# feature), which the run file's connections, Collie's engine's among them,
+# keep every statement prepared in (ADR 0138).
 
 # The test-only crates, which no Product ships (ADRs 0062, 0069, 0087 and
 # 0125): the shared helpers, the test adapters and the test executables.

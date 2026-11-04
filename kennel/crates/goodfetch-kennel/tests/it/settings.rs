@@ -39,6 +39,9 @@ fn without_a_settings_file_the_defaults_apply() {
             start_at_login: false,
             hidden_icon_check: true,
             views: Views {
+                records: true,
+                daemon_settings: true,
+                governor: true,
                 kennel_settings: true,
             },
         })
@@ -257,6 +260,12 @@ fn turning_the_window_off_is_a_setting_of_its_own() {
     Edit::Switch(Switch::RunFinishedNotice, true),
     "[notifications]\nrun_finished = true"
 )]
+#[case::records_view(Edit::Switch(Switch::RecordsView, false), "[views]\nrecords = false")]
+#[case::daemon_settings_view(
+    Edit::Switch(Switch::DaemonSettingsView, false),
+    "[views]\ndaemon_settings = false"
+)]
+#[case::governor_view(Edit::Switch(Switch::GovernorView, false), "[views]\ngovernor = false")]
 #[case::kennel_settings_view(
     Edit::Switch(Switch::KennelSettingsView, false),
     "[views]\nkennel_settings = false"
@@ -369,4 +378,44 @@ fn an_edit_shows_through_the_watch_of_the_settings_file() {
             ..Settings::default()
         })
     );
+}
+
+#[test]
+fn each_view_of_the_window_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(
+        home.settings_file(),
+        "[views]\nrecords = false\ndaemon_settings = false\ngovernor = false\n",
+    )
+    .unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            views: Views {
+                records: false,
+                daemon_settings: false,
+                governor: false,
+                ..Views::default()
+            },
+            ..Settings::default()
+        })
+    );
+}
+
+#[test]
+fn an_unknown_view_is_refused_and_named() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "[views]\nrecord = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    let Err(SettingsError::Unreadable(why)) = read else {
+        panic!("an unknown view is refused: {read:?}");
+    };
+    assert!(why.contains("record"), "{why}");
 }

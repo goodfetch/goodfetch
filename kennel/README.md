@@ -66,10 +66,22 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 "Open details" starts the window as a second process of the same executable, `goodfetch-kennel window`, with `eframe` on glow. The process exits when the window closes, so a closed window costs nothing.
 
 - **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, and `hidden-icon` when the hidden-icon check opens it, never the token.
-- **Views.** The window shows the Runs, and the Kennel settings while `views.kennel_settings` is on (see Settings), chosen at its top.
 - **The Runs table** lists the Run index's rows, newest first, filtered by a text (found in a Run ID or a tag, the Recipe's among them) and a Lifecycle. It is listed again after each resync and each Run that starts or ends.
 - **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away.
-- **What it reads.** It follows `run.progress` only of the running Runs on screen and of the chosen Run while it runs. It reads the chosen Run's report with `run.report`, and its Usage with `run.usage`, again at each new progress while it runs. Nothing is read once the window is closed.
+- **Add seeds.** A live crawl on a Foxhound Daemon offers Add seeds under its report, while `controls` is on: a Label, the Label of the handler the seeds go to, and URLs, one a line.
+  - **The confirmation.** "Add seeds…" asks the platform's own dialog first, naming the Run, how many seeds, the Label and the consequence: the crawl fetches them beside its other requests, a seed it already holds is not added again, and adding cannot be undone.
+  - **The call.** Once confirmed, the window streams the seeds to `run.add_seeds` within the credits the call grants, then shows how many were added and, by reason, how many were not, such as `duplicate` or `invalid_url`. A refusal shows its reason.
+  - **Not offered** on a Collie Daemon, for a Run that is no crawl or no longer runs, while `controls` is off, or before the window has read `kennel.toml`. A confirmation given before `controls` went off adds nothing.
+- **Other views.** Beside the Runs, which `window` switches with the window itself, the window offers a view per setting of `[views]`, each one off neither shown nor read:
+
+  | View | Shows | Reads |
+  |---|---|---|
+  | Records | the chosen Run's Records, 50 at a time, each Dataset's in order: dataset, number, URL, commit time and value. Foxhound's: hidden on a Collie Daemon | `dataset.query` over `records('<run>')`, when the view shows, at each page and at "Refresh"; a query no longer wanted is cancelled |
+  | Daemon settings | each setting's value, the layer that set it (for the Run's layer, where it came from), the layer that locked it, an Operator policy's cap, and a key only the other Product honours; the Operator policy's version and the configuration files read. A filter narrows the keys | `config.explain`, each time the view shows and at "Refresh" |
+  | Kennel settings | the Kennel's own settings, a switch for each and the coalescing period, with why `kennel.toml` cannot be read or why a change failed (see Settings). Offered once the file is read | nothing from the Daemon: `kennel.toml`, which each change rewrites |
+  | Resource governor | its level and what holds it there, memory used against the Memory allowance and what set it, the browsers' memory, the host's memory pressure, CPU and Tokio busy time, and each kind's concurrency | `engine.system_info`, only while the view shows: the window's subscription is taken again with the readings, after the last event it read, and again without them once the view goes, so no event is lost and no other subscription is opened |
+- **What it reads.** On the Runs view, it follows `run.progress` only of the running Runs on screen and of the chosen Run while it runs. It reads the chosen Run's report with `run.report`, and its Usage with `run.usage`, again at each new progress while it runs. On another view, it reads only what that view shows, and the Runs' listing. Nothing is read once the window is closed.
+- **Its settings.** The window reads `kennel.toml` itself, at its start and on each change, as the tray does.
 - **Repaints.** The window asks for a repaint only when what it shows changed, at most once a second. The person's own clicks and typing are drawn as they come.
 - **Fonts.** The window draws with the system's own fonts, read as it starts (SF and SF Mono on macOS, with Helvetica and Menlo after them), so no font ships in the executable.
 
@@ -157,11 +169,15 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 
 | Key | Default | Off |
 |---|---|---|
-| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon", the Run controls and the Needs you items' actions included |
+| `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon", the Run controls and the Needs you items' actions included, and the details window offers no Add seeds |
 | `confirm_stop` | `true` | Stop acts at once, without asking. Abort and Retry failed always ask, and Pause never does |
 | `window` | `true` | a menu-only Kennel: the menu offers no "Open details" |
 | `start_at_login` | `false` | the Kennel starts only when the person opens it. On, a launchd user agent opens it at login (see Start at login) |
 | `hidden_icon_check` | `true` | no check that the icon shows in the menu bar at launch (see Hidden icon) |
+| `views.records` | `true` | the details window offers no Records view, and reads no Records |
+| `views.daemon_settings` | `true` | the details window offers no Daemon settings view, and never reads `config.explain` |
+| `views.governor` | `true` | the details window offers no Resource governor view, and never takes `engine.system_info` |
+| `views.kennel_settings` | `true` | the details window offers no Kennel settings view; the file still holds the settings |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 | `notifications.enabled` | `true` | no desktop notice, and no notice code runs (see Desktop notices) |
 | `notifications.needs_you` | `true` | no notice of a new Needs you item |
@@ -170,7 +186,6 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | `notifications.daemon_lost` | `true` | no notice of a Daemon lost while a Run was live |
 | `notifications.run_finished` | `false` | no notice of a Run that ended well |
 | `notifications.period_minutes` | `20` | `0`: each notice goes out at once, with no summary |
-| `views.kennel_settings` | `true` | the details window shows no Kennel settings view; the file still holds them |
 
 The `notifications.` keys go in a `[notifications]` table, and the `views.` keys in a `[views]` table:
 

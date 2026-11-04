@@ -93,6 +93,9 @@ fn place(switch: Switch) -> (Section, &'static str) {
         Switch::RunStoppedByLimitNotice => (Section::Notices, "A Run stopped by a Limit"),
         Switch::DaemonLostNotice => (Section::Notices, "The Daemon lost while a Run was live"),
         Switch::RunFinishedNotice => (Section::Notices, "A Run that ended well"),
+        Switch::RecordsView => (Section::Views, "Records (Foxhound)"),
+        Switch::DaemonSettingsView => (Section::Views, "Daemon settings"),
+        Switch::GovernorView => (Section::Views, "Resource governor"),
         Switch::KennelSettingsView => (Section::Views, "Kennel settings"),
     }
 }

@@ -49,7 +49,8 @@ pub struct Settings {
     pub hidden_icon_check: bool,
     /// The desktop notices, the `[notifications]` table.
     pub notifications: Notifications,
-    /// The details window's views, the `[views]` table.
+    /// The details window's views, each a switch of its own: `[views]` in
+    /// the file.
     pub views: Views,
 }
 
@@ -64,23 +65,6 @@ impl Default for Settings {
             hidden_icon_check: true,
             notifications: Notifications::default(),
             views: Views::default(),
-        }
-    }
-}
-
-/// A switch for each of the details window's views (ADR 0141); the Runs
-/// table's is `window` itself.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Views {
-    /// The Kennel's own settings, which the view edits.
-    pub kennel_settings: bool,
-}
-
-impl Default for Views {
-    fn default() -> Self {
-        Self {
-            kennel_settings: true,
         }
     }
 }
@@ -133,6 +117,37 @@ impl Default for Notifications {
     }
 }
 
+/// The details window's views beside its Runs table, which `window`
+/// switches: each one off is neither shown nor read.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each view is a switch of its own with a free off state, as `kennel.toml` spells it (ADR 0141)"
+)]
+pub struct Views {
+    /// A Run's Records, through `dataset.query`, on a Foxhound Daemon.
+    pub records: bool,
+    /// The Daemon's settings in force and where each comes from, through
+    /// `config.explain`.
+    pub daemon_settings: bool,
+    /// The Resource governor's readings, `engine.system_info`.
+    pub governor: bool,
+    /// The Kennel's own settings, which the view edits.
+    pub kennel_settings: bool,
+}
+
+impl Default for Views {
+    fn default() -> Self {
+        Self {
+            records: true,
+            daemon_settings: true,
+            governor: true,
+            kennel_settings: true,
+        }
+    }
+}
+
 /// Why the settings file gave the defaults instead.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -174,13 +189,19 @@ pub enum Switch {
     DaemonLostNotice,
     /// `notifications.run_finished`.
     RunFinishedNotice,
+    /// `views.records`.
+    RecordsView,
+    /// `views.daemon_settings`.
+    DaemonSettingsView,
+    /// `views.governor`.
+    GovernorView,
     /// `views.kennel_settings`.
     KennelSettingsView,
 }
 
 impl Switch {
     /// Every switch, in the order the Kennel settings view lists them.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::Controls,
         Self::ConfirmStop,
         Self::Window,
@@ -193,6 +214,9 @@ impl Switch {
         Self::RunStoppedByLimitNotice,
         Self::DaemonLostNotice,
         Self::RunFinishedNotice,
+        Self::RecordsView,
+        Self::DaemonSettingsView,
+        Self::GovernorView,
         Self::KennelSettingsView,
     ];
 
@@ -212,6 +236,9 @@ impl Switch {
             Self::RunStoppedByLimitNotice => notices.run_stopped_by_limit,
             Self::DaemonLostNotice => notices.daemon_lost,
             Self::RunFinishedNotice => notices.run_finished,
+            Self::RecordsView => settings.views.records,
+            Self::DaemonSettingsView => settings.views.daemon_settings,
+            Self::GovernorView => settings.views.governor,
             Self::KennelSettingsView => settings.views.kennel_settings,
         }
     }
@@ -231,6 +258,9 @@ impl Switch {
             Self::RunStoppedByLimitNotice => (Some(NOTIFICATIONS), "run_stopped_by_limit"),
             Self::DaemonLostNotice => (Some(NOTIFICATIONS), "daemon_lost"),
             Self::RunFinishedNotice => (Some(NOTIFICATIONS), "run_finished"),
+            Self::RecordsView => (Some(VIEWS), "records"),
+            Self::DaemonSettingsView => (Some(VIEWS), "daemon_settings"),
+            Self::GovernorView => (Some(VIEWS), "governor"),
             Self::KennelSettingsView => (Some(VIEWS), "kennel_settings"),
         }
     }

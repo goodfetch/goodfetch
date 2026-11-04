@@ -8,19 +8,26 @@
 //!   `run.list` answers them, listed again after each resync and each Run
 //!   that starts or ends.
 //! - **The chosen Run**: its progress, its Usage, its failures by Error
-//!   code and its Run report.
-//! - **The reads the view needs** ([`Wanted`]): `run.progress` only of the
-//!   running Runs on screen and of the chosen Run while it runs; the
-//!   chosen Run's report, which a live Run answers at its end; its Usage,
-//!   read again at each new progress while it runs. Nothing while the
-//!   window is closed or no Daemon is reached.
+//!   code and its Run report; and, for a live crawl on a Foxhound Daemon
+//!   while `controls` is on, Add Seeds, which asks a confirmation naming
+//!   the Run and the consequence before it adds anything.
+//! - **The views** ([`View`]) beside the Runs: the chosen Run's Records,
+//!   through `dataset.query`, on a Foxhound Daemon only; the Daemon's
+//!   settings in force, through `config.explain`; and the Resource
+//!   governor's readings, `engine.system_info`. Each is a setting of its
+//!   own (`[views]`), and one turned off is neither shown nor read.
+//! - **The reads the view needs** ([`Wanted`]): on the Runs view,
+//!   `run.progress` only of the running Runs on screen and of the chosen
+//!   Run while it runs, the chosen Run's report, which a live Run answers
+//!   at its end, and its Usage, read again at each new progress while it
+//!   runs; on another view, only what that view shows, the governor's
+//!   readings among them. Nothing while the window is closed or no Daemon
+//!   is reached.
 //! - **The Kennel settings view** (`kennel_settings`): the Kennel's own
-//!   settings as `kennel.toml` holds them, which the window edits; a
-//!   change in the file, the window's own edits included, comes back
-//!   through the settings' watch.
-//! - **The views offered**: the Runs, and each other view its setting turns
-//!   on once the settings are read; the Runs show until the person chooses
-//!   another, and again when the one shown is no longer offered.
+//!   settings as `kennel.toml` holds them, which the window edits, with why
+//!   the file cannot be read or why an edit failed; a change in the file,
+//!   the window's own edits included, comes back through the settings'
+//!   watch. It reads nothing from the Daemon.
 //! - **Repaints**: only when the view changed, at most once each
 //!   [`REDRAW_PERIOD`], and none once the window is closed.
 //!
@@ -30,16 +37,28 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::progress::RequestProgress;
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
+use goodfetch_protocol::foxhound::sql_tab::{DatasetQueryParams, DatasetQueryResult};
+use goodfetch_protocol::governor::{
+    AllowanceSource, GovernorLevel, KindConcurrency, PressureSource, SystemInfo,
+};
 use goodfetch_protocol::run::{
-    Lifecycle, ProgressMessage, RECIPE_TAG, RunId, RunIndexRow, RunListParams, RunProgress,
-    RunReport, RunUsage, StopReason,
+    Lifecycle, ProgressMessage, RECIPE_TAG, RunId, RunIndexRow, RunKind, RunListParams,
+    RunProgress, RunReport, RunUsage, StopReason,
+};
+use goodfetch_protocol::settings::{
+    ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
 };
 use serde_json::{Map, Value};
 
-use super::{Daemon, REDRAW_PERIOD, health_text, product_name, refused};
-use crate::client::{ConnectionChange, DaemonEvent, Listing, UsageRead, Wanted};
+use super::{Daemon, REDRAW_PERIOD, attempt, health_text, product_name, refused};
+use crate::client::{
+    Call, CallFailure, ConnectionChange, DaemonEvent, Listing, Query, SeedsAdded, SeedsToAdd,
+    UsageRead, Wanted,
+};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
 
@@ -55,6 +74,48 @@ const VALUE_MOST: usize = 300;
 
 /// The most characters of a Run's name in the table.
 const NAME_MOST: usize = 60;
+
+/// How many Records the Records view reads at a time.
+pub const RECORDS_PAGE: u64 = 50;
+
+/// The window's views, in the order it offers them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum View {
+    /// The Runs table and the chosen Run: the window's own view, which
+    /// `window` switches.
+    #[default]
+    Runs,
+    /// The chosen Run's Records, on a Foxhound Daemon.
+    Records,
+    /// The Daemon's settings in force and where each comes from.
+    DaemonSettings,
+    /// The Resource governor's readings.
+    Governor,
+    /// The Kennel's own settings, which the window edits.
+    KennelSettings,
+}
+
+impl View {
+    /// What the window calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Runs => "Runs",
+            Self::Records => "Records",
+            Self::DaemonSettings => "Daemon settings",
+            Self::Governor => "Resource governor",
+            Self::KennelSettings => "Kennel settings",
+        }
+    }
+}
+
+/// A page of Records to go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    /// The next page.
+    Next,
+    /// The previous page.
+    Previous,
+}
 
 /// What reaches the window's model.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,35 +153,44 @@ pub enum Input {
     Chose(Option<RunId>),
     /// The table's rows on screen now, by Run ID.
     OnScreen(BTreeSet<RunId>),
-    /// The person closed the window.
-    Closed,
-    /// The person chose the view to show.
-    Show(View),
-    /// The Kennel's settings, read at the window's start and on each change
-    /// of their file.
+    /// The Kennel's settings, as `kennel.toml` gives them, or why it
+    /// cannot be read, when the defaults apply.
     Settings(Result<Settings, SettingsError>),
     /// The person's edit of the settings file was not made, and why.
     EditFailed(SettingsError),
-}
-
-/// A view of the window.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum View {
-    /// The Runs table and the chosen Run.
-    #[default]
-    Runs,
-    /// The Kennel's own settings.
-    KennelSettings,
-}
-
-impl View {
-    /// Its name, as the window offers it.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Runs => "Runs",
-            Self::KennelSettings => "Kennel settings",
-        }
-    }
+    /// The person chose a view.
+    Show(View),
+    /// The person went to another page of Records.
+    RecordsPage(Page),
+    /// The person asked to read the shown view again.
+    Refresh,
+    /// The answer to the Records query of this generation.
+    Queried {
+        /// The query's generation.
+        generation: u64,
+        /// Its result, or why there is none.
+        result: Result<DatasetQueryResult, CallFailure>,
+    },
+    /// The answer to the read of the settings in force of this generation.
+    Explained {
+        /// The read's generation.
+        generation: u64,
+        /// The settings, or why there are none.
+        result: Result<Box<SettingsExplanation>, CallFailure>,
+    },
+    /// The Resource governor's latest reading.
+    SystemInfo(Box<SystemInfo>),
+    /// What Add Seeds did to a crawl.
+    SeedsAdded {
+        /// The crawl's Run.
+        run_id: RunId,
+        /// The counts.
+        added: SeedsAdded,
+    },
+    /// A call the window made was answered, or failed.
+    Answered(Call, Result<(), CallFailure>),
+    /// The person closed the window.
+    Closed,
 }
 
 /// The Runs table's filters.
@@ -158,12 +228,71 @@ pub struct DetailsView {
     pub runs: Vec<RunLine>,
     /// The chosen Run.
     pub chosen: Option<RunPanel>,
-    /// The views offered, in order.
+    /// The views the window offers, in order.
     pub views: Vec<View>,
     /// The view shown.
     pub shown: View,
-    /// The Kennel's settings, while their view is offered.
+    /// The Records view, while it shows.
+    pub records: Option<RecordsPanel>,
+    /// The Daemon settings view, while it shows.
+    pub daemon_settings: Option<SettingsPanel>,
+    /// The Resource governor's view, while it shows.
+    pub governor: Option<GovernorPanel>,
+    /// The Kennel settings view, while it shows.
     pub kennel_settings: Option<KennelSettingsView>,
+}
+
+/// The Records view: a page of the chosen Run's Records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordsPanel {
+    /// Whose Records they are.
+    pub title: String,
+    /// What the view says instead of Records, or beside them.
+    pub note: Option<String>,
+    /// The columns' names.
+    pub columns: Vec<String>,
+    /// The page's Records, a value per column.
+    pub rows: Vec<Vec<String>>,
+    /// Which Records the page shows, of how many.
+    pub range: String,
+    /// Whether a previous page exists.
+    pub previous: bool,
+    /// Whether a next page exists.
+    pub next: bool,
+}
+
+/// The Daemon settings view: each setting in force and where it comes
+/// from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsPanel {
+    /// What the view says instead of settings.
+    pub note: Option<String>,
+    /// The Operator policy's version and the configuration files read.
+    pub sources: Vec<Field>,
+    /// Each setting, by key.
+    pub settings: Vec<SettingLine>,
+}
+
+/// One setting in force.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingLine {
+    /// Its key.
+    pub key: String,
+    /// Its value, with what limits it.
+    pub value: String,
+    /// The layer that set it.
+    pub set_by: String,
+    /// The layer that locked it, if any.
+    pub locked_by: String,
+}
+
+/// The Resource governor's view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GovernorPanel {
+    /// What the view says instead of readings.
+    pub note: Option<String>,
+    /// The latest reading.
+    pub readings: Vec<Field>,
 }
 
 /// A row of the Runs table.
@@ -203,6 +332,89 @@ pub struct RunPanel {
     pub failures: Vec<Field>,
     /// Its Run report.
     pub report: Vec<Field>,
+    /// Add Seeds, when the Run offers it.
+    pub add_seeds: Option<SeedsOffer>,
+    /// What the last Add Seeds of the Run did.
+    pub seeds: Option<String>,
+}
+
+/// Add Seeds, offered for a live crawl on a Foxhound Daemon while
+/// `controls` is on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeedsOffer {
+    run_id: RunId,
+    /// The crawl's name, shown.
+    name: String,
+}
+
+impl SeedsOffer {
+    /// The question Add Seeds asks before it adds the seeds `urls`, one a
+    /// line, with the Label `label`: naming the Run and the consequence;
+    /// or what the person has yet to give.
+    ///
+    /// # Errors
+    ///
+    /// The Label is blank, or no line holds a URL.
+    pub fn confirmation(&self, label: &str, urls: &str) -> Result<SeedsConfirmation, String> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err("Give the Label of the handler the seeds go to".to_owned());
+        }
+        let seeds: Vec<Seed> = urls
+            .lines()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                Seed::Request(RequestSeed {
+                    url: url.to_owned(),
+                    label: label.to_owned(),
+                    payload: None,
+                    priority: 0,
+                    forefront: false,
+                    method: HttpMethod::default(),
+                    body: None,
+                    key: None,
+                })
+            })
+            .collect();
+        if seeds.is_empty() {
+            return Err("Give at least one URL, one a line".to_owned());
+        }
+        let described = if self.name == self.run_id.as_str() {
+            self.name.clone()
+        } else {
+            format!("{} ({})", self.name, self.run_id)
+        };
+        Ok(SeedsConfirmation {
+            title: text::shown(
+                &format!("Add {} to {}?", counted(seeds.len(), "seed"), self.name),
+                VALUE_MOST,
+            ),
+            consequence: text::shown(
+                &format!(
+                    "The crawl {described} fetches them with the Label {label}, beside its other requests. A seed it already holds is not added again, and adding cannot be undone."
+                ),
+                VALUE_MOST * 2,
+            ),
+            confirm: "Add seeds".to_owned(),
+            run_id: self.run_id.clone(),
+            seeds,
+        })
+    }
+}
+
+/// The question Add Seeds asks: the person's yes, given to
+/// [`Details::confirmed`], adds the seeds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeedsConfirmation {
+    /// The question, naming the Run and how many seeds.
+    pub title: String,
+    /// What adding does to the crawl.
+    pub consequence: String,
+    /// The label of the button that confirms.
+    pub confirm: String,
+    run_id: RunId,
+    seeds: Vec<Seed>,
 }
 
 /// A labelled value.
@@ -259,14 +471,39 @@ pub struct Details {
     usage: Option<(RunId, RunUsage)>,
     /// The chosen Run's report, or why there is none.
     report: Option<(RunId, Result<Box<RunReport>, String>)>,
-    /// When the window last repainted, and what.
-    drawn: Option<(Instant, DetailsView)>,
-    /// The view the person chose.
-    chose_view: View,
     /// The Kennel's settings, once read.
     settings: Option<Settings>,
     /// Why the settings file cannot be read, or why the last edit failed.
     settings_note: Option<String>,
+    /// The view the person chose.
+    view: View,
+    /// Bumped each time the Records are to be read again.
+    records_generation: u64,
+    /// The first Record of the Records page, from 0.
+    records_from: u64,
+    /// The Records page's answer, of `records_generation`.
+    records: Option<Result<DatasetQueryResult, CallFailure>>,
+    /// Bumped each time the settings in force are to be read again.
+    explain_generation: u64,
+    /// The settings in force, of `explain_generation`.
+    explained: Option<Result<Box<SettingsExplanation>, CallFailure>>,
+    /// The Resource governor's latest reading while its view shows.
+    reading: Option<Box<SystemInfo>>,
+    /// The last Add Seeds, of a Run.
+    seeds: Option<(RunId, Seeding)>,
+    /// When the window last repainted, and what.
+    drawn: Option<(Instant, DetailsView)>,
+}
+
+/// Where an Add Seeds is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Seeding {
+    /// Its seeds are being added.
+    Adding(usize),
+    /// The crawl answered.
+    Added(SeedsAdded),
+    /// It failed.
+    Failed(CallFailure),
 }
 
 impl Default for Details {
@@ -291,10 +528,17 @@ impl Details {
             usage_generation: 0,
             usage: None,
             report: None,
-            drawn: None,
-            chose_view: View::Runs,
             settings: None,
             settings_note: None,
+            view: View::Runs,
+            records_generation: 0,
+            records_from: 0,
+            records: None,
+            explain_generation: 0,
+            explained: None,
+            reading: None,
+            seeds: None,
+            drawn: None,
         }
     }
 
@@ -353,38 +597,171 @@ impl Details {
                     self.report = None;
                     self.usage = None;
                     self.usage_generation += 1;
+                    self.records_from = 0;
+                    self.read_records_again();
                 }
             }
             Input::OnScreen(runs) => self.on_screen = runs,
+            Input::Settings(read) => self.read_settings(read),
+            Input::EditFailed(error) => {
+                self.settings_note = Some(format!("The change was not made: {error}"));
+            }
+            Input::Show(view) => self.show(view),
+            Input::RecordsPage(page) => self.go_to(page),
+            Input::Refresh => match self.shown() {
+                View::Records => self.read_records_again(),
+                View::DaemonSettings => self.explain_again(),
+                View::Runs | View::Governor | View::KennelSettings => {}
+            },
+            Input::Queried { generation, result } => {
+                if generation == self.records_generation {
+                    self.records = Some(result);
+                }
+            }
+            Input::Explained { generation, result } => {
+                if generation == self.explain_generation {
+                    self.explained = Some(result);
+                }
+            }
+            Input::SystemInfo(reading) => {
+                if self.shown() == View::Governor {
+                    self.reading = Some(reading);
+                }
+            }
+            Input::SeedsAdded { run_id, added } => {
+                self.seeds = Some((run_id, Seeding::Added(added)));
+            }
+            Input::Answered(call, answer) => {
+                if let (Call::AddSeeds(seeds), Err(failure)) = (call, answer) {
+                    self.seeds = Some((seeds.run_id, Seeding::Failed(failure)));
+                }
+            }
             Input::Closed => self.open = false,
-            Input::Show(view) => self.chose_view = view,
-            Input::Settings(Ok(settings)) => {
+        }
+    }
+
+    /// Takes the settings `read` in: an unreadable file gives the
+    /// defaults, and the Kennel settings view says why.
+    fn read_settings(&mut self, read: Result<Settings, SettingsError>) {
+        match read {
+            Ok(settings) => {
                 self.settings = Some(settings);
                 self.settings_note = None;
             }
-            Input::Settings(Err(error)) => {
+            Err(error) => {
                 self.settings = Some(Settings::default());
                 self.settings_note = Some(format!(
                     "kennel.toml cannot be read, so the defaults apply: {error}"
                 ));
             }
-            Input::EditFailed(error) => {
-                self.settings_note = Some(format!("The change was not made: {error}"));
-            }
         }
     }
 
-    /// The views offered: the Runs, and each other its setting turns on.
+    /// The person said yes to `confirmation`: the call that adds its
+    /// seeds, unless the Run no longer offers Add Seeds.
+    pub fn confirmed(&mut self, confirmation: SeedsConfirmation) -> Option<Call> {
+        let SeedsConfirmation { run_id, seeds, .. } = confirmation;
+        self.seeds_offer(&run_id)?;
+        self.seeds = Some((run_id.clone(), Seeding::Adding(seeds.len())));
+        Some(Call::AddSeeds(SeedsToAdd { run_id, seeds }))
+    }
+
+    /// Shows `view`: a view shown again reads afresh what it shows.
+    fn show(&mut self, view: View) {
+        if view != self.view {
+            self.view = view;
+            self.read_records_again();
+            self.explain_again();
+            self.reading = None;
+        }
+    }
+
+    /// Goes to another page of Records, when there is one.
+    fn go_to(&mut self, page: Page) {
+        let more = matches!(&self.records, Some(Ok(result))
+            if u64::try_from(result.rows.len()).unwrap_or(u64::MAX) < result.total);
+        let from = match page {
+            Page::Next if more => self.records_from + RECORDS_PAGE,
+            Page::Next => self.records_from,
+            Page::Previous => self.records_from.saturating_sub(RECORDS_PAGE),
+        };
+        if from != self.records_from {
+            self.records_from = from;
+            self.read_records_again();
+        }
+    }
+
+    /// Reads the settings in force again, dropping the answer shown.
+    fn explain_again(&mut self) {
+        self.explain_generation += 1;
+        self.explained = None;
+    }
+
+    /// Reads the Records page again, dropping the answer shown.
+    fn read_records_again(&mut self) {
+        self.records_generation += 1;
+        self.records = None;
+    }
+
+    /// The reached Daemon's Product.
+    fn product(&self) -> Option<Product> {
+        match &self.daemon {
+            Daemon::Reached(identity, _) => Some(identity.product),
+            Daemon::Looking | Daemon::None | Daemon::Refused(_) => None,
+        }
+    }
+
+    /// The views the window offers: the Runs, then each view whose
+    /// setting is on, the Records on a Foxhound Daemon only.
     fn views(&self) -> Vec<View> {
-        let mut views = vec![View::Runs];
-        if self
+        let views = self
             .settings
             .as_ref()
-            .is_some_and(|settings| settings.views.kennel_settings)
-        {
-            views.push(View::KennelSettings);
+            .map(|settings| settings.views.clone())
+            .unwrap_or_default();
+        let mut offered = vec![View::Runs];
+        if views.records && self.product() == Some(Product::Foxhound) {
+            offered.push(View::Records);
         }
-        views
+        if views.daemon_settings {
+            offered.push(View::DaemonSettings);
+        }
+        if views.governor {
+            offered.push(View::Governor);
+        }
+        if views.kennel_settings && self.settings.is_some() {
+            offered.push(View::KennelSettings);
+        }
+        offered
+    }
+
+    /// The view shown: the person's, while the window offers it, or else
+    /// the Runs.
+    fn shown(&self) -> View {
+        if self.views().contains(&self.view) {
+            self.view
+        } else {
+            View::Runs
+        }
+    }
+
+    /// Add Seeds for the Run `id`, when it offers it: a live crawl, on a
+    /// Foxhound Daemon, while the settings, once read, leave `controls`
+    /// on.
+    fn seeds_offer(&self, id: &RunId) -> Option<SeedsOffer> {
+        let controls = self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.controls);
+        let row = self.row(id)?;
+        let offered = controls
+            && self.product() == Some(Product::Foxhound)
+            && row.kind == RunKind::Crawl
+            && self.runs(id);
+        offered.then(|| SeedsOffer {
+            run_id: id.clone(),
+            name: text::shown(&name(row), NAME_MOST),
+        })
     }
 
     /// The reads the view needs now: none while the window is closed or
@@ -393,13 +770,17 @@ impl Details {
         if !self.open || !matches!(self.daemon, Daemon::Reached(..)) {
             return Wanted::default();
         }
+        let shown = self.shown();
+        // The Runs table and the chosen Run show on the Runs view only.
+        let runs_shown = shown == View::Runs;
         let mut progress: BTreeSet<RunId> = self
             .on_screen
             .iter()
-            .filter(|id| self.runs(id))
+            .filter(|id| runs_shown && self.runs(id))
             .cloned()
             .collect();
-        let chosen_runs = self.chosen.as_ref().filter(|id| self.runs(id));
+        let chosen = self.chosen.as_ref().filter(|_| runs_shown);
+        let chosen_runs = chosen.filter(|id| self.runs(id));
         progress.extend(chosen_runs.cloned());
         Wanted {
             live_runs: 0,
@@ -408,11 +789,21 @@ impl Details {
                 generation: self.generation,
                 params: self.filter.params(),
             }),
-            report: self.chosen.clone(),
+            report: chosen.cloned(),
             usage: chosen_runs.map(|id| UsageRead {
                 run_id: id.clone(),
                 generation: self.usage_generation,
             }),
+            records: self
+                .chosen
+                .as_ref()
+                .filter(|_| shown == View::Records)
+                .map(|id| Query {
+                    generation: self.records_generation,
+                    params: records_query(id, self.records_from),
+                }),
+            explain: (shown == View::DaemonSettings).then_some(self.explain_generation),
+            system_info: shown == View::Governor,
         }
     }
 
@@ -431,11 +822,8 @@ impl Details {
             ),
             Daemon::Refused(refusal) => (refused(refusal), None),
         };
-        let product = match &self.daemon {
-            Daemon::Reached(identity, _) => Some(identity.product),
-            Daemon::Looking | Daemon::None | Daemon::Refused(_) => None,
-        };
-        let crawls = product == Some(Product::Foxhound);
+        let crawls = self.product() == Some(Product::Foxhound);
+        let shown = self.shown();
         let rows = self.rows.as_deref().unwrap_or_default();
         let note = match (&self.daemon, &self.rows) {
             (Daemon::Reached(..), None) => Some("Reading the Runs…"),
@@ -444,27 +832,136 @@ impl Details {
             }
             _ => None,
         };
-        let views = self.views();
-        let shown = if views.contains(&self.chose_view) {
-            self.chose_view
-        } else {
-            View::Runs
-        };
-        // Drawn whenever offered, so the window switches to it at once.
-        let kennel_settings = self
-            .settings
-            .as_ref()
-            .filter(|_| views.contains(&View::KennelSettings))
-            .map(|settings| kennel_settings::view(settings, self.settings_note.as_deref()));
         DetailsView {
-            views,
-            shown,
-            kennel_settings,
             daemon: text::shown(&daemon, VALUE_MOST),
             health: health.map(|health| text::shown(&health, VALUE_MOST)),
             note: note.map(str::to_owned),
             runs: rows.iter().map(|row| self.line(row, crawls)).collect(),
             chosen: self.chosen.as_ref().map(|id| self.panel(id, crawls)),
+            views: self.views(),
+            shown,
+            records: (shown == View::Records).then(|| self.records_panel()),
+            daemon_settings: (shown == View::DaemonSettings).then(|| self.settings_panel()),
+            governor: (shown == View::Governor).then(|| GovernorPanel {
+                note: self
+                    .reading
+                    .is_none()
+                    .then(|| "Waiting for the Resource governor's next reading".to_owned()),
+                readings: self
+                    .reading
+                    .as_deref()
+                    .map(governor_fields)
+                    .unwrap_or_default(),
+            }),
+            kennel_settings: self
+                .settings
+                .as_ref()
+                .filter(|_| shown == View::KennelSettings)
+                .map(|settings| kennel_settings::view(settings, self.settings_note.as_deref())),
+        }
+    }
+
+    /// The Records view of the chosen Run.
+    fn records_panel(&self) -> RecordsPanel {
+        let mut panel = RecordsPanel {
+            title: "Records".to_owned(),
+            note: None,
+            columns: Vec::new(),
+            rows: Vec::new(),
+            range: String::new(),
+            previous: false,
+            next: false,
+        };
+        let Some(id) = &self.chosen else {
+            panel.note = Some("Choose a Run in the Runs view to read its Records".to_owned());
+            return panel;
+        };
+        let named = match self.row(id).map(name) {
+            Some(name) if name != id.as_str() => format!("{name} ({id})"),
+            Some(_) | None => id.as_str().to_owned(),
+        };
+        panel.title = text::shown(&format!("Records of {named}"), VALUE_MOST);
+        match &self.records {
+            None => panel.note = Some("Reading the Records…".to_owned()),
+            Some(Err(failure)) => {
+                panel.note = Some(text::shown(
+                    &format!(
+                        "The Daemon refused the query: {} ({})",
+                        failure.message, failure.code
+                    ),
+                    VALUE_MOST,
+                ));
+            }
+            Some(Ok(result)) => {
+                panel.columns = result
+                    .columns
+                    .iter()
+                    .map(|column| text::shown(&column.name, NAME_MOST))
+                    .collect();
+                panel.rows = result
+                    .rows
+                    .iter()
+                    .map(|row| row.iter().map(cell).collect())
+                    .collect();
+                let shown = u64::try_from(panel.rows.len()).unwrap_or(u64::MAX);
+                let total = self.records_from + result.total;
+                if shown == 0 {
+                    panel.note = Some(if self.records_from == 0 {
+                        "The Run has no Record".to_owned()
+                    } else {
+                        "No Record on this page".to_owned()
+                    });
+                } else {
+                    panel.range = format!(
+                        "Records {} to {} of {total}",
+                        self.records_from + 1,
+                        self.records_from + shown
+                    );
+                }
+                panel.previous = self.records_from > 0;
+                panel.next = shown < result.total;
+            }
+        }
+        panel
+    }
+
+    /// The Daemon settings view.
+    fn settings_panel(&self) -> SettingsPanel {
+        match &self.explained {
+            None => SettingsPanel {
+                note: Some("Reading the settings…".to_owned()),
+                sources: Vec::new(),
+                settings: Vec::new(),
+            },
+            Some(Err(failure)) => SettingsPanel {
+                note: Some(text::shown(
+                    &format!(
+                        "The Daemon did not explain its settings: {} ({})",
+                        failure.message, failure.code
+                    ),
+                    VALUE_MOST,
+                )),
+                sources: Vec::new(),
+                settings: Vec::new(),
+            },
+            Some(Ok(explanation)) => {
+                let mut sources = Vec::new();
+                if let Some(version) = &explanation.policy_version {
+                    sources.push(Field::new("Operator policy", version));
+                }
+                for file in &explanation.files {
+                    let found = if file.found { "" } else { " (not found)" };
+                    sources.push(Field::new(
+                        &format!("{} file", file_layer(file.layer)),
+                        &format!("{}{found}", file.path),
+                    ));
+                }
+                SettingsPanel {
+                    note: None,
+                    sources,
+                    settings: explanation.settings.iter().map(setting_line).collect(),
+                }
+            }
         }
     }
 
@@ -508,6 +1005,9 @@ impl Details {
         self.progress.clear();
         self.usage = None;
         self.report = None;
+        self.records = None;
+        self.explained = None;
+        self.reading = None;
     }
 
     /// Whether the Run `id` runs, by its last progress or else its row.
@@ -619,7 +1119,257 @@ impl Details {
                 }
                 None => vec![Field::new("Run report", "Reading…")],
             },
+            add_seeds: self.seeds_offer(id),
+            seeds: self
+                .seeds
+                .as_ref()
+                .filter(|(run, _)| run == id)
+                .map(|(_, seeding)| self.seeding(id, seeding)),
         }
+    }
+
+    /// What the window says of an Add Seeds of the Run `id`.
+    fn seeding(&self, id: &RunId, seeding: &Seeding) -> String {
+        let said = match seeding {
+            Seeding::Adding(count) => format!("Adding {}…", counted(*count, "seed")),
+            Seeding::Added(added) => {
+                let count = usize::try_from(added.added).unwrap_or(usize::MAX);
+                let not_added: u64 = added.not_added.values().sum();
+                if not_added == 0 {
+                    format!("{} added", counted(count, "seed"))
+                } else {
+                    let reasons: Vec<String> = added
+                        .not_added
+                        .iter()
+                        .map(|(reason, count)| format!("{reason} {count}"))
+                        .collect();
+                    format!(
+                        "{} added; {not_added} not added: {}",
+                        counted(count, "seed"),
+                        reasons.join(", ")
+                    )
+                }
+            }
+            Seeding::Failed(failure) => {
+                let call = Call::AddSeeds(SeedsToAdd {
+                    run_id: id.clone(),
+                    seeds: Vec::new(),
+                });
+                let tried = attempt(&call, |run| {
+                    self.row(run).map_or_else(|| run.as_str().to_owned(), name)
+                });
+                format!("{tried} failed: {} ({})", failure.message, failure.code)
+            }
+        };
+        text::shown(&said, VALUE_MOST)
+    }
+}
+
+/// `count` of `thing`, plural past one.
+fn counted(count: usize, thing: &str) -> String {
+    if count == 1 {
+        format!("1 {thing}")
+    } else {
+        format!("{count} {thing}s")
+    }
+}
+
+/// The `dataset.query` of a page of `run`'s Records, from the Record
+/// `from`: each Dataset's in order.
+fn records_query(run: &RunId, from: u64) -> DatasetQueryParams {
+    // A quote in the Run ID is doubled, as SQL quotes it.
+    let run_literal = run.as_str().replace('\'', "''");
+    let offset = if from > 0 {
+        format!(" OFFSET {from}")
+    } else {
+        String::new()
+    };
+    DatasetQueryParams {
+        sql: format!(
+            "SELECT dataset, number, url, committed_at, value FROM records('{run_literal}') ORDER BY dataset, number{offset}"
+        ),
+        runs: vec![run.clone()],
+        limit: Some(RECORDS_PAGE),
+    }
+}
+
+/// A Record's value as the Records view shows it: a text as written,
+/// anything else as JSON.
+fn cell(value: &Value) -> String {
+    let written = match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    };
+    text::shown(&written, VALUE_MOST)
+}
+
+/// One setting's line of the Daemon settings view.
+fn setting_line(setting: &ExplainedSetting) -> SettingLine {
+    let mut value = match &setting.value {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    if let Some(cap) = &setting.cap {
+        value = format!("{value}, capped at {cap}");
+    }
+    if !setting.applied {
+        let products: Vec<&str> = setting
+            .products
+            .iter()
+            .map(|product| product_name(*product))
+            .collect();
+        let honour = if products.len() == 1 {
+            "honours"
+        } else {
+            "honour"
+        };
+        value = format!(
+            "{value}, not applied: only {} {honour} it",
+            products.join(" and ")
+        );
+    }
+    let set_by = match (setting.layer, setting.origin) {
+        (SettingsLayer::Run, Some(origin)) => format!("the Run ({})", run_origin(origin)),
+        (layer, _) => layer_name(layer).to_owned(),
+    };
+    SettingLine {
+        key: text::shown(&setting.key, VALUE_MOST),
+        value: text::shown(&value, VALUE_MOST),
+        set_by: text::shown(&set_by, VALUE_MOST),
+        locked_by: setting
+            .locked_by
+            .map_or_else(String::new, |layer| layer_name(layer).to_owned()),
+    }
+}
+
+/// What the window calls the layer that set or locked a setting.
+fn layer_name(layer: SettingsLayer) -> &'static str {
+    match layer {
+        SettingsLayer::Default => "the default",
+        SettingsLayer::OperatorPolicy => "the Operator policy",
+        SettingsLayer::UserConfiguration => "user configuration",
+        SettingsLayer::ProjectConfiguration => "project configuration",
+        SettingsLayer::Recipe => "the Recipe",
+        SettingsLayer::Run => "the Run",
+    }
+}
+
+/// What the window calls the layer a configuration file is of.
+fn file_layer(layer: SettingsLayer) -> &'static str {
+    match layer {
+        SettingsLayer::Default => "Default",
+        SettingsLayer::OperatorPolicy => "Operator policy",
+        SettingsLayer::UserConfiguration => "User configuration",
+        SettingsLayer::ProjectConfiguration => "Project configuration",
+        SettingsLayer::Recipe => "Recipe",
+        SettingsLayer::Run => "Run",
+    }
+}
+
+/// Where a run-layer value came from.
+fn run_origin(origin: RunOrigin) -> &'static str {
+    match origin {
+        RunOrigin::Argument => "a call's argument",
+        RunOrigin::Settings => "a scope's settings",
+        RunOrigin::Flag => "a CLI flag",
+        RunOrigin::Form => "an Integration's form",
+    }
+}
+
+/// The Resource governor's reading, as its view shows it.
+fn governor_fields(reading: &SystemInfo) -> Vec<Field> {
+    let level = match reading.pressure_source {
+        Some(source) => format!(
+            "{}, held by {}",
+            governor_level(reading.level),
+            pressure_source(source)
+        ),
+        None => governor_level(reading.level).to_owned(),
+    };
+    let mut fields = vec![Field::new("Level", &level)];
+    if reading.last_resort {
+        fields.push(Field::new(
+            "Last resort",
+            "memory stayed critical at the floor",
+        ));
+    }
+    let memory = &reading.memory;
+    fields.push(Field::new(
+        "Memory",
+        &format!(
+            "{} used of {}, {}",
+            bytes(memory.used),
+            bytes(memory.allowance),
+            allowance_source(memory.allowance_source)
+        ),
+    ));
+    fields.push(Field::new("Browsers' memory", &bytes(memory.browsers)));
+    fields.push(Field::new("Host memory", governor_level(memory.host)));
+    fields.push(Field::new(
+        "CPU",
+        &format!(
+            "{}% busy, {} threads",
+            reading.cpu.busy, reading.cpu.parallelism
+        ),
+    ));
+    fields.push(Field::new(
+        "Tokio workers",
+        &format!("{}% busy", reading.cpu.tokio_busy),
+    ));
+    let concurrency = &reading.concurrency;
+    for (label, kind) in [
+        ("HTTP fetches", &concurrency.http),
+        ("Browser pages", &concurrency.browser_page),
+        ("Model calls", &concurrency.model_call),
+    ] {
+        fields.push(Field::new(label, &kind_concurrency(kind)));
+    }
+    fields
+}
+
+fn kind_concurrency(kind: &KindConcurrency) -> String {
+    format!(
+        "{} in use of {} (from {} to {})",
+        kind.in_use, kind.target, kind.floor, kind.ceiling
+    )
+}
+
+fn governor_level(level: GovernorLevel) -> &'static str {
+    match level {
+        GovernorLevel::Normal => "normal",
+        GovernorLevel::Pressure => "pressure",
+        GovernorLevel::Critical => "critical",
+    }
+}
+
+fn pressure_source(source: PressureSource) -> &'static str {
+    match source {
+        PressureSource::Memory => "memory",
+        PressureSource::HostMemory => "the host's memory",
+        PressureSource::Cpu => "CPU",
+        PressureSource::Tokio => "the Tokio workers",
+    }
+}
+
+fn allowance_source(source: AllowanceSource) -> &'static str {
+    match source {
+        AllowanceSource::Cgroup => "its cgroup's limit",
+        AllowanceSource::JobObject => "its Job object's limit",
+        AllowanceSource::Setting => "governor.memory_allowance",
+        AllowanceSource::Physical => "half of physical memory",
+    }
+}
+
+/// A count of bytes in GiB, or in MiB below one.
+#[expect(clippy::cast_precision_loss, reason = "a reading shown to one decimal")]
+fn bytes(count: u64) -> String {
+    const MIB: f64 = 1024.0 * 1024.0;
+    let count = count as f64;
+    if count >= 1024.0 * MIB {
+        format!("{:.1} GiB", count / (1024.0 * MIB))
+    } else {
+        format!("{:.1} MiB", count / MIB)
     }
 }
 

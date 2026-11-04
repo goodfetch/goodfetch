@@ -12,13 +12,16 @@ use std::time::Duration;
 
 use goodfetch_kennel::client::{
     self, CONNECTION_LOST, Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity,
-    Listing, NO_DAEMON, Refusal, Report, UsageRead, Wanted,
+    Listing, NO_DAEMON, Query, Refusal, Report, SeedsAdded, SeedsToAdd, UsageRead, Wanted,
 };
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, Unready};
+use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::sql_tab::DatasetQueryParams;
 use goodfetch_protocol::needs_you::{
     NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
     NeedsYouRemoveRefetchDomainParams,
@@ -839,5 +842,189 @@ fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
     assert!(
         daemon.ended().success(),
         "the Daemon saw each read the window wanted, and the live Run's cancelled"
+    );
+}
+
+#[test]
+fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
+    let Some(engine) = scripted_engine("the_details_windows_records_and_settings_reads") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("details-records-and-settings.json"),
+        TOKEN,
+    );
+    let query = |generation: u64, sql: &str| Query {
+        generation,
+        params: DatasetQueryParams {
+            sql: sql.to_owned(),
+            runs: vec![run_id("shop-crawl")],
+            limit: Some(50),
+        },
+    };
+    let first = "SELECT dataset, number FROM records('shop-crawl')";
+    // Wanted as the Connection opens, the first query is sent before any
+    // later change of what is wanted.
+    let mut kennel = Following::wanting(
+        &home,
+        false,
+        NEVER,
+        Wanted {
+            records: Some(query(1, first)),
+            ..Wanted::default()
+        },
+    );
+    kennel.next(1);
+
+    // Another page wanted before the first answered: the first query is
+    // cancelled.
+    kennel.wanted.send_modify(|wanted| {
+        wanted.records = Some(query(
+            2,
+            "SELECT dataset, number FROM records('shop-crawl') OFFSET 50",
+        ));
+    });
+    let page = kennel.next_report();
+    kennel.wanted.send_modify(|wanted| wanted.explain = Some(1));
+    let explained = kennel.next_report();
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.records = Some(query(3, first)));
+    let refused = kennel.next_report();
+
+    let Report::Queried {
+        generation: 2,
+        result: Ok(page),
+    } = page
+    else {
+        panic!("the second page's Records, not {page:?}");
+    };
+    assert_eq!((page.rows.len(), page.total), (1, 1));
+    let Report::Explained {
+        generation: 1,
+        result: Ok(explained),
+    } = explained
+    else {
+        panic!("the settings in force, not {explained:?}");
+    };
+    assert_eq!(explained.settings[0].key, "timeout.navigation");
+    let Report::Queried {
+        generation: 3,
+        result: Err(failure),
+    } = refused
+    else {
+        panic!("the refused query, not {refused:?}");
+    };
+    assert_eq!(failure.code, "query_invalid");
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw each query and the superseded one cancelled"
+    );
+}
+
+#[test]
+fn the_governors_readings_are_subscribed_to_only_while_wanted() {
+    let Some(engine) =
+        scripted_engine("the_governors_readings_are_subscribed_to_only_while_wanted")
+    else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(
+        &engine,
+        &home,
+        &script("system-info-while-wanted.json"),
+        TOKEN,
+    );
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+    let resync = kennel.next_report();
+    assert!(
+        matches!(&resync, Report::Events(batch) if matches!(batch.events[..], [DaemonEvent::Resync(_)])),
+        "the subscription starts with a resync, not {resync:?}"
+    );
+    drop(resync);
+
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.system_info = true);
+    // The cancelled subscription's batch is not reported: the reading is
+    // the next report.
+    let reading = kennel.next_report();
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.system_info = false);
+
+    let Report::SystemInfo(reading) = reading else {
+        panic!("the governor's reading, not {reading:?}");
+    };
+    assert_eq!((reading.cpu.busy, reading.concurrency.http.in_use), (35, 9));
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw the subscription taken again with the readings, then without"
+    );
+}
+
+#[test]
+fn add_seeds_streams_the_seeds_within_the_calls_credits_and_reports_its_counts() {
+    let Some(engine) = scripted_engine("add_seeds_streams_the_seeds_within_the_calls_credits")
+    else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(&engine, &home, &script("add-seeds-streamed.json"), TOKEN);
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+    let seed = |url: &str| {
+        Seed::Request(RequestSeed {
+            url: url.to_owned(),
+            label: "detail".to_owned(),
+            payload: None,
+            priority: 0,
+            forefront: false,
+            method: HttpMethod::default(),
+            body: None,
+            key: None,
+        })
+    };
+    let call = Call::AddSeeds(SeedsToAdd {
+        run_id: run_id("shop-crawl"),
+        seeds: vec![
+            seed("https://shop.example/a"),
+            seed("https://shop.example/b"),
+            seed("not a url"),
+        ],
+    });
+
+    kennel.call(call.clone());
+    let counts = kennel.next_report();
+    let answer = kennel.next_answer();
+
+    let Report::SeedsAdded { run_id: to, added } = counts else {
+        panic!("the seeds' counts, not {counts:?}");
+    };
+    assert_eq!(to, run_id("shop-crawl"));
+    assert_eq!(
+        added,
+        SeedsAdded {
+            added: 1,
+            not_added: [("duplicate".to_owned(), 1), ("invalid_url".to_owned(), 1)]
+                .into_iter()
+                .collect(),
+        }
+    );
+    assert_eq!(answer, (call, Ok(())));
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw the seeds in batches within its credits, the last marked end"
     );
 }

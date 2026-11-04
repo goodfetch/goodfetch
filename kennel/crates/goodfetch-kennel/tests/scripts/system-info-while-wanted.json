@@ -1,0 +1,200 @@
+{
+  "description": "The Resource governor's readings only while wanted: the subscription resyncs at position 7; wanted, it is cancelled and taken again after position 7 with system_info, and a batch of the cancelled subscription is ignored; the reading comes; no longer wanted, the subscription is taken again after position 8 without it. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 2,
+            "events": [
+              {
+                "position": 7,
+                "event": "events.resync",
+                "data": {
+                  "runs": [],
+                  "needs_you": []
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 7
+          },
+          "system_info": true
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 3,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 2,
+            "events": [
+              {
+                "position": 8,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-01",
+                  "lifecycle": "running"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 3,
+            "events": [
+              {
+                "position": 8,
+                "event": "engine.system_info",
+                "data": {
+                  "level": "pressure",
+                  "pressure_source": "memory",
+                  "last_resort": false,
+                  "memory": {
+                    "allowance": 8589934592,
+                    "allowance_source": "physical",
+                    "used": 6442450944,
+                    "browsers": 2147483648,
+                    "host": "normal"
+                  },
+                  "cpu": {
+                    "parallelism": 8,
+                    "busy": 35,
+                    "tokio_busy": 12
+                  },
+                  "concurrency": {
+                    "http": {
+                      "floor": 1,
+                      "ceiling": 64,
+                      "target": 16,
+                      "in_use": 9
+                    },
+                    "browser_page": {
+                      "floor": 1,
+                      "ceiling": 8,
+                      "target": 4,
+                      "in_use": 2
+                    },
+                    "model_call": {
+                      "floor": 1,
+                      "ceiling": 4,
+                      "target": 4,
+                      "in_use": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 3
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 8
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 4,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

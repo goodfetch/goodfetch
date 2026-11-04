@@ -12,8 +12,15 @@ use goodfetch_protocol::run::{
 };
 use serde_json::{Value, json};
 
-use super::{Details, Field, Filter, Input, Repaint, RunLine};
-use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Listing, UsageRead, Wanted};
+use super::{
+    Details, Field, Filter, GovernorPanel, Input, Page, RecordsPanel, Repaint, RunLine,
+    SettingLine, View,
+};
+use crate::client::{
+    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Listing, SeedsAdded,
+    UsageRead, Wanted,
+};
+use crate::settings::{Settings, Views};
 
 fn connected(product: Product) -> Input {
     Input::Connection(ConnectionChange::Connected(DaemonIdentity {
@@ -557,6 +564,584 @@ fn field(label: &str, value: &str) -> Field {
     }
 }
 
+/// The Records query of `run` from `offset`, as the window asks it.
+fn records_sql(run: &str, offset: u64) -> String {
+    let from = format!(
+        "SELECT dataset, number, url, committed_at, value FROM records('{run}') ORDER BY dataset, number"
+    );
+    if offset == 0 {
+        from
+    } else {
+        format!("{from} OFFSET {offset}")
+    }
+}
+
+/// `dataset.query`'s answer of `rows` Records of the `products` Dataset
+/// numbered from `first`, of `total` from there.
+fn queried(details: &Details, first: u64, rows: u64, total: u64) -> Input {
+    let generation = details
+        .wanted()
+        .records
+        .expect("the Records view reads the chosen Run's Records")
+        .generation;
+    let rows = (first..first + rows)
+        .map(|number| {
+            vec![
+                json!("products"),
+                json!(number),
+                json!(format!("https://shop.example/{number}")),
+                json!("2026-11-03T09:10:00Z"),
+                json!({"name": format!("Product {number}")})
+                    .to_string()
+                    .into(),
+            ]
+        })
+        .collect::<Vec<Vec<Value>>>();
+    Input::Queried {
+        generation,
+        result: Ok(serde_json::from_value(json!({
+            "columns": [
+                {"name": "dataset", "type": "VARCHAR"},
+                {"name": "number", "type": "BIGINT"},
+                {"name": "url", "type": "VARCHAR"},
+                {"name": "committed_at", "type": "VARCHAR"},
+                {"name": "value", "type": "VARCHAR"},
+            ],
+            "rows": rows,
+            "total": total,
+        }))
+        .unwrap()),
+    }
+}
+
+/// A Foxhound window whose settings were read, with `crawl-a` (Recipe
+/// `shop`, running) and `crawl-c` (finished) listed, showing `view` with
+/// `run` chosen.
+fn showing(view: View, run: &str) -> Details {
+    let mut details = listed(table());
+    details.apply(Input::Settings(Ok(Settings::default())));
+    details.apply(Input::Chose(Some(run_id(run))));
+    details.apply(Input::Show(view));
+    details
+}
+
+#[test]
+fn the_records_view_reads_the_chosen_runs_records_a_page_at_a_time() {
+    let mut details = showing(View::Records, "crawl-c");
+
+    let first = details.wanted().records.map(|query| query.params);
+    details.apply(queried(&details, 1, 2, 52));
+    let page = details.view().records;
+    details.apply(Input::RecordsPage(Page::Next));
+    let next = details.wanted().records.map(|query| query.params.sql);
+    details.apply(Input::RecordsPage(Page::Previous));
+    let back = details.wanted().records.map(|query| query.params.sql);
+
+    let first = first.expect("the first page is read");
+    assert_eq!(first.sql, records_sql("crawl-c", 0));
+    assert_eq!(first.runs, vec![run_id("crawl-c")]);
+    assert_eq!(first.limit, Some(50));
+    assert_eq!(
+        page,
+        Some(RecordsPanel {
+            title: "Records of crawl-c".to_owned(),
+            note: None,
+            columns: ["dataset", "number", "url", "committed_at", "value"]
+                .map(str::to_owned)
+                .to_vec(),
+            rows: vec![
+                [
+                    "products",
+                    "1",
+                    "https://shop.example/1",
+                    "2026-11-03T09:10:00Z",
+                    r#"{"name":"Product 1"}"#,
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+                [
+                    "products",
+                    "2",
+                    "https://shop.example/2",
+                    "2026-11-03T09:10:00Z",
+                    r#"{"name":"Product 2"}"#,
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+            ],
+            range: "Records 1 to 2 of 52".to_owned(),
+            previous: false,
+            next: true,
+        })
+    );
+    assert_eq!(next, Some(records_sql("crawl-c", 50)));
+    assert_eq!(back, Some(records_sql("crawl-c", 0)));
+}
+
+#[test]
+fn records_are_read_only_while_their_view_shows_a_chosen_run() {
+    let mut details = showing(View::Records, "crawl-c");
+
+    details.apply(Input::Show(View::Runs));
+    let on_the_runs = details.wanted().records;
+    details.apply(Input::Show(View::Records));
+    details.apply(Input::Chose(None));
+    let none_chosen = details.wanted().records;
+    let note = details.view().records.and_then(|records| records.note);
+
+    assert_eq!(on_the_runs, None);
+    assert_eq!(none_chosen, None);
+    assert_eq!(
+        note.as_deref(),
+        Some("Choose a Run in the Runs view to read its Records")
+    );
+}
+
+#[test]
+fn a_refused_records_query_says_why() {
+    let mut details = showing(View::Records, "crawl-c");
+    let generation = details.wanted().records.unwrap().generation;
+
+    details.apply(Input::Queried {
+        generation,
+        result: Err(CallFailure {
+            code: "query_memory_exceeded".to_owned(),
+            message: "The query needed more memory than dataset.query.memory_limit".to_owned(),
+        }),
+    });
+
+    let note = details.view().records.and_then(|records| records.note);
+    assert_eq!(
+        note.as_deref(),
+        Some(
+            "The Daemon refused the query: The query needed more memory than dataset.query.memory_limit (query_memory_exceeded)"
+        )
+    );
+}
+
+#[test]
+fn foxhounds_records_and_add_seeds_are_hidden_on_a_collie_daemon() {
+    let mut details = Details::new();
+    details.apply(Input::Settings(Ok(Settings::default())));
+    details.apply(connected(Product::Collie));
+    details.apply(resync(&[]));
+    let generation = listing(&details).generation;
+    details.apply(Input::Listed {
+        generation,
+        rows: table(),
+    });
+    details.apply(Input::Chose(Some(run_id("crawl-a"))));
+    let panel = details.view().chosen.unwrap();
+
+    details.apply(Input::Show(View::Records));
+    let view = details.view();
+
+    assert_eq!(panel.add_seeds, None);
+    assert_eq!(
+        view.views,
+        [
+            View::Runs,
+            View::DaemonSettings,
+            View::Governor,
+            View::KennelSettings
+        ]
+    );
+    assert_eq!(view.shown, View::Runs);
+    assert_eq!(details.wanted().records, None);
+}
+
+fn explained() -> Input {
+    Input::Explained {
+        generation: 0,
+        result: Ok(serde_json::from_value(json!({
+            "policy_version": "sha256:0123456789abcdef",
+            "files": [
+                {"layer": "operator_policy", "path": "/etc/goodfetch/policy.toml", "found": true},
+                {"layer": "user_configuration", "path": "/home/someone/.config/goodfetch/config.toml", "found": false},
+            ],
+            "settings": [
+                {"key": "timeout.navigation", "products": ["collie", "foxhound"], "applied": true,
+                 "value": 30000, "layer": "default", "locked_by": "operator_policy", "weakens": false},
+                {"key": "crawl.max_depth", "products": ["foxhound"], "applied": false,
+                 "value": 3, "layer": "user_configuration", "weakens": false},
+                {"key": "proxy.url", "products": ["collie", "foxhound"], "applied": true,
+                 "value": "http://proxy.example:8080", "layer": "run", "origin": "flag", "weakens": false},
+            ],
+        }))
+        .unwrap()),
+    }
+}
+
+#[test]
+fn the_daemon_settings_view_reads_the_settings_in_force_only_while_it_shows() {
+    let mut details = showing(View::Runs, "crawl-a");
+
+    let on_the_runs = details.wanted().explain;
+    details.apply(Input::Show(View::DaemonSettings));
+    let shown = details.wanted().explain;
+    details.apply(Input::Refresh);
+    let refreshed = details.wanted().explain;
+
+    assert_eq!(on_the_runs, None);
+    assert!(shown.is_some(), "the view reads the settings");
+    assert!(
+        refreshed.is_some() && refreshed != shown,
+        "a refresh reads them again"
+    );
+}
+
+#[test]
+fn the_daemon_settings_view_shows_each_settings_value_and_where_it_comes_from() {
+    let mut details = showing(View::DaemonSettings, "crawl-a");
+    let Some(generation) = details.wanted().explain else {
+        panic!("the view reads the settings");
+    };
+    let Input::Explained { result, .. } = explained() else {
+        unreachable!();
+    };
+
+    details.apply(Input::Explained { generation, result });
+    let panel = details.view().daemon_settings.unwrap();
+
+    assert_eq!(panel.note, None);
+    assert_eq!(
+        panel.sources,
+        [
+            field("Operator policy", "sha256:0123456789abcdef"),
+            field("Operator policy file", "/etc/goodfetch/policy.toml"),
+            field(
+                "User configuration file",
+                "/home/someone/.config/goodfetch/config.toml (not found)"
+            ),
+        ]
+    );
+    assert_eq!(
+        panel.settings,
+        [
+            SettingLine {
+                key: "timeout.navigation".to_owned(),
+                value: "30000".to_owned(),
+                set_by: "the default".to_owned(),
+                locked_by: "the Operator policy".to_owned(),
+            },
+            SettingLine {
+                key: "crawl.max_depth".to_owned(),
+                value: "3, not applied: only Foxhound honours it".to_owned(),
+                set_by: "user configuration".to_owned(),
+                locked_by: String::new(),
+            },
+            SettingLine {
+                key: "proxy.url".to_owned(),
+                value: "http://proxy.example:8080".to_owned(),
+                set_by: "the Run (a CLI flag)".to_owned(),
+                locked_by: String::new(),
+            },
+        ]
+    );
+}
+
+fn reading() -> Input {
+    Input::SystemInfo(Box::new(
+        serde_json::from_value(json!({
+            "level": "pressure",
+            "pressure_source": "memory",
+            "last_resort": false,
+            "memory": {"allowance": 8_589_934_592_u64, "allowance_source": "physical",
+                       "used": 6_442_450_944_u64, "browsers": 2_147_483_648_u64, "host": "normal"},
+            "cpu": {"parallelism": 8, "busy": 35, "tokio_busy": 12},
+            "concurrency": {
+                "http": {"floor": 1, "ceiling": 64, "target": 16, "in_use": 9},
+                "browser_page": {"floor": 1, "ceiling": 8, "target": 4, "in_use": 2},
+                "model_call": {"floor": 1, "ceiling": 4, "target": 4, "in_use": 0},
+            },
+        }))
+        .unwrap(),
+    ))
+}
+
+#[test]
+fn the_governors_readings_are_subscribed_to_only_while_its_view_shows() {
+    let mut details = showing(View::Runs, "crawl-a");
+
+    let on_the_runs = details.wanted().system_info;
+    details.apply(Input::Show(View::Governor));
+    let shown = details.wanted().system_info;
+    details.apply(Input::Connection(ConnectionChange::NoDaemon));
+    let without_a_daemon = details.wanted().system_info;
+    details.apply(connected(Product::Foxhound));
+    let reconnected = details.wanted().system_info;
+    details.apply(Input::Closed);
+    let closed = details.wanted().system_info;
+
+    assert_eq!(
+        (on_the_runs, shown, without_a_daemon, reconnected, closed),
+        (false, true, false, true, false)
+    );
+}
+
+#[test]
+fn the_governor_view_shows_its_latest_reading() {
+    let mut details = showing(View::Governor, "crawl-a");
+    let waiting = details.view().governor;
+
+    details.apply(reading());
+    let read = details.view().governor;
+    details.apply(Input::Show(View::Runs));
+    details.apply(Input::Show(View::Governor));
+    let shown_again = details.view().governor;
+
+    assert_eq!(
+        waiting,
+        Some(GovernorPanel {
+            note: Some("Waiting for the Resource governor's next reading".to_owned()),
+            readings: Vec::new(),
+        })
+    );
+    assert_eq!(
+        read,
+        Some(GovernorPanel {
+            note: None,
+            readings: vec![
+                field("Level", "pressure, held by memory"),
+                field("Memory", "6.0 GiB used of 8.0 GiB, half of physical memory"),
+                field("Browsers' memory", "2.0 GiB"),
+                field("Host memory", "normal"),
+                field("CPU", "35% busy, 8 threads"),
+                field("Tokio workers", "12% busy"),
+                field("HTTP fetches", "9 in use of 16 (from 1 to 64)"),
+                field("Browser pages", "2 in use of 4 (from 1 to 8)"),
+                field("Model calls", "0 in use of 4 (from 1 to 4)"),
+            ],
+        })
+    );
+    assert_eq!(shown_again, waiting, "a reading is not kept once hidden");
+}
+
+#[test]
+fn each_view_turned_off_is_neither_offered_nor_read() {
+    let mut details = showing(View::Runs, "crawl-c");
+    details.apply(Input::Settings(Ok(Settings {
+        views: Views {
+            records: false,
+            daemon_settings: false,
+            governor: false,
+            kennel_settings: false,
+        },
+        ..Settings::default()
+    })));
+
+    let mut wanted = Vec::new();
+    for view in [View::Records, View::DaemonSettings, View::Governor] {
+        details.apply(Input::Show(view));
+        wanted.push(details.wanted());
+    }
+    let view = details.view();
+
+    assert_eq!(view.views, [View::Runs]);
+    assert_eq!(view.shown, View::Runs);
+    for wanted in wanted {
+        assert_eq!(
+            (wanted.records, wanted.explain, wanted.system_info),
+            (None, None, false)
+        );
+    }
+}
+
+#[test]
+fn the_chosen_runs_reads_stop_while_another_view_shows() {
+    let mut details = showing(View::Governor, "crawl-a");
+    details.apply(on_screen(&["crawl-a"]));
+
+    let wanted = details.wanted();
+
+    assert_eq!(wanted.progress, runs(&[]));
+    assert_eq!((wanted.report, wanted.usage), (None, None));
+}
+
+#[test]
+fn add_seeds_is_offered_for_a_live_crawl_and_asks_a_confirmation_naming_the_run_and_the_consequence()
+ {
+    let mut details = showing(View::Runs, "crawl-a");
+    let offer = details
+        .view()
+        .chosen
+        .and_then(|panel| panel.add_seeds)
+        .expect("a live crawl on a Foxhound Daemon offers Add Seeds");
+
+    let confirmation = offer
+        .confirmation(
+            " detail ",
+            "https://shop.example/a\n\n  https://shop.example/b  \n",
+        )
+        .unwrap();
+    let call = details.confirmed(confirmation.clone());
+
+    assert_eq!(confirmation.title, "Add 2 seeds to shop?");
+    assert_eq!(
+        confirmation.consequence,
+        "The crawl shop (crawl-a) fetches them with the Label detail, beside its other requests. A seed it already holds is not added again, and adding cannot be undone."
+    );
+    assert_eq!(confirmation.confirm, "Add seeds");
+    let Some(Call::AddSeeds(seeds)) = call else {
+        panic!("the confirmed seeds are added: {call:?}");
+    };
+    assert_eq!(seeds.run_id, run_id("crawl-a"));
+    let seeds: Vec<Value> = seeds
+        .seeds
+        .iter()
+        .map(|seed| serde_json::to_value(seed).unwrap())
+        .collect();
+    assert_eq!(
+        seeds,
+        [
+            json!({"url": "https://shop.example/a", "label": "detail"}),
+            json!({"url": "https://shop.example/b", "label": "detail"}),
+        ]
+    );
+    let status = details.view().chosen.and_then(|panel| panel.seeds);
+    assert_eq!(status.as_deref(), Some("Adding 2 seeds…"));
+}
+
+#[test]
+fn add_seeds_shows_what_the_crawl_added_and_what_it_did_not() {
+    let mut details = showing(View::Runs, "crawl-a");
+    let offer = details
+        .view()
+        .chosen
+        .and_then(|panel| panel.add_seeds)
+        .unwrap();
+    let confirmation = offer
+        .confirmation("detail", "https://a.example\nhttps://b.example\nnot a url")
+        .unwrap();
+    let call = details.confirmed(confirmation).unwrap();
+
+    details.apply(Input::SeedsAdded {
+        run_id: run_id("crawl-a"),
+        added: SeedsAdded {
+            added: 1,
+            not_added: [("duplicate".to_owned(), 1), ("invalid_url".to_owned(), 1)]
+                .into_iter()
+                .collect(),
+        },
+    });
+    details.apply(Input::Answered(call.clone(), Ok(())));
+    let added = details.view().chosen.and_then(|panel| panel.seeds);
+    let again = details.confirmed(offer.confirmation("detail", "https://c.example").unwrap());
+    details.apply(Input::Answered(
+        again.unwrap(),
+        Err(CallFailure {
+            code: "run_not_found".to_owned(),
+            message: "The crawl is already ending its Run".to_owned(),
+        }),
+    ));
+    let failed = details.view().chosen.and_then(|panel| panel.seeds);
+
+    assert_eq!(
+        added.as_deref(),
+        Some("1 seed added; 2 not added: duplicate 1, invalid_url 1")
+    );
+    assert_eq!(
+        failed.as_deref(),
+        Some("Adding seeds to shop failed: The crawl is already ending its Run (run_not_found)")
+    );
+}
+
+#[test]
+fn with_controls_off_add_seeds_is_neither_offered_nor_made() {
+    let mut details = showing(View::Runs, "crawl-a");
+    let offer = details
+        .view()
+        .chosen
+        .and_then(|panel| panel.add_seeds)
+        .unwrap();
+    let confirmation = offer
+        .confirmation("detail", "https://shop.example/a")
+        .unwrap();
+
+    details.apply(Input::Settings(Ok(Settings {
+        controls: false,
+        ..Settings::default()
+    })));
+    let offered = details.view().chosen.and_then(|panel| panel.add_seeds);
+    let call = details.confirmed(confirmation);
+
+    assert_eq!(offered, None);
+    assert_eq!(
+        call, None,
+        "a confirmation given before controls went off adds nothing"
+    );
+}
+
+#[test]
+fn add_seeds_is_offered_only_for_a_live_crawl_once_the_settings_are_read() {
+    let mut before_the_settings = listed(table());
+    before_the_settings.apply(Input::Chose(Some(run_id("crawl-a"))));
+    let ended = showing(View::Runs, "crawl-c");
+    let mut collie_run = listed(vec![{
+        let mut row = row("script-run", "running", &[]);
+        row.kind = goodfetch_protocol::run::RunKind::Collie;
+        row
+    }]);
+    collie_run.apply(Input::Settings(Ok(Settings::default())));
+    collie_run.apply(Input::Chose(Some(run_id("script-run"))));
+
+    for details in [before_the_settings, ended, collie_run] {
+        let offer = details.view().chosen.and_then(|panel| panel.add_seeds);
+        assert_eq!(offer, None);
+    }
+}
+
+#[test]
+fn add_seeds_asks_for_a_label_and_at_least_one_url() {
+    let details = showing(View::Runs, "crawl-a");
+    let offer = details
+        .view()
+        .chosen
+        .and_then(|panel| panel.add_seeds)
+        .unwrap();
+
+    let no_label = offer.confirmation("  ", "https://shop.example/a");
+    let no_url = offer.confirmation("detail", " \n \n");
+
+    assert_eq!(
+        no_label.err().as_deref(),
+        Some("Give the Label of the handler the seeds go to")
+    );
+    assert_eq!(
+        no_url.err().as_deref(),
+        Some("Give at least one URL, one a line")
+    );
+}
+
+#[test]
+fn text_from_records_and_settings_is_made_safe_before_the_window_shows_it() {
+    let mut details = showing(View::Records, "crawl-c");
+    let generation = details.wanted().records.unwrap().generation;
+    details.apply(Input::Queried {
+        generation,
+        result: Ok(serde_json::from_value(json!({
+            "columns": [{"name": "url\u{202e}", "type": "VARCHAR"}],
+            "rows": [["https://user:hunter2@example.com/\u{202e}evil"]],
+            "total": 1,
+        }))
+        .unwrap()),
+    });
+
+    let records = details.view().records.unwrap();
+
+    assert_eq!(records.columns, ["url"]);
+    assert!(
+        !records.rows[0][0].contains("hunter2"),
+        "{:?}",
+        records.rows
+    );
+    assert!(
+        !records.rows[0][0].contains('\u{202e}'),
+        "{:?}",
+        records.rows
+    );
+}
+
 mod kennel_settings {
     //! The Kennel settings view: the settings as the file holds them, a
     //! change in the file shown, and the view a setting of its own.
@@ -610,6 +1195,9 @@ mod kennel_settings {
                 (Switch::RunStoppedByLimitNotice, true),
                 (Switch::DaemonLostNotice, true),
                 (Switch::RunFinishedNotice, true),
+                (Switch::RecordsView, true),
+                (Switch::DaemonSettingsView, true),
+                (Switch::GovernorView, true),
                 (Switch::KennelSettingsView, true),
             ]
         );
@@ -693,12 +1281,17 @@ mod kennel_settings {
         details.apply(Input::Settings(Ok(Settings {
             views: Views {
                 kennel_settings: false,
+                ..Views::default()
             },
             ..Settings::default()
         })));
 
         let view = details.view();
-        assert_eq!(view.views, [View::Runs]);
+        assert!(
+            !view.views.contains(&View::KennelSettings),
+            "{:?}",
+            view.views
+        );
         assert_eq!(view.shown, View::Runs);
         assert_eq!(view.kennel_settings, None);
     }
@@ -710,7 +1303,11 @@ mod kennel_settings {
         details.apply(Input::Show(View::KennelSettings));
 
         let view = details.view();
-        assert_eq!(view.views, [View::Runs]);
+        assert!(
+            !view.views.contains(&View::KennelSettings),
+            "{:?}",
+            view.views
+        );
         assert_eq!(view.shown, View::Runs);
     }
 
@@ -721,7 +1318,8 @@ mod kennel_settings {
 
         let view = details.view();
 
-        assert_eq!(view.views, [View::Runs, View::KennelSettings]);
+        assert_eq!(view.views.last(), Some(&View::KennelSettings));
         assert_eq!(view.shown, View::Runs);
+        assert_eq!(view.kennel_settings, None);
     }
 }

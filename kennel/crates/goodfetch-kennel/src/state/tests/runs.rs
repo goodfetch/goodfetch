@@ -11,7 +11,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::super::{Frame, Input, MenuChange, Redraw, Row, State, Verdict};
-use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity};
+use crate::client::{ConnectionChange, DaemonEvent, DaemonIdentity, Generation};
 
 /// A State that reached a Daemon of `product`.
 pub(super) fn reached(product: Product) -> State {
@@ -538,6 +538,7 @@ fn a_resync_and_a_run_with_no_row_each_ask_for_the_live_runs_rows() {
             state.wanted().live_runs
         ],
         [0, 1, 1, 2]
+            .map(|count| (0..count).fold(Generation::default(), |generation, _| generation.next()))
     );
 }
 

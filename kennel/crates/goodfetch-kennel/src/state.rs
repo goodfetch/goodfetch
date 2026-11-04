@@ -63,7 +63,7 @@ use goodfetch_protocol::run::{
 };
 
 use crate::client::{
-    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Refusal, Wanted,
+    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Generation, Refusal, Wanted,
 };
 use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
@@ -473,7 +473,7 @@ pub struct State {
     /// The last call that failed, until a menu that showed it closes.
     failed: Option<Failed>,
     /// Bumped each time the live Runs' rows are to be read again.
-    live_runs: u64,
+    live_runs: Generation,
     menu_open: bool,
     /// Whether the details window's process runs.
     details_open: bool,
@@ -504,7 +504,7 @@ impl State {
             facts: BTreeMap::new(),
             needs_you: BTreeMap::new(),
             failed: None,
-            live_runs: 0,
+            live_runs: Generation::default(),
             menu_open: false,
             details_open: false,
             drawn: None,
@@ -887,12 +887,12 @@ impl State {
                     .into_iter()
                     .map(|item| (item.id.clone(), item))
                     .collect();
-                self.live_runs += 1;
+                self.live_runs.bump();
             }
             DaemonEvent::RunAxes(axes) => {
                 let known = self.facts.contains_key(&axes.run_id);
                 if axes.lifecycle == Lifecycle::Running && !known {
-                    self.live_runs += 1;
+                    self.live_runs.bump();
                 }
                 self.axes(axes, false);
             }

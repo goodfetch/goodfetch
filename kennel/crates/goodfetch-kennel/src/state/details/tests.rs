@@ -17,8 +17,8 @@ use super::{
     SettingLine, View,
 };
 use crate::client::{
-    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Listing, SeedsAdded,
-    UsageRead, Wanted,
+    Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity, Generation, Listing,
+    SeedsAdded, UsageRead, Wanted,
 };
 use crate::settings::{Settings, Views};
 
@@ -752,7 +752,7 @@ fn foxhounds_records_and_add_seeds_are_hidden_on_a_collie_daemon() {
 
 fn explained() -> Input {
     Input::Explained {
-        generation: 0,
+        generation: Generation::default(),
         result: Ok(serde_json::from_value(json!({
             "policy_version": "sha256:0123456789abcdef",
             "files": [

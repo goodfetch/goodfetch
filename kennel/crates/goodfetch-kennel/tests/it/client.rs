@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use goodfetch_kennel::client::{
     self, CONNECTION_LOST, Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity,
-    Listing, NO_DAEMON, Query, Refusal, Report, SeedsAdded, SeedsToAdd, UsageRead, Wanted,
+    Generation, Listing, NO_DAEMON, Query, Refusal, Report, SeedsAdded, SeedsToAdd, UsageRead,
+    Wanted,
 };
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
@@ -36,6 +37,11 @@ use crate::support::{ScriptedDaemon, next, reports, runtime, script, scripted_en
 const TOKEN: &str = "kennel-test-token";
 
 /// A health poll period no test waits for.
+/// The generation `count` reads after the first.
+fn generation(count: u64) -> Generation {
+    (0..count).fold(Generation::default(), |generation, _| generation.next())
+}
+
 pub(crate) const NEVER: Duration = Duration::from_secs(3600);
 
 /// A Kennel's Client following the Daemon of a home; dropping it stops
@@ -462,7 +468,7 @@ fn asked_for_the_live_runs_rows_the_kennel_reads_the_running_runs_of_the_run_ind
     let mut kennel = Following::start(&home, false, NEVER);
     kennel.next(1);
 
-    kennel.wanted.send_modify(|wanted| wanted.live_runs += 1);
+    kennel.wanted.send_modify(|wanted| wanted.live_runs.bump());
 
     let Report::LiveRuns(rows) = kennel.next_report() else {
         panic!("the live Runs' rows");
@@ -778,7 +784,7 @@ fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
 
     kennel.wanted.send_modify(|wanted| {
         wanted.listing = Some(Listing {
-            generation: 1,
+            generation: generation(1),
             params: RunListParams {
                 text: Some("shop".to_owned()),
                 ..RunListParams::default()
@@ -789,7 +795,7 @@ fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
     kennel.wanted.send_modify(|wanted| {
         wanted.usage = Some(UsageRead {
             run_id: run_id("shop-crawl"),
-            generation: 1,
+            generation: generation(1),
         });
         wanted.report = Some(run_id("shop-crawl"));
     });
@@ -808,7 +814,7 @@ fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
     let Report::Listed { generation, rows } = listed else {
         panic!("the listing's rows, not {listed:?}");
     };
-    assert_eq!((generation, rows.len()), (1, 1));
+    assert_eq!((generation, rows.len()), (self::generation(1), 1));
     assert_eq!(rows[0].run_id, run_id("shop-crawl"));
     let Report::RunReport {
         run_id: ended_run,
@@ -858,8 +864,8 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
         &script("details-records-and-settings.json"),
         TOKEN,
     );
-    let query = |generation: u64, sql: &str| Query {
-        generation,
+    let query = |count: u64, sql: &str| Query {
+        generation: generation(count),
         params: DatasetQueryParams {
             sql: sql.to_owned(),
             runs: vec![run_id("shop-crawl")],
@@ -889,7 +895,9 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
         ));
     });
     let page = kennel.next_report();
-    kennel.wanted.send_modify(|wanted| wanted.explain = Some(1));
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.explain = Some(generation(1)));
     let explained = kennel.next_report();
     kennel
         .wanted
@@ -897,28 +905,31 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
     let refused = kennel.next_report();
 
     let Report::Queried {
-        generation: 2,
+        generation: of_page,
         result: Ok(page),
     } = page
     else {
         panic!("the second page's Records, not {page:?}");
     };
+    assert_eq!(of_page, generation(2));
     assert_eq!((page.rows.len(), page.total), (1, 1));
     let Report::Explained {
-        generation: 1,
+        generation: of_explained,
         result: Ok(explained),
     } = explained
     else {
         panic!("the settings in force, not {explained:?}");
     };
+    assert_eq!(of_explained, generation(1));
     assert_eq!(explained.settings[0].key, "timeout.navigation");
     let Report::Queried {
-        generation: 3,
+        generation: of_refused,
         result: Err(failure),
     } = refused
     else {
         panic!("the refused query, not {refused:?}");
     };
+    assert_eq!(of_refused, generation(3));
     assert_eq!(failure.code, "query_invalid");
     assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
     assert!(

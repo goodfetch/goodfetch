@@ -45,74 +45,57 @@
 //!   Add Seeds streams its seeds to `run.add_seeds` within the credits the
 //!   call grants, and reports the counts of seeds added and not added.
 //!
+//! Its parts: this module follows the Daemon from one Connection to the
+//! next; `connection` is one Connection, its subscription and its reads;
+//! `seeds` streams Add Seeds; `wire` frames the messages and opens the
+//! socket; `runtime_files` watches the Daemons' runtime files. A report
+//! goes to a [`Reports`] sink, which may make the Client wait while it is
+//! full: the Client then reads nothing more from the Connection.
+//!
 //! The Daemon's token is read from the runtime file at each connection,
 //! held in memory only, sent only in `hello`, and never logged: the
 //! protocol's `DaemonToken` prints `[REDACTED]`, and no `hello` is logged.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::io;
-use std::pin::Pin;
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
+use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::checkpoint::{RUN_PAUSE, RUN_RESUME, RunResumeParams};
-use goodfetch_protocol::connection::{
-    CANCEL, CancelParams, DaemonEndpoint, EngineInstance, HELLO, HelloParams, HelloResult,
-    PROTOCOL_VERSION_UNSUPPORTED, ProductVersion, ProtocolVersionUnsupportedDetails, Surface,
-};
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::{self, DaemonHealth, DaemonParams, DaemonRuntimeFile};
-use goodfetch_protocol::events::{
-    CREDIT, CreditParams, EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope,
-    EventsSubscribeParams, LastRead, Position, RESYNC, Resync,
-};
+use goodfetch_protocol::events::Resync;
 use goodfetch_protocol::foxhound::crawl::Seed;
-use goodfetch_protocol::foxhound::frontier::{
-    ENQUEUED, Enqueued, EnqueuedBatch, RUN_ADD_SEEDS, RunAddSeedsParams, RunSeedsAdded, SEEDS,
-    SeedBatch,
-};
+use goodfetch_protocol::foxhound::frontier::RUN_ADD_SEEDS;
 use goodfetch_protocol::foxhound::outcomes::{RUN_RETRY_FAILED, RunRetryFailedParams};
-use goodfetch_protocol::foxhound::sql_tab::{
-    DATASET_QUERY, DatasetQueryParams, DatasetQueryResult,
-};
-use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
-use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Message, Notification, Request, RequestId, Response, Version,
-};
+use goodfetch_protocol::foxhound::sql_tab::{DatasetQueryParams, DatasetQueryResult};
+use goodfetch_protocol::governor::SystemInfo;
+use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Response};
 use goodfetch_protocol::needs_you::{
-    NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_CHANGED, NEEDS_YOU_DENY_WALL_DOMAIN,
-    NEEDS_YOU_DISMISS, NEEDS_YOU_REMOVE_REFETCH_DOMAIN, NeedsYouAllowConsentDomainParams,
-    NeedsYouChange, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
-    NeedsYouRemoveRefetchDomainParams,
+    NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_DENY_WALL_DOMAIN, NEEDS_YOU_DISMISS,
+    NEEDS_YOU_REMOVE_REFETCH_DOMAIN, NeedsYouAllowConsentDomainParams, NeedsYouChange,
+    NeedsYouDenyWallDomainParams, NeedsYouDismissParams, NeedsYouRemoveRefetchDomainParams,
 };
 use goodfetch_protocol::run::{
-    Lifecycle, RUN_ABORT, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP,
-    RUN_USAGE, RunAbortParams, RunAxes, RunId, RunIndexRow, RunList, RunListParams, RunParams,
-    RunProgress, RunProgressParams, RunReport, RunUsage, RunWaitParams,
+    RUN_ABORT, RUN_STOP, RunAbortParams, RunAxes, RunId, RunIndexRow, RunListParams, RunParams,
+    RunProgress, RunReport, RunUsage, RunWaitParams,
 };
-use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
+use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
-use serde::Serialize;
-use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 use tokio::sync::{mpsc, watch};
 use tokio::time::MissedTickBehavior;
 
 use crate::home::Home;
+use crate::reports::Reports;
 use crate::tasks::Tasks;
+use connection::{Connection, Opening, Pending, Reads};
 use runtime_files::RuntimeFiles;
+use wire::{request, send};
 
+mod connection;
 mod runtime_files;
-
-/// The id of the Kennel's `hello`, its first request on each Connection.
-const HELLO_ID: i64 = 1;
-
-/// The id of its `events.subscribe`, its second.
-const SUBSCRIBE_ID: i64 = 2;
-
-/// The id of its first other call, the health poll's included; each next
-/// one takes the next.
-const FIRST_CALL_ID: i64 = 3;
+mod seeds;
+mod wire;
 
 /// How often the Kennel asks the reached Daemon `daemon.health`, the one
 /// poll ADR 0141 allows: slow, so that an idle Kennel costs nothing.
@@ -250,30 +233,6 @@ impl Call {
             Self::AddSeeds(_) => RUN_ADD_SEEDS.name,
         }
     }
-
-    /// The request of id `id` that makes it.
-    fn request(&self, id: i64) -> Request {
-        let method = self.method();
-        match self {
-            Self::RaiseLimit(params) => request(id, method, params),
-            Self::AllowConsentDomain(params) => request(id, method, params),
-            Self::DenyWallDomain(params) => request(id, method, params),
-            Self::RemoveRefetchDomain(params) => request(id, method, params),
-            Self::Dismiss(params) => request(id, method, params),
-            Self::Stop(params) => request(id, method, params),
-            Self::Abort(params) => request(id, method, params),
-            Self::Pause(params) => request(id, method, params),
-            Self::Resume(params) => request(id, method, params),
-            Self::RetryFailed(params) => request(id, method, params),
-            Self::AddSeeds(seeds) => request(
-                id,
-                method,
-                &RunAddSeedsParams {
-                    run_id: seeds.run_id.clone(),
-                },
-            ),
-        }
-    }
 }
 
 /// Why a call did not succeed.
@@ -350,7 +309,7 @@ pub enum Report {
     /// The rows of [`Wanted::listing`], as `run.list` answered.
     Listed {
         /// The listing's generation, which the answer is of.
-        generation: u64,
+        generation: Generation,
         /// The rows, in the listing's order.
         rows: Vec<RunIndexRow>,
     },
@@ -374,7 +333,7 @@ pub enum Report {
     /// there is none.
     Queried {
         /// The query's generation, which the answer is of.
-        generation: u64,
+        generation: Generation,
         /// Its result, or why there is none.
         result: Result<DatasetQueryResult, CallFailure>,
     },
@@ -382,7 +341,7 @@ pub enum Report {
     /// force and where each comes from, or why there are none.
     Explained {
         /// The read's generation, which the answer is of.
-        generation: u64,
+        generation: Generation,
         /// The settings, or why there are none.
         result: Result<Box<SettingsExplanation>, CallFailure>,
     },
@@ -404,7 +363,7 @@ pub enum Report {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Wanted {
     /// The live Runs' rows are read again each time this changes.
-    pub live_runs: u64,
+    pub live_runs: Generation,
     /// The Runs whose progress is read and followed.
     pub progress: BTreeSet<RunId>,
     /// The Run index's rows of a filter, read again each time this
@@ -420,17 +379,36 @@ pub struct Wanted {
     pub records: Option<Query>,
     /// The settings in force, read with `config.explain` again each time
     /// this generation changes.
-    pub explain: Option<u64>,
+    pub explain: Option<Generation>,
     /// Whether the subscription takes the Resource governor's readings,
     /// `engine.system_info`.
     pub system_info: bool,
+}
+
+/// How many times a read was asked for again: a read is made again each
+/// time its generation changes, and an answer names the generation it is
+/// of, so an answer to a read no longer wanted is told apart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Generation(u64);
+
+impl Generation {
+    /// The generation after this one.
+    #[must_use]
+    pub fn next(self) -> Self {
+        Self(self.0 + 1)
+    }
+
+    /// Moves on to the next generation: the read is to be made again.
+    pub fn bump(&mut self) {
+        *self = self.next();
+    }
 }
 
 /// A query of the Runs' Records, through `dataset.query`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Query {
     /// Changed each time the query is to be read again.
-    pub generation: u64,
+    pub generation: Generation,
     /// The statement, its Runs and its row limit.
     pub params: DatasetQueryParams,
 }
@@ -439,7 +417,7 @@ pub struct Query {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listing {
     /// Changed each time the rows are to be read again.
-    pub generation: u64,
+    pub generation: Generation,
     /// The filter and order.
     pub params: RunListParams,
 }
@@ -450,7 +428,7 @@ pub struct UsageRead {
     /// The Run.
     pub run_id: RunId,
     /// Changed each time its Usage is to be read again.
-    pub generation: u64,
+    pub generation: Generation,
 }
 
 /// What the Client follows the Daemon with.
@@ -488,7 +466,7 @@ pub struct Follow {
 ///
 /// # Cancel safety
 /// Dropping the future closes the Connection; nothing else is lost.
-pub async fn follow(tasks: Tasks, follow: Follow, report: impl Fn(Report) + Send + Sync + 'static) {
+pub async fn follow(tasks: Tasks, follow: Follow, report: impl Reports<Report>) {
     let mut follower = Follower {
         tasks,
         follow,
@@ -520,7 +498,7 @@ enum Left {
     KeepAliveChanged,
 }
 
-impl<R: Fn(Report)> Follower<R> {
+impl<R: Reports<Report>> Follower<R> {
     /// Follows until the Kennel stops.
     async fn run(&mut self) {
         loop {
@@ -546,9 +524,11 @@ impl<R: Fn(Report)> Follower<R> {
                         "reached the Daemon"
                     );
                     let mut reads = Reads::new(&mut self.follow.wanted);
-                    (self.report)(Report::Connection(ConnectionChange::Connected(
-                        connection.identity.clone(),
-                    )));
+                    self.report
+                        .report(Report::Connection(ConnectionChange::Connected(
+                            connection.identity.clone(),
+                        )))
+                        .await;
                     let left = self
                         .serve(connection, &mut reads, &runtime, keep_daemon_alive)
                         .await;
@@ -564,16 +544,20 @@ impl<R: Fn(Report)> Follower<R> {
                             message: "The Connection to the Daemon closed before it answered"
                                 .to_owned(),
                         };
-                        (self.report)(Report::Answered(call, Err(lost)));
+                        self.report.report(Report::Answered(call, Err(lost))).await;
                     }
                     continue;
                 }
                 Err(Opening::Refused(refusal)) => {
                     tracing::warn!(?refusal, "the Daemon refused the Kennel");
-                    (self.report)(Report::Connection(ConnectionChange::Refused(refusal)));
+                    self.report
+                        .report(Report::Connection(ConnectionChange::Refused(refusal)))
+                        .await;
                 }
                 Err(Opening::Unreachable) => {
-                    (self.report)(Report::Connection(ConnectionChange::NoDaemon));
+                    self.report
+                        .report(Report::Connection(ConnectionChange::NoDaemon))
+                        .await;
                 }
             }
             if self.wait_for_a_change().await.is_none() {
@@ -596,7 +580,7 @@ impl<R: Fn(Report)> Follower<R> {
                             code: NO_DAEMON.to_owned(),
                             message: "No Daemon is reached, so nothing was sent".to_owned(),
                         };
-                        (self.report)(Report::Answered(call, Err(unsent)));
+                        self.report.report(Report::Answered(call, Err(unsent))).await;
                     } else {
                         self.calls_open = false;
                     }
@@ -644,7 +628,9 @@ impl<R: Fn(Report)> Follower<R> {
                     if let Ok(Message::Response(response)) = &message
                         && let Some(reading) = health.answered(response)
                     {
-                        (self.report)(Report::Connection(ConnectionChange::Health(reading)));
+                        self.report
+                            .report(Report::Connection(ConnectionChange::Health(reading)))
+                            .await;
                     }
                     connection.read(message, reads, &self.report).await
                 }
@@ -682,16 +668,7 @@ impl<R: Fn(Report)> Follower<R> {
                 }
                 call = self.follow.calls.recv(), if self.calls_open => {
                     if let Some(call) = call {
-                        let id = reads.next_id();
-                        tracing::info!(method = call.method(), "a person's call");
-                        let sent = send(&mut connection.writer, &call.request(id)).await;
-                        let pending = if matches!(call, Call::AddSeeds(_)) {
-                            Pending::Seeds(SeedStream::new(call))
-                        } else {
-                            Pending::Call(call)
-                        };
-                        reads.pending.insert(id, pending);
-                        sent
+                        connection.call(reads, call).await
                     } else {
                         self.calls_open = false;
                         Ok(())
@@ -758,863 +735,5 @@ impl Health {
         );
         self.last = Some(reading.clone());
         Some(reading)
-    }
-}
-
-/// Why opening a Connection failed.
-#[derive(Debug)]
-enum Opening {
-    /// Nothing answered at the endpoint, or it closed before answering.
-    Unreachable,
-    /// The Daemon refused the Kennel.
-    Refused(Refusal),
-}
-
-type Reader = Pin<Box<dyn AsyncRead + Send>>;
-type Writer = Pin<Box<dyn AsyncWrite + Send>>;
-
-/// An open Connection, after its `hello` and its subscription.
-struct Connection {
-    lines: Lines<BufReader<Reader>>,
-    writer: Writer,
-    identity: DaemonIdentity,
-    /// The engine instance that answered `hello`.
-    instance: EngineInstance,
-    /// The id of the `events.subscribe` call of the subscription.
-    subscription: i64,
-    /// Whether the subscription takes `engine.system_info`.
-    system_info: bool,
-    /// The position of the last event the subscription reported, after
-    /// which a subscription taken again resumes.
-    last_read: Option<Position>,
-    /// The subscription's credits.
-    credits: Credits,
-}
-
-/// A subscription's credits: the events applied, given back through
-/// [`Applied`], and how many of them were granted again.
-struct Credits {
-    applied: watch::Sender<u64>,
-    renewals: watch::Receiver<u64>,
-    credited: u64,
-}
-
-impl Credits {
-    fn new() -> Self {
-        let (applied, renewals) = watch::channel(0_u64);
-        Self {
-            applied,
-            renewals,
-            credited: 0,
-        }
-    }
-}
-
-impl Connection {
-    /// Opens the Connection to the Daemon of `runtime` with `hello`,
-    /// asking it to stay alive when `keep_daemon_alive` is on, then
-    /// subscribes to its events, starting from a resync, with the Resource
-    /// governor's readings when `system_info` is on.
-    async fn open(
-        runtime: &DaemonRuntimeFile,
-        keep_daemon_alive: bool,
-        system_info: bool,
-    ) -> Result<Self, Opening> {
-        let (reader, mut writer) = connect(&runtime.endpoint)
-            .await
-            .map_err(|_| Opening::Unreachable)?;
-        let mut lines = BufReader::new(reader).lines();
-        send(&mut writer, &hello_request(runtime, keep_daemon_alive))
-            .await
-            .map_err(|_| Opening::Unreachable)?;
-        let accepted = loop {
-            let Ok(Some(line)) = lines.next_line().await else {
-                return Err(Opening::Unreachable);
-            };
-            match serde_json::from_str::<Message>(&line) {
-                Ok(Message::Response(response)) if response.id == RequestId::Number(HELLO_ID) => {
-                    break serde_json::from_value::<HelloResult>(response.result).map_err(
-                        |_| {
-                            Opening::Refused(Refusal::Other {
-                                code: "invalid_hello_result".to_owned(),
-                            })
-                        },
-                    )?;
-                }
-                // An error whose id is null answers a message the Daemon
-                // could not read, which can only be `hello`.
-                Ok(Message::Error(failure))
-                    if failure.id.is_none() || failure.id == Some(RequestId::Number(HELLO_ID)) =>
-                {
-                    return Err(Opening::Refused(refusal(failure.error)));
-                }
-                Ok(_) | Err(_) => {}
-            }
-        };
-        let mut connection = Self {
-            lines,
-            writer,
-            identity: DaemonIdentity {
-                product: accepted.product,
-                product_version: accepted.product_version,
-            },
-            instance: accepted.engine_instance,
-            subscription: SUBSCRIBE_ID,
-            system_info,
-            last_read: None,
-            credits: Credits::new(),
-        };
-        connection
-            .subscribe()
-            .await
-            .map_err(|_| Opening::Unreachable)?;
-        Ok(connection)
-    }
-
-    /// Subscribes to the engine's events with the call `subscription`:
-    /// after the last event read, or from a resync before any; and grants
-    /// the subscription its credits.
-    async fn subscribe(&mut self) -> io::Result<()> {
-        let params = EventsSubscribeParams {
-            // A position ahead of any the engine gave starts the
-            // subscription with `events.resync` (ADR 0031).
-            after: Some(LastRead {
-                engine_instance: self.instance.clone(),
-                position: self.last_read.unwrap_or(Position(u64::MAX)),
-            }),
-            system_info: self.system_info,
-        };
-        send(
-            &mut self.writer,
-            &request(self.subscription, EVENTS_SUBSCRIBE.name, &params),
-        )
-        .await?;
-        self.credit(u64::from(CREDITS)).await
-    }
-
-    /// Cancels the subscription and takes it again, after the last event
-    /// it reported, with the Resource governor's readings when
-    /// `system_info` is on. Batches of the cancelled subscription still
-    /// on their way are ignored: the new one sends their events again.
-    async fn resubscribe(&mut self, reads: &mut Reads, system_info: bool) -> io::Result<()> {
-        let cancel = CancelParams {
-            id: RequestId::Number(self.subscription),
-        };
-        send(&mut self.writer, &notification(CANCEL, &cancel)).await?;
-        self.subscription = reads.next_id();
-        self.system_info = system_info;
-        self.credits = Credits::new();
-        self.subscribe().await
-    }
-
-    /// Grants the subscription `credits` more events.
-    async fn credit(&mut self, credits: u64) -> io::Result<()> {
-        let params = CreditParams {
-            id: RequestId::Number(self.subscription),
-            credits: u32::try_from(credits).unwrap_or(u32::MAX),
-        };
-        send(&mut self.writer, &notification(CREDIT, &params)).await
-    }
-
-    /// Handles one message of the Daemon.
-    async fn read(
-        &mut self,
-        message: Result<Message, serde_json::Error>,
-        reads: &mut Reads,
-        report: &impl Fn(Report),
-    ) -> io::Result<()> {
-        match message {
-            Ok(Message::Notification(notification)) if notification.method == EVENTS => {
-                let Some(batch) = notification
-                    .params
-                    .and_then(|params| serde_json::from_value::<EventBatch>(params).ok())
-                else {
-                    tracing::warn!("an event batch the Kennel cannot read");
-                    return Ok(());
-                };
-                if batch.id == RequestId::Number(self.subscription) {
-                    if let Some(last) = batch.events.last() {
-                        self.last_read = Some(last.position);
-                    }
-                    events(batch.events, &self.credits.applied, report);
-                }
-                Ok(())
-            }
-            Ok(Message::Notification(incoming)) if incoming.method == CREDIT => {
-                let Some(granted) = incoming
-                    .params
-                    .and_then(|params| serde_json::from_value::<CreditParams>(params).ok())
-                else {
-                    return Ok(());
-                };
-                let RequestId::Number(id) = granted.id else {
-                    return Ok(());
-                };
-                let Some(Pending::Seeds(stream)) = reads.pending.get_mut(&id) else {
-                    return Ok(());
-                };
-                match stream.next_batch(id, granted.credits) {
-                    Some(batch) => send(&mut self.writer, &notification(SEEDS, &batch)).await,
-                    None => Ok(()),
-                }
-            }
-            Ok(Message::Notification(incoming)) if incoming.method == ENQUEUED => {
-                let Some(batch) = incoming
-                    .params
-                    .and_then(|params| serde_json::from_value::<EnqueuedBatch>(params).ok())
-                else {
-                    tracing::warn!("seeds' answers the Kennel cannot read");
-                    return Ok(());
-                };
-                if let RequestId::Number(id) = batch.id
-                    && let Some(Pending::Seeds(stream)) = reads.pending.get_mut(&id)
-                {
-                    stream.answered(&batch.answers);
-                }
-                Ok(())
-            }
-            Ok(Message::Response(response)) => {
-                self.answered(reads, response.id, Ok(response.result), report)
-                    .await
-            }
-            Ok(Message::Error(failure)) => match failure.id {
-                Some(id) => self.answered(reads, id, Err(failure.error), report).await,
-                None => Ok(()),
-            },
-            Ok(Message::Request(_) | Message::Notification(_)) | Err(_) => Ok(()),
-        }
-    }
-
-    /// Handles the answer to the call `id`.
-    async fn answered(
-        &mut self,
-        reads: &mut Reads,
-        id: RequestId,
-        answer: Result<Value, ErrorObject>,
-        report: &impl Fn(Report),
-    ) -> io::Result<()> {
-        let RequestId::Number(id) = id else {
-            return Ok(());
-        };
-        match reads.pending.remove(&id) {
-            None => Ok(()),
-            Some(Pending::LiveRuns) => {
-                if let Some(runs) = listed(answer) {
-                    report(Report::LiveRuns(runs));
-                }
-                Ok(())
-            }
-            Some(Pending::Listed(generation)) => {
-                if let Some(rows) = listed(answer) {
-                    report(Report::Listed { generation, rows });
-                }
-                Ok(())
-            }
-            Some(Pending::Report(run)) => {
-                if let Some((reported, reading)) = &mut reads.report
-                    && *reported == run
-                {
-                    *reading = None;
-                }
-                let answer = answer.map_err(|error| error.data.code).and_then(|value| {
-                    serde_json::from_value::<Box<RunReport>>(value).map_err(|error| {
-                        tracing::warn!(%error, run_id = %run, "a run.report answer the Kennel cannot read");
-                        "invalid_run_report".to_owned()
-                    })
-                });
-                report(Report::RunReport {
-                    run_id: run,
-                    report: answer,
-                });
-                Ok(())
-            }
-            Some(Pending::Usage(run)) => {
-                match answer.map(serde_json::from_value::<RunUsage>) {
-                    Ok(Ok(usage)) => report(Report::Usage { run_id: run, usage }),
-                    Ok(Err(error)) => {
-                        tracing::warn!(%error, run_id = %run, "a run.usage answer the Kennel cannot read");
-                    }
-                    Err(error) => {
-                        tracing::warn!(code = error.data.code, run_id = %run, "run.usage failed");
-                    }
-                }
-                Ok(())
-            }
-            Some(Pending::Queried(generation)) => {
-                if let Some((query, reading)) = &mut reads.records
-                    && query.generation == generation
-                {
-                    *reading = None;
-                }
-                let result = decoded_answer(DATASET_QUERY.name, answer);
-                report(Report::Queried { generation, result });
-                Ok(())
-            }
-            Some(Pending::Explained(generation)) => {
-                let result = decoded_answer(CONFIG_EXPLAIN.name, answer);
-                report(Report::Explained { generation, result });
-                Ok(())
-            }
-            Some(Pending::Seeds(stream)) => {
-                seeds_answered(stream, answer, report);
-                Ok(())
-            }
-            Some(Pending::Call(call)) => {
-                let answer = answer.map(drop).map_err(failure);
-                if let Err(failure) = &answer {
-                    tracing::warn!(
-                        method = call.method(),
-                        code = failure.code,
-                        "a person's call failed"
-                    );
-                }
-                report(Report::Answered(call, answer));
-                Ok(())
-            }
-            Some(Pending::Progress(run)) => {
-                self.progress_answered(reads, run, answer, report).await
-            }
-        }
-    }
-
-    /// Handles the answer to a `run.progress` read of `run`: reports the
-    /// progress and reads the next one, until the last.
-    async fn progress_answered(
-        &mut self,
-        reads: &mut Reads,
-        run: RunId,
-        answer: Result<Value, ErrorObject>,
-        report: &impl Fn(Report),
-    ) -> io::Result<()> {
-        let progress = match answer.map(serde_json::from_value::<RunProgress>) {
-            Ok(Ok(progress)) => progress,
-            Ok(Err(error)) => {
-                tracing::warn!(%error, run_id = %run, "a run.progress answer the Kennel cannot read");
-                reads.followed.insert(run, Followed::Ended);
-                return Ok(());
-            }
-            Err(error) => {
-                tracing::warn!(code = error.data.code, run_id = %run, "run.progress failed");
-                reads.followed.insert(run, Followed::Ended);
-                return Ok(());
-            }
-        };
-        let next = (!progress.last).then_some(progress.position);
-        report(Report::Progress(progress));
-        if let Some(position) = next {
-            self.read_progress(reads, run, Some(position)).await
-        } else {
-            reads.followed.insert(run, Followed::Ended);
-            Ok(())
-        }
-    }
-
-    /// Sends the Records query and the settings read `wanted` asks for,
-    /// and cancels a query it no longer does.
-    async fn keep_queries_in_step(&mut self, reads: &mut Reads, wanted: &Wanted) -> io::Result<()> {
-        if wanted.records.as_ref() != reads.records.as_ref().map(|(query, _)| query) {
-            if let Some((_, Some(id))) = reads.records.take() {
-                reads.pending.remove(&id);
-                let params = CancelParams {
-                    id: RequestId::Number(id),
-                };
-                send(&mut self.writer, &notification(CANCEL, &params)).await?;
-            }
-            reads.records = None;
-            if let Some(query) = &wanted.records {
-                let id = reads.next_id();
-                send(
-                    &mut self.writer,
-                    &request(id, DATASET_QUERY.name, &query.params),
-                )
-                .await?;
-                reads.pending.insert(id, Pending::Queried(query.generation));
-                reads.records = Some((query.clone(), Some(id)));
-            }
-        }
-        if wanted.explain != reads.explain {
-            reads.explain = wanted.explain;
-            if let Some(generation) = wanted.explain {
-                let id = reads.next_id();
-                send(
-                    &mut self.writer,
-                    &request(id, CONFIG_EXPLAIN.name, &ConfigExplainParams::default()),
-                )
-                .await?;
-                reads.pending.insert(id, Pending::Explained(generation));
-            }
-        }
-        Ok(())
-    }
-
-    /// Sends the reads `wanted` asks for and cancels those it no longer
-    /// does.
-    async fn keep_in_step(&mut self, reads: &mut Reads, wanted: &Wanted) -> io::Result<()> {
-        if wanted.live_runs != reads.live_runs {
-            reads.live_runs = wanted.live_runs;
-            let id = reads.next_id();
-            let params = RunListParams {
-                lifecycle: Some(Lifecycle::Running),
-                ..RunListParams::default()
-            };
-            send(&mut self.writer, &request(id, RUN_LIST.name, &params)).await?;
-            reads.pending.insert(id, Pending::LiveRuns);
-        }
-        if wanted.listing != reads.listing {
-            reads.listing.clone_from(&wanted.listing);
-            if let Some(listing) = &wanted.listing {
-                let id = reads.next_id();
-                send(
-                    &mut self.writer,
-                    &request(id, RUN_LIST.name, &listing.params),
-                )
-                .await?;
-                reads
-                    .pending
-                    .insert(id, Pending::Listed(listing.generation));
-            }
-        }
-        if wanted.usage != reads.usage {
-            reads.usage.clone_from(&wanted.usage);
-            if let Some(usage) = &wanted.usage {
-                let id = reads.next_id();
-                let params = RunParams {
-                    run_id: usage.run_id.clone(),
-                };
-                send(&mut self.writer, &request(id, RUN_USAGE.name, &params)).await?;
-                reads
-                    .pending
-                    .insert(id, Pending::Usage(usage.run_id.clone()));
-            }
-        }
-        self.keep_queries_in_step(reads, wanted).await?;
-        if wanted.system_info != self.system_info {
-            self.resubscribe(reads, wanted.system_info).await?;
-        }
-        if wanted.report.as_ref() != reads.report.as_ref().map(|(run, _)| run) {
-            if let Some((_, Some(id))) = reads.report.take() {
-                reads.pending.remove(&id);
-                let params = CancelParams {
-                    id: RequestId::Number(id),
-                };
-                send(&mut self.writer, &notification(CANCEL, &params)).await?;
-            }
-            reads.report = None;
-            if let Some(run) = &wanted.report {
-                let id = reads.next_id();
-                let params = RunParams {
-                    run_id: run.clone(),
-                };
-                send(&mut self.writer, &request(id, RUN_REPORT.name, &params)).await?;
-                reads.pending.insert(id, Pending::Report(run.clone()));
-                reads.report = Some((run.clone(), Some(id)));
-            }
-        }
-        let dropped: Vec<RunId> = reads
-            .followed
-            .keys()
-            .filter(|run| !wanted.progress.contains(*run))
-            .cloned()
-            .collect();
-        for run in dropped {
-            if let Some(Followed::Reading(id)) = reads.followed.remove(&run) {
-                reads.pending.remove(&id);
-                let params = CancelParams {
-                    id: RequestId::Number(id),
-                };
-                send(&mut self.writer, &notification(CANCEL, &params)).await?;
-            }
-        }
-        for run in &wanted.progress {
-            if !reads.followed.contains_key(run) {
-                self.read_progress(reads, run.clone(), None).await?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Reads `run`'s progress: at once, or after the value at `after`.
-    async fn read_progress(
-        &mut self,
-        reads: &mut Reads,
-        run: RunId,
-        after: Option<u64>,
-    ) -> io::Result<()> {
-        let id = reads.next_id();
-        let params = RunProgressParams {
-            run_id: run.clone(),
-            after,
-        };
-        send(
-            &mut self.writer,
-            &request(id, RUN_PROGRESS_READ.name, &params),
-        )
-        .await?;
-        reads.pending.insert(id, Pending::Progress(run.clone()));
-        reads.followed.insert(run, Followed::Reading(id));
-        Ok(())
-    }
-}
-
-/// The reads of one Connection.
-struct Reads {
-    next_id: i64,
-    /// The calls waiting for their answer.
-    pending: BTreeMap<i64, Pending>,
-    /// The Runs whose progress is followed.
-    followed: BTreeMap<RunId, Followed>,
-    /// The [`Wanted::live_runs`] last read.
-    live_runs: u64,
-    /// The [`Wanted::listing`] last read.
-    listing: Option<Listing>,
-    /// The [`Wanted::usage`] last read.
-    usage: Option<UsageRead>,
-    /// The Run whose report is read, with the id of the call that reads
-    /// it until it answers.
-    report: Option<(RunId, Option<i64>)>,
-    /// The query of Records read, with the id of the call that reads it
-    /// until it answers.
-    records: Option<(Query, Option<i64>)>,
-    /// The [`Wanted::explain`] last read.
-    explain: Option<u64>,
-    /// What was wanted as the Connection opened.
-    first: Option<Wanted>,
-}
-
-impl Reads {
-    /// The reads of a new Connection, which reads the live Runs' rows only
-    /// once `wanted` asks again.
-    fn new(wanted: &mut watch::Receiver<Wanted>) -> Self {
-        let first = wanted.borrow_and_update().clone();
-        Self {
-            next_id: FIRST_CALL_ID,
-            pending: BTreeMap::new(),
-            followed: BTreeMap::new(),
-            live_runs: first.live_runs,
-            listing: first.listing.clone(),
-            usage: first.usage.clone(),
-            report: None,
-            // A new Connection reads the Records and the settings it is
-            // asked for at once.
-            records: None,
-            explain: None,
-            first: Some(first),
-        }
-    }
-
-    /// The Connection's next request id, which no other request takes.
-    fn next_id(&mut self) -> i64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-}
-
-/// What a call waiting for its answer reads.
-#[derive(Debug)]
-enum Pending {
-    LiveRuns,
-    Listed(u64),
-    Report(RunId),
-    Usage(RunId),
-    Progress(RunId),
-    Queried(u64),
-    Explained(u64),
-    /// A person's call.
-    Call(Call),
-    /// A person's Add Seeds, streaming its seeds.
-    Seeds(SeedStream),
-}
-
-/// An Add Seeds call streaming its seeds within the credits it grants.
-#[derive(Debug)]
-struct SeedStream {
-    /// The call, a [`Call::AddSeeds`].
-    call: Call,
-    /// How many of its seeds were sent.
-    sent: usize,
-    /// Whether the batch marked `end` was sent.
-    ended: bool,
-    /// The credits granted and not yet spent.
-    credits: u64,
-    /// The seeds not added so far, by reason.
-    not_added: BTreeMap<String, u64>,
-}
-
-impl SeedStream {
-    fn new(call: Call) -> Self {
-        Self {
-            call,
-            sent: 0,
-            ended: false,
-            credits: 0,
-            not_added: BTreeMap::new(),
-        }
-    }
-
-    /// The next batch of the call `id` once it granted `credits` more:
-    /// as many seeds as the credits allow, the last batch marked `end`;
-    /// none once that batch was sent.
-    fn next_batch(&mut self, id: i64, credits: u32) -> Option<SeedBatch> {
-        let Call::AddSeeds(to_add) = &self.call else {
-            return None;
-        };
-        if self.ended {
-            return None;
-        }
-        self.credits += u64::from(credits);
-        let left = &to_add.seeds[self.sent..];
-        let taken = left
-            .len()
-            .min(usize::try_from(self.credits).unwrap_or(usize::MAX));
-        if taken == 0 && !left.is_empty() {
-            return None;
-        }
-        self.sent += taken;
-        self.credits -= u64::try_from(taken).unwrap_or(u64::MAX);
-        self.ended = self.sent == to_add.seeds.len();
-        Some(SeedBatch {
-            id: RequestId::Number(id),
-            seeds: left[..taken].to_vec(),
-            end: self.ended,
-        })
-    }
-
-    /// Counts the seeds of `answers` the crawl did not add.
-    fn answered(&mut self, answers: &[Enqueued]) {
-        for answer in answers {
-            if let Enqueued::NotAdded { reason, .. } = answer {
-                let reason = serde_json::to_value(reason)
-                    .ok()
-                    .and_then(|reason| reason.as_str().map(str::to_owned))
-                    .unwrap_or_default();
-                *self.not_added.entry(reason).or_default() += 1;
-            }
-        }
-    }
-}
-
-/// Reports the answer of an Add Seeds call that streamed `stream`: its
-/// counts, then the call's success; or its failure.
-fn seeds_answered(
-    stream: SeedStream,
-    answer: Result<Value, ErrorObject>,
-    report: &impl Fn(Report),
-) {
-    let SeedStream {
-        call, not_added, ..
-    } = stream;
-    let answer = answer.map_err(failure).and_then(|value| {
-        serde_json::from_value::<RunSeedsAdded>(value)
-            .map_err(|error| unreadable(RUN_ADD_SEEDS.name, &error))
-    });
-    match answer {
-        Ok(counts) => {
-            if let Call::AddSeeds(seeds) = &call {
-                report(Report::SeedsAdded {
-                    run_id: seeds.run_id.clone(),
-                    added: SeedsAdded {
-                        added: counts.added,
-                        not_added,
-                    },
-                });
-            }
-            report(Report::Answered(call, Ok(())));
-        }
-        Err(failure) => {
-            tracing::warn!(code = failure.code, "adding seeds failed");
-            report(Report::Answered(call, Err(failure)));
-        }
-    }
-}
-
-/// The failure an engine's Error gives a read or a call.
-fn failure(error: ErrorObject) -> CallFailure {
-    CallFailure {
-        code: error.data.code,
-        message: error.message,
-    }
-}
-
-/// The rows a `run.list` answered, or none when it failed.
-fn listed(answer: Result<Value, ErrorObject>) -> Option<Vec<RunIndexRow>> {
-    match answer.map(serde_json::from_value::<RunList>) {
-        Ok(Ok(list)) => Some(list.runs),
-        Ok(Err(error)) => {
-            tracing::warn!(%error, "a run.list answer the Kennel cannot read");
-            None
-        }
-        Err(error) => {
-            tracing::warn!(code = error.data.code, "run.list failed");
-            None
-        }
-    }
-}
-
-/// The answer to `method`, read as `T`, or why there is none.
-fn decoded_answer<T: serde::de::DeserializeOwned>(
-    method: &str,
-    answer: Result<Value, ErrorObject>,
-) -> Result<T, CallFailure> {
-    answer.map_err(failure).and_then(|value| {
-        serde_json::from_value::<T>(value).map_err(|error| unreadable(method, &error))
-    })
-}
-
-/// The failure of an answer to `method` the Kennel cannot read.
-fn unreadable(method: &str, error: &serde_json::Error) -> CallFailure {
-    tracing::warn!(%error, method, "an answer the Kennel cannot read");
-    CallFailure {
-        code: "invalid_answer".to_owned(),
-        message: format!("The Daemon's answer to {method} could not be read"),
-    }
-}
-
-/// Where a followed Run's progress is.
-#[derive(Debug)]
-enum Followed {
-    /// The call with this id reads it.
-    Reading(i64),
-    /// Its last value came, or it cannot be read.
-    Ended,
-}
-
-/// Reports the events of a batch the Kennel reads, and gives back at once
-/// the credits of a batch with none. The Resource governor's readings are
-/// reported apart, the latest of the batch only, their credits given back
-/// at once.
-fn events(envelopes: Vec<EventEnvelope>, applied: &watch::Sender<u64>, report: &impl Fn(Report)) {
-    let credits = u64::try_from(envelopes.len()).unwrap_or(u64::MAX);
-    let (readings, envelopes): (Vec<EventEnvelope>, Vec<EventEnvelope>) = envelopes
-        .into_iter()
-        .partition(|envelope| envelope.event == SYSTEM_INFO.name);
-    if let Some(reading) = readings.into_iter().next_back() {
-        match serde_json::from_value::<Box<SystemInfo>>(reading.data) {
-            Ok(reading) => report(Report::SystemInfo(reading)),
-            Err(error) => tracing::warn!(%error, "a governor reading the Kennel cannot read"),
-        }
-    }
-    let events: Vec<DaemonEvent> = envelopes.into_iter().filter_map(decoded).collect();
-    let applied = Applied {
-        credits,
-        to: applied.clone(),
-    };
-    if !events.is_empty() {
-        report(Report::Events(Batch { events, applied }));
-    }
-}
-
-/// The event `envelope` carries, if the Kennel reads it.
-fn decoded(envelope: EventEnvelope) -> Option<DaemonEvent> {
-    let EventEnvelope { event, data, .. } = envelope;
-    let decoded = if event == RESYNC.name {
-        serde_json::from_value(data).map(DaemonEvent::Resync)
-    } else if event == RUN_AXES_CHANGED.name {
-        serde_json::from_value(data).map(DaemonEvent::RunAxes)
-    } else if event == NEEDS_YOU_CHANGED.name {
-        serde_json::from_value(data).map(DaemonEvent::NeedsYou)
-    } else {
-        return None;
-    };
-    decoded
-        .inspect_err(|error| tracing::warn!(event, %error, "an event the Kennel cannot read"))
-        .ok()
-}
-
-/// The Kennel's `hello` to the Daemon of `runtime`, which carries the
-/// keep-alive flag only when `keep_daemon_alive` is on.
-fn hello_request(runtime: &DaemonRuntimeFile, keep_daemon_alive: bool) -> Request {
-    let hello = HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Kennel,
-        form: None,
-        token: Some(runtime.token.expose().to_owned()),
-        needs: Some(Product::Collie),
-        product_version: kennel_version(),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive,
-    };
-    request(HELLO_ID, HELLO, &hello)
-}
-
-/// The request `id` of `method` with `params`.
-fn request(id: i64, method: &str, params: &impl Serialize) -> Request {
-    Request {
-        jsonrpc: Version,
-        id: RequestId::Number(id),
-        method: method.to_owned(),
-        params: Some(serde_json::to_value(params).expect("invariant: a request's params encode")),
-    }
-}
-
-/// The notification `method` with `params`.
-fn notification(method: &str, params: &impl Serialize) -> Notification {
-    Notification {
-        jsonrpc: Version,
-        method: method.to_owned(),
-        params: Some(
-            serde_json::to_value(params).expect("invariant: a notification's params encode"),
-        ),
-    }
-}
-
-/// The Kennel's own version, which its `hello` names (ADR 0141).
-fn kennel_version() -> ProductVersion {
-    ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-        .expect("invariant: the crate's version is a Product version")
-}
-
-/// What a refused `hello` says.
-fn refusal(error: ErrorObject) -> Refusal {
-    let details = Value::Object(error.data.details);
-    if details.get("handover").and_then(Value::as_bool) == Some(true) {
-        return Refusal::HandOver;
-    }
-    if error.data.code == PROTOCOL_VERSION_UNSUPPORTED.name
-        && let Ok(details) = serde_json::from_value::<ProtocolVersionUnsupportedDetails>(details)
-    {
-        return Refusal::ProtocolVersion {
-            engine: details.engine_protocol_version,
-            needs: PROTOCOL_VERSION,
-        };
-    }
-    Refusal::Other {
-        code: error.data.code,
-    }
-}
-
-/// Writes `message` as one line.
-async fn send(writer: &mut Writer, message: &impl Serialize) -> io::Result<()> {
-    let mut line = serde_json::to_vec(message).expect("invariant: a message encodes");
-    line.push(b'\n');
-    writer.write_all(&line).await?;
-    writer.flush().await
-}
-
-/// Opens the Daemon's socket: a Unix socket on macOS and Linux, loopback
-/// TCP on Windows (ADR 0024).
-#[expect(
-    clippy::disallowed_types,
-    reason = "the Kennel's Client is the one module of the Kennel that opens a socket, its Connection to the local Daemon (ADR 0141)"
-)]
-async fn connect(endpoint: &DaemonEndpoint) -> io::Result<(Reader, Writer)> {
-    match endpoint {
-        #[cfg(unix)]
-        DaemonEndpoint::Unix(path) => {
-            let (reader, writer) = tokio::net::UnixStream::connect(path).await?.into_split();
-            Ok((Box::pin(reader), Box::pin(writer)))
-        }
-        #[cfg(not(unix))]
-        DaemonEndpoint::Unix(_) => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "a Unix socket on a host that has none",
-        )),
-        DaemonEndpoint::Tcp(address) => {
-            let stream = tokio::net::TcpStream::connect(address).await?;
-            stream.set_nodelay(true)?;
-            let (reader, writer) = stream.into_split();
-            Ok((Box::pin(reader), Box::pin(writer)))
-        }
     }
 }

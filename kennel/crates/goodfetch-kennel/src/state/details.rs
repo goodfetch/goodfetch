@@ -56,8 +56,8 @@ use serde_json::{Map, Value};
 
 use super::{Daemon, REDRAW_PERIOD, attempt, health_text, product_name, refused};
 use crate::client::{
-    Call, CallFailure, ConnectionChange, DaemonEvent, Listing, Query, SeedsAdded, SeedsToAdd,
-    UsageRead, Wanted,
+    Call, CallFailure, ConnectionChange, DaemonEvent, Generation, Listing, Query, SeedsAdded,
+    SeedsToAdd, UsageRead, Wanted,
 };
 use crate::settings::{Settings, SettingsError};
 use crate::text;
@@ -127,7 +127,7 @@ pub enum Input {
     /// The rows of the listing of this generation, as `run.list` answered.
     Listed {
         /// The listing's generation.
-        generation: u64,
+        generation: Generation,
         /// The rows.
         rows: Vec<RunIndexRow>,
     },
@@ -167,14 +167,14 @@ pub enum Input {
     /// The answer to the Records query of this generation.
     Queried {
         /// The query's generation.
-        generation: u64,
+        generation: Generation,
         /// Its result, or why there is none.
         result: Result<DatasetQueryResult, CallFailure>,
     },
     /// The answer to the read of the settings in force of this generation.
     Explained {
         /// The read's generation.
-        generation: u64,
+        generation: Generation,
         /// The settings, or why there are none.
         result: Result<Box<SettingsExplanation>, CallFailure>,
     },
@@ -458,7 +458,7 @@ pub struct Details {
     resynced: bool,
     filter: Filter,
     /// Bumped each time the table's rows are to be listed again.
-    generation: u64,
+    generation: Generation,
     /// The table's rows, once the listing of `generation` answered.
     rows: Option<Vec<RunIndexRow>>,
     on_screen: BTreeSet<RunId>,
@@ -466,7 +466,7 @@ pub struct Details {
     /// The last progress read of each Run followed.
     progress: BTreeMap<RunId, RunProgress>,
     /// Bumped each time the chosen Run's Usage is to be read again.
-    usage_generation: u64,
+    usage_generation: Generation,
     /// The chosen Run's Usage, as `run.usage` last answered.
     usage: Option<(RunId, RunUsage)>,
     /// The chosen Run's report, or why there is none.
@@ -478,13 +478,13 @@ pub struct Details {
     /// The view the person chose.
     view: View,
     /// Bumped each time the Records are to be read again.
-    records_generation: u64,
+    records_generation: Generation,
     /// The first Record of the Records page, from 0.
     records_from: u64,
     /// The Records page's answer, of `records_generation`.
     records: Option<Result<DatasetQueryResult, CallFailure>>,
     /// Bumped each time the settings in force are to be read again.
-    explain_generation: u64,
+    explain_generation: Generation,
     /// The settings in force, of `explain_generation`.
     explained: Option<Result<Box<SettingsExplanation>, CallFailure>>,
     /// The Resource governor's latest reading while its view shows.
@@ -520,21 +520,21 @@ impl Details {
             daemon: Daemon::Looking,
             resynced: false,
             filter: Filter::default(),
-            generation: 0,
+            generation: Generation::default(),
             rows: None,
             on_screen: BTreeSet::new(),
             chosen: None,
             progress: BTreeMap::new(),
-            usage_generation: 0,
+            usage_generation: Generation::default(),
             usage: None,
             report: None,
             settings: None,
             settings_note: None,
             view: View::Runs,
-            records_generation: 0,
+            records_generation: Generation::default(),
             records_from: 0,
             records: None,
-            explain_generation: 0,
+            explain_generation: Generation::default(),
             explained: None,
             reading: None,
             seeds: None,
@@ -552,7 +552,7 @@ impl Details {
                     .iter()
                     .any(|event| matches!(event, DaemonEvent::Resync(_) | DaemonEvent::RunAxes(_)))
                 {
-                    self.generation += 1;
+                    self.generation.bump();
                 }
                 if events
                     .iter()
@@ -571,7 +571,7 @@ impl Details {
             }
             Input::Progress(progress) => {
                 if self.chosen.as_ref() == Some(&progress.run_id) {
-                    self.usage_generation += 1;
+                    self.usage_generation.bump();
                 }
                 self.progress.insert(progress.run_id.clone(), progress);
             }
@@ -588,7 +588,7 @@ impl Details {
             Input::Filter(filter) => {
                 if filter != self.filter {
                     self.filter = filter;
-                    self.generation += 1;
+                    self.generation.bump();
                 }
             }
             Input::Chose(chosen) => {
@@ -596,7 +596,7 @@ impl Details {
                     self.chosen = chosen;
                     self.report = None;
                     self.usage = None;
-                    self.usage_generation += 1;
+                    self.usage_generation.bump();
                     self.records_from = 0;
                     self.read_records_again();
                 }
@@ -693,13 +693,13 @@ impl Details {
 
     /// Reads the settings in force again, dropping the answer shown.
     fn explain_again(&mut self) {
-        self.explain_generation += 1;
+        self.explain_generation.bump();
         self.explained = None;
     }
 
     /// Reads the Records page again, dropping the answer shown.
     fn read_records_again(&mut self) {
-        self.records_generation += 1;
+        self.records_generation.bump();
         self.records = None;
     }
 
@@ -783,7 +783,7 @@ impl Details {
         let chosen_runs = chosen.filter(|id| self.runs(id));
         progress.extend(chosen_runs.cloned());
         Wanted {
-            live_runs: 0,
+            live_runs: Generation::default(),
             progress,
             listing: self.resynced.then(|| Listing {
                 generation: self.generation,

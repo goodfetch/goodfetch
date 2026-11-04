@@ -245,10 +245,12 @@ const ROWS: [Row; 91] = [
         happens: true,
         valgrind: None,
     },
+    // What each page more prepares: the whole site's run less a run on half
+    // its pages, over the pages it adds (ADR 0138).
     Row {
         name: "F2.prepares",
         family: "B1",
-        unit: "pages",
+        unit: "added_pages",
         happens: false,
         valgrind: None,
     },
@@ -1404,6 +1406,7 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
+        "added_pages" => "page added",
         unit => unit.trim_end_matches('s'),
     }
 }

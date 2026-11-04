@@ -945,8 +945,9 @@ kennel:
 # Client's against goodfetch-scripted-engine and the Run controls' against a
 # real Daemon of goodfetch-collie, which the root workspace builds with the
 # tests' profile. On macOS every crate; elsewhere the
-# non-graphical crate, with the graphical one type-checked for macOS, or
-# listed as skipped without that Rust target (kennel/scripts/check.sh).
+# non-graphical crate, with the graphical one type-checked for macOS and,
+# on Linux, for the host, each listed as skipped without its Rust target or
+# GTK 3's and libdbus's development files (kennel/scripts/check.sh).
 # Runs the Kennel's Clippy and tests.
 kennel-check:
     kennel/scripts/check.sh {{ test_profile }}

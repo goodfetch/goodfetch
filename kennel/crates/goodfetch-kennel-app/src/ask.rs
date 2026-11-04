@@ -1,16 +1,20 @@
 //! What the Tray asks of the desktop for a Run's controls: the native
 //! confirmation dialog that Stop, Abort and Retry failed show before they
-//! act, through `rfd` (`NSAlert` on macOS, GTK 3 on Linux, the message box
-//! on Windows), and the clipboard "Copy resume command" writes, through
-//! `arboard`. Both run on the main thread, while the person chooses.
+//! act, through `rfd` (`NSAlert` on macOS, the message box on Windows), and
+//! the clipboard "Copy resume command" writes, through `arboard`. Both run
+//! on the main thread, while the person chooses. On Linux the dialog is
+//! GTK's, on the Tray's GTK thread (`tray::confirm`).
 
 use std::cell::RefCell;
 
+#[cfg(not(target_os = "linux"))]
 use goodfetch_kennel::state::Confirmation;
+#[cfg(not(target_os = "linux"))]
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 
 /// Asks `confirmation`'s question in a modal dialog: whether the person
-/// confirmed.
+/// confirmed. On Linux the Tray's GTK thread asks instead (`tray::confirm`).
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn confirmed(confirmation: &Confirmation) -> bool {
     // Windows names custom buttons only with Common Controls 6, which the
     // Kennel's executable does not declare: there the buttons read OK and

@@ -1,0 +1,5 @@
+# cargo-audit's ignores for the Kennel's lockfile, the same IDs as
+# `kennel/deny.toml`'s `[advisories] ignore`, each with its reason and what
+# removes it there. ci/audit.sh runs cargo-audit from this folder.
+[advisories]
+ignore = ["RUSTSEC-2024-0370", "RUSTSEC-2024-0429"]

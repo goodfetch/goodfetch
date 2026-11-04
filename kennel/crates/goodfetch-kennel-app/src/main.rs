@@ -12,6 +12,9 @@
 //! view, which it draws as the menu opens, and draws what the State says is
 //! due, the loop waking at the instant a paced redraw falls due.
 //!
+//! On Linux the Tray runs GTK's main loop on a thread of its own, through
+//! the `Tasks` tracker, and draws the frames this loop sends it (`tray`).
+//!
 //! At launch, once the settings are read, the State asks for the
 //! hidden-icon check, which the Tray makes once the status item has had
 //! time to settle, and makes the login agent as start at login says.
@@ -36,10 +39,13 @@ use goodfetch_kennel::daemon_start;
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::login::{self, LoginAgent, SystemLaunchctl};
 use goodfetch_kennel::settings::{self, Settings, SettingsError};
+#[cfg(target_os = "linux")]
+use goodfetch_kennel::state::{Choice, Confirmation};
 use goodfetch_kennel::state::{Effect, Input, MenuChange, Redraw, State};
 use goodfetch_kennel::tasks::Tasks;
 use goodfetch_kennel::window::{self, Opening};
 use tokio::sync::{mpsc, watch};
+#[cfg(not(target_os = "linux"))]
 use tray_icon::menu::MenuId;
 use winit::application::ApplicationHandler;
 use winit::event::{StartCause, WindowEvent};
@@ -65,10 +71,19 @@ pub(crate) enum UserEvent {
     /// What the Client reports.
     Client(Report),
     /// The person chose a menu item.
+    #[cfg(not(target_os = "linux"))]
     Menu(MenuId),
+    /// The person chose this, as the Tray's GTK thread found it.
+    #[cfg(target_os = "linux")]
+    Chose(Choice),
+    /// The person confirmed this, in the Tray's GTK dialog.
+    #[cfg(target_os = "linux")]
+    Confirmed(Confirmation),
     /// The menu opened, drawing the latest view.
+    #[cfg(not(target_os = "linux"))]
     MenuOpened,
     /// The menu closed.
+    #[cfg(target_os = "macos")]
     MenuClosed,
     /// The details window's process started, with this process ID.
     DetailsOpened(u32),
@@ -280,6 +295,11 @@ impl Kennel {
                         effects.extend(self.state.apply(Input::Answered(call, Err(failure))));
                     }
                 }
+                // On Linux the GTK thread asks, and the answer comes back
+                // as `UserEvent::Confirmed`.
+                #[cfg(target_os = "linux")]
+                Effect::Confirm(confirmation) => tray::confirm(confirmation),
+                #[cfg(not(target_os = "linux"))]
                 Effect::Confirm(confirmation) => {
                     if ask::confirmed(&confirmation) {
                         effects.extend(self.state.confirmed(confirmation));
@@ -309,6 +329,8 @@ impl Kennel {
             changed
         });
         if self.installed {
+            // Linux draws no menu on a click: nothing to keep.
+            #[cfg(not(target_os = "linux"))]
             tray::keep(self.state.view());
             self.redraw();
         }
@@ -434,7 +456,7 @@ impl ApplicationHandler<UserEvent> for Kennel {
         match cause {
             // On macOS the status item is made once the loop runs, not
             // before.
-            StartCause::Init => match tray::install(self.state.view()) {
+            StartCause::Init => match tray::install(self.state.view(), &self.tasks) {
                 Ok(()) => {
                     self.installed = true;
                     if !tray::FOLLOWS_THE_MENU {
@@ -517,12 +539,19 @@ impl ApplicationHandler<UserEvent> for Kennel {
             UserEvent::Client(Report::Answered(call, answer)) => {
                 self.state.apply(Input::Answered(call, answer))
             }
+            #[cfg(not(target_os = "linux"))]
             UserEvent::MenuOpened => self.state.apply(Input::Menu(MenuChange::Opened(now()))),
+            #[cfg(target_os = "macos")]
             UserEvent::MenuClosed => self.state.apply(Input::Menu(MenuChange::Closed)),
+            #[cfg(not(target_os = "linux"))]
             UserEvent::Menu(id) => match tray::choice(&id) {
                 Some(choice) => self.state.choose(choice),
                 None => Vec::new(),
             },
+            #[cfg(target_os = "linux")]
+            UserEvent::Chose(choice) => self.state.choose(choice),
+            #[cfg(target_os = "linux")]
+            UserEvent::Confirmed(confirmation) => self.state.confirmed(confirmation),
         };
         self.carry_out(event_loop, effects);
     }

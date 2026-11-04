@@ -9,11 +9,18 @@
 #   kennel/scripts/check.sh <cargo profile>
 #
 # On macOS it checks and tests every crate. Elsewhere the graphical crate,
-# goodfetch-kennel-app, needs display libraries the display-less Linux gate
-# does not have (GTK, libappindicator), so it checks and tests the
-# non-graphical crate, goodfetch-kennel, and type-checks the graphical one
-# for macOS (aarch64-apple-darwin), as #1915 did; without that Rust target
-# the type-check is listed as skipped on a local host and fails in CI.
+# goodfetch-kennel-app, needs a display to run, which the display-less
+# Linux gate does not have, so it checks and tests the non-graphical crate,
+# goodfetch-kennel, and type-checks the graphical one:
+#   - for macOS (aarch64-apple-darwin), as #1915 did;
+#   - on Linux, for this host, which reaches the Linux Tray's GTK thread
+#     (#2077); that type-check needs the development files of GTK 3, which
+#     the Tray builds on, and of libdbus, which desktop notices send
+#     through, found by pkg-config (Debian and Ubuntu:
+#     `apt install libgtk-3-dev libdbus-1-dev`), and no display.
+#     AppIndicator's library is loaded at run time, so it needs none.
+# Without the Rust target or those files, that type-check is listed as
+# skipped with the reason on a local host, and fails in CI.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -58,5 +65,16 @@ else
       --all-targets --all-features -- -D warnings
   else
     skip "the graphical crate's type-check for macOS, since the Rust target $cross is not installed (rustup target add $cross)"
+  fi
+  if [[ "$(uname -s)" == Linux ]]; then
+    missing=()
+    for library in gtk+-3.0 dbus-1; do
+      pkg-config --exists "$library" || missing+=("$library")
+    done
+    if [[ ${#missing[@]} -eq 0 ]]; then
+      cargo clippy --locked -p goodfetch-kennel-app --all-targets --all-features -- -D warnings
+    else
+      skip "the graphical crate's type-check for Linux, since pkg-config finds no ${missing[*]}: GTK 3 (gtk+-3.0) is what its Tray builds on, libdbus (dbus-1) what its desktop notices send through (Debian and Ubuntu: apt install libgtk-3-dev libdbus-1-dev)"
+    fi
   fi
 fi

@@ -11,6 +11,7 @@
 
 mod client;
 mod daemon_start;
+mod login;
 mod real_daemon;
 mod settings;
 mod support;

@@ -15,26 +15,40 @@
 //! - **Repaints.** The model asks for a repaint only when its view
 //!   changed, at most once a second; the person's own input is drawn by
 //!   `egui` as it comes.
+//! - **Its views.** The Runs, then each view `kennel.toml` leaves on: the
+//!   chosen Run's Records, the Daemon's settings and the Resource
+//!   governor's readings. The model offers them, and reads only what the
+//!   shown one needs.
+//! - **Its settings.** It follows `kennel.toml` itself, as the tray does:
+//!   `controls` off, or settings not read yet, offer no Add Seeds.
+//! - **Add Seeds** asks the platform's own confirmation, naming the Run and
+//!   the consequence, on the UI thread, then hands the person's yes to the
+//!   model, which makes the call only while the Run still offers it.
 
 use std::collections::BTreeSet;
 use std::time::Instant;
 
 use anyhow::Context as _;
 use eframe::egui;
-use goodfetch_kennel::client::{self, Report, Wanted};
+use goodfetch_kennel::client::{self, CONNECTION_LOST, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::home::Home;
+use goodfetch_kennel::settings::{self, Settings, SettingsError};
 use goodfetch_kennel::state::details::{
-    Details, DetailsView, Field, Filter, Input, Repaint, RunLine, RunPanel,
+    Details, DetailsView, Field, Filter, GovernorPanel, Input, Page, RecordsPanel, Repaint,
+    RunLine, RunPanel, SeedsConfirmation, SettingsPanel, View,
 };
 use goodfetch_kennel::tasks::Tasks;
 use goodfetch_protocol::run::{Lifecycle, RunId};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::fonts;
+use crate::{ask, fonts};
 
 /// The window's size when it opens, in points.
 const SIZE: [f32; 2] = [1040.0, 640.0];
+
+/// How many calls the person makes may wait for the Client to send them.
+const CALLS_WAITING: usize = 4;
 
 /// What reaches the window's model.
 #[derive(Debug)]
@@ -43,6 +57,8 @@ enum ToModel {
     Client(Report),
     /// What the person did.
     Person(Input),
+    /// The person said yes to Add Seeds.
+    Confirmed(SeedsConfirmation),
 }
 
 /// Runs the details window until the person closes it.
@@ -58,13 +74,14 @@ pub(crate) fn run(
     ctx.set_fonts(fonts);
 
     let (to_model, inputs) = mpsc::unbounded_channel();
+    let home_for_settings = home.clone();
     let (wanted, wanted_now) = watch::channel(Wanted::default());
     let (views, latest) = watch::channel(None);
-    // The window never asks the Client to look again, only observes, and
-    // makes no call: the senders live as long as the window.
+    // The window never asks the Client to look again and only observes:
+    // the senders live as long as the window.
     let (_look_again, looks) = mpsc::channel(1);
     let (_keep_alive, keep_daemon_alive) = watch::channel(false);
-    let (_calls, calls) = mpsc::channel(1);
+    let (calls_made, calls) = mpsc::channel(CALLS_WAITING);
     let reports = to_model.clone();
     tasks.spawn(client::follow(
         tasks.clone(),
@@ -81,7 +98,28 @@ pub(crate) fn run(
             let _ = reports.send(ToModel::Client(report));
         },
     ));
-    tasks.spawn(model(inputs, wanted, views, ctx.clone(), tasks.stopping()));
+    let settings_read = to_model.clone();
+    tasks.spawn(settings::follow(
+        tasks.clone(),
+        home_for_settings,
+        move |settings: Result<Settings, SettingsError>| {
+            // An unreadable file gives the defaults, as in the tray, whose
+            // menu says why.
+            let settings = settings.unwrap_or_else(|error| {
+                tracing::warn!(%error, "the settings file cannot be read: the defaults apply");
+                Settings::default()
+            });
+            let _ = settings_read.send(ToModel::Person(Input::Settings(settings)));
+        },
+    ));
+    tasks.spawn(model(
+        inputs,
+        wanted,
+        views,
+        calls_made,
+        ctx.clone(),
+        tasks.stopping(),
+    ));
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -99,6 +137,11 @@ pub(crate) fn run(
         filter: Filter::default(),
         chosen: None,
         on_screen: BTreeSet::new(),
+        view: View::Runs,
+        seeds_label: String::new(),
+        seeds_urls: String::new(),
+        seeds_note: None,
+        settings_filter: String::new(),
         closed: false,
     };
     eframe::run_native_ext(
@@ -111,12 +154,13 @@ pub(crate) fn run(
 }
 
 /// The window's model: applies each input, keeps the Client's reads in
-/// step with the view, and publishes the views it paces, asking `ctx` to
-/// repaint them.
+/// step with the view, makes the calls the person confirmed, and
+/// publishes the views it paces, asking `ctx` to repaint them.
 async fn model(
     mut inputs: mpsc::UnboundedReceiver<ToModel>,
     wanted: watch::Sender<Wanted>,
     views: watch::Sender<Option<DetailsView>>,
+    calls: mpsc::Sender<Call>,
     ctx: egui::Context,
     stop: CancellationToken,
 ) {
@@ -143,6 +187,18 @@ async fn model(
                 None => return,
                 Some(ToModel::Person(input)) => details.apply(input),
                 Some(ToModel::Client(report)) => apply(&mut details, report),
+                Some(ToModel::Confirmed(confirmation)) => {
+                    if let Some(call) = details.confirmed(confirmation)
+                        && let Err(unsent) = calls.try_send(call)
+                    {
+                        // Full or closed: the Client is stuck or gone.
+                        let failure = CallFailure {
+                            code: CONNECTION_LOST.to_owned(),
+                            message: "The Kennel could not send it to the Daemon".to_owned(),
+                        };
+                        details.apply(Input::Answered(unsent.into_inner(), Err(failure)));
+                    }
+                }
             },
             () = sleep_until(due), if due.is_some() => {}
         }
@@ -172,9 +228,17 @@ fn apply(details: &mut Details, report: Report) {
         Report::Listed { generation, rows } => details.apply(Input::Listed { generation, rows }),
         Report::RunReport { run_id, report } => details.apply(Input::Report { run_id, report }),
         Report::Usage { run_id, usage } => details.apply(Input::Usage { run_id, usage }),
-        // The window never asks for the tray's live Runs, and makes no
-        // call.
-        Report::LiveRuns(_) | Report::Answered(..) => {}
+        Report::Queried { generation, result } => {
+            details.apply(Input::Queried { generation, result });
+        }
+        Report::Explained { generation, result } => {
+            details.apply(Input::Explained { generation, result });
+        }
+        Report::SystemInfo(reading) => details.apply(Input::SystemInfo(reading)),
+        Report::SeedsAdded { run_id, added } => details.apply(Input::SeedsAdded { run_id, added }),
+        Report::Answered(call, answer) => details.apply(Input::Answered(call, answer)),
+        // The window never asks for the tray's live Runs.
+        Report::LiveRuns(_) => {}
     }
 }
 
@@ -198,6 +262,16 @@ struct Window {
     chosen: Option<RunId>,
     /// The table's rows on screen at the last frame.
     on_screen: BTreeSet<RunId>,
+    /// The view the person chose.
+    view: View,
+    /// Add Seeds' Label, as the person typed it.
+    seeds_label: String,
+    /// Add Seeds' URLs, one a line, as the person typed them.
+    seeds_urls: String,
+    /// What Add Seeds still needs from the person.
+    seeds_note: Option<String>,
+    /// The Daemon settings view's filter on keys.
+    settings_filter: String,
     closed: bool,
 }
 
@@ -207,7 +281,7 @@ impl Window {
         let _ = self.to_model.send(ToModel::Person(input));
     }
 
-    /// The Daemon's line, its health and the table's filters.
+    /// The Daemon's line, its health and the views the window offers.
     fn header(&mut self, ui: &mut egui::Ui, view: &DetailsView) {
         ui.horizontal(|ui| {
             ui.strong(&view.daemon);
@@ -215,6 +289,24 @@ impl Window {
                 ui.label(health);
             }
         });
+        if view.views.len() > 1 {
+            ui.horizontal(|ui| {
+                for offered in &view.views {
+                    if ui
+                        .selectable_label(self.view == *offered, offered.label())
+                        .clicked()
+                        && self.view != *offered
+                    {
+                        self.view = *offered;
+                        self.send(Input::Show(*offered));
+                    }
+                }
+            });
+        }
+    }
+
+    /// The Runs table's filters.
+    fn filters(&mut self, ui: &mut egui::Ui) {
         let before = self.filter.clone();
         ui.horizontal(|ui| {
             ui.label("Filter");
@@ -322,18 +414,181 @@ const COLUMNS: [&str; 7] = [
     "Progress",
 ];
 
-/// The chosen Run's progress, Usage, failures by Error code and Run
-/// report.
-fn panel(ui: &mut egui::Ui, panel: &RunPanel) {
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(&panel.title);
-        section(ui, "Progress", &panel.progress);
-        section(ui, "Usage", &panel.usage);
-        if !panel.failures.is_empty() {
-            section(ui, "Failures by Error code", &panel.failures);
+impl Window {
+    /// The chosen Run's progress, Usage, failures by Error code and Run
+    /// report, and Add Seeds when it offers it.
+    fn panel(&mut self, ui: &mut egui::Ui, panel: &RunPanel) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.heading(&panel.title);
+            section(ui, "Progress", &panel.progress);
+            section(ui, "Usage", &panel.usage);
+            if !panel.failures.is_empty() {
+                section(ui, "Failures by Error code", &panel.failures);
+            }
+            section(ui, "Run report", &panel.report);
+            if panel.add_seeds.is_some() || panel.seeds.is_some() {
+                ui.add_space(8.0);
+                ui.strong("Add seeds");
+                self.add_seeds(ui, panel);
+            }
+        });
+    }
+
+    /// Add Seeds: a Label and URLs, one a line, added once the person
+    /// confirms; then what the crawl did with them.
+    fn add_seeds(&mut self, ui: &mut egui::Ui, panel: &RunPanel) {
+        if let Some(offer) = &panel.add_seeds {
+            ui.horizontal(|ui| {
+                ui.label("Label");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.seeds_label)
+                        .hint_text("the handler's Label")
+                        .desired_width(200.0),
+                );
+            });
+            ui.add(
+                egui::TextEdit::multiline(&mut self.seeds_urls)
+                    .hint_text("URLs, one a line")
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.button("Add seeds…").clicked() {
+                match offer.confirmation(&self.seeds_label, &self.seeds_urls) {
+                    Err(missing) => self.seeds_note = Some(missing),
+                    Ok(confirmation) => {
+                        self.seeds_note = None;
+                        if ask::asked(
+                            &confirmation.title,
+                            &confirmation.consequence,
+                            &confirmation.confirm,
+                        ) {
+                            self.seeds_urls.clear();
+                            // The model has stopped: the window is closing.
+                            let _ = self.to_model.send(ToModel::Confirmed(confirmation));
+                        }
+                    }
+                }
+            }
+            if let Some(missing) = &self.seeds_note {
+                ui.weak(missing.as_str());
+            }
         }
-        section(ui, "Run report", &panel.report);
-    });
+        if let Some(seeds) = &panel.seeds {
+            ui.add(egui::Label::new(seeds.as_str()).wrap());
+        }
+    }
+
+    /// The Records view: a page of the chosen Run's Records.
+    fn records(&self, ui: &mut egui::Ui, panel: &RecordsPanel) {
+        ui.horizontal(|ui| {
+            ui.heading(&panel.title);
+            if ui.button("Refresh").clicked() {
+                self.send(Input::Refresh);
+            }
+        });
+        if let Some(note) = &panel.note {
+            ui.label(note);
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(panel.previous, egui::Button::new("Previous"))
+                .clicked()
+            {
+                self.send(Input::RecordsPage(Page::Previous));
+            }
+            ui.label(&panel.range);
+            if ui
+                .add_enabled(panel.next, egui::Button::new("Next"))
+                .clicked()
+            {
+                self.send(Input::RecordsPage(Page::Next));
+            }
+        });
+        egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+            egui::Grid::new("records")
+                .striped(true)
+                .num_columns(panel.columns.len())
+                .show(ui, |ui| {
+                    for column in &panel.columns {
+                        ui.strong(column);
+                    }
+                    ui.end_row();
+                    for row in &panel.rows {
+                        for value in row {
+                            ui.add(egui::Label::new(value.as_str()).truncate());
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    }
+
+    /// The Daemon settings view, filtered on keys by the person's text.
+    fn daemon_settings(&mut self, ui: &mut egui::Ui, panel: &SettingsPanel) {
+        ui.horizontal(|ui| {
+            ui.heading("Daemon settings");
+            if ui.button("Refresh").clicked() {
+                self.send(Input::Refresh);
+            }
+        });
+        if let Some(note) = &panel.note {
+            ui.label(note);
+        }
+        egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+            if !panel.sources.is_empty() {
+                section(ui, "Sources", &panel.sources);
+                ui.add_space(8.0);
+            }
+            ui.horizontal(|ui| {
+                ui.label("Filter");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.settings_filter)
+                        .hint_text("Key")
+                        .desired_width(240.0),
+                );
+            });
+            let filter = self.settings_filter.trim().to_lowercase();
+            egui::Grid::new("daemon settings")
+                .striped(true)
+                .num_columns(4)
+                .show(ui, |ui| {
+                    for column in ["Key", "Value", "Set by", "Locked by"] {
+                        ui.strong(column);
+                    }
+                    ui.end_row();
+                    for line in panel
+                        .settings
+                        .iter()
+                        .filter(|line| line.key.to_lowercase().contains(&filter))
+                    {
+                        for value in [&line.key, &line.value, &line.set_by, &line.locked_by] {
+                            ui.label(value.as_str());
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    }
+}
+
+/// The Resource governor's view.
+fn governor(ui: &mut egui::Ui, panel: &GovernorPanel) {
+    ui.heading("Resource governor");
+    if let Some(note) = &panel.note {
+        ui.label(note);
+    }
+    if !panel.readings.is_empty() {
+        egui::Grid::new("governor")
+            .striped(true)
+            .num_columns(2)
+            .show(ui, |ui| {
+                for field in &panel.readings {
+                    ui.label(&field.label);
+                    ui.label(&field.value);
+                    ui.end_row();
+                }
+            });
+    }
 }
 
 /// A titled list of fields.
@@ -379,13 +634,44 @@ impl eframe::App for Window {
             });
             return;
         };
-        egui::Panel::top("daemon").show(ui, |ui| self.header(ui, &view));
-        if let Some(chosen) = &view.chosen {
-            egui::Panel::right("run")
-                .resizable(true)
-                .default_size(400.0)
-                .show(ui, |ui| panel(ui, chosen));
+        // A view the window no longer offers gives way to the Runs, as
+        // the model shows them.
+        if !view.views.contains(&self.view) {
+            self.view = View::Runs;
         }
-        egui::CentralPanel::default().show(ui, |ui| self.table(ui, &view));
+        egui::Panel::top("daemon").show(ui, |ui| self.header(ui, &view));
+        match self.view {
+            View::Runs => {
+                egui::Panel::top("filters").show(ui, |ui| self.filters(ui));
+                if let Some(chosen) = &view.chosen {
+                    egui::Panel::right("run")
+                        .resizable(true)
+                        .default_size(400.0)
+                        .show(ui, |ui| self.panel(ui, chosen));
+                }
+                egui::CentralPanel::default().show(ui, |ui| self.table(ui, &view));
+            }
+            View::Records => {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if let Some(records) = &view.records {
+                        self.records(ui, records);
+                    }
+                });
+            }
+            View::DaemonSettings => {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if let Some(settings) = &view.daemon_settings {
+                        self.daemon_settings(ui, settings);
+                    }
+                });
+            }
+            View::Governor => {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if let Some(readings) = &view.governor {
+                        governor(ui, readings);
+                    }
+                });
+            }
+        }
     }
 }

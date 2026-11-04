@@ -7,7 +7,7 @@
 use std::fs;
 
 use goodfetch_kennel::home::Home;
-use goodfetch_kennel::settings::{self, Settings, SettingsError};
+use goodfetch_kennel::settings::{self, Settings, SettingsError, Views};
 
 use crate::support::{next, reports, runtime};
 
@@ -24,6 +24,11 @@ fn without_a_settings_file_the_defaults_apply() {
             confirm_stop: true,
             keep_daemon_alive: false,
             window: true,
+            views: Views {
+                records: true,
+                daemon_settings: true,
+                governor: true,
+            },
         })
     );
 }
@@ -43,6 +48,7 @@ fn keeping_the_daemon_alive_is_a_setting_of_its_own() {
             confirm_stop: true,
             keep_daemon_alive: true,
             window: true,
+            views: Views::default(),
         })
     );
 }
@@ -62,6 +68,7 @@ fn the_stop_confirmation_is_a_setting_of_its_own() {
             confirm_stop: false,
             keep_daemon_alive: false,
             window: true,
+            views: Views::default(),
         })
     );
 }
@@ -125,4 +132,43 @@ fn turning_the_window_off_is_a_setting_of_its_own() {
             ..Settings::default()
         })
     );
+}
+
+#[test]
+fn each_view_of_the_window_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(
+        home.settings_file(),
+        "[views]\nrecords = false\ndaemon_settings = false\ngovernor = false\n",
+    )
+    .unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            views: Views {
+                records: false,
+                daemon_settings: false,
+                governor: false,
+            },
+            ..Settings::default()
+        })
+    );
+}
+
+#[test]
+fn an_unknown_view_is_refused_and_named() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "[views]\nrecord = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    let Err(SettingsError::Unreadable(why)) = read else {
+        panic!("an unknown view is refused: {read:?}");
+    };
+    assert!(why.contains("record"), "{why}");
 }

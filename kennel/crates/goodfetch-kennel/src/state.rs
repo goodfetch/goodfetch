@@ -1084,6 +1084,7 @@ fn attempt(call: &Call, name: impl Fn(&RunId) -> String) -> String {
         Call::RetryFailed(params) => {
             format!("Retrying the failed requests of {}", name(&params.run_id))
         }
+        Call::AddSeeds(seeds) => format!("Adding seeds to {}", name(&seeds.run_id)),
     }
 }
 

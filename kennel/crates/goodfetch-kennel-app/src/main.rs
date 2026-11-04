@@ -381,7 +381,13 @@ impl ApplicationHandler<UserEvent> for Kennel {
             }
             // The details window's reads, which the Tray never asks for.
             UserEvent::Client(
-                Report::Listed { .. } | Report::RunReport { .. } | Report::Usage { .. },
+                Report::Listed { .. }
+                | Report::RunReport { .. }
+                | Report::Usage { .. }
+                | Report::Queried { .. }
+                | Report::Explained { .. }
+                | Report::SystemInfo(_)
+                | Report::SeedsAdded { .. },
             ) => Vec::new(),
             UserEvent::DetailsOpened(pid) => {
                 self.details = Some(pid);

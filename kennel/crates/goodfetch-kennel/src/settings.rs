@@ -35,6 +35,33 @@ pub struct Settings {
     /// Whether the menu offers "Open details", the details window; off
     /// gives a menu-only Kennel.
     pub window: bool,
+    /// The details window's views, each a switch of its own: `[views]` in
+    /// the file.
+    pub views: Views,
+}
+
+/// The details window's views beside its Runs table, which `window`
+/// switches: each one off is neither shown nor read.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Views {
+    /// A Run's Records, through `dataset.query`, on a Foxhound Daemon.
+    pub records: bool,
+    /// The Daemon's settings in force and where each comes from, through
+    /// `config.explain`.
+    pub daemon_settings: bool,
+    /// The Resource governor's readings, `engine.system_info`.
+    pub governor: bool,
+}
+
+impl Default for Views {
+    fn default() -> Self {
+        Self {
+            records: true,
+            daemon_settings: true,
+            governor: true,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -44,6 +71,7 @@ impl Default for Settings {
             confirm_stop: true,
             keep_daemon_alive: false,
             window: true,
+            views: Views::default(),
         }
     }
 }

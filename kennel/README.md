@@ -31,7 +31,7 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 
   | Action | Operation | Offered |
   |---|---|---|
-  | Raise the Limit | `usage.raise` | to twice the amount the Limit allows now, the one amount a menu can offer without asking for a number; not for a Limit of nothing, which the CLI raises (`usage raise`) |
+  | Raise the Limit | `usage.raise` | to twice the amount the Limit allows now, the one amount a menu can offer without asking for a number; not for a Limit of nothing, which the CLI raises (`usage raise`). It always asks first, in the platform's own dialog, naming the Run, the Limit and the new amount, whatever `confirm_stop` says; a yes given once the item changed, such as a Limit raised elsewhere, raises nothing |
   | Accept the consent walls of a domain | `needs_you.allow_consent_domain` | when the item allows it |
   | Deny a domain | `needs_you.deny_wall_domain` | when the item allows it, with the reason the Audit log records: "Denied by a person from the Kennel's menu" |
   | Remove a domain from the refetch domains | `needs_you.remove_refetch_domain` | unless only `*` lists the domain, which takes the list of domains that replace `*`: the CLI changes it |

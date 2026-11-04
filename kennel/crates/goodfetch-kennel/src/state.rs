@@ -79,7 +79,7 @@ pub use controls::{Confirmation, Control};
 pub use needs_you::Action;
 pub use notices::{Notice, Notices};
 
-use controls::attempt;
+use controls::{Asked, attempt};
 use notices::{Coalescer, Kind};
 use runs::{Facts, Phase, Run};
 
@@ -559,14 +559,19 @@ impl State {
                     None => self.act(run, control).into_iter().collect(),
                 }
             }
-            Choice::NeedsYou { item, action } => self
-                .needs_you
-                .get(&item)
-                .filter(|_| self.settings.controls && matches!(self.daemon, Daemon::Reached(..)))
-                .and_then(|item| needs_you::call(item, action))
-                .map(Effect::Call)
-                .into_iter()
-                .collect(),
+            Choice::NeedsYou { item, action } => {
+                let Some(listed) = self.resolvable(&item) else {
+                    return Vec::new();
+                };
+                // Raise the Limit asks first, whatever the settings say.
+                if let Some(confirmation) = needs_you::confirmation(listed, action) {
+                    return vec![Effect::Confirm(confirmation)];
+                }
+                needs_you::call(listed, action)
+                    .map(Effect::Call)
+                    .into_iter()
+                    .collect()
+            }
             Choice::StartDaemon => match self.startable() {
                 Some(installed) => {
                     let effect = Effect::StartDaemon(installed.clone());
@@ -578,14 +583,37 @@ impl State {
         }
     }
 
-    /// The person said yes to `confirmation`: its control acts, unless
-    /// the menu no longer offers it.
+    /// The person said yes to `confirmation`: its control or its action
+    /// acts, unless the menu no longer offers it as it was asked.
     pub fn confirmed(&mut self, confirmation: Confirmation) -> Vec<Effect> {
-        let Confirmation { run, control, .. } = confirmation;
-        if !self.offered(&run).contains(&control) {
-            return Vec::new();
+        match confirmation.asked {
+            Asked::Control { run, control } => {
+                if !self.offered(&run).contains(&control) {
+                    return Vec::new();
+                }
+                self.act(run, control).into_iter().collect()
+            }
+            Asked::NeedsYou { item, call } => {
+                // An item that changed since, such as a Limit raised
+                // elsewhere, asks again.
+                let still = self
+                    .resolvable(&item)
+                    .is_some_and(|listed| needs_you::offers(listed, &call));
+                if still {
+                    vec![Effect::Call(call)]
+                } else {
+                    Vec::new()
+                }
+            }
         }
-        self.act(run, control).into_iter().collect()
+    }
+
+    /// The Needs you item `item`, while the menu offers its actions: it is
+    /// listed, a Daemon is reached and the Kennel is not read-only.
+    fn resolvable(&self, item: &str) -> Option<&NeedsYouItem> {
+        self.needs_you
+            .get(item)
+            .filter(|_| self.settings.controls && matches!(self.daemon, Daemon::Reached(..)))
     }
 
     /// The reads the view needs now.

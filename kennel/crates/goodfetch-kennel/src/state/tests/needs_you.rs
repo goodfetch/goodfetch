@@ -11,7 +11,7 @@ use goodfetch_protocol::usage::UsageRaiseParams;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::super::{Action, Choice, Effect, Input, MenuChange, Row, State, Verdict};
+use super::super::{Action, Choice, Confirmation, Effect, Input, MenuChange, Row, State, Verdict};
 use crate::client::{Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity};
 use crate::settings::Settings;
 
@@ -234,6 +234,15 @@ fn submenu_and_calls(state: &mut State) -> (Vec<String>, Vec<Call>) {
         for effect in state.choose(choice) {
             match effect {
                 Effect::Call(call) => calls.push(call),
+                // Raise the Limit asks first; the person says yes.
+                Effect::Confirm(confirmation) => {
+                    for effect in state.confirmed(confirmation) {
+                        match effect {
+                            Effect::Call(call) => calls.push(call),
+                            other => panic!("a call, not {other:?}"),
+                        }
+                    }
+                }
                 other => panic!("a call, not {other:?}"),
             }
         }
@@ -355,6 +364,82 @@ fn a_read_only_kennel_lists_the_items_and_offers_no_action() {
         ]
     );
     assert_eq!(calls, []);
+}
+
+const LIMIT_ITEM: &str = "run_stopped_by_limit:shop-crawl:2026-11-03T10:00:00Z";
+
+/// The person's choice of Raise the Limit on the item of [`limit_stopped`].
+fn raise() -> Choice {
+    Choice::NeedsYou {
+        item: LIMIT_ITEM.to_owned(),
+        action: Action::RaiseLimit,
+    }
+}
+
+/// The one confirmation `effects` asks.
+fn asked(effects: Vec<Effect>) -> Confirmation {
+    match <[Effect; 1]>::try_from(effects) {
+        Ok([Effect::Confirm(confirmation)]) => confirmation,
+        other => panic!("one confirmation, not {other:?}"),
+    }
+}
+
+#[rstest]
+#[case::with_stop_confirmed(true)]
+#[case::with_stop_unconfirmed(false)]
+fn raising_the_limit_asks_first_naming_the_run_the_limit_and_the_new_amount(
+    #[case] confirm_stop: bool,
+) {
+    let mut state = reached();
+    state.apply(Input::Settings(Ok(Settings {
+        confirm_stop,
+        ..Settings::default()
+    })));
+    state.apply(listed(&limit_stopped(Some("shop"), Some("EUR"), 1_250_000)));
+
+    let confirmation = asked(state.choose(raise()));
+    let effects = state.confirmed(confirmation.clone());
+
+    assert_eq!(
+        (
+            confirmation.title.as_str(),
+            confirmation.consequence.as_str(),
+            confirmation.confirm.as_str()
+        ),
+        (
+            "Raise the Limit on page_loads that stopped shop to 2.5 EUR?",
+            "The Limit on page_loads goes from 1.25 EUR to 2.5 EUR, for every Run it caps. shop stays stopped until it resumes.",
+            "Raise the Limit",
+        )
+    );
+    assert_eq!(effects, [Effect::Call(raised(2_500_000, Some("EUR")))]);
+}
+
+#[test]
+fn a_raise_confirmed_after_its_item_changed_raises_nothing() {
+    let mut state = reached();
+    state.apply(listed(&limit_stopped(None, None, 500)));
+    let confirmation = asked(state.choose(raise()));
+
+    // The Limit was raised elsewhere meanwhile: the item now says 800.
+    state.apply(listed(&limit_stopped(None, None, 800)));
+    let effects = state.confirmed(confirmation);
+
+    assert_eq!(effects, []);
+}
+
+#[test]
+fn a_raise_confirmed_once_the_kennel_turned_read_only_raises_nothing() {
+    let mut state = reached();
+    state.apply(listed(&limit_stopped(None, None, 500)));
+    let confirmation = asked(state.choose(raise()));
+
+    state.apply(Input::Settings(Ok(Settings {
+        controls: false,
+        ..Settings::default()
+    })));
+
+    assert_eq!(state.confirmed(confirmation), []);
 }
 
 #[test]

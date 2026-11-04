@@ -3,7 +3,9 @@
 //! can take, each through the operation it calls for.
 //!
 //! - **Raise the Limit** (`usage.raise`): to twice what the Limit allows
-//!   now, the one amount a menu can offer without asking for a number.
+//!   now, the one amount a menu can offer without asking for a number. It
+//!   asks a confirmation first, always, naming the Run, the Limit and the
+//!   new amount; a yes given once the item changed raises nothing.
 //! - **Accept the consent walls** of a domain
 //!   (`needs_you.allow_consent_domain`).
 //! - **Deny** a domain (`needs_you.deny_wall_domain`), with the reason the
@@ -28,7 +30,8 @@ use goodfetch_protocol::run::ReachedLimit;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde_json::Value;
 
-use super::{Choice, Row};
+use super::controls::Asked;
+use super::{Choice, Confirmation, Row};
 use crate::client::Call;
 use crate::text;
 
@@ -102,6 +105,45 @@ pub(super) fn call(item: &NeedsYouItem, action: Action) -> Option<Call> {
         .into_iter()
         .find(|(offered, _, _)| *offered == action)
         .map(|(_, _, call)| call)
+}
+
+/// Whether `item` still offers `call` as one of its actions, as it was
+/// when a confirmation asked for it.
+pub(super) fn offers(item: &NeedsYouItem, call: &Call) -> bool {
+    resolutions(item)
+        .into_iter()
+        .any(|(_, _, offered)| offered == *call)
+}
+
+/// The question `action` asks before it resolves `item`, if it asks one:
+/// Raise the Limit names the Run, the Limit and the new amount.
+pub(super) fn confirmation(item: &NeedsYouItem, action: Action) -> Option<Confirmation> {
+    if action != Action::RaiseLimit {
+        return None;
+    }
+    let call = call(item, action)?;
+    let Call::RaiseLimit(raise) = &call else {
+        return None;
+    };
+    let now = item.details.get("amount").and_then(Value::as_u64)?;
+    let currency = raise.currency.as_deref();
+    let run = stopped_run(item).unwrap_or_else(|| "a Run".to_owned());
+    let (from, to) = (
+        shown_amount(now, currency),
+        shown_amount(raise.amount, currency),
+    );
+    let kind = &raise.usage_kind;
+    Some(Confirmation::new(
+        &format!("Raise the Limit on {kind} that stopped {run} to {to}?"),
+        &format!(
+            "The Limit on {kind} goes from {from} to {to}, for every Run it caps. {run} stays stopped until it resumes."
+        ),
+        "Raise the Limit",
+        Asked::NeedsYou {
+            item: item.id.clone(),
+            call,
+        },
+    ))
 }
 
 /// What the line that opens an item's submenu says: a few words of the

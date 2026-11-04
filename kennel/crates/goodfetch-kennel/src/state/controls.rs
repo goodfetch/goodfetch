@@ -35,18 +35,40 @@ pub enum Control {
     CopyResumeCommand,
 }
 
-/// A question asked before a control acts: it names the Run and the
-/// consequence (ADR 0141).
+/// A question asked before a control or a Needs you action acts: it names
+/// the Run and the consequence (ADR 0141).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Confirmation {
     /// The question, naming the Run.
     pub title: String,
-    /// What the control does to the Run.
+    /// What the control or the action does.
     pub consequence: String,
     /// The label of the button that confirms.
     pub confirm: String,
-    pub(super) run: RunId,
-    pub(super) control: Control,
+    pub(super) asked: Asked,
+}
+
+impl Confirmation {
+    /// The question `title`, its `consequence` and its `confirm` button,
+    /// made safe to show by the Text function, asked before `asked`.
+    pub(super) fn new(title: &str, consequence: &str, confirm: &str, asked: Asked) -> Self {
+        Self {
+            title: text::shown(title, LINE_MOST),
+            consequence: text::shown(consequence, LINE_MOST * 2),
+            confirm: text::shown(confirm, LINE_MOST),
+            asked,
+        }
+    }
+}
+
+/// What a confirmation asks before.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Asked {
+    /// The control `control` of the Run `run`.
+    Control { run: RunId, control: Control },
+    /// The call that resolves the Needs you item `item`, as it was when
+    /// the question was asked.
+    NeedsYou { item: String, call: Call },
 }
 
 impl State {
@@ -112,13 +134,15 @@ impl State {
                 return None;
             }
         };
-        Some(Confirmation {
-            title: text::shown(&title, LINE_MOST),
-            consequence: text::shown(consequence, LINE_MOST * 2),
-            confirm: text::shown(confirm, LINE_MOST),
-            run: run.clone(),
-            control,
-        })
+        Some(Confirmation::new(
+            &title,
+            consequence,
+            confirm,
+            Asked::Control {
+                run: run.clone(),
+                control,
+            },
+        ))
     }
 
     /// What `control` does to `run` once it may act.

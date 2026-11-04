@@ -60,3 +60,5 @@ age_notice = false
 ```
 
 In a file that already exists, keep its `version` line and add the `[settings.version]` table.
+
+A Run reads both files once, when it starts, and keeps the values it resolved until it ends. A change to either file, whether you edit it by hand or the engine writes it (`config.policy_write`, `config.user_write`), a tightened Operator policy cap included, reaches the next Run, not the Runs already going.

@@ -1,6 +1,5 @@
 //! The bounds of a crawl's Session pool, read from the Run's resolved
-//! `session.pool.*` settings at each admission point, so a tightened
-//! Operator policy cap reaches a crawl already going (ADR 0028).
+//! `session.pool.*` settings, resolved once as the Run opens (ADR 0138).
 
 use std::time::Duration;
 

@@ -86,10 +86,13 @@ pub(super) async fn read_robots_txt(
         answer
     });
     let read = run.robots_txt().copy(&location, fetch).await;
-    let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
+    let Some(settings) = run
+        .settings()
+        .map(goodfetch_engine::settings::RunSettings::resolved)
+    else {
         return Some(read);
     };
-    let asked = crawl_delay_asked(&settings, &read);
+    let asked = crawl_delay_asked(settings, &read);
     if let Some(politeness) = &politeness
         && let Err(error) = goodfetch_frontier::crawl_delay_read(
             politeness,
@@ -103,7 +106,7 @@ pub(super) async fn read_robots_txt(
     }
     let delay = settings
         .duration(POLITENESS_DOMAIN_DELAY.name)
-        .max(asked.filter(|asked| waits_out(&settings, *asked)))
+        .max(asked.filter(|asked| waits_out(settings, *asked)))
         .filter(|delay| !delay.is_zero());
     let Some(delay) = delay else {
         return Some(read);

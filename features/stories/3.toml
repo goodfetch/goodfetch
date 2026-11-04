@@ -693,7 +693,7 @@ status = "active"
 
 [[story]]
 id = 88
-title = "As an operator, I want Operator policy to set, cap or lock any value, and a tightened cap to reach running runs at their next admission point, so that a shared Daemon stays within bounds."
+title = "As an operator, I want Operator policy to set, cap or lock any value, and a tightened cap to reach the next run, so that a shared Daemon stays within bounds (ADR 0138 resolves a run's settings once)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

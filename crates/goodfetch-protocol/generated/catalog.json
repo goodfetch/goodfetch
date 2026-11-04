@@ -2216,7 +2216,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: offered only in the Console and the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
       "name": "config.policy_write",
@@ -4268,7 +4268,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset.",
       "name": "admission.max_requests_per_minute",
       "product": "collie",
       "products": [
@@ -4781,7 +4781,7 @@
       "authority": "every",
       "clearable": false,
       "default": 16,
-      "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+      "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
       "name": "crawl.handler.concurrency",
       "product": "foxhound",
       "products": [
@@ -5000,7 +5000,7 @@
       "authority": "every",
       "clearable": false,
       "default": 2,
-      "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+      "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
       "name": "crawl.retry.max",
       "product": "foxhound",
       "products": [

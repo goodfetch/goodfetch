@@ -642,9 +642,12 @@ fn a_planted_unit_per_page_moves_its_run_state_row_by_a_page_each(#[case] row: &
 }
 
 /// The crawl does the writer's work the rows count at concurrency 1 and 16,
-/// and durability changes how a transaction reaches the disk and not how many
-/// there are: `fast` keeps its transactions and takes syncs away. That a count
-/// does not depend on how its jobs group is `run_state`'s own test.
+/// reading the machine's settings once as the Run opens, however many
+/// admissions and settlings follow (ADR 0138), beside the engine's own read
+/// as it starts, for its managed Limits (ADR 0041); and durability changes how a
+/// transaction reaches the disk and not how many there are: `fast` keeps its
+/// transactions and takes syncs away. That a count does not depend on how its
+/// jobs group is `run_state`'s own test.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -667,7 +670,8 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
     });
 
     for counts in [&one, &sixteen, &full] {
-        assert!(counts.transactions > 0 && counts.syncs > 0 && counts.configuration_reads > 0);
+        assert!(counts.transactions > 0 && counts.syncs > 0);
+        assert_eq!(counts.configuration_reads, 2);
     }
     assert_eq!(full.transactions, fast.transactions);
     assert!(

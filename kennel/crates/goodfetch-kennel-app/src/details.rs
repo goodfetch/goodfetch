@@ -573,12 +573,22 @@ impl Window {
     fn panel(&mut self, ui: &mut egui::Ui, panel: &RunPanel) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading(&panel.title);
-            section(ui, "Progress", &panel.progress);
-            section(ui, "Usage", &panel.usage);
-            if !panel.failures.is_empty() {
-                section(ui, "Failures by Error code", &panel.failures);
+            if let Some(progress) = &panel.progress {
+                section(ui, "Progress", progress);
             }
-            section(ui, "Run report", &panel.report);
+            if let Some(usage) = &panel.usage {
+                section(ui, "Usage", usage);
+            }
+            if let Some(failures) = panel
+                .failures
+                .as_ref()
+                .filter(|failures| !failures.is_empty())
+            {
+                section(ui, "Failures by Error code", failures);
+            }
+            if let Some(report) = &panel.report {
+                section(ui, "Run report", report);
+            }
             if panel.add_seeds.is_some() || panel.seeds.is_some() {
                 ui.add_space(8.0);
                 ui.strong("Add seeds");
@@ -856,10 +866,16 @@ impl eframe::App for Window {
             });
             return;
         };
-        // A view the window no longer offers gives way to the Runs, as
-        // the model shows them.
+        // A view the window no longer offers gives way to the one the
+        // model shows.
+        let Some(shown) = view.shown else {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.label("kennel.toml turns every view of the window off ([views])");
+            });
+            return;
+        };
         if !view.views.contains(&self.view) {
-            self.view = View::Runs;
+            self.view = shown;
         }
         egui::Panel::top("daemon").show(ui, |ui| self.header(ui, &view));
         match self.view {

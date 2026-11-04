@@ -119,8 +119,8 @@ impl Default for DesktopNotices {
     }
 }
 
-/// The details window's views beside its Runs table, which `window`
-/// switches: each one off is neither shown nor read.
+/// The details window's views and the chosen Run's sections, which
+/// `window` switches all together: each one off is neither shown nor read.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 #[expect(
@@ -128,6 +128,20 @@ impl Default for DesktopNotices {
     reason = "each view is a switch of its own with a free off state, as `kennel.toml` spells it (ADR 0141)"
 )]
 pub struct Views {
+    /// The Runs table, through `run.list`, where a Run is chosen: off, no
+    /// Run is listed or chosen, so neither the chosen Run's sections nor
+    /// its Records show.
+    pub runs: bool,
+    /// The chosen Run's progress, through `run.progress`.
+    pub run_progress: bool,
+    /// The chosen Run's Usage with the Limits that apply to it, through
+    /// `run.usage` while it runs and its report once it ended.
+    pub run_usage: bool,
+    /// A chosen crawl's failures by Error code, from its progress while it
+    /// runs and its report once it ended (Foxhound).
+    pub run_failures: bool,
+    /// The chosen Run's report, through `run.report`.
+    pub run_report: bool,
     /// A Run's Records, through `dataset.query`, on a Foxhound Daemon.
     pub records: bool,
     /// The Daemon's settings in force and where each comes from, through
@@ -142,6 +156,11 @@ pub struct Views {
 impl Default for Views {
     fn default() -> Self {
         Self {
+            runs: true,
+            run_progress: true,
+            run_usage: true,
+            run_failures: true,
+            run_report: true,
             records: true,
             daemon_settings: true,
             governor: true,
@@ -191,6 +210,16 @@ pub enum Switch {
     DaemonLostNotice,
     /// `notifications.run_finished`.
     RunFinishedNotice,
+    /// `views.runs`.
+    RunsView,
+    /// `views.run_progress`.
+    RunProgressView,
+    /// `views.run_usage`.
+    RunUsageView,
+    /// `views.run_failures`.
+    RunFailuresView,
+    /// `views.run_report`.
+    RunReportView,
     /// `views.records`.
     RecordsView,
     /// `views.daemon_settings`.
@@ -203,7 +232,7 @@ pub enum Switch {
 
 impl Switch {
     /// Every switch, in the order the Kennel settings view lists them.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 21] = [
         Self::Controls,
         Self::ConfirmStop,
         Self::Window,
@@ -216,6 +245,11 @@ impl Switch {
         Self::RunStoppedByLimitNotice,
         Self::DaemonLostNotice,
         Self::RunFinishedNotice,
+        Self::RunsView,
+        Self::RunProgressView,
+        Self::RunUsageView,
+        Self::RunFailuresView,
+        Self::RunReportView,
         Self::RecordsView,
         Self::DaemonSettingsView,
         Self::GovernorView,
@@ -238,6 +272,11 @@ impl Switch {
             Self::RunStoppedByLimitNotice => notices.run_stopped_by_limit,
             Self::DaemonLostNotice => notices.daemon_lost,
             Self::RunFinishedNotice => notices.run_finished,
+            Self::RunsView => settings.views.runs,
+            Self::RunProgressView => settings.views.run_progress,
+            Self::RunUsageView => settings.views.run_usage,
+            Self::RunFailuresView => settings.views.run_failures,
+            Self::RunReportView => settings.views.run_report,
             Self::RecordsView => settings.views.records,
             Self::DaemonSettingsView => settings.views.daemon_settings,
             Self::GovernorView => settings.views.governor,
@@ -260,6 +299,11 @@ impl Switch {
             Self::RunStoppedByLimitNotice => (Some(NOTIFICATIONS), "run_stopped_by_limit"),
             Self::DaemonLostNotice => (Some(NOTIFICATIONS), "daemon_lost"),
             Self::RunFinishedNotice => (Some(NOTIFICATIONS), "run_finished"),
+            Self::RunsView => (Some(VIEWS), "runs"),
+            Self::RunProgressView => (Some(VIEWS), "run_progress"),
+            Self::RunUsageView => (Some(VIEWS), "run_usage"),
+            Self::RunFailuresView => (Some(VIEWS), "run_failures"),
+            Self::RunReportView => (Some(VIEWS), "run_report"),
             Self::RecordsView => (Some(VIEWS), "records"),
             Self::DaemonSettingsView => (Some(VIEWS), "daemon_settings"),
             Self::GovernorView => (Some(VIEWS), "governor"),

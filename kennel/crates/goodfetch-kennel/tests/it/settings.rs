@@ -39,6 +39,11 @@ fn without_a_settings_file_the_defaults_apply() {
             start_at_login: false,
             hidden_icon_check: true,
             views: Views {
+                runs: true,
+                run_progress: true,
+                run_usage: true,
+                run_failures: true,
+                run_report: true,
                 records: true,
                 daemon_settings: true,
                 governor: true,
@@ -259,6 +264,23 @@ fn turning_the_window_off_is_a_setting_of_its_own() {
 #[case::run_finished(
     Edit::Switch(Switch::RunFinishedNotice, true),
     "[notifications]\nrun_finished = true"
+)]
+#[case::runs_view(Edit::Switch(Switch::RunsView, false), "[views]\nruns = false")]
+#[case::run_progress_view(
+    Edit::Switch(Switch::RunProgressView, false),
+    "[views]\nrun_progress = false"
+)]
+#[case::run_usage_view(
+    Edit::Switch(Switch::RunUsageView, false),
+    "[views]\nrun_usage = false"
+)]
+#[case::run_failures_view(
+    Edit::Switch(Switch::RunFailuresView, false),
+    "[views]\nrun_failures = false"
+)]
+#[case::run_report_view(
+    Edit::Switch(Switch::RunReportView, false),
+    "[views]\nrun_report = false"
 )]
 #[case::records_view(Edit::Switch(Switch::RecordsView, false), "[views]\nrecords = false")]
 #[case::daemon_settings_view(

@@ -10,12 +10,15 @@
 //! - **The chosen Run**: its progress, its Usage, its failures by Error
 //!   code and its Run report; and, for a live crawl on a Foxhound Daemon
 //!   while `controls` is on, Add Seeds, which asks a confirmation naming
-//!   the Run and the consequence before it adds anything.
+//!   the Run and the consequence before it adds anything. Each of the four
+//!   sections is a setting of its own (`[views]`): one turned off is not
+//!   shown, and a read only it needs is not made.
 //! - **The views** ([`View`]) beside the Runs: the chosen Run's Records,
 //!   through `dataset.query`, on a Foxhound Daemon only; the Daemon's
 //!   settings in force, through `config.explain`; and the Resource
-//!   governor's readings, `engine.system_info`. Each is a setting of its
-//!   own (`[views]`), and one turned off is neither shown nor read.
+//!   governor's readings, `engine.system_info`. Each, the Runs table's
+//!   included, is a setting of its own (`[views]`), and one turned off is
+//!   neither shown nor read; with the Runs table off, no Run is chosen.
 //! - **The reads the view needs** ([`Wanted`]): on the Runs view,
 //!   `run.progress` only of the running Runs on screen and of the chosen
 //!   Run while it runs, the chosen Run's report, which a live Run answers
@@ -56,7 +59,7 @@ use crate::client::{
     Call, CallFailure, ConnectionChange, DaemonEvent, Generation, Listing, Query, SeedsAdded,
     UsageRead, Wanted,
 };
-use crate::settings::{Settings, SettingsError};
+use crate::settings::{Settings, SettingsError, Views};
 use crate::text;
 
 mod fields;
@@ -237,8 +240,8 @@ pub struct DetailsView {
     pub chosen: Option<RunPanel>,
     /// The views the window offers, in order.
     pub views: Vec<View>,
-    /// The view shown.
-    pub shown: View,
+    /// The view shown; none when the settings turn every view off.
+    pub shown: Option<View>,
     /// The Records view, while it shows.
     pub records: Option<RecordsPanel>,
     /// The Daemon settings view, while it shows.
@@ -331,14 +334,16 @@ pub struct RunPanel {
     pub run_id: RunId,
     /// Its name and Run ID.
     pub title: String,
-    /// Its progress.
-    pub progress: Vec<Field>,
-    /// Its Usage, with the Limits that apply to it.
-    pub usage: Vec<Field>,
-    /// A crawl's failed requests, by Error code.
-    pub failures: Vec<Field>,
-    /// Its Run report.
-    pub report: Vec<Field>,
+    /// Its progress, while `views.run_progress` is on.
+    pub progress: Option<Vec<Field>>,
+    /// Its Usage, with the Limits that apply to it, while `views.run_usage`
+    /// is on.
+    pub usage: Option<Vec<Field>>,
+    /// A crawl's failed requests, by Error code, on a Foxhound Daemon while
+    /// `views.run_failures` is on.
+    pub failures: Option<Vec<Field>>,
+    /// Its Run report, while `views.run_report` is on.
+    pub report: Option<Vec<Field>>,
     /// Add Seeds, when the Run offers it.
     pub add_seeds: Option<SeedsOffer>,
     /// What the last Add Seeds of the Run did.
@@ -526,9 +531,9 @@ impl Details {
             Input::Show(view) => self.show(view),
             Input::RecordsPage(page) => self.go_to(page),
             Input::Refresh => match self.shown() {
-                View::Records => self.read_records_again(),
-                View::DaemonSettings => self.explain_again(),
-                View::Runs | View::Governor | View::KennelSettings => {}
+                Some(View::Records) => self.read_records_again(),
+                Some(View::DaemonSettings) => self.explain_again(),
+                Some(View::Runs | View::Governor | View::KennelSettings) | None => {}
             },
             Input::Queried { generation, result } => {
                 if generation == self.records_generation {
@@ -541,7 +546,7 @@ impl Details {
                 }
             }
             Input::SystemInfo(reading) => {
-                if self.shown() == View::Governor {
+                if self.shown() == Some(View::Governor) {
                     self.reading = Some(reading);
                 }
             }
@@ -619,16 +624,25 @@ impl Details {
         }
     }
 
-    /// The views the window offers: the Runs, then each view whose
-    /// setting is on, the Records on a Foxhound Daemon only.
-    fn views(&self) -> Vec<View> {
-        let views = self
-            .settings
+    /// The views and the chosen Run's sections the settings turn on: all
+    /// of them before the settings are read.
+    fn switched_on(&self) -> Views {
+        self.settings
             .as_ref()
             .map(|settings| settings.views.clone())
-            .unwrap_or_default();
-        let mut offered = vec![View::Runs];
-        if views.records && self.product() == Some(Product::Foxhound) {
+            .unwrap_or_default()
+    }
+
+    /// The views the window offers, each whose setting is on: the Runs,
+    /// then the Records, on a Foxhound Daemon only and of a Run chosen in
+    /// the Runs, then the others.
+    fn views(&self) -> Vec<View> {
+        let views = self.switched_on();
+        let mut offered = Vec::new();
+        if views.runs {
+            offered.push(View::Runs);
+        }
+        if views.runs && views.records && self.product() == Some(Product::Foxhound) {
             offered.push(View::Records);
         }
         if views.daemon_settings {
@@ -644,13 +658,20 @@ impl Details {
     }
 
     /// The view shown: the person's, while the window offers it, or else
-    /// the Runs.
-    fn shown(&self) -> View {
-        if self.views().contains(&self.view) {
-            self.view
+    /// the first it offers; none when it offers none.
+    fn shown(&self) -> Option<View> {
+        let offered = self.views();
+        if offered.contains(&self.view) {
+            Some(self.view)
         } else {
-            View::Runs
+            offered.first().copied()
         }
+    }
+
+    /// Whether a chosen crawl's failures by Error code show: their switch
+    /// is on, on a Foxhound Daemon.
+    fn shows_failures(&self) -> bool {
+        self.switched_on().run_failures && self.product() == Some(Product::Foxhound)
     }
 
     /// The reads the view needs now: none while the window is closed or
@@ -660,8 +681,10 @@ impl Details {
             return Wanted::default();
         }
         let shown = self.shown();
+        let views = self.switched_on();
+        let failures = self.shows_failures();
         // The Runs table and the chosen Run show on the Runs view only.
-        let runs_shown = shown == View::Runs;
+        let runs_shown = shown == Some(View::Runs);
         let mut progress: BTreeSet<RunId> = self
             .on_screen
             .iter()
@@ -670,29 +693,35 @@ impl Details {
             .collect();
         let chosen = self.chosen.as_ref().filter(|_| runs_shown);
         let chosen_runs = chosen.filter(|id| self.runs(id));
-        progress.extend(chosen_runs.cloned());
+        // A live Run's progress shows its progress and its failures, and
+        // paces the reads of its Usage.
+        if views.run_progress || views.run_usage || failures {
+            progress.extend(chosen_runs.cloned());
+        }
+        // An ended Run's report holds its Usage and its failures too.
+        let report = chosen.filter(|_| views.run_report || views.run_usage || failures);
         Wanted {
             live_runs: Generation::default(),
             progress,
-            listing: self.resynced.then(|| Listing {
+            listing: (self.resynced && views.runs).then(|| Listing {
                 generation: self.generation,
                 params: self.filter.params(),
             }),
-            report: chosen.cloned(),
-            usage: chosen_runs.map(|id| UsageRead {
+            report: report.cloned(),
+            usage: chosen_runs.filter(|_| views.run_usage).map(|id| UsageRead {
                 run_id: id.clone(),
                 generation: self.usage_generation,
             }),
             records: self
                 .chosen
                 .as_ref()
-                .filter(|_| shown == View::Records)
+                .filter(|_| shown == Some(View::Records))
                 .map(|id| Query {
                     generation: self.records_generation,
                     params: records_query(id, self.records_from),
                 }),
-            explain: (shown == View::DaemonSettings).then_some(self.explain_generation),
-            system_info: shown == View::Governor,
+            explain: (shown == Some(View::DaemonSettings)).then_some(self.explain_generation),
+            system_info: shown == Some(View::Governor),
         }
     }
 
@@ -713,8 +742,10 @@ impl Details {
         };
         let crawls = self.product() == Some(Product::Foxhound);
         let shown = self.shown();
-        let rows = self.rows.as_deref().unwrap_or_default();
+        let listed = self.switched_on().runs;
+        let rows = self.rows.as_deref().filter(|_| listed).unwrap_or_default();
         let note = match (&self.daemon, &self.rows) {
+            _ if !listed => None,
             (Daemon::Reached(..), None) => Some("Reading the Runs…"),
             (Daemon::Reached(..), Some(rows)) if rows.is_empty() => {
                 Some("No Run matches the filters")
@@ -726,13 +757,17 @@ impl Details {
             health: health.map(|health| text::shown(&health, VALUE_MOST)),
             note: note.map(str::to_owned),
             runs: rows.iter().map(|row| self.line(row, crawls)).collect(),
-            chosen: self.chosen.as_ref().map(|id| self.panel(id, crawls)),
+            chosen: self
+                .chosen
+                .as_ref()
+                .filter(|_| listed)
+                .map(|id| self.panel(id, crawls)),
             views: self.views(),
             shown,
-            records: (shown == View::Records).then(|| self.records_panel()),
-            daemon_settings: (shown == View::DaemonSettings)
+            records: (shown == Some(View::Records)).then(|| self.records_panel()),
+            daemon_settings: (shown == Some(View::DaemonSettings))
                 .then(|| fields::settings_panel(self.explained.as_ref())),
-            governor: (shown == View::Governor).then(|| GovernorPanel {
+            governor: (shown == Some(View::Governor)).then(|| GovernorPanel {
                 note: self
                     .reading
                     .is_none()
@@ -746,7 +781,7 @@ impl Details {
             kennel_settings: self
                 .settings
                 .as_ref()
-                .filter(|_| shown == View::KennelSettings)
+                .filter(|_| shown == Some(View::KennelSettings))
                 .map(|settings| kennel_settings::view(settings, self.settings_note.as_deref())),
         }
     }
@@ -874,7 +909,8 @@ impl Details {
                 .filter(|(run, _)| run == id)
                 .map(|(_, usage)| usage)
         });
-        let failures = if crawls {
+        let views = self.switched_on();
+        let failures = self.shows_failures().then(|| {
             let by_code = match (ended_report, progress) {
                 (Some(report), _) => {
                     part::<RequestCounts>(&report.kind_parts).map(|requests| requests.by_error_code)
@@ -888,23 +924,25 @@ impl Details {
                 .iter()
                 .map(|CountOf { name, count }| Field::new(name, &count.to_string()))
                 .collect()
-        } else {
-            Vec::new()
-        };
+        });
         RunPanel {
             run_id: id.clone(),
             title: text::shown(&title, VALUE_MOST),
-            progress: progress_fields(row, progress, crawls),
-            usage: usage.map(usage_fields).unwrap_or_default(),
+            progress: views
+                .run_progress
+                .then(|| progress_fields(row, progress, crawls)),
+            usage: views
+                .run_usage
+                .then(|| usage.map(usage_fields).unwrap_or_default()),
             failures,
-            report: match report {
+            report: views.run_report.then(|| match report {
                 Some(Ok(report)) => report_fields(report),
                 Some(Err(code)) => vec![Field::new("Run report", &unreported(code))],
                 None if self.runs(id) => {
                     vec![Field::new("Run report", "Comes when the Run ends")]
                 }
                 None => vec![Field::new("Run report", "Reading…")],
-            },
+            }),
             add_seeds: self.seeds_offer(id),
             seeds: self
                 .seeds

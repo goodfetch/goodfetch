@@ -67,12 +67,12 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 
 - **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, and `hidden-icon` when the hidden-icon check opens it, never the token.
 - **The Runs table** lists the Run index's rows, newest first, filtered by a text (found in a Run ID or a tag, the Recipe's among them) and a Lifecycle. It is listed again after each resync and each Run that starts or ends.
-- **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away.
+- **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away. Each of the four sections is a switch of its own under `[views]`: one turned off is not shown, and a read only it needs is not made. A live Run's progress is followed while its progress, its Usage or its failures show, and its report is read while its report, its Usage or its failures show, since an ended Run's Usage and failures come in its report.
 - **Add seeds.** A live crawl on a Foxhound Daemon offers Add seeds under its report, while `controls` is on: a Label, the Label of the handler the seeds go to, and URLs, one a line.
   - **The confirmation.** "Add seeds…" asks the platform's own dialog first, naming the Run, how many seeds, the Label and the consequence: the crawl fetches them beside its other requests, a seed it already holds is not added again, and adding cannot be undone.
   - **The call.** Once confirmed, the window streams the seeds to `run.add_seeds` within the credits the call grants, then shows how many were added and, by reason, how many were not, such as `duplicate` or `invalid_url`. A refusal shows its reason.
   - **Not offered** on a Collie Daemon, for a Run that is no crawl or no longer runs, while `controls` is off, or before the window has read `kennel.toml`. A confirmation given before `controls` went off adds nothing.
-- **Other views.** Beside the Runs, which `window` switches with the window itself, the window offers a view per setting of `[views]`, each one off neither shown nor read:
+- **Other views.** Beside the Runs, which `views.runs` switches, the window offers a view per setting of `[views]`, each one off neither shown nor read. The Records need the Runs table, where a Run is chosen. With every view off, the window says so:
 
   | View | Shows | Reads |
   |---|---|---|
@@ -175,6 +175,11 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | `window` | `true` | a menu-only Kennel: the menu offers no "Open details" |
 | `start_at_login` | `false` | the Kennel starts only when the person opens it. On, a launchd user agent opens it at login (see Start at login) |
 | `hidden_icon_check` | `true` | no check that the icon shows in the menu bar at launch (see Hidden icon) |
+| `views.runs` | `true` | the details window offers no Runs table and never lists the Runs: no Run is chosen, so neither a Run's sections nor its Records show |
+| `views.run_progress` | `true` | a chosen Run shows no progress |
+| `views.run_usage` | `true` | a chosen Run shows no Usage, and `run.usage` is never read |
+| `views.run_failures` | `true` | a chosen crawl shows no failures by Error code |
+| `views.run_report` | `true` | a chosen Run shows no Run report |
 | `views.records` | `true` | the details window offers no Records view, and reads no Records |
 | `views.daemon_settings` | `true` | the details window offers no Daemon settings view, and never reads `config.explain` |
 | `views.governor` | `true` | the details window offers no Resource governor view, and never takes `engine.system_info` |

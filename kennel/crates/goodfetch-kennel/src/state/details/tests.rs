@@ -368,7 +368,7 @@ fn a_crawls_counts_are_hidden_on_a_collie_daemon() {
     let view = details.view();
     assert_eq!(view.runs[0].progress, "Working");
     let chosen = view.chosen.expect("a chosen Run");
-    assert_eq!(chosen.failures, []);
+    assert_eq!(chosen.failures, None);
 }
 
 #[test]
@@ -396,32 +396,32 @@ fn the_chosen_runs_progress_usage_and_failures_by_error_code_are_shown() {
     assert_eq!(chosen.title, "shop (crawl-a)");
     assert_eq!(
         chosen.progress,
-        [
+        Some(vec![
             field("Lifecycle", "Running"),
             field("Message", "Crawling page 12"),
             field(
                 "Requests",
                 "7 succeeded, 3 failed, 1 skipped, 0 blocked, 4 pending, 3 in flight"
             ),
-        ]
+        ])
     );
     assert_eq!(
         chosen.usage,
-        [
+        Some(vec![
             field("Requests", "12"),
             field("Model calls", "3"),
             field("Model tokens", "1200"),
             field("Browser time", "65 s"),
             field("Proxy bytes", "2048"),
-        ]
+        ])
     );
     assert_eq!(
         chosen.failures,
-        [field("timeout", "2"), field("navigation_failed", "1")]
+        Some(vec![field("timeout", "2"), field("navigation_failed", "1")])
     );
     assert_eq!(
         chosen.report,
-        [field("Run report", "Comes when the Run ends")]
+        Some(vec![field("Run report", "Comes when the Run ends")])
     );
 }
 
@@ -461,7 +461,7 @@ fn an_ended_runs_report_gives_its_axes_usage_and_failures() {
     let chosen = details.view().chosen.expect("a chosen Run");
     assert_eq!(
         chosen.report,
-        [
+        Some(vec![
             field("Lifecycle", "Failed"),
             field("Stop reason", "pause"),
             field("Verdict", "rejected"),
@@ -471,10 +471,10 @@ fn an_ended_runs_report_gives_its_axes_usage_and_failures() {
             field("Ended", "2026-11-03T09:30:00Z"),
             field("Error", "navigation_failed: The page did not load"),
             field("Warning", "trap_links_off: Trap-link detection was off"),
-        ]
+        ])
     );
-    assert_eq!(chosen.usage[0], field("Requests", "40"));
-    assert_eq!(chosen.failures, [field("timeout", "4")]);
+    assert_eq!(chosen.usage.unwrap()[0], field("Requests", "40"));
+    assert_eq!(chosen.failures, Some(vec![field("timeout", "4")]));
 }
 
 #[test]
@@ -490,10 +490,10 @@ fn a_report_that_cannot_be_read_says_why() {
     let chosen = details.view().chosen.expect("a chosen Run");
     assert_eq!(
         chosen.report,
-        [field(
+        Some(vec![field(
             "Run report",
             "None: no engine works the Run, and a start with its Run ID resumes it (run_interrupted)"
-        )]
+        )])
     );
 }
 
@@ -746,7 +746,7 @@ fn foxhounds_records_and_add_seeds_are_hidden_on_a_collie_daemon() {
             View::KennelSettings
         ]
     );
-    assert_eq!(view.shown, View::Runs);
+    assert_eq!(view.shown, Some(View::Runs));
     assert_eq!(details.wanted().records, None);
 }
 
@@ -926,6 +926,7 @@ fn each_view_turned_off_is_neither_offered_nor_read() {
             daemon_settings: false,
             governor: false,
             kennel_settings: false,
+            ..Views::default()
         },
         ..Settings::default()
     })));
@@ -938,13 +939,134 @@ fn each_view_turned_off_is_neither_offered_nor_read() {
     let view = details.view();
 
     assert_eq!(view.views, [View::Runs]);
-    assert_eq!(view.shown, View::Runs);
+    assert_eq!(view.shown, Some(View::Runs));
     for wanted in wanted {
         assert_eq!(
             (wanted.records, wanted.explain, wanted.system_info),
             (None, None, false)
         );
     }
+}
+
+/// The window of [`showing`], its settings' views as `views` says.
+fn showing_with(view: View, run: &str, views: Views) -> Details {
+    let mut details = showing(view, run);
+    details.apply(Input::Settings(Ok(Settings {
+        views,
+        ..Settings::default()
+    })));
+    details
+}
+
+#[test]
+fn with_the_runs_table_off_no_run_is_listed_chosen_or_followed() {
+    let mut details = showing_with(
+        View::Runs,
+        "crawl-a",
+        Views {
+            runs: false,
+            ..Views::default()
+        },
+    );
+    details.apply(on_screen(&["crawl-a"]));
+
+    let wanted = details.wanted();
+    let view = details.view();
+
+    assert_eq!(
+        view.views,
+        [View::DaemonSettings, View::Governor, View::KennelSettings]
+    );
+    assert_eq!(view.shown, Some(View::DaemonSettings));
+    assert_eq!((view.runs.len(), view.chosen), (0, None));
+    assert_eq!(wanted.listing, None);
+    assert_eq!(wanted.progress, runs(&[]));
+    assert_eq!((wanted.report, wanted.usage), (None, None));
+}
+
+#[test]
+fn with_every_view_off_the_window_shows_none_and_reads_nothing() {
+    let details = showing_with(
+        View::Runs,
+        "crawl-a",
+        Views {
+            runs: false,
+            run_progress: false,
+            run_usage: false,
+            run_failures: false,
+            run_report: false,
+            records: false,
+            daemon_settings: false,
+            governor: false,
+            kennel_settings: false,
+        },
+    );
+
+    let view = details.view();
+
+    assert_eq!((view.views.len(), view.shown), (0, None));
+    assert_eq!(
+        details.wanted(),
+        Wanted {
+            live_runs: Generation::default(),
+            ..Wanted::default()
+        }
+    );
+}
+
+#[test]
+fn each_section_of_the_chosen_run_turned_off_is_neither_shown_nor_read() {
+    let mut details = showing_with(
+        View::Runs,
+        "crawl-a",
+        Views {
+            run_progress: false,
+            run_usage: false,
+            run_failures: false,
+            run_report: false,
+            ..Views::default()
+        },
+    );
+    details.apply(Input::Progress(progress("crawl-a", 3, json!({}))));
+
+    let wanted = details.wanted();
+    let chosen = details.view().chosen.expect("a chosen Run");
+
+    assert_eq!(wanted.progress, runs(&[]));
+    assert_eq!((wanted.report, wanted.usage), (None, None));
+    assert_eq!(
+        (chosen.progress, chosen.usage, chosen.report),
+        (None, None, None)
+    );
+    assert_eq!(chosen.failures, None);
+}
+
+#[test]
+fn the_chosen_runs_usage_alone_still_follows_its_progress_and_reads_its_usage() {
+    let details = showing_with(
+        View::Runs,
+        "crawl-a",
+        Views {
+            run_progress: false,
+            run_failures: false,
+            run_report: false,
+            ..Views::default()
+        },
+    );
+
+    let wanted = details.wanted();
+    let chosen = details.view().chosen.expect("a chosen Run");
+
+    // Its Usage is read again at each new progress, and an ended Run's
+    // comes in its report.
+    assert_eq!(wanted.progress, runs(&["crawl-a"]));
+    assert_eq!(wanted.report, Some(run_id("crawl-a")));
+    assert_eq!(
+        wanted.usage.map(|read| read.run_id),
+        Some(run_id("crawl-a"))
+    );
+    assert_eq!((chosen.progress, chosen.report), (None, None));
+    assert!(chosen.usage.is_some());
 }
 
 #[test]
@@ -1151,7 +1273,7 @@ mod kennel_settings {
 
     fn shown_settings(details: &Details) -> KennelSettingsView {
         let view = details.view();
-        assert_eq!(view.shown, View::KennelSettings);
+        assert_eq!(view.shown, Some(View::KennelSettings));
         view.kennel_settings
             .expect("the Kennel settings view shows the settings")
     }
@@ -1195,6 +1317,11 @@ mod kennel_settings {
                 (Switch::RunStoppedByLimitNotice, true),
                 (Switch::DaemonLostNotice, true),
                 (Switch::RunFinishedNotice, true),
+                (Switch::RunsView, true),
+                (Switch::RunProgressView, true),
+                (Switch::RunUsageView, true),
+                (Switch::RunFailuresView, true),
+                (Switch::RunReportView, true),
                 (Switch::RecordsView, true),
                 (Switch::DaemonSettingsView, true),
                 (Switch::GovernorView, true),
@@ -1292,7 +1419,7 @@ mod kennel_settings {
             "{:?}",
             view.views
         );
-        assert_eq!(view.shown, View::Runs);
+        assert_eq!(view.shown, Some(View::Runs));
         assert_eq!(view.kennel_settings, None);
     }
 
@@ -1308,7 +1435,7 @@ mod kennel_settings {
             "{:?}",
             view.views
         );
-        assert_eq!(view.shown, View::Runs);
+        assert_eq!(view.shown, Some(View::Runs));
     }
 
     #[test]
@@ -1319,7 +1446,7 @@ mod kennel_settings {
         let view = details.view();
 
         assert_eq!(view.views.last(), Some(&View::KennelSettings));
-        assert_eq!(view.shown, View::Runs);
+        assert_eq!(view.shown, Some(View::Runs));
         assert_eq!(view.kennel_settings, None);
     }
 }

@@ -62,12 +62,32 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 
 "Open details" starts the window as a second process of the same executable, `goodfetch-kennel window`, with `eframe` on glow. The process exits when the window closes, so a closed window costs nothing.
 
-- **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, never the token.
+- **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, and `hidden-icon` when the hidden-icon check opens it, never the token.
 - **The Runs table** lists the Run index's rows, newest first, filtered by a text (found in a Run ID or a tag, the Recipe's among them) and a Lifecycle. It is listed again after each resync and each Run that starts or ends.
 - **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away.
 - **What it reads.** It follows `run.progress` only of the running Runs on screen and of the chosen Run while it runs. It reads the chosen Run's report with `run.report`, and its Usage with `run.usage`, again at each new progress while it runs. Nothing is read once the window is closed.
 - **Repaints.** The window asks for a repaint only when what it shows changed, at most once a second. The person's own clicks and typing are drawn as they come.
 - **Fonts.** The window draws with the system's own fonts, read as it starts (SF and SF Mono on macOS, with Helvetica and Menlo after them), so no font ships in the executable.
+
+## Hidden icon (macOS)
+
+A menu bar that is full hides the icons that do not fit: behind the notch, or in macOS 27's overflow. A hidden Kennel would seem dead, so once at launch the Kennel checks whether its icon shows.
+
+- **When.** Three seconds after the icon is put in the menu bar, once the settings are read: the time #1915 read it at.
+- **How.** It reads the occlusion state of the status item's window: without `Visible`, the icon is hidden. It never compares the item's frame with the notch: macOS 27 reports items hidden in the overflow as on screen ([#1915](https://github.com/goodfetch/goodfetch/issues/1915)).
+- **What it does.** When the icon is hidden, the Kennel opens the details window with a note asking the person to free space in the menu bar.
+- **A setting.** `hidden_icon_check`, on by default. With `window` off, the Kennel has no window to open, so it checks nothing.
+- **Elsewhere.** Linux and Windows have neither a notch nor such a state, so the check is made on macOS only.
+
+## Start at login (macOS)
+
+`start_at_login`, off by default, makes the Kennel start when the person logs in.
+
+- **The agent.** On, the Kennel writes a launchd user agent, `~/Library/LaunchAgents/dev.goodfetch.kennel.login.plist`, that runs `/usr/bin/open` on the `.app` the Kennel runs from, so the Kennel starts through LaunchServices, as desktop notices need. Off, it removes the agent and unloads it with `launchctl remove`.
+- **When.** At launch and at each change of the setting, whether made in the window or in the file. A settings file that cannot be read leaves the agent as it is. The agent is written, not loaded: launchd loads it at the next login, and loading it at once would open a second Kennel.
+- **No shell.** The agent is written to a temporary file and renamed into place, and `launchctl` runs by its absolute path.
+- **The installed app.** The agent opens the `.app` the Kennel runs from, `~/Applications/Kennel.app` after `just kennel`. A Kennel run outside a `.app` writes no agent and logs why. When the app moves, the next launch rewrites the agent.
+- **Elsewhere.** Linux and Windows have no login agent yet: the setting logs that it is made on macOS only.
 
 ## Desktop notices
 
@@ -136,6 +156,8 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon", the Run controls and the Needs you items' actions included |
 | `confirm_stop` | `true` | Stop acts at once, without asking. Abort and Retry failed always ask, and Pause never does |
 | `window` | `true` | a menu-only Kennel: the menu offers no "Open details" |
+| `start_at_login` | `false` | the Kennel starts only when the person opens it. On, a launchd user agent opens it at login (see Start at login) |
+| `hidden_icon_check` | `true` | no check that the icon shows in the menu bar at launch (see Hidden icon) |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 | `notifications.enabled` | `true` | no desktop notice, and no notice code runs (see Desktop notices) |
 | `notifications.needs_you` | `true` | no notice of a new Needs you item |
@@ -144,8 +166,9 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 | `notifications.daemon_lost` | `true` | no notice of a Daemon lost while a Run was live |
 | `notifications.run_finished` | `false` | no notice of a Run that ended well |
 | `notifications.period_minutes` | `20` | `0`: each notice goes out at once, with no summary |
+| `views.kennel_settings` | `true` | the details window shows no Kennel settings view; the file still holds them |
 
-The `notifications.` keys go in a `[notifications]` table:
+The `notifications.` keys go in a `[notifications]` table, and the `views.` keys in a `[views]` table:
 
 ```toml
 [notifications]
@@ -153,14 +176,16 @@ run_finished = true
 period_minutes = 5
 ```
 
+**The Kennel settings view.** The details window's Kennel settings view shows each of these, with a switch for each and the coalescing period. A change there rewrites only its own key, keeping the file's other keys and comments as written, in a temporary file renamed into place. A change made in the file shows in the view, through the same watch.
+
 Later features each add a switch here.
 
 ## Layout and checks
 
 | Path | What |
 |---|---|
-| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's and the desktop notices' included), the settings, the Daemon start, the window's process |
-| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit`, the details window, with `eframe` on glow, and the desktop notices' adapters, `UNUserNotificationCenter` on macOS and `notify-rust` elsewhere |
+| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's and the desktop notices' included), the settings and their edits, the login agent, the Daemon start, the window's process |
+| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit`, the details window, with `eframe` on glow, the hidden-icon check, and the desktop notices' adapters, `UNUserNotificationCenter` on macOS and `notify-rust` elsewhere |
 | `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `release.sh` (`just kennel-release`), `bundle.sh` (assembles `Kennel.app`), `install-kennel.sh` (the install script a release publishes), `measure.sh` |
 | `Info.plist` | The `.app`'s property list, which `bundle.sh` stamps with the Kennel's version |
 

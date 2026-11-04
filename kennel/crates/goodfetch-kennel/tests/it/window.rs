@@ -7,27 +7,21 @@
 )]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use goodfetch_kennel::window::{self, Opening};
 use rstest::rstest;
 
-use crate::support::runtime;
+use crate::support::{executable_script, runtime};
 
 /// Writes a stand-in executable at `path` that writes its arguments to
 /// `arguments` beside it, then exits.
 fn stand_in(path: &Path) {
     let record = path.with_file_name("arguments");
-    fs::write(
+    executable_script(
         path,
-        format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n",
-            record.display()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        &format!("printf '%s\\n' \"$@\" > '{}'\n", record.display()),
+    );
 }
 
 #[test]

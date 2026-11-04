@@ -112,6 +112,34 @@ fn tools(name: &str) -> Option<Tools> {
     Some(serde_json::from_str(&text).unwrap())
 }
 
+/// Writes an executable shell script at `path` holding `body` under its
+/// `#!/bin/sh` line, through a `sh` child process.
+///
+/// The test process never holds the script open for writing: the tests of
+/// this binary run on threads of one process, and a process another test
+/// forks meanwhile would inherit an open write descriptor until its `exec`,
+/// so running the script could fail with `ETXTBSY` ("Text file busy").
+/// The child that writes it has exited before this returns, and no fork of
+/// the test process inherits its descriptors.
+#[cfg(unix)]
+pub(crate) fn executable_script(path: &Path, body: &str) {
+    let status = Command::new("/bin/sh")
+        .args([
+            "-c",
+            r#"printf '#!/bin/sh\n%s' "$1" > "$0" && chmod 755 "$0""#,
+        ])
+        .arg(path)
+        .arg(body)
+        .stdin(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "the script {} was written",
+        path.display()
+    );
+}
+
 /// The Scripted engine playing a script as the Daemon of a home.
 pub(crate) struct ScriptedDaemon {
     child: Child,

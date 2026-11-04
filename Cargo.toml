@@ -486,6 +486,57 @@ opt-level = 3
 [profile.dev.package.rs-trafilatura]
 debug-assertions = false
 
+# And for the work a crawl does on each page: HTML parsing and its DOM,
+# clean-up's selector matching and Filter-list engine, readability, JSON and
+# JSON Schema validation, and the C sources `cc` builds at the profile's
+# opt-level, the allocator's, SQLite's and zstd's. Unoptimized, they took
+# most of the Foxhound Daemon soak's CPU, about 33 ms a page, so its time
+# followed the host's load up to its five-minute kill (#2050). Like those
+# above, they reach `dev` and the profiles that inherit it (`test`,
+# `ci-test`), never `release`, `ci` or `bench`, which every counted and
+# compared figure builds with (ADR 0061's note of 2026-11-04).
+[profile.dev.package.dom_query]
+opt-level = 3
+
+[profile.dev.package.selectors]
+opt-level = 3
+
+[profile.dev.package.cssparser]
+opt-level = 3
+
+[profile.dev.package.html5ever]
+opt-level = 3
+
+[profile.dev.package.markup5ever]
+opt-level = 3
+
+[profile.dev.package.tendril]
+opt-level = 3
+
+[profile.dev.package.string_cache]
+opt-level = 3
+
+[profile.dev.package.adblock]
+opt-level = 3
+
+[profile.dev.package.dom_smoothie]
+opt-level = 3
+
+[profile.dev.package.serde_json]
+opt-level = 3
+
+[profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.libmimalloc-sys]
+opt-level = 3
+
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+
+[profile.dev.package.zstd-sys]
+opt-level = 3
+
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information
 # split out beside each executable (`.dwp` on Linux, `.dSYM` on macOS, `.pdb`

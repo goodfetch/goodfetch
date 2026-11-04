@@ -15,8 +15,10 @@
 # fails, and stops them when a host step fails first, keeping the result of
 # each that had already ended for the gate's record. The host's checks that
 # take seconds and judge the whole change (sign-offs, commit messages, the
-# floor guard, the SDK crates' features, advisories, secrets in commits, the fuzz targets, the
-# proofs) run before the suites; the stress
+# floor guard, secrets in commits, advisories, notices) run first, before the
+# Console build and the steps beside, so a red one ends the gate before perf
+# starts; the other checks of the whole change (lint, the SDK crates'
+# features, the fuzz targets, the proofs) run before the suites; the stress
 # run of the new and changed tests (`just stress`) runs after the Pre-merge
 # suite, whose build its listings reuse.
 #
@@ -71,6 +73,24 @@ os_services() {
   export GOODFETCH_TEST_DNS_NAMESPACE=${GOODFETCH_TEST_DNS_NAMESPACE:-sudo}
 }
 
+# The gate's forms use every thread, whatever the shell that started them
+# capped: a caller's NEXTEST_TEST_THREADS or CARGO_BUILD_JOBS, such as the
+# server's shared settings export for implementers, would cap nextest and
+# Cargo for the whole gate (the test-gate audit's F1). A run over what
+# changed keeps the caller's.
+if [[ $all == all || $all == quick ]]; then
+  removed=()
+  for variable in NEXTEST_TEST_THREADS CARGO_BUILD_JOBS; do
+    if [[ -n ${!variable+set} ]]; then
+      removed+=("$variable=${!variable}")
+      unset "$variable"
+    fi
+  done
+  if [[ ${#removed[@]} -gt 0 ]]; then
+    echo "The gate removed ${removed[*]} from its environment, so every step uses every thread"
+  fi
+fi
+
 rm -f target/skipped.txt
 if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
@@ -79,12 +99,12 @@ if [[ $all == quick ]]; then
   timed dco just dco
   timed commit-messages just commit-messages
   timed floor-guard just floor-guard
-  timed lint just lint
-  timed audit just audit
   timed commit-leaks just commit-leaks
+  timed audit just audit
+  timed notices just notices
+  timed lint just lint
   timed quick just _suite quick all
   timed journeys-tasks just journeys-tasks --check
-  timed notices just notices
   exit 0
 fi
 names=()
@@ -257,19 +277,22 @@ gated() {
 whole() {
   if [[ $(action "$1") == reuse ]]; then reused "$1"; else gated "$@"; fi
 }
+# The checks that judge the whole change in seconds, first: a red one ends
+# the gate before the Console build and before any step beside starts.
+gated dco just dco
+gated commit-messages just commit-messages
+gated floor-guard just floor-guard
+gated commit-leaks just commit-leaks
+gated audit just audit
+gated notices just notices
 # Collie's executable embeds its Console build (ADR 0057), which the steps
 # beside, in their containers, find in the workspace they mount.
 timed console-build just console-build
 for step in perf linux visual; do
   if [[ $(action "$step") == reuse ]]; then reused "$step"; else beside "$step"; fi
 done
-gated dco just dco
-gated commit-messages just commit-messages
-gated floor-guard just floor-guard
 gated lint just lint
 gated feature-combinations just feature-combinations
-gated audit just audit
-gated commit-leaks just commit-leaks
 gated fuzz-check just fuzz-check
 gated proofs just proofs
 # A part reruns every Vitest, Playwright and pytest test, as a full run
@@ -327,7 +350,6 @@ whole tlc just _tlc "$all"
 whole kennel just _kennel "$all"
 whole msrv just msrv
 whole miri just miri
-gated notices just notices
 
 status=0
 for i in "${!names[@]}"; do

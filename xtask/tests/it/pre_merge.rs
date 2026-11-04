@@ -13,17 +13,20 @@ use rstest::rstest;
 use crate::workspace::Workspace;
 
 /// Every step of `just pre-merge all`: the host's in the order it runs them,
-/// Collie's Console build first, which the steps beside find in the
-/// workspace they mount, then those beside them.
+/// the checks that judge the whole change in seconds first, so a red one
+/// ends the gate before anything beside starts, then Collie's Console build,
+/// which the steps beside find in the workspace they mount, then those
+/// beside them.
 const STEPS: [&str; 24] = [
-    "console-build",
     "dco",
     "commit-messages",
     "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "console-build",
     "lint",
     "feature-combinations",
-    "audit",
-    "commit-leaks",
     "fuzz-check",
     "proofs",
     "_suite quick all",
@@ -36,10 +39,20 @@ const STEPS: [&str; 24] = [
     "_kennel all",
     "msrv",
     "miri",
-    "notices",
     "perf",
     "linux",
     "visual",
+];
+
+/// The checks that judge the whole change in seconds, which run before any
+/// step beside the host's.
+const WHOLE_CHANGE: [&str; 6] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
 ];
 
 /// The steps that need Linux, run beside the host's.
@@ -72,6 +85,7 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
 echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
+echo "$*|${{NEXTEST_TEST_THREADS-unset}}|${{CARGO_BUILD_JOBS-unset}}" >>"{caps}"
 if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
   cat "{plan}"
 fi
@@ -107,6 +121,7 @@ fi
 "#,
         calls = folder.join("calls").display(),
         variables = folder.join("variables").display(),
+        caps = folder.join("caps").display(),
         plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
         statuses = folder.join("statuses").display(),
@@ -256,12 +271,12 @@ const QUICK_STEPS: [&str; 9] = [
     "dco",
     "commit-messages",
     "floor-guard",
-    "lint",
-    "audit",
     "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
     "_suite quick all",
     "journeys-tasks --check",
-    "notices",
 ];
 
 #[test]
@@ -279,6 +294,79 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
         .collect();
     expected.push("_skips-report".to_owned());
     assert_eq!(run.calls, expected);
+}
+
+/// A red check of the whole change ends the gate before the Console build
+/// and before any step beside the host's starts, so a gate that fails in
+/// seconds never starts perf (the test-gate audit's F3).
+#[rstest]
+#[case::dco("dco")]
+#[case::commit_messages("commit-messages")]
+#[case::floor_guard("floor-guard")]
+#[case::commit_leaks("commit-leaks")]
+#[case::audit("audit")]
+#[case::notices("notices")]
+fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(#[case] check: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), check).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    for later in BESIDE.iter().chain(&["console-build", "lint"]) {
+        assert!(
+            !run.calls.iter().any(|call| call == later),
+            "{later} started after {check} failed: {:?}",
+            run.calls
+        );
+    }
+    let ran: Vec<&str> = run
+        .calls
+        .iter()
+        .map(String::as_str)
+        .filter(|call| !HOST_SETUP.contains(call) && *call != "_skips-report")
+        .collect();
+    let through = WHOLE_CHANGE.iter().position(|step| *step == check).unwrap();
+    assert_eq!(ran, WHOLE_CHANGE[..=through]);
+}
+
+/// The gate's forms run every step with every thread, whatever thread or job
+/// cap the shell that started them exported, and say which they removed
+/// (the test-gate audit's F1); a run over what changed keeps the caller's.
+#[rstest]
+#[case::all("all", true)]
+#[case::quick("quick", true)]
+#[case::what_changed("", false)]
+fn the_gate_forms_run_without_the_callers_thread_and_job_caps(
+    #[case] form: &str,
+    #[case] removed: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let args: &[&str] = if form.is_empty() { &[] } else { &[form] };
+
+    let run = pre_merge_with_env(
+        &workspace,
+        &stand_in,
+        args,
+        &[("NEXTEST_TEST_THREADS", "4"), ("CARGO_BUILD_JOBS", "4")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let caps = std::fs::read_to_string(stand_in.join("caps")).unwrap();
+    let expected = if removed { "|unset|unset" } else { "|4|4" };
+    for call in caps.lines() {
+        assert!(call.ends_with(expected), "{call}");
+    }
+    assert!(!caps.is_empty());
+    assert_eq!(
+        run.stdout
+            .contains("The gate removed NEXTEST_TEST_THREADS=4 CARGO_BUILD_JOBS=4"),
+        removed,
+        "{}",
+        run.stdout
+    );
 }
 
 /// When one step of a gate run started and ended, and its exit status, as
@@ -442,7 +530,7 @@ fn a_failed_check_beside_the_host_steps_fails_the_suite(#[case] step: &str) {
         run.stderr
     );
     assert!(
-        run.calls.iter().any(|call| call == "notices"),
+        run.calls.iter().any(|call| call == "miri"),
         "{:?}",
         run.calls
     );
@@ -458,7 +546,7 @@ fn a_failed_stress_run_stops_the_suite_before_the_later_steps() {
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(
-        !run.calls.iter().any(|call| call == "notices"),
+        !run.calls.iter().any(|call| call == "miri"),
         "{:?}",
         run.calls
     );
@@ -834,7 +922,7 @@ fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(
-        !run.calls.iter().any(|call| call == "notices"),
+        !run.calls.iter().any(|call| call == "miri"),
         "the run went on past lint: {:?}",
         run.calls
     );

@@ -6,7 +6,9 @@
 //! This spec's stories stay outside the Feature inventory (#325, Out of
 //! Scope), so the module declares no Feature.
 
-use crate::workspace::Workspace;
+use rstest::rstest;
+
+use crate::workspace::{Workspace, finding};
 
 /// How many times a new or changed test runs, and a test taken off the
 /// quarantine list (ADR 0064).
@@ -21,23 +23,51 @@ fn base() -> (Workspace, String) {
     (workspace, base)
 }
 
+/// The ID each runner lists its renamed test under at the base, which the
+/// head no longer lists.
+const RENAMED: [&str; 4] = [
+    "stressed changed::tests::renamed_before",
+    "changed > renamed before",
+    "e2e/changed.spec.ts › changed › renamed before",
+    "tests/test_changed.py::test_renamed_before",
+];
+
 /// In each runner: adds a test to the `changed` file and renames another
 /// there, edits the helper the `imports` tests import, and takes the `flaky`
-/// test off the quarantine list; then commits.
+/// test off the quarantine list; then commits, with a `Quality-change`
+/// trailer naming each renamed test.
 fn change(workspace: &Workspace) {
+    edit_each_runner(workspace);
+    let trailers: Vec<String> = RENAMED
+        .iter()
+        .map(|test| format!("Quality-change: {test}: renamed"))
+        .collect();
+    workspace.commit_all_with(&format!("test: rename a test\n\n{}", trailers.join("\n")));
+}
+
+/// `change`'s edits, uncommitted. A runner whose folder the workspace lacks
+/// is left alone.
+fn edit_each_runner(workspace: &Workspace) {
     workspace.edit(
         "src/changed.rs",
         "fn renamed_before() {}",
         "fn renamed_after() {}\n\n    #[test]\n    fn added() {}",
     );
-    for file in ["web/changed.test.ts", "e2e/changed.spec.ts"] {
+    let present = |file: &&str| workspace.path().join(file).is_file();
+    for file in ["web/changed.test.ts", "e2e/changed.spec.ts"]
+        .into_iter()
+        .filter(present)
+    {
         workspace.edit(
             file,
             "test(\"renamed before\"",
             "test(\"added\", () => {\n    expect(1).toBe(1);\n  });\n\n  test(\"renamed after\"",
         );
     }
-    for file in ["web/helper.ts", "e2e/helper.ts"] {
+    for file in ["web/helper.ts", "e2e/helper.ts"]
+        .into_iter()
+        .filter(present)
+    {
         workspace.write(file, b"export const one = 2 - 1;\n");
     }
     workspace.edit(
@@ -46,7 +76,6 @@ fn change(workspace: &Workspace) {
         "def test_added() -> None:\n    \"\"\"Passes.\"\"\"\n\n\ndef test_renamed_after()",
     );
     workspace.write("quarantine.toml", b"");
-    workspace.commit_all();
 }
 
 /// `xtask stress select`'s selection, as `(count, runner, test ID)`, sorted.
@@ -186,16 +215,179 @@ fn quarantined_test_is_not_stressed() {
 /// test exists: it lists none, and the others' tests are still chosen.
 #[test]
 fn runner_with_no_test_lists_none() {
-    let (workspace, base) = base();
-    change(&workspace);
+    let workspace = Workspace::from_fixture("stress");
     workspace.remove_folder("e2e");
-    workspace.commit_all();
+    workspace.install_runners();
+    let base = workspace.commit_all();
+    change(&workspace);
 
     let selection = select(&workspace, &["--base", &base]);
 
     let mut expected = change_selection();
     expected.retain(|(_, runner, _)| runner != "playwright");
     assert_eq!(selection, expected);
+}
+
+/// A test the base lists and the head does not fails the selection, in
+/// every runner, unless a `Quality-change` trailer names its ID (the Floor):
+/// the change renames one test in each runner and records none.
+#[test]
+fn a_test_the_head_no_longer_lists_fails_the_selection() {
+    let (workspace, base) = base();
+    edit_each_runner(&workspace);
+    workspace.commit_all();
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    let mut expected: Vec<_> = RENAMED
+        .iter()
+        .map(|test| finding("deleted-test", test))
+        .collect();
+    let mut findings = outcome.stderr_findings();
+    expected.sort_by(|a, b| a.subject.cmp(&b.subject));
+    findings.sort_by(|a, b| a.subject.cmp(&b.subject));
+    assert_eq!(findings, expected, "{}", outcome.stderr);
+}
+
+/// `steady.rs`'s `unchanged` test leaves it, and `changed.rs` gains a test
+/// of that name: a removed test and an added one, which the floor guard's
+/// reading of the diff's lines takes for a move.
+fn move_unchanged(workspace: &Workspace) {
+    workspace.edit(
+        "src/steady.rs",
+        "    #[test]\n    fn unchanged() {}\n\n",
+        "",
+    );
+    workspace.edit(
+        "src/changed.rs",
+        "fn kept() {}",
+        "fn kept() {}\n\n    #[test]\n    fn unchanged() {}",
+    );
+}
+
+/// The test's ID is what the runner collects: one of the same name added in
+/// another file does not stand in for it.
+#[test]
+fn a_test_moved_to_another_module_is_a_deleted_one() {
+    let (workspace, base) = base();
+    move_unchanged(&workspace);
+    workspace.commit_all();
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stderr_findings(),
+        [finding("deleted-test", "stressed steady::tests::unchanged")],
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// A trailer naming the test's ID accepts it, as a `note[quality-change]`
+/// line, and the selection is printed.
+#[test]
+fn a_trailer_naming_a_deleted_test_accepts_it() {
+    let (workspace, base) = base();
+    move_unchanged(&workspace);
+    workspace.commit_all_with(
+        "test: move a test\n\nQuality-change: stressed steady::tests::unchanged: moved to changed.rs",
+    );
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        outcome
+            .stdout
+            .lines()
+            .any(|line| line == "20\tnextest\tstressed changed::tests::unchanged"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        outcome.stderr_notes(),
+        [finding(
+            "quality-change",
+            "stressed steady::tests::unchanged"
+        )],
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// The tests `changed.rs` gains in a module `reads`, as rstest generates
+/// the cases of a test `reads`: one test per case, `case_<n>_<description>`
+/// or `case_<n>` with none, `<n>` its position zero-padded to the width of
+/// the case count. The fixture crate has no dependencies, so the module
+/// spells them out.
+fn rstest_cases(names: &[&str]) -> String {
+    let tests: Vec<String> = names
+        .iter()
+        .map(|name| format!("        #[test]\n        fn {name}() {{}}\n"))
+        .collect();
+    format!(
+        "fn kept() {{}}\n\n    mod reads {{\n{}    }}",
+        tests.join("\n")
+    )
+}
+
+/// A case's position is not its name: inserting a case renumbers the ones
+/// after it, which the head still lists under their descriptions. A case
+/// with no description has its position alone, and a renamed test any
+/// other new name; each the head lacks is deleted.
+#[rstest]
+#[case::an_inserted_case_renumbers_the_ones_after_it(
+    &["case_1_first", "case_2_second"],
+    &["case_1_inserted", "case_2_first", "case_3_second"],
+    &[]
+)]
+#[case::a_removed_case_is_deleted(
+    &["case_1_first", "case_2_second"],
+    &["case_1_second"],
+    &["case_1_first"]
+)]
+#[case::a_renamed_test_is_deleted(&["before"], &["after"], &["before"])]
+#[case::a_case_with_no_description_is_matched_on_its_position(
+    &["case_1", "case_2", "case_3"],
+    &["case_1", "case_2"],
+    &["case_3"]
+)]
+fn a_test_case_is_deleted_when_the_head_lists_none_of_its_name(
+    #[case] before: &[&str],
+    #[case] after: &[&str],
+    #[case] deleted: &[&str],
+) {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.edit("src/changed.rs", "fn kept() {}", &rstest_cases(before));
+    workspace.install_runners();
+    let base = workspace.commit_all();
+    workspace.edit(
+        "src/changed.rs",
+        &rstest_cases(before),
+        &rstest_cases(after),
+    );
+    workspace.commit_all();
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base, "--within", "stressed"]);
+
+    let expected: Vec<_> = deleted
+        .iter()
+        .map(|test| {
+            finding(
+                "deleted-test",
+                &format!("stressed changed::tests::reads::{test}"),
+            )
+        })
+        .collect();
+    assert_eq!(outcome.stderr_findings(), expected, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.code,
+        i32::from(!deleted.is_empty()),
+        "{}",
+        outcome.stderr
+    );
 }
 
 /// The incremental gate (ADR 0135) stresses only the members the change

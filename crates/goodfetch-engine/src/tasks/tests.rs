@@ -181,13 +181,13 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
         let (told, mut events) = mpsc::unbounded_channel();
         let mut releases = Vec::new();
         for analysis in 0..3 {
-            let (release, released) = oneshot::channel::<()>();
+            let (release, go_on) = oneshot::channel::<()>();
             releases.push(Some(release));
             let (on, told) = (Arc::clone(&owner), told.clone());
             owner.spawn(async move {
                 on.analysis(move || {
                     let _ = told.send(Analysed::Started(analysis));
-                    let _ = released.blocking_recv();
+                    let _ = go_on.blocking_recv();
                     let _ = told.send(Analysed::Ended(analysis));
                 })
                 .await;
@@ -202,6 +202,10 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
         }
         // A third analysis that a pool let through starts within this
         // short real wait; one the pool holds never does.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the analyses run on blocking threads, which this real wait gives the time to start one the pool should hold"
+        )]
         std::thread::sleep(Duration::from_millis(100));
         let mut waiting = true;
         while let Ok(event) = events.try_recv() {

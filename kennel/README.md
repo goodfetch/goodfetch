@@ -92,8 +92,8 @@ A menu bar that is full hides the icons that do not fit: behind the notch, or in
 
 - **When.** Three seconds after the icon is put in the menu bar, once the settings are read: the time #1915 read it at.
 - **How.** It reads the occlusion state of the status item's window: without `Visible`, the icon is hidden. It never compares the item's frame with the notch: macOS 27 reports items hidden in the overflow as on screen ([#1915](https://github.com/goodfetch/goodfetch/issues/1915)).
-- **What it does.** When the icon is hidden, the Kennel opens the details window with a note asking the person to free space in the menu bar.
-- **A setting.** `hidden_icon_check`, on by default. With `window` off, the Kennel has no window to open, so it checks nothing.
+- **What it does.** When the icon is hidden, the Kennel opens the details window with a note asking the person to free space in the menu bar. With `window` off, it sends a desktop notice asking the same instead, when desktop notices are on (`notifications.enabled`), whatever the per-type switches say; with both off, only the log says so.
+- **A setting.** `hidden_icon_check`, on by default.
 - **Elsewhere.** Linux and Windows have neither a notch nor such a state, so the check is made on macOS only.
 
 ## Start at login (macOS)

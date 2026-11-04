@@ -2,8 +2,10 @@
 //! hidden-icon check (macOS), which opens the details window with a note
 //! when the icon is hidden, and start at login, which follows its setting.
 
+use std::time::Instant;
+
 use super::super::{Effect, IconCheck, Input, State};
-use crate::settings::{Settings, SettingsError};
+use crate::settings::{DesktopNotices, Settings, SettingsError};
 use crate::window::Opening;
 
 fn read(settings: Settings) -> Input {
@@ -67,16 +69,72 @@ fn a_check_turned_off_before_its_reading_opens_nothing() {
     assert_eq!(effects, []);
 }
 
+fn menu_only(notices: bool) -> Settings {
+    Settings {
+        window: false,
+        desktop_notices: DesktopNotices {
+            enabled: notices,
+            ..DesktopNotices::default()
+        },
+        ..Settings::default()
+    }
+}
+
+fn origin() -> Instant {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test's origin for the instants it gives the State, which reads no clock itself"
+    )]
+    Instant::now()
+}
+
 #[test]
-fn a_menu_only_kennel_checks_nothing_since_it_has_no_window_to_open() {
+fn a_menu_only_kennel_still_checks_its_icon() {
     let mut state = State::new();
 
-    let effects = state.apply(read(Settings {
-        window: false,
-        ..Settings::default()
-    }));
+    let effects = state.apply(read(menu_only(true)));
 
-    assert!(!effects.contains(&Effect::CheckIcon), "{effects:?}");
+    assert!(effects.contains(&Effect::CheckIcon), "{effects:?}");
+}
+
+#[test]
+fn with_no_window_a_hidden_icon_sends_a_desktop_notice_asking_to_free_space() {
+    let mut state = State::new();
+    state.apply(read(menu_only(true)));
+
+    let effects = state.apply(Input::IconChecked(IconCheck::Hidden));
+    let sent = state.notices(origin()).send;
+
+    assert_eq!(effects, []);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].title, "The Kennel's icon is hidden");
+    assert!(
+        sent[0].body.starts_with("Free space in the menu bar"),
+        "{:?}",
+        sent[0].body
+    );
+}
+
+#[test]
+fn with_no_window_and_no_desktop_notice_a_hidden_icon_is_left_to_the_log() {
+    let mut state = State::new();
+    state.apply(read(menu_only(false)));
+
+    let effects = state.apply(Input::IconChecked(IconCheck::Hidden));
+
+    assert_eq!(effects, [Effect::LogHiddenIcon]);
+    assert_eq!(state.notices(origin()).send, []);
+}
+
+#[test]
+fn with_no_window_a_shown_icon_tells_nothing() {
+    let mut state = State::new();
+    state.apply(read(menu_only(true)));
+
+    let effects = state.apply(Input::IconChecked(IconCheck::Shown));
+
+    assert_eq!(effects, []);
+    assert_eq!(state.notices(origin()).send, []);
 }
 
 #[test]

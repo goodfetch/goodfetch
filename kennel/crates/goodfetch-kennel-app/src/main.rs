@@ -278,6 +278,9 @@ impl Kennel {
                         let _ = proxy.send_event(UserEvent::CheckIcon);
                     });
                 }
+                Effect::LogHiddenIcon => tracing::warn!(
+                    "the Kennel's icon is hidden, behind the notch or in the menu bar's overflow: free space in the menu bar for it to show (the window and desktop notices are off, so only this log says so)"
+                ),
                 Effect::StartAtLogin(on) => {
                     self.start_at_login.send_replace(Some(on));
                 }

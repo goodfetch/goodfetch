@@ -39,9 +39,11 @@
 //!   while `notifications` is off.
 //!
 //! - **At launch**, once the settings are read: the hidden-icon check,
-//!   asked for once with [`Effect::CheckIcon`] while the setting and the
-//!   window are on, whose [`IconCheck::Hidden`] opens the details window
-//!   with a note asking the person to free space in the menu bar; and start
+//!   asked for once with [`Effect::CheckIcon`] while the setting is on,
+//!   whose [`IconCheck::Hidden`] opens the details window with a note
+//!   asking the person to free space in the menu bar, or with `window` off
+//!   sends a desktop notice asking the same, or with those off too leaves
+//!   it to the log ([`Effect::LogHiddenIcon`]); and start
 //!   at login, [`Effect::StartAtLogin`], at the first read and at each
 //!   change of its setting, never from a file that cannot be read.
 //!
@@ -198,6 +200,10 @@ pub enum Effect {
     /// Make the login agent as start at login now says: on, an agent that
     /// opens the installed `.app`; off, none.
     StartAtLogin(bool),
+    /// Log that the icon is hidden: neither the details window, which
+    /// `window` turns off, nor a desktop notice, which the settings turn
+    /// off, can tell the person.
+    LogHiddenIcon,
 }
 
 /// The one verdict the icon shows, worst first (ADR 0141).
@@ -489,14 +495,12 @@ impl State {
                 effects.extend(self.ask_icon_check());
             }
             Input::IconChecked(check) => {
-                let opens = check == IconCheck::Hidden
+                let hidden = check == IconCheck::Hidden
                     && self.icon_check == Check::Asked
-                    && self.checks_the_icon()
-                    && !self.details_open;
+                    && self.settings.hidden_icon_check;
                 self.icon_check = Check::Done;
-                if opens {
-                    self.details_open = true;
-                    effects.push(Effect::OpenDetails(Opening::HiddenIcon));
+                if hidden {
+                    effects.extend(self.icon_hidden());
                 }
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
@@ -519,10 +523,22 @@ impl State {
         effects
     }
 
-    /// Whether the settings ask for the hidden-icon check: it is on, and
-    /// the window it would open is too.
-    fn checks_the_icon(&self) -> bool {
-        self.settings.hidden_icon_check && self.settings.window
+    /// Tells the person their icon is hidden: the details window with its
+    /// note, or with `window` off a desktop notice, or with those off
+    /// too, only the log.
+    fn icon_hidden(&mut self) -> Option<Effect> {
+        if self.settings.window {
+            if self.details_open {
+                return None;
+            }
+            self.details_open = true;
+            return Some(Effect::OpenDetails(Opening::HiddenIcon));
+        }
+        if self.notices.wants(Kind::IconHidden) {
+            self.notices.push(Kind::IconHidden, notices::icon_hidden);
+            return None;
+        }
+        Some(Effect::LogHiddenIcon)
     }
 
     /// The hidden-icon check, asked for once, at the first read of the
@@ -531,7 +547,7 @@ impl State {
         if self.icon_check != Check::Waiting {
             return None;
         }
-        if !self.checks_the_icon() {
+        if !self.settings.hidden_icon_check {
             self.icon_check = Check::Done;
             return None;
         }

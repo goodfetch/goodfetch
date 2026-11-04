@@ -62,6 +62,9 @@ pub struct Notices {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Kind {
     DaemonLost,
+    /// The Kennel's icon is hidden, with no window to say so: on whenever
+    /// desktop notices are.
+    IconHidden,
     NeedsYou,
     RunFailed,
     RunStoppedByLimit,
@@ -73,6 +76,7 @@ impl Kind {
     fn on(self, notices: &DesktopNotices) -> bool {
         match self {
             Self::DaemonLost => notices.daemon_lost,
+            Self::IconHidden => true,
             Self::NeedsYou => notices.needs_you,
             Self::RunFailed => notices.run_failed,
             Self::RunStoppedByLimit => notices.run_stopped_by_limit,
@@ -85,6 +89,7 @@ impl Kind {
         match (self, count) {
             (Self::DaemonLost, 1) => "the Daemon lost while a Run was live".to_owned(),
             (Self::DaemonLost, _) => format!("the Daemon lost {count} times while Runs were live"),
+            (Self::IconHidden, _) => "the Kennel's icon hidden in the menu bar".to_owned(),
             (Self::NeedsYou, 1) => "1 new Needs you item".to_owned(),
             (Self::NeedsYou, _) => format!("{count} new Needs you items"),
             (Self::RunFailed, 1) => "1 Run failed".to_owned(),
@@ -107,6 +112,15 @@ struct Pending {
 /// The notice of a new Needs you item, which says what waits.
 pub(super) fn needs_you(summary: &str) -> Notice {
     Notice::new("Needs you", summary)
+}
+
+/// The notice of the Kennel's hidden icon, asking the person to free
+/// space in the menu bar, when no window can say so.
+pub(super) fn icon_hidden() -> Notice {
+    Notice::new(
+        "The Kennel's icon is hidden",
+        "Free space in the menu bar, by quitting or removing other menu bar items, and the icon shows again.",
+    )
 }
 
 /// How a Run ended, for its notice.

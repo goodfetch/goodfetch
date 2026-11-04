@@ -169,6 +169,10 @@ pub(crate) struct Trial {
     /// a quiet machine is under [`QUIET_LOAD`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) load: Option<f64>,
+    /// Why its first attempt was stopped, when the comparison stopped it
+    /// and these are its retry's figures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) retried: Option<String>,
     #[serde(flatten)]
     pub(crate) measured: Measured,
 }
@@ -260,8 +264,8 @@ pub(crate) enum CountedCell {
     },
 }
 
-/// A counted run stopped before its crawl finished: [`CountedCell`]'s
-/// `stopped`.
+/// A run stopped before its crawl finished: [`CountedCell`]'s `stopped`,
+/// or a timed trial stopped twice ([`Comparison`]'s `stopped`).
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct StoppedRun {
     pub(crate) scenario: Scenario,
@@ -285,6 +289,9 @@ pub(crate) enum GrowthCell {
         trials: u32,
         site_pages: u64,
         trials_run: Vec<Trial>,
+        /// The cells whose trial was stopped twice: not measured.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stopped: Vec<StoppedRun>,
     },
 }
 
@@ -298,6 +305,10 @@ pub(crate) struct Comparison {
     /// The seed of the trials' order.
     pub(crate) order_seed: u64,
     pub(crate) trials: Vec<Trial>,
+    /// The cells whose timed trial was stopped twice, its first attempt
+    /// and its retry: not measured, their later trials not run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) stopped: Vec<StoppedRun>,
     /// strace's count of each measured cell's system calls and syncs.
     pub(crate) syscalls: CountedCell,
     pub(crate) growth: GrowthCell,

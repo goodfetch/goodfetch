@@ -84,8 +84,8 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    Choosing, ContentTypes, FetchTiers, HttpTier, LocalSource, PooledSession, RobotsTxtFetch,
-    SetTier, SignalFiles, TierChoice,
+    Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
+    RobotsTxtFetch, SetTier, SignalFiles, TierChoice,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -581,7 +581,12 @@ struct Fetching<'a> {
 impl Fetching<'_> {
     /// What one attempt's handler pages, of a request of `label`, are
     /// gated and judged with.
-    fn gating(&self, label: &str, second_copies: &SecondCopies) -> Gating {
+    fn gating(
+        &self,
+        label: &str,
+        second_copies: &SecondCopies,
+        fetch_admission: FetchAdmission,
+    ) -> Gating {
         Gating {
             tiers: self.tiers.clone(),
             second_copies: second_copies.clone(),
@@ -600,6 +605,7 @@ impl Fetching<'_> {
                 .content_types(label, &self.run_content_types),
             code_free: self.code_free.clone(),
             signal_files: self.signal_files.clone(),
+            fetch_admission,
         }
     }
 
@@ -862,7 +868,12 @@ async fn lease_to_servers(
             let tiering = fetching
                 .served(run, &leased, (to_browser, local), &copies)
                 .await;
-            let gating = fetching.gating(&leased.crawl_request.label, &copies);
+            let admission = FetchAdmission::holding(
+                permits
+                    .pop()
+                    .expect("invariant: one admission per work item admitted"),
+            );
+            let gating = fetching.gating(&leased.crawl_request.label, &copies, admission.clone());
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -879,11 +890,8 @@ async fn lease_to_servers(
                     started_at: run.point_in_time(),
                 },
             );
-            let permit = permits
-                .pop()
-                .expect("invariant: one admission per work item admitted");
             attempts.spawn(holding(
-                permit,
+                admission,
                 attempt(
                     run.clone(),
                     place,
@@ -899,10 +907,11 @@ async fn lease_to_servers(
     Ok(())
 }
 
-/// Runs `attempt`, holding `permit` until it ends.
-async fn holding(permit: Permit, attempt: impl Future<Output = Attempt>) -> Attempt {
+/// Runs `attempt`, holding its HTTP `admission` until it ends, unless its
+/// document's fetch gave it back first.
+async fn holding(admission: FetchAdmission, attempt: impl Future<Output = Attempt>) -> Attempt {
     let ended = attempt.await;
-    drop(permit);
+    admission.give_back();
     ended
 }
 

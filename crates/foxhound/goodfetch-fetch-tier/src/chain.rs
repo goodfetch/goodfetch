@@ -12,7 +12,7 @@
 //!   scheme, such as `javascript:` or `data:`, is the document, unfollowed,
 //!   as the browser keeps it. A handler's own navigation follows none
 //!   ([`Following::refresh`]), its tier giving the stub (ADR 0118). Its
-//!   markup is read on the blocking pool, never on an async worker.
+//!   markup is read on the CPU pool, never on an async worker.
 //! - **At most `fetch.redirect.max` hops** after the first: one more fails
 //!   with `too_many_redirects`, so a loop costs a site `fetch.redirect.max`
 //!   + 1 requests.
@@ -155,7 +155,7 @@ pub trait HopGate: Send + Sync {
 /// Follows the chain from `first` under `following`, each hop fetched with
 /// `fetch` and each after the first admitted by `gate`, on `clock`, each
 /// told to `gate` as it is sent and once its answer arrived, a document's
-/// markup read on `owner`'s blocking pool; answers the document the chain
+/// markup read on `owner`'s CPU pool; answers the document the chain
 /// ends on.
 ///
 /// # Errors
@@ -268,7 +268,7 @@ async fn next_hop(
             let (url, body) = (fetched.url.clone(), fetched.body.clone());
             let work = work.clone();
             owner
-                .blocking(move || refresh::in_markup(&url, &body, &work))
+                .analysis(move || refresh::in_markup(&url, &body, &work))
                 .await
         }
         None => None,

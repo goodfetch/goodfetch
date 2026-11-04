@@ -89,6 +89,10 @@ pub(crate) enum UserEvent {
     DetailsOpened(u32),
     /// The hidden-icon check falls due.
     CheckIcon,
+    /// The icon is in the panel, or could not be put there: the Linux
+    /// Tray's GTK thread says so once it started.
+    #[cfg(target_os = "linux")]
+    Installed(Result<(), tray::InstallError>),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -120,10 +124,11 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(opening) = Opening::from_arguments(std::env::args_os().skip(1)) {
         let tasks = Tasks::new(runtime.handle().clone());
-        let ran = details::run(home, opening, &tasks, &runtime);
+        let ran = details::run(home, opening, &tasks);
         runtime.block_on(tasks.stop(STOP_GRACE));
         runtime.shutdown_timeout(STOP_GRACE);
-        return ran;
+        // `eframe`'s error holds platform handles, which are not `Send`.
+        return ran.map_err(|error| anyhow::anyhow!("{error}"));
     }
 
     let mut builder = EventLoop::<UserEvent>::with_user_event();
@@ -384,6 +389,28 @@ impl Kennel {
         });
     }
 
+    /// The icon is in the menu bar, or could not be put there, which ends
+    /// the Kennel.
+    fn installed(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        installed: Result<(), tray::InstallError>,
+    ) {
+        if let Err(error) = installed {
+            tracing::error!(%error, "the icon could not be put in the menu bar");
+            event_loop.exit();
+            return;
+        }
+        self.installed = true;
+        if !tray::FOLLOWS_THE_MENU {
+            // Nothing says when the menu opens or closes here, so it
+            // counts as open from launch.
+            let effects = self.state.apply(Input::Menu(MenuChange::Opened(now())));
+            self.carry_out(event_loop, effects);
+        }
+        self.redraw();
+    }
+
     /// Draws what the State says is due now, or wakes the loop when it is.
     fn redraw(&mut self) {
         self.next_draw = match self.state.redraw(now()) {
@@ -456,22 +483,13 @@ impl ApplicationHandler<UserEvent> for Kennel {
         match cause {
             // On macOS the status item is made once the loop runs, not
             // before.
-            StartCause::Init => match tray::install(self.state.view(), &self.tasks) {
-                Ok(()) => {
-                    self.installed = true;
-                    if !tray::FOLLOWS_THE_MENU {
-                        // Nothing says when the menu opens or closes here,
-                        // so it counts as open from launch.
-                        let effects = self.state.apply(Input::Menu(MenuChange::Opened(now())));
-                        self.carry_out(event_loop, effects);
-                    }
-                    self.redraw();
+            // On Linux the GTK thread reports it later, as
+            // `UserEvent::Installed`.
+            StartCause::Init => {
+                if let Some(installed) = tray::install(self.state.view(), &self.tasks) {
+                    self.installed(event_loop, installed);
                 }
-                Err(error) => {
-                    tracing::error!(%error, "the icon could not be put in the menu bar");
-                    event_loop.exit();
-                }
-            },
+            }
             StartCause::ResumeTimeReached { .. } => {
                 self.redraw();
                 self.notify();
@@ -558,6 +576,11 @@ impl ApplicationHandler<UserEvent> for Kennel {
             UserEvent::Chose(choice) => self.state.choose(choice),
             #[cfg(target_os = "linux")]
             UserEvent::Confirmed(confirmation) => self.state.confirmed(confirmation),
+            #[cfg(target_os = "linux")]
+            UserEvent::Installed(installed) => {
+                self.installed(event_loop, installed);
+                return;
+            }
         };
         self.carry_out(event_loop, effects);
     }

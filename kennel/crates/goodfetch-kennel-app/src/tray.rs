@@ -31,9 +31,9 @@ mod menu_closed;
 #[cfg(not(target_os = "linux"))]
 use std::cell::RefCell;
 
+use goodfetch_kennel::state::{Choice, IconCheck, Row, Verdict};
 #[cfg(not(target_os = "linux"))]
-use goodfetch_kennel::state::{Choice, Frame, Row, View};
-use goodfetch_kennel::state::{IconCheck, Verdict};
+use goodfetch_kennel::state::{Frame, View};
 #[cfg(not(target_os = "linux"))]
 use goodfetch_kennel::tasks::Tasks;
 use tray_icon::Icon;
@@ -46,6 +46,22 @@ use winit::event_loop::EventLoopProxy;
 
 #[cfg(target_os = "linux")]
 pub(crate) use linux::{confirm, draw, install, listen};
+
+/// Why the icon could not be put in the menu bar or the panel.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum InstallError {
+    /// GTK, which the Linux Tray runs on, could not start.
+    #[cfg(target_os = "linux")]
+    #[error("GTK could not start: no display? ({0})")]
+    Gtk(gtk::glib::BoolError),
+    /// The Tray was installed before `listen`, or a second time.
+    #[cfg(target_os = "linux")]
+    #[error("the Tray is installed once, after `listen`")]
+    Twice,
+    /// `tray-icon` refused the icon.
+    #[error("the icon could not be put in the menu bar: {0}")]
+    Icon(#[from] tray_icon::Error),
+}
 
 #[cfg(not(target_os = "linux"))]
 use crate::UserEvent;
@@ -115,11 +131,23 @@ pub(crate) fn listen(proxy: EventLoopProxy<UserEvent>) {
     });
 }
 
-/// Puts the icon in the menu bar, drawing `view`. Call it once the event
-/// loop runs: on macOS the status item needs the running application.
-/// The Tray starts no task here: `_tasks` is for Linux's GTK thread.
+/// Puts the icon in the menu bar, drawing `view`, and gives whether it
+/// did: always a result here, where the main thread builds the icon at
+/// once. Call it once the event loop runs: on macOS the status item needs
+/// the running application. The Tray starts no task here: `_tasks` is for
+/// Linux's GTK thread.
 #[cfg(not(target_os = "linux"))]
-pub(crate) fn install(view: View, _tasks: &Tasks) -> tray_icon::Result<()> {
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the Linux Tray's, whose GTK thread reports later"
+)]
+pub(crate) fn install(view: View, _tasks: &Tasks) -> Option<Result<(), InstallError>> {
+    Some(build(view))
+}
+
+/// Builds the icon and its menu, drawing `view`.
+#[cfg(not(target_os = "linux"))]
+fn build(view: View) -> Result<(), InstallError> {
     let menu = Menu::new();
     let builder = TrayIconBuilder::new()
         .with_menu(Box::new(menu.clone()))
@@ -211,18 +239,13 @@ impl Tray {
 #[cfg(not(target_os = "linux"))]
 fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
     match row {
-        Row::Text(text) => Box::new(MenuItem::new(label(text), false, None)),
-        Row::Detail(text) => Box::new(MenuItem::new(
-            label(&format!("{INDENT}{text}")),
-            false,
-            None,
-        )),
-        Row::Choice {
-            label: text,
-            choice,
-        } => {
-            let item = MenuItem::new(label(text), true, None);
-            choices.push((item.id().clone(), choice.clone()));
+        Row::Text(_) | Row::Detail(_) | Row::Choice { .. } => {
+            let (text, choice) =
+                line(row).expect("invariant: a text, a detail or a choice is a line");
+            let item = MenuItem::new(text, choice.is_some(), None);
+            if let Some(choice) = choice {
+                choices.push((item.id().clone(), choice));
+            }
             Box::new(item)
         }
         Row::Separator => Box::new(PredefinedMenuItem::separator()),
@@ -235,6 +258,21 @@ fn item(row: &Row, choices: &mut Vec<(MenuId, Choice)>) -> Box<dyn IsMenuItem> {
             }
             Box::new(submenu)
         }
+    }
+}
+
+/// The label and the choice of the `muda` item that draws `row`, for both
+/// Trays: a text, a detail indented under the line it details, or a
+/// choice, the only one enabled; `None` for a separator or a submenu.
+fn line(row: &Row) -> Option<(String, Option<Choice>)> {
+    match row {
+        Row::Text(text) => Some((label(text), None)),
+        Row::Detail(text) => Some((label(&format!("{INDENT}{text}")), None)),
+        Row::Choice {
+            label: text,
+            choice,
+        } => Some((label(text), Some(choice.clone()))),
+        Row::Separator | Row::Submenu { .. } => None,
     }
 }
 

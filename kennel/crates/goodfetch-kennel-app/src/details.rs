@@ -8,10 +8,21 @@
 //! - **Threads (ADR 0060).** `eframe`, on glow, runs on the main thread.
 //!   The window's model, `state::details`, lives in one task of the
 //!   one-worker runtime: the Client's reports and the person's inputs reach
-//!   it through a channel, it keeps the Client's reads in step with what
-//!   the view needs, and it publishes each view it paces. The UI thread
-//!   only reads the latest view and sends the person's inputs, so it never
-//!   waits.
+//!   it through one bounded channel, it keeps the Client's reads in step
+//!   with what the view needs, and it publishes each view it paces. The UI
+//!   thread only reads the latest view and offers the person's inputs, so
+//!   it never waits.
+//! - **Backpressure.** While the channel is full, the Client and the
+//!   settings' follower wait to report, and the Client reads nothing more
+//!   from its Connection, so the Daemon's queue for it falls back to
+//!   `events.resync`. The UI thread never waits: an input the full channel
+//!   refuses is offered again at a later frame when it is a state the
+//!   window keeps (the filters, the rows on screen, the chosen Run, the
+//!   view), and otherwise the window says it was not taken.
+//! - **Fonts.** The system's fonts are read on the tracker's blocking
+//!   threads while the window opens, then handed to `egui`, which lays
+//!   them out from the next frame; until then the window draws no text.
+//!   Without a usable font the window logs why and closes.
 //! - **Repaints.** The model asks for a repaint only when its view
 //!   changed, at most once a second; the person's own input is drawn by
 //!   `egui` as it comes.
@@ -32,12 +43,12 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use anyhow::Context as _;
 use eframe::egui;
 use goodfetch_kennel::client::{self, CONNECTION_LOST, Call, CallFailure, Report, Wanted};
 use goodfetch_kennel::home::Home;
+use goodfetch_kennel::reports::Reports;
 use goodfetch_kennel::settings::{self, Edit, Settings, SettingsError};
 use goodfetch_kennel::state::details::{
     Details, DetailsView, Field, Filter, GovernorPanel, Input, KennelSettingsView, Page,
@@ -57,6 +68,39 @@ const SIZE: [f32; 2] = [1040.0, 640.0];
 /// How many calls the person makes may wait for the Client to send them.
 const CALLS_WAITING: usize = 4;
 
+/// How many inputs may wait for the window's model: the Client's reports,
+/// the settings' and the person's.
+const INPUTS_WAITING: usize = 64;
+
+/// How soon the UI thread offers again an input the full channel refused.
+const OFFER_AGAIN: Duration = Duration::from_millis(100);
+
+/// Why the details window ended other than by its closing.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DetailsError {
+    /// `eframe` could not run the window.
+    #[error("the details window failed: {0}")]
+    Window(#[from] eframe::Error),
+}
+
+/// A sink of a task's reports into the model's channel, each wrapped as
+/// `wrap` says: the task waits while the channel is full.
+struct ToModelSink<F> {
+    to_model: mpsc::Sender<ToModel>,
+    wrap: F,
+}
+
+impl<T, F> Reports<T> for ToModelSink<F>
+where
+    T: Send + 'static,
+    F: Fn(T) -> ToModel + Send + Sync + 'static,
+{
+    async fn report(&self, value: T) {
+        // The model has stopped: the window is closing.
+        let _ = self.to_model.send((self.wrap)(value)).await;
+    }
+}
+
 /// What reaches the window's model.
 #[derive(Debug)]
 enum ToModel {
@@ -72,19 +116,12 @@ enum ToModel {
 
 /// Runs the details window, opened as `opening` says, until the person
 /// closes it.
-pub(crate) fn run(
-    home: Home,
-    opening: Opening,
-    tasks: &Tasks,
-    runtime: &tokio::runtime::Runtime,
-) -> anyhow::Result<()> {
-    let fonts = runtime
-        .block_on(tasks.blocking(fonts::system))
-        .context("no system font was found for the details window")?;
+pub(crate) fn run(home: Home, opening: Opening, tasks: &Tasks) -> Result<(), DetailsError> {
     let ctx = egui::Context::default();
-    ctx.set_fonts(fonts);
+    let (fonts_read, fonts) = watch::channel(false);
+    tasks.spawn(read_fonts(tasks.clone(), ctx.clone(), fonts_read));
 
-    let (to_model, inputs) = mpsc::unbounded_channel();
+    let (to_model, inputs) = mpsc::channel(INPUTS_WAITING);
     let home_for_settings = home.clone();
     let settings_file = home.settings_file();
     let (wanted, wanted_now) = watch::channel(Wanted::default());
@@ -94,7 +131,10 @@ pub(crate) fn run(
     let (_look_again, looks) = mpsc::channel(1);
     let (_keep_alive, keep_daemon_alive) = watch::channel(false);
     let (calls_made, calls) = mpsc::channel(CALLS_WAITING);
-    let reports = to_model.clone();
+    let reports = ToModelSink {
+        to_model: to_model.clone(),
+        wrap: ToModel::Client,
+    };
     tasks.spawn(client::follow(
         tasks.clone(),
         client::Follow {
@@ -105,19 +145,18 @@ pub(crate) fn run(
             wanted: wanted_now,
             calls,
         },
-        move |report: Report| {
-            // The model has stopped: the window is closing.
-            let _ = reports.send(ToModel::Client(report));
-        },
+        reports,
     ));
-    let settings_read = to_model.clone();
     tasks.spawn(settings::follow(
         tasks.clone(),
         home_for_settings,
-        move |settings: Result<Settings, SettingsError>| {
+        ToModelSink {
+            to_model: to_model.clone(),
             // An unreadable file gives the defaults, and the Kennel
             // settings view says why.
-            let _ = settings_read.send(ToModel::Person(Input::Settings(settings)));
+            wrap: |settings: Result<Settings, SettingsError>| {
+                ToModel::Person(Input::Settings(settings))
+            },
         },
     ));
     tasks.spawn(model(
@@ -147,7 +186,10 @@ pub(crate) fn run(
         period: None,
         to_model,
         latest,
+        fonts,
+        refused: false,
         filter: Filter::default(),
+        offered_filter: Filter::default(),
         chosen: None,
         on_screen: BTreeSet::new(),
         view: View::Runs,
@@ -162,8 +204,24 @@ pub(crate) fn run(
         options,
         Some(ctx),
         Box::new(|_| Ok(Box::new(window))),
-    )
-    .map_err(|error| anyhow::anyhow!("the details window failed: {error}"))
+    )?;
+    Ok(())
+}
+
+/// Reads the system's fonts on the tracker's blocking threads and hands
+/// them to `ctx`, which lays them out from its next frame; says so through
+/// `read`. Without a usable font, logs why and closes the window.
+async fn read_fonts(tasks: Tasks, ctx: egui::Context, read: watch::Sender<bool>) {
+    if let Some(fonts) = tasks.blocking(fonts::system).await {
+        ctx.set_fonts(fonts);
+        read.send_replace(true);
+    } else {
+        tracing::error!(
+            "no usable system font was found for the details window, so it closes: install DejaVu, Noto or Liberation fonts"
+        );
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+    ctx.request_repaint();
 }
 
 /// What the window's model task keeps in step.
@@ -184,7 +242,7 @@ struct Model {
 /// the Kennel's settings, keeps the Client's reads in
 /// step with the view, makes the calls the person confirmed, and
 /// publishes the views it paces, asking `ctx` to repaint them.
-async fn model(model: Model, mut inputs: mpsc::UnboundedReceiver<ToModel>) {
+async fn model(model: Model, mut inputs: mpsc::Receiver<ToModel>) {
     let Model {
         wanted,
         views,
@@ -304,10 +362,18 @@ struct Window {
     /// The coalescing period as the person types it, until they leave the
     /// field.
     period: Option<u32>,
-    to_model: mpsc::UnboundedSender<ToModel>,
+    to_model: mpsc::Sender<ToModel>,
     latest: watch::Receiver<Option<DetailsView>>,
+    /// Whether the system's fonts are in `egui`: until then the window
+    /// draws no text.
+    fonts: watch::Receiver<bool>,
+    /// Whether the full channel refused the person's last click, which the
+    /// window then says.
+    refused: bool,
     /// The filters as the person set them.
     filter: Filter,
+    /// The filters the model took.
+    offered_filter: Filter,
     /// The Run the person chose.
     chosen: Option<RunId>,
     /// The table's rows on screen at the last frame.
@@ -326,9 +392,35 @@ struct Window {
 }
 
 impl Window {
-    fn send(&self, input: Input) {
-        // The model has stopped: the window is closing.
-        let _ = self.to_model.send(ToModel::Person(input));
+    /// Offers `input` to the model; whether it took it. A full channel
+    /// refuses it, and the UI thread never waits: the caller offers it
+    /// again at a later frame, or says it was not taken.
+    fn offer(&mut self, ctx: &egui::Context, input: ToModel) -> bool {
+        match self.to_model.try_send(input) {
+            Ok(()) => {
+                self.refused = false;
+                true
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                ctx.request_repaint_after(OFFER_AGAIN);
+                false
+            }
+            // The model has stopped: the window is closing.
+            Err(mpsc::error::TrySendError::Closed(_)) => true,
+        }
+    }
+
+    /// Offers the person's `input`; whether the model took it.
+    fn send(&mut self, ctx: &egui::Context, input: Input) -> bool {
+        self.offer(ctx, ToModel::Person(input))
+    }
+
+    /// Offers the person's click `input`, saying so in the window when the
+    /// full channel refuses it.
+    fn click(&mut self, ctx: &egui::Context, input: ToModel) {
+        if !self.offer(ctx, input) {
+            self.refused = true;
+        }
     }
 
     /// The Daemon's line, its health and the views the window offers.
@@ -347,8 +439,11 @@ impl Window {
                         .clicked()
                         && self.view != *offered
                     {
-                        self.view = *offered;
-                        self.send(Input::Show(*offered));
+                        if self.send(ui.ctx(), Input::Show(*offered)) {
+                            self.view = *offered;
+                        } else {
+                            self.refused = true;
+                        }
                     }
                 }
             });
@@ -357,7 +452,6 @@ impl Window {
 
     /// The Runs table's filters.
     fn filters(&mut self, ui: &mut egui::Ui) {
-        let before = self.filter.clone();
         ui.horizontal(|ui| {
             ui.label("Filter");
             ui.add(
@@ -383,8 +477,12 @@ impl Window {
                     }
                 });
         });
-        if self.filter != before {
-            self.send(Input::Filter(self.filter.clone()));
+        // A change the full channel refused is offered again at the next
+        // frame.
+        if self.filter != self.offered_filter
+            && self.send(ui.ctx(), Input::Filter(self.filter.clone()))
+        {
+            self.offered_filter = self.filter.clone();
         }
     }
 
@@ -424,14 +522,19 @@ impl Window {
                     });
             },
         );
-        if on_screen != self.on_screen {
-            self.on_screen.clone_from(&on_screen);
-            self.send(Input::OnScreen(on_screen));
+        // Rows the full channel refused are offered again at the next
+        // frame.
+        if on_screen != self.on_screen && self.send(ui.ctx(), Input::OnScreen(on_screen.clone())) {
+            self.on_screen = on_screen;
         }
         if let Some(run) = chose {
             // A second click on the chosen Run puts it away.
-            self.chosen = (self.chosen.as_ref() != Some(&run)).then_some(run);
-            self.send(Input::Chose(self.chosen.clone()));
+            let chosen = (self.chosen.as_ref() != Some(&run)).then_some(run);
+            if self.send(ui.ctx(), Input::Chose(chosen.clone())) {
+                self.chosen = chosen;
+            } else {
+                self.refused = true;
+            }
         }
     }
 
@@ -512,9 +615,14 @@ impl Window {
                             &confirmation.consequence,
                             &confirmation.confirm,
                         ) {
-                            self.seeds_urls.clear();
-                            // The model has stopped: the window is closing.
-                            let _ = self.to_model.send(ToModel::Confirmed(confirmation));
+                            if self.offer(ui.ctx(), ToModel::Confirmed(confirmation)) {
+                                self.seeds_urls.clear();
+                            } else {
+                                self.seeds_note = Some(
+                                    "The seeds were not added: the window is catching up. Try again."
+                                        .to_owned(),
+                                );
+                            }
                         }
                     }
                 }
@@ -529,11 +637,11 @@ impl Window {
     }
 
     /// The Records view: a page of the chosen Run's Records.
-    fn records(&self, ui: &mut egui::Ui, panel: &RecordsPanel) {
+    fn records(&mut self, ui: &mut egui::Ui, panel: &RecordsPanel) {
         ui.horizontal(|ui| {
             ui.heading(&panel.title);
             if ui.button("Refresh").clicked() {
-                self.send(Input::Refresh);
+                self.click(ui.ctx(), ToModel::Person(Input::Refresh));
             }
         });
         if let Some(note) = &panel.note {
@@ -544,14 +652,17 @@ impl Window {
                 .add_enabled(panel.previous, egui::Button::new("Previous"))
                 .clicked()
             {
-                self.send(Input::RecordsPage(Page::Previous));
+                self.click(
+                    ui.ctx(),
+                    ToModel::Person(Input::RecordsPage(Page::Previous)),
+                );
             }
             ui.label(&panel.range);
             if ui
                 .add_enabled(panel.next, egui::Button::new("Next"))
                 .clicked()
             {
-                self.send(Input::RecordsPage(Page::Next));
+                self.click(ui.ctx(), ToModel::Person(Input::RecordsPage(Page::Next)));
             }
         });
         egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
@@ -578,7 +689,7 @@ impl Window {
         ui.horizontal(|ui| {
             ui.heading("Daemon settings");
             if ui.button("Refresh").clicked() {
-                self.send(Input::Refresh);
+                self.click(ui.ctx(), ToModel::Person(Input::Refresh));
             }
         });
         if let Some(note) = &panel.note {
@@ -673,7 +784,7 @@ impl Window {
                 for line in &section.switches {
                     let mut on = line.on;
                     if ui.checkbox(&mut on, &line.label).changed() {
-                        self.edit(Edit::Switch(line.switch, on));
+                        self.click(ui.ctx(), ToModel::Edit(Edit::Switch(line.switch, on)));
                     }
                 }
                 if let Some(period) = &section.period {
@@ -698,14 +809,9 @@ impl Window {
                 && let Some(minutes) = self.period.take()
                 && minutes != saved
             {
-                self.edit(Edit::Period(minutes));
+                self.click(ui.ctx(), ToModel::Edit(Edit::Period(minutes)));
             }
         });
-    }
-
-    fn edit(&self, edit: Edit) {
-        // The model has stopped: the window is closing.
-        let _ = self.to_model.send(ToModel::Edit(edit));
     }
 }
 
@@ -724,9 +830,19 @@ impl eframe::App for Window {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if !self.closed && ui.ctx().input(|input| input.viewport().close_requested()) {
             // The process exits once the window closes; until then the
-            // model reads nothing more.
+            // model reads nothing more. A full channel refuses it only
+            // while the process ends anyway.
             self.closed = true;
-            self.send(Input::Closed);
+            self.send(ui.ctx(), Input::Closed);
+        }
+        if !*self.fonts.borrow() {
+            // No font to lay text out with yet.
+            return;
+        }
+        if self.refused {
+            egui::Panel::bottom("refused").show(ui, |ui| {
+                ui.weak("The window is catching up: that change was not taken. Try again.");
+            });
         }
         if let Some(note) = &self.note {
             egui::Panel::top("note").show(ui, |ui| {

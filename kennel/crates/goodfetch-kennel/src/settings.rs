@@ -18,6 +18,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::home::{self, Home, canonical, read_if_present};
+use crate::reports::Reports;
 use crate::tasks::Tasks;
 
 /// The Kennel's settings.
@@ -335,7 +336,7 @@ pub fn read(path: &Path) -> Result<Settings, SettingsError> {
 pub async fn follow(
     tasks: Tasks,
     home: Home,
-    report: impl Fn(Result<Settings, SettingsError>) + Send + Sync + 'static,
+    report: impl Reports<Result<Settings, SettingsError>>,
 ) {
     let path = Arc::new(home.settings_file());
     let read_now = |path: Arc<PathBuf>| tasks.blocking(move || read(&path));
@@ -349,7 +350,7 @@ pub async fn follow(
     let folder = home.path().to_owned();
     let folder = tasks.blocking(move || canonical(&folder)).await;
     let watcher = watch(&folder, Arc::clone(&path), changed);
-    report(read_now(Arc::clone(&path)).await);
+    report.report(read_now(Arc::clone(&path)).await).await;
     if let Err(error) = &watcher {
         tracing::warn!(%error, "the settings file is not watched, so a change applies at the next launch");
         return;
@@ -362,7 +363,7 @@ pub async fn follow(
                 if change.is_none() {
                     return;
                 }
-                report(read_now(Arc::clone(&path)).await);
+                report.report(read_now(Arc::clone(&path)).await).await;
             }
         }
     }

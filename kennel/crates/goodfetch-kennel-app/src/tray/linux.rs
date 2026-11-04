@@ -21,24 +21,27 @@
 //!   message dialog, on the GTK thread, and the answer reaches the UI loop
 //!   only when the person confirms. `rfd` is not used here: it would start
 //!   a GTK thread of its own beside this one, and GTK runs on one thread.
+//! - **Its start.** `install` starts the GTK thread and returns at once:
+//!   the UI thread never waits for GTK. The GTK thread reports whether the
+//!   icon is in the panel through the event loop's proxy, as
+//!   `UserEvent::Installed`, and the UI loop draws nothing before.
 //! - **The menu's opening and closing** are not reported by `AppIndicator`,
 //!   so the menu counts as open from launch, as on Windows.
 
 use std::cell::{Cell, RefCell};
 
-use anyhow::Context;
 use goodfetch_kennel::menu::{self, Edit};
 use goodfetch_kennel::state::{Choice, Confirmation, Frame, Row, Verdict, View};
 use goodfetch_kennel::tasks::Tasks;
 use gtk::glib;
 use gtk::prelude::*;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tray_icon::menu::{IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{TrayIcon, TrayIconBuilder};
 use winit::event_loop::EventLoopProxy;
 
-use super::{INDENT, icon, label};
+use super::{InstallError, icon, label, line};
 use crate::UserEvent;
 
 /// How many confirmations may wait for the GTK thread to show them.
@@ -80,37 +83,34 @@ pub(crate) fn listen(proxy: EventLoopProxy<UserEvent>) {
     PROXY.with(|cell| *cell.borrow_mut() = Some(proxy));
 }
 
-/// Starts the GTK thread, which puts the icon in the panel drawing `view`,
-/// and waits until it did or could not.
-pub(crate) fn install(view: View, tasks: &Tasks) -> anyhow::Result<()> {
-    let proxy = PROXY
-        .with(|cell| cell.borrow_mut().take())
-        .context("the Tray is installed once, after `listen`")?;
+/// Starts the GTK thread, which puts the icon in the panel drawing `view`
+/// and reports whether it did as `UserEvent::Installed`; returns at once,
+/// with no result, unless the Tray cannot start.
+pub(crate) fn install(view: View, tasks: &Tasks) -> Option<Result<(), InstallError>> {
+    let Some(proxy) = PROXY.with(|cell| cell.borrow_mut().take()) else {
+        return Some(Err(InstallError::Twice));
+    };
     let (drawing, drawings) = watch::channel(Drawing {
         verdict: view.verdict,
         rows: view.rows,
     });
     let (confirmations, asked) = mpsc::channel(CONFIRMATIONS_WAITING);
-    let (installed, ready) = oneshot::channel();
     let stop = tasks.stopping();
     let thread = tasks.clone();
     tasks.spawn(async move {
         thread
-            .blocking(move || run(drawings, asked, &proxy, &stop, installed))
+            .blocking(move || run(drawings, asked, &proxy, &stop))
             .await;
     });
-    // A short wait at launch, before the loop has anything to draw: GTK's
-    // start and the icon's registration.
-    ready
-        .blocking_recv()
-        .context("the GTK thread ended before it put the icon in the panel")??;
+    // A drawing made before the GTK thread runs waits in the channel,
+    // which the thread reads as it starts.
     LINK.with(|cell| {
         *cell.borrow_mut() = Some(Link {
             drawing,
             confirmations,
         });
     });
-    Ok(())
+    None
 }
 
 /// Draws `frame` on the GTK thread: the icon of its verdict, its rows into
@@ -144,28 +144,28 @@ pub(crate) fn confirm(confirmation: Confirmation) {
     });
 }
 
-/// The GTK thread: GTK's start, the icon, then GTK's main loop, which
-/// draws each drawing and asks each confirmation until the Kennel stops.
+/// The GTK thread: GTK's start, the icon, reported to the UI loop, then
+/// GTK's main loop, which draws each drawing and asks each confirmation
+/// until the Kennel stops.
 fn run(
     mut drawings: watch::Receiver<Drawing>,
     mut asked: mpsc::Receiver<Confirmation>,
     proxy: &EventLoopProxy<UserEvent>,
     stop: &CancellationToken,
-    installed: oneshot::Sender<anyhow::Result<()>>,
 ) {
     let tray = gtk::init()
-        .context("GTK could not start: no display?")
+        .map_err(InstallError::Gtk)
         .and_then(|()| Tray::install(&drawings.borrow_and_update()));
     let tray = match tray {
         Ok(tray) => tray,
         Err(error) => {
-            // The UI loop has stopped waiting: the Kennel is quitting.
-            let _ = installed.send(Err(error));
+            // The loop has stopped: the Kennel is quitting.
+            let _ = proxy.send_event(UserEvent::Installed(Err(error)));
             return;
         }
     };
     TRAY.with(|cell| *cell.borrow_mut() = Some(tray));
-    let _ = installed.send(Ok(()));
+    let _ = proxy.send_event(UserEvent::Installed(Ok(())));
     let proxy = proxy.clone();
     let stop = stop.clone();
     glib::MainContext::default().spawn_local(async move {
@@ -282,7 +282,7 @@ enum Parent<'a> {
 impl Tray {
     /// Puts the icon of `drawing` in the panel, with a menu of its rows:
     /// the menu `AppIndicator` keeps.
-    fn install(drawing: &Drawing) -> anyhow::Result<Self> {
+    fn install(drawing: &Drawing) -> Result<Self, InstallError> {
         let menu = Menu::new();
         let items: Vec<Item> = drawing.rows.iter().map(item).collect();
         for item in &items {
@@ -294,8 +294,7 @@ impl Tray {
             .with_menu(Box::new(menu.clone()))
             .with_icon(icon(drawing.verdict))
             .with_tooltip("Kennel")
-            .build()
-            .context("the icon could not be put in the panel")?;
+            .build()?;
         Ok(Self {
             icon,
             menu,
@@ -380,20 +379,6 @@ impl Item {
             Self::Separator(separator) => separator,
             Self::Submenu { submenu, .. } => submenu,
         }
-    }
-}
-
-/// The text and the choice of a line's item; `None` for a separator or a
-/// submenu.
-fn line(row: &Row) -> Option<(String, Option<Choice>)> {
-    match row {
-        Row::Text(text) => Some((label(text), None)),
-        Row::Detail(text) => Some((label(&format!("{INDENT}{text}")), None)),
-        Row::Choice {
-            label: text,
-            choice,
-        } => Some((label(text), Some(choice.clone()))),
-        Row::Separator | Row::Submenu { .. } => None,
     }
 }
 

@@ -41,7 +41,7 @@ fn observations() -> Value {
 }
 
 const SITE: Site<'static> = Site {
-    host: "scale.test",
+    hosts: &["scale.test"],
     pages: 4,
 };
 
@@ -130,6 +130,52 @@ fn unrecorded_requests_measure_nothing() {
     observations["unrecorded_requests"] = json!(1);
 
     assert!(observe(&observations, &SITE, 1.0, None).is_err());
+}
+
+/// A trial of a site on two hosts, each holding two of its four pages:
+/// both hosts' requests are its work and their bytes its network's, and a
+/// request to another host is none of the trial's.
+#[test]
+fn a_site_on_several_hosts_is_observed_on_each_of_them() {
+    let on = |host: &str, mut request: Value| {
+        request["host"] = json!(format!("{host}:4000"));
+        request
+    };
+    let observations = json!({
+        "requests": [
+            on("polite-1.localhost", request(1, MARKER, 404, 1_000_000, 1_000_100)),
+            on("polite-1.localhost", request(2, "/sites/4/1", 200, 1_100_000, 1_250_000)),
+            on("polite-2.localhost", request(3, "/sites/4/2", 200, 1_400_000, 1_550_000)),
+            on("polite-1.localhost", request(2, "/sites/4/3", 200, 1_500_000, 1_650_000)),
+            on("polite-2.localhost", request(3, "/sites/4/4", 200, 1_600_000, 1_750_000)),
+            on("elsewhere.test", request(4, "/sites/4/2", 200, 1_700_000, 1_800_000)),
+        ],
+        "unrecorded_requests": 0,
+        "hosts": {
+            "polite-1.localhost": { "received": 300, "sent": 1800 },
+            "polite-2.localhost": { "received": 200, "sent": 1200 },
+            "elsewhere.test": { "received": 100, "sent": 600 },
+        },
+    });
+    let site = Site {
+        hosts: &["polite-1.localhost", "polite-2.localhost"],
+        pages: 4,
+    };
+
+    let observed = observe(&observations, &site, 1.0, None).unwrap();
+
+    assert_eq!(
+        (
+            observed.work.pages,
+            observed.work.requests,
+            observed.duplicates,
+            observed.requests_sent,
+            observed.sent_bytes,
+            observed.received_bytes,
+            observed.connections,
+        ),
+        (4, 4, 0, 4, 400, 2400, 2)
+    );
 }
 
 fn assert_percentiles(latency: Percentiles, expected: [f64; 3]) {

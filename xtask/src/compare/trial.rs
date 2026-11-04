@@ -23,10 +23,10 @@ use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::rss::crawl::{HOST, Site};
+use crate::rss::crawl::Site;
 
 use super::foxhound::Engine;
-use super::matrix::{Cell, Config, Scenario};
+use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
 use super::trials::{MILESTONES, Measured, Work};
@@ -67,7 +67,7 @@ const POLL: Duration = Duration::from_millis(20);
     clippy::disallowed_methods,
     reason = "xtask has no Clock handle (ADR 0059): a trial's seconds are measured on the OS's monotonic clock"
 )]
-fn now() -> Instant {
+pub(crate) fn now() -> Instant {
     Instant::now()
 }
 
@@ -81,18 +81,18 @@ fn wall() -> jiff::Timestamp {
 }
 
 /// Sends the start marker to the Proving ground at `site`: one request of
-/// the trial's own on the site's host, which the observations time every
-/// other request from.
+/// the trial's own on `host`, the site's first page's, which the
+/// observations time every other request from.
 #[expect(
     clippy::disallowed_types,
     reason = "xtask is synchronous and no engine: the marker is one raw HTTP/1.1 request on its own connection, so the Proving ground records it apart from the tool's (ADR 0060 bans sockets in the engine's async crates)"
 )]
-fn mark(site: &Site<'_>) -> Result<()> {
+fn mark(site: &Site<'_>, host: &str) -> Result<()> {
     let mut stream =
         std::net::TcpStream::connect(site.address).context("connecting to the Proving ground")?;
     write!(
         stream,
-        "GET {MARKER} HTTP/1.1\r\nHost: {HOST}:{}\r\nConnection: close\r\n\r\n",
+        "GET {MARKER} HTTP/1.1\r\nHost: {host}:{}\r\nConnection: close\r\n\r\n",
         site.port()
     )
     .context("sending the start marker")?;
@@ -104,7 +104,7 @@ fn mark(site: &Site<'_>) -> Result<()> {
 }
 
 /// The requests the Proving ground at `address` received so far.
-fn request_count(address: &str) -> Result<u64> {
+pub(crate) fn request_count(address: &str) -> Result<u64> {
     let answer: Value = ureq::get(&format!("http://{address}/request-count"))
         .call()
         .context("asking the Proving ground's request count")?
@@ -169,7 +169,7 @@ fn side_of(script: &Path) -> &Path {
 /// environment beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } | Config::Spider => Invocation {
+        Config::Foxhound { .. } | Config::Spider { .. } => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
@@ -187,20 +187,113 @@ pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
 /// What a tool takes on disk: its executable, and for a tool run by an
 /// interpreter, the interpreter's executable and the packages its side
 /// installed (`node_modules`, or the Python environment; the Python
-/// standard library outside it is not counted).
-fn install_bytes(config: Config, executable: &Path) -> u64 {
+/// standard library outside it is not counted); with `browser`, the
+/// browser's folder too, the same for every tool.
+fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u64 {
     let file_bytes = |path: &Path| {
         std::fs::canonicalize(path)
             .and_then(std::fs::metadata)
             .map_or(0, |metadata| metadata.len())
     };
+    let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
-        Config::Foxhound { .. } | Config::Spider => return file_bytes(executable),
+        Config::Foxhound { .. } | Config::Spider { .. } => {
+            return file_bytes(executable) + browser_bytes;
+        }
         Config::Crawlee => NODE_MODULES,
         Config::Scrapy => PYTHON_ENVIRONMENT,
     };
     file_bytes(&invocation(config, executable).program)
         + footprint(&side_of(executable).join(packages))
+        + browser_bytes
+}
+
+/// The Chrome for Testing build Foxhound pins (`goodfetch-collie`'s
+/// `pins.json`), which Playwright 1.64.1 runs as its revision 1248: every
+/// tool of the headless browser scenario runs this one browser
+/// (test-support's `browsers.rs` lays out the same build for the tests).
+pub(crate) const CHROME_FOR_TESTING_BUILD: &str = "156.0.8078.4";
+const PLAYWRIGHT_CHROMIUM: &str = "chromium-1248";
+/// Chrome for Testing's folder and executable in it, on this platform.
+#[cfg(target_os = "macos")]
+const CHROME_FOLDER: &str = if cfg!(target_arch = "aarch64") {
+    "chrome-mac-arm64"
+} else {
+    "chrome-mac-x64"
+};
+#[cfg(target_os = "macos")]
+const CHROME: &str = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+#[cfg(not(target_os = "macos"))]
+const CHROME_FOLDER: &str = "chrome-linux64";
+#[cfg(not(target_os = "macos"))]
+const CHROME: &str = "chrome";
+
+/// The folder of the Chrome for Testing build Playwright installed
+/// (`PLAYWRIGHT_BROWSERS_PATH`, else its default folder), which the
+/// headless browser scenario runs; none when it is not installed.
+pub(crate) fn chrome_folder() -> Option<PathBuf> {
+    let browsers = if let Some(path) = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH") {
+        PathBuf::from(path)
+    } else {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        if cfg!(target_os = "macos") {
+            home.join("Library/Caches/ms-playwright")
+        } else {
+            home.join(".cache/ms-playwright")
+        }
+    };
+    let folder = browsers.join(PLAYWRIGHT_CHROMIUM).join(CHROME_FOLDER);
+    folder.join(CHROME).is_file().then_some(folder)
+}
+
+/// Lays out, in a folder of its own, a Browser cache holding `chrome`'s
+/// files as Foxhound's pinned build, as a prepared `GOODFETCH_BROWSERS_PATH`
+/// holds it: hard links where the folders share a file system, copies
+/// otherwise.
+fn browser_cache(chrome: &Path) -> Result<tempfile::TempDir> {
+    let root = tempfile::tempdir().context("creating the Browser cache's folder")?;
+    let entry = root
+        .path()
+        .join("browser")
+        .join("chrome-for-testing")
+        .join(CHROME_FOR_TESTING_BUILD);
+    link_tree(chrome, &entry.join("files").join(CHROME_FOLDER))
+        .context("laying out the Browser cache")?;
+    std::fs::write(entry.join("lock"), "").context("writing the Browser cache's lock")?;
+    let installed = serde_json::json!({
+        "format_version": "0.1",
+        "artifact": {
+            "kind": "browser",
+            "name": "chrome-for-testing",
+            "build": CHROME_FOR_TESTING_BUILD,
+        },
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "installed_at": "2026-01-01T00:00:00Z",
+        "used_at": "2026-01-01T00:00:00Z",
+    });
+    std::fs::write(entry.join("entry.json"), installed.to_string())
+        .context("writing the Browser cache's entry")?;
+    Ok(root)
+}
+
+/// `from`'s files under `to`, each a hard link, or a copy across file
+/// systems; symbolic links kept as such.
+fn link_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            link_tree(&source, &target)?;
+        } else if kind.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(&source)?, &target)?;
+        } else if std::fs::hard_link(&source, &target).is_err() {
+            std::fs::copy(&source, &target)?;
+        }
+    }
+    Ok(())
 }
 
 /// The command that runs `invocation`, under `mode`'s counting tool; the
@@ -259,7 +352,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
     unsafe_code,
     reason = "a process other than the child is killed through the OS's C interface: kill"
 )]
-fn kill(pid: u32) -> Result<()> {
+pub(crate) fn kill(pid: u32) -> Result<()> {
     let pid = libc::pid_t::try_from(pid).context("a process ID fits a pid_t")?;
     // SAFETY: `kill` takes any process ID and signal number.
     if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
@@ -269,7 +362,7 @@ fn kill(pid: u32) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn kill(_pid: u32) -> Result<()> {
+pub(crate) fn kill(_pid: u32) -> Result<()> {
     bail!("a resumed scenario kills its tool with SIGKILL, which only Unix has")
 }
 
@@ -367,12 +460,36 @@ pub(crate) struct Plan<'a> {
     pub(crate) site: Site<'a>,
     pub(crate) mode: Mode,
     pub(crate) goodfetch_variables: &'a [OsString],
+    /// Chrome for Testing's folder, which the headless browser scenario's
+    /// tools run.
+    pub(crate) browser: Option<&'a Path>,
 }
 
 impl Plan<'_> {
+    /// The site the cell's scenario crawls.
+    fn kind(&self) -> SiteKind {
+        self.cell.scenario.site()
+    }
+
+    /// The browser the cell's tool runs, in the headless browser scenario.
+    fn browser(&self) -> Result<Option<&Path>> {
+        if self.cell.scenario != Scenario::Browser {
+            return Ok(None);
+        }
+        self.browser
+            .map(Some)
+            .context("the headless browser scenario takes Chrome for Testing's folder, --browser")
+    }
+
     /// Starts the tool's `process`-th process on `home`, Foxhound's
-    /// engine opened.
-    fn spawn(&self, home: &Path, process: u32, mode: &Mode) -> Result<Driven> {
+    /// engine opened, with its Browser cache at `cache`, if any.
+    fn spawn(
+        &self,
+        home: &Path,
+        process: u32,
+        mode: &Mode,
+        cache: Option<&Path>,
+    ) -> Result<Driven> {
         let mut command = command(&invocation(self.config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
@@ -388,16 +505,37 @@ impl Plan<'_> {
                 .env("GOODFETCH_HOME", home)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped());
+            if let Some(cache) = cache {
+                command.env("GOODFETCH_BROWSERS_PATH", cache);
+            }
         } else {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
             command
                 .args(["--url", &self.site_url()])
-                .args(["--host", &format!("{HOST}:{}", self.site.port())])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
+                .args(["--scenario", self.cell.scenario.name()])
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
+            if !self.kind().by_name() {
+                command.args([
+                    "--host",
+                    &format!("{}:{}", self.kind().host_of(1), self.site.port()),
+                ]);
+            }
+            if let Some(browser) = self.browser()? {
+                let chrome = browser.join(CHROME);
+                match self.config {
+                    // Spider's `chrome` feature finds its browser there.
+                    Config::Spider { .. } => {
+                        command.env("CHROME_BIN", chrome);
+                    }
+                    _ => {
+                        command.arg("--browser").arg(chrome);
+                    }
+                }
+            }
         }
         let mut child = command.spawn().context("starting the tool")?;
         let engine = match self.config {
@@ -416,19 +554,35 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider | Config::Crawlee | Config::Scrapy => None,
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
         };
         Ok(Driven { child, engine })
     }
 
+    /// The site's first page: on the Proving ground's address for a site a
+    /// tool reaches with a `Host` header, else on its host's name.
     fn site_url(&self) -> String {
-        format!("http://{}/sites/{}/1", self.site.address, self.site.pages)
+        if self.kind().by_name() {
+            self.start_url()
+        } else {
+            format!("http://{}/sites/{}/1", self.site.address, self.site.pages)
+        }
+    }
+
+    /// The site's first page on its host's name.
+    fn start_url(&self) -> String {
+        format!(
+            "http://{}:{}/sites/{}/1",
+            self.kind().host_of(1),
+            self.site.port(),
+            self.site.pages
+        )
     }
 
     fn durability(&self) -> &'static str {
         match self.config {
             Config::Foxhound { durability } => durability,
-            Config::Spider | Config::Crawlee | Config::Scrapy => "",
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => "",
         }
     }
 
@@ -453,15 +607,20 @@ impl Plan<'_> {
 
     /// Runs the tool through the crawl, killed halfway and resumed when
     /// the scenario says so, and returns its processes, each waited for.
-    fn crawl(&self, home: &Path, sampler: Option<&Sampler>) -> Result<u32> {
+    fn crawl(&self, home: &Path, sampler: Option<&Sampler>, cache: Option<&Path>) -> Result<u32> {
         let resumes = self.cell.scenario.resumes();
-        let mut driven = self.spawn(home, 1, &self.mode)?;
+        let mut driven = self.spawn(home, 1, &self.mode, cache)?;
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&driven.child, &self.mode));
         }
         let result = (|| -> Result<u32> {
             if let Some(engine) = driven.engine.as_mut() {
-                engine.start(&self.site, self.durability())?;
+                engine.start(
+                    &self.site,
+                    self.cell.scenario,
+                    &self.start_url(),
+                    self.durability(),
+                )?;
                 if !resumes {
                     engine.finish()?;
                     return Ok(1);
@@ -499,7 +658,7 @@ impl Plan<'_> {
             }
             return Ok(1);
         }
-        let mut second = self.spawn(home, 2, &self.mode)?;
+        let mut second = self.spawn(home, 2, &self.mode, cache)?;
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
@@ -508,7 +667,7 @@ impl Plan<'_> {
             .as_mut()
             .context("a resumed tool is Foxhound's engine")?;
         let finished = engine
-            .resume(&self.site, self.durability())
+            .resume(&self.site, self.cell.scenario, self.durability())
             .and_then(|()| engine.finish());
         if let Err(error) = finished {
             let _ = second.child.kill();
@@ -529,7 +688,7 @@ impl Plan<'_> {
     /// path, read by an engine of their own on `home` once the measured
     /// processes are gone.
     fn records(&self, home: &Path, started: jiff::Timestamp) -> Result<HashMap<String, f64>> {
-        let mut driven = self.spawn(home, 1, &Mode::Timed)?;
+        let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
         let engine = driven.engine.as_mut().context("Foxhound's engine")?;
         let read = engine.records(&self.site);
         if let Some(engine) = driven.engine.take() {
@@ -554,21 +713,43 @@ impl Plan<'_> {
         Ok(times)
     }
 
-    fn observed_site(&self) -> observed::Site<'static> {
-        observed::Site {
-            host: HOST,
-            pages: self.site.pages,
+    /// What the Proving ground observed of the trial on the site's hosts.
+    fn observe(&self, seconds: f64, records: Option<&HashMap<String, f64>>) -> Result<Observed> {
+        let hosts = self.kind().hosts();
+        let hosts: Vec<&str> = hosts.iter().map(String::as_str).collect();
+        observed::observe(
+            &observations(self.site.address)?,
+            &observed::Site {
+                hosts: &hosts,
+                pages: self.site.pages,
+            },
+            seconds,
+            records,
+        )
+    }
+
+    /// Foxhound's Browser cache, laid out for its trial of the headless
+    /// browser scenario.
+    fn cache(&self) -> Result<Option<tempfile::TempDir>> {
+        match (self.config, self.browser()?) {
+            (Config::Foxhound { .. }, Some(browser)) => Ok(Some(browser_cache(browser)?)),
+            _ => Ok(None),
         }
     }
 
     /// Runs a timed trial.
     pub(crate) fn timed(&self) -> Result<Measured> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
-        mark(&self.site)?;
+        let cache = self.cache()?;
+        mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
         let started = now();
         let sampler = Sampler::start(started);
-        let crawled = self.crawl(home.path(), Some(&sampler));
+        let crawled = self.crawl(
+            home.path(),
+            Some(&sampler),
+            cache.as_ref().map(tempfile::TempDir::path),
+        );
         let seconds = started.elapsed().as_secs_f64();
         let taken = sampler.finish();
         let processes = crawled?;
@@ -576,14 +757,9 @@ impl Plan<'_> {
         let footprint_bytes = footprint(home.path());
         let records = match self.config {
             Config::Foxhound { .. } => Some(self.records(home.path(), started_wall)?),
-            Config::Spider | Config::Crawlee | Config::Scrapy => None,
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
         };
-        let observed = observed::observe(
-            &observations(self.site.address)?,
-            &self.observed_site(),
-            seconds,
-            records.as_ref(),
-        )?;
+        let observed = self.observe(seconds, records.as_ref())?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
             .filter_map(|&pages| {
@@ -600,7 +776,7 @@ impl Plan<'_> {
             peak_bytes,
             tree,
             footprint_bytes,
-            install_bytes(self.config, self.executable),
+            install_bytes(self.config, self.executable, self.browser()?),
             observed,
         ))
     }
@@ -608,15 +784,14 @@ impl Plan<'_> {
     /// Runs a counted trial: its count and the work it did.
     pub(crate) fn counted(&self) -> Result<Counted> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
-        mark(&self.site)?;
-        let processes = self.crawl(home.path(), None)?;
-        let work = observed::observe(
-            &observations(self.site.address)?,
-            &self.observed_site(),
-            1.0,
+        let cache = self.cache()?;
+        mark(&self.site, &self.kind().host_of(1))?;
+        let processes = self.crawl(
+            home.path(),
             None,
-        )?
-        .work;
+            cache.as_ref().map(tempfile::TempDir::path),
+        )?;
+        let work = self.observe(1.0, None)?.work;
         let (count, syncs) = match &self.mode {
             Mode::Syscalls(output) => {
                 let (mut count, mut syncs) = (0, 0);

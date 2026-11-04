@@ -9,6 +9,12 @@ pub(crate) use super::matrix::Tool;
 
 /// Trials of each measured cell, interleaved in random order.
 pub(crate) const TRIALS: u32 = 10;
+/// The 1-minute load average under which a machine counts as quiet: each
+/// timed trial waits for it before it starts.
+pub(crate) const QUIET_LOAD: f64 = 4.0;
+/// The longest a timed trial waits for a quiet machine before it starts
+/// anyway, its load recorded.
+pub(crate) const QUIET_WAIT_SECONDS: u64 = 30 * 60;
 /// The statistic each figure is reported as, with its spread.
 pub(crate) const STATISTIC: &str = "median, with the lowest and highest trial";
 /// Requests in flight at once, for each tool: the resident-memory check's
@@ -29,6 +35,12 @@ pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 /// `xtask/compare-scrapy/pyproject.toml` (unit tests hold each equal).
 pub(crate) const CRAWLEE_VERSION: &str = "3.18.2";
 pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
+/// Playwright's pinned version, which both sides' headless browser crawls
+/// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
+/// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
+/// in the latter (unit tests hold each equal).
+pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
+pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -52,6 +64,19 @@ pub(crate) struct Declared {
     pub(crate) spider: String,
     pub(crate) crawlee: String,
     pub(crate) scrapy: String,
+    pub(crate) playwright: String,
+    pub(crate) scrapy_playwright: String,
+    /// The Chrome for Testing build every tool of the headless browser
+    /// scenario runs.
+    pub(crate) browser: String,
+    /// The scenarios whose cells ran: every scenario, unless the run asked
+    /// for some.
+    #[serde(default = "every_scenario")]
+    pub(crate) scenarios: Vec<Scenario>,
+}
+
+fn every_scenario() -> Vec<Scenario> {
+    Scenario::ALL.to_vec()
 }
 
 /// The machine the trials ran on: never a published host (ADR 0076).
@@ -140,6 +165,10 @@ pub(crate) struct Trial {
     pub(crate) number: u32,
     /// The pages of the site it crawled.
     pub(crate) site_pages: u64,
+    /// The 1-minute load average when it started, where the OS gives one:
+    /// a quiet machine is under [`QUIET_LOAD`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
     #[serde(flatten)]
     pub(crate) measured: Measured,
 }
@@ -223,7 +252,24 @@ pub(crate) enum CountedCell {
         /// Runs of each cell.
         trials: u32,
         runs: Vec<CountedRun>,
+        /// The runs the comparison stopped, their crawl no longer
+        /// progressing; each leaves its cell not measured, and the cell's
+        /// later runs do not run.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stopped: Vec<StoppedRun>,
     },
+}
+
+/// A counted run stopped before its crawl finished: [`CountedCell`]'s
+/// `stopped`.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct StoppedRun {
+    pub(crate) scenario: Scenario,
+    pub(crate) cell: String,
+    pub(crate) tool: Tool,
+    pub(crate) number: u32,
+    /// Why, from what the run measured.
+    pub(crate) reason: String,
 }
 
 /// The growth cell: each measured cell's crawl of the

@@ -8,7 +8,7 @@ use crate::compare::matrix::Config;
 /// process is the interpreter running the side, with no launcher between.
 #[test]
 fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
-    let spider = invocation(Config::Spider, Path::new("/s/spider"));
+    let spider = invocation(Config::Spider { chrome: false }, Path::new("/s/spider"));
     let crawlee = invocation(Config::Crawlee, Path::new("/c/crawl.mjs"));
     let scrapy = invocation(Config::Scrapy, Path::new("/p/crawl.py"));
 

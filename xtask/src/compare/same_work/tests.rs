@@ -29,6 +29,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
                 tool: config.tool(),
                 number,
                 site_pages: 4,
+                load: None,
                 measured: Measured {
                     seconds: 1.0,
                     work: work(cell.scenario, number),
@@ -46,6 +47,10 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             spider: "2.53.9".to_owned(),
             crawlee: "3.18.2".to_owned(),
             scrapy: "2.19.0".to_owned(),
+            playwright: "1.64.1".to_owned(),
+            scrapy_playwright: "0.0.48".to_owned(),
+            browser: "156.0.8078.4".to_owned(),
+            scenarios: Scenario::ALL.to_vec(),
         },
         machine: Machine {
             class: "local-controlled".to_owned(),
@@ -89,7 +94,7 @@ fn trials_that_did_the_same_work_pass() {
 fn a_resumed_crawls_pages_fetched_again_are_no_other_work() {
     let trials = comparison(|scenario, number| match scenario {
         Scenario::Durable => work(u64::from(number)),
-        Scenario::Raw => work(0),
+        _ => work(0),
     });
 
     assert_eq!(named(&trials), vec![]);
@@ -132,5 +137,48 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
             "different_bytes",
             "durable foxhound full trial 3".to_owned()
         )]
+    );
+}
+
+/// In the headless browser scenario, a trial that reached the site's
+/// first page alone never ran the script that links the others: the check
+/// names it for the script-rendered pages it missed.
+#[test]
+fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_pages() {
+    let trials = comparison(|scenario, number| {
+        if (scenario, number) == (Scenario::Browser, 2) {
+            Work {
+                pages: 1,
+                missing: (2..=4).map(|page| format!("/sites/4/{page}")).collect(),
+                extra: Vec::new(),
+                requests: 1,
+                bytes: 600,
+                first_bytes: 600,
+            }
+        } else {
+            work(0)
+        }
+    });
+
+    let findings = check(&trials);
+
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| (
+                finding.kind,
+                finding.subject.as_str(),
+                finding.message.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        ["spider", "crawlee", "scrapy"]
+            .map(|cell| (
+                "unrendered_pages",
+                format!("browser {cell} trial 2"),
+                "3 of the site's 3 pages its script links not reached",
+            ))
+            .iter()
+            .map(|(kind, subject, message)| (*kind, subject.as_str(), *message))
+            .collect::<Vec<_>>()
     );
 }

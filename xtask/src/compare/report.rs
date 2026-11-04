@@ -14,7 +14,7 @@ use super::matrix::{CELLS, Cell, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    TRIALS, Trial,
+    QUIET_LOAD, TRIALS, Trial,
 };
 
 /// The span of one window of the core sampling.
@@ -440,14 +440,21 @@ fn metrics(
     metrics
 }
 
-/// The runs of `cell` in a counted cell, or why there are none.
+/// The runs of `cell` in a counted cell, or why there are none: the cell
+/// did not run, or a run of `cell` was stopped.
 fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedRun>, &'a str> {
+    let of_cell = |scenario: Scenario, name: &str| scenario == cell.scenario && name == cell.name;
     match counted {
         CountedCell::NotRun { reason } => Err(reason),
-        CountedCell::Measured { runs, .. } => Ok(runs
-            .iter()
-            .filter(|run| run.scenario == cell.scenario && run.cell == cell.name)
-            .collect()),
+        CountedCell::Measured { runs, stopped, .. } => {
+            match stopped.iter().find(|run| of_cell(run.scenario, &run.cell)) {
+                Some(run) => Err(&run.reason),
+                None => Ok(runs
+                    .iter()
+                    .filter(|run| of_cell(run.scenario, &run.cell))
+                    .collect()),
+            }
+        }
     }
 }
 
@@ -492,7 +499,7 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
 pub(crate) fn of(trials: &Comparison) -> Report<'_> {
     let mut scenarios = Vec::new();
     let mut tools = BTreeMap::new();
-    for scenario in Scenario::ALL {
+    for &scenario in &trials.declared.scenarios {
         let mut cells = Vec::new();
         for cell in CELLS.iter().filter(|cell| cell.scenario == scenario) {
             let status = match cell.status {
@@ -689,8 +696,10 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          `local-controlled`, never published (ADR 0076): {} {} on {}, {} threads{load}, at commit `{}`.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
-         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`) on Node.js and Scrapy {} on \
-         CPython; each figure the {}. Every figure is measured from outside the tools: \
+         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
+         Playwright {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
+         CPython, every tool of the headless browser scenario running Chrome for Testing {}; each \
+         figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
          the data folder left. Every cell passed the same-work check.\n",
@@ -705,7 +714,11 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.site,
         declared.spider,
         declared.crawlee,
+        declared.playwright,
         declared.scrapy,
+        declared.scrapy_playwright,
+        declared.playwright,
+        declared.browser,
         declared.statistic,
     );
     if !report.enough_trials {
@@ -808,16 +821,32 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
         }
     }
+    text.push_str("\n## Trials, in the order run\n\n");
+    let unquiet = trials
+        .trials
+        .iter()
+        .filter(|trial| trial.load.is_some_and(|load| load >= QUIET_LOAD))
+        .count();
+    if unquiet > 0 {
+        let _ = writeln!(
+            text,
+            "{unquiet} of the {} timed trials started above a 1-minute load of {QUIET_LOAD}.\n",
+            trials.trials.len()
+        );
+    }
     text.push_str(
-        "\n## Trials, in the order run\n\n| Scenario | Cell | Trial | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|\n",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|\n",
     );
     for trial in &trials.trials {
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
+            "| {} | {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
             trial.scenario.name(),
             trial.cell,
             trial.number,
+            trial
+                .load
+                .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),
             trial.measured.seconds,
             rate(trial),
             float(peak(trial)) / MIB

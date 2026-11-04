@@ -1,4 +1,6 @@
-use super::{CRAWLEE_VERSION, SCRAPY_VERSION, SPIDER_VERSION};
+use super::{
+    CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION,
+};
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
 fn pinned(manifest: &str) -> Option<String> {
@@ -47,4 +49,43 @@ fn the_declared_scrapy_is_the_one_its_side_pins() {
         .collect();
 
     assert_eq!(pinned, [SCRAPY_VERSION]);
+}
+
+/// The trials declare the Playwright both sides' headless browser crawls
+/// install, and the scrapy-playwright Scrapy's does: each side's exact pin.
+#[test]
+fn the_declared_playwright_is_the_one_each_side_pins() {
+    let package: serde_json::Value =
+        serde_json::from_str(include_str!("../../../compare-crawlee/package.json")).unwrap();
+    let project: toml::Table = include_str!("../../../compare-scrapy/pyproject.toml")
+        .parse()
+        .unwrap();
+    let pinned = |name: &str| -> Vec<String> {
+        project["project"]["dependencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|dependency| {
+                Some(
+                    dependency
+                        .as_str()?
+                        .strip_prefix(&format!("{name}=="))?
+                        .to_owned(),
+                )
+            })
+            .collect()
+    };
+
+    assert_eq!(
+        (
+            package["dependencies"]["playwright"].as_str(),
+            pinned("playwright"),
+            pinned("scrapy-playwright"),
+        ),
+        (
+            Some(PLAYWRIGHT_VERSION),
+            vec![PLAYWRIGHT_VERSION.to_owned()],
+            vec![SCRAPY_PLAYWRIGHT_VERSION.to_owned()],
+        )
+    );
 }

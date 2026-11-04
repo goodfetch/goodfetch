@@ -77,3 +77,10 @@ name = "zope-interface"
 version = "8.7"
 license = "ZPL-2.1"
 reason = "stated as ZPL-2.1, a permissive license off the allowlist; Twisted needs it, and the side never ships"
+
+[[package]]
+ecosystem = "python"
+name = "greenlet"
+version = "3.5.6"
+license = "MIT AND PSF-2.0"
+reason = "stated as `MIT AND PSF-2.0` (LICENSE and LICENSE.PSF); PSF-2.0 is permissive, which the allowlist keeps for typing-extensions; Playwright's Python driver needs it, and the side never ships"

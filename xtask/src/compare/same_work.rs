@@ -6,8 +6,11 @@
 //! trial that did other work is the one named, whichever ran first (ADR
 //! 0134's #1574 note). A scenario that kills its crawl halfway and resumes
 //! it fetches some pages again, so its trials are held to the bytes of each
-//! page's first answer instead. Each counted cell and the growth cell are
-//! held to it among themselves, as other cells of the comparison (ADR 0140).
+//! page's first answer instead. On the headless browser scenario's site,
+//! whose links past the first page only a script adds, a trial that missed
+//! pages is named for the script-rendered pages it never reached. Each
+//! counted cell and the growth cell are held to it among themselves, as
+//! other cells of the comparison (ADR 0140).
 
 use std::collections::BTreeMap;
 
@@ -38,6 +41,9 @@ struct Pass<'a> {
     scenarios: &'a [Scenario],
     tools: &'a [Tool],
     done: Vec<Done<'a>>,
+    /// The cells whose run the comparison stopped: not measured, so not
+    /// short of their declared runs.
+    stopped: Vec<(Scenario, &'a str)>,
 }
 
 impl Pass<'_> {
@@ -97,26 +103,33 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         )];
     };
     let declared = trials.declared.trials;
+    let ran = &trials.declared.scenarios[..];
+    let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
+        &[Scenario::Raw]
+    } else {
+        &[]
+    };
     let mut findings = check_pass(&Pass {
         suffix: "",
         declared,
         site_pages: pages,
-        scenarios: &Scenario::ALL,
+        scenarios: ran,
         tools: &Tool::ALL,
         done: of_trials(&trials.trials),
+        stopped: Vec::new(),
     });
     for (suffix, cell, scenarios, tools, empty) in [
         (
             " strace",
             &trials.syscalls,
-            &Scenario::ALL[..],
+            ran,
             &Tool::ALL[..],
             "strace counted no system call, so the run measured nothing",
         ),
         (
             " callgrind",
             &trials.instructions,
-            &[Scenario::Raw][..],
+            raw,
             &INSTRUCTION_TOOLS[..],
             "Callgrind counted no instruction, so the run measured nothing",
         ),
@@ -124,6 +137,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         if let CountedCell::Measured {
             trials: declared,
             runs,
+            stopped,
         } = cell
         {
             let pass = Pass {
@@ -133,6 +147,10 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 scenarios,
                 tools,
                 done: of_runs(runs),
+                stopped: stopped
+                    .iter()
+                    .map(|run| (run.scenario, run.cell.as_str()))
+                    .collect(),
             };
             findings.extend(check_pass(&pass));
             for (run, done) in runs.iter().zip(&pass.done) {
@@ -152,9 +170,10 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             suffix: " growth",
             declared: *declared,
             site_pages: *site_pages,
-            scenarios: &Scenario::ALL,
+            scenarios: ran,
             tools: &Tool::ALL,
             done: of_trials(trials_run),
+            stopped: Vec::new(),
         }));
     }
     findings
@@ -166,7 +185,9 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
-        pass.scenarios.contains(&cell.scenario) && pass.tools.contains(&config.tool())
+        pass.scenarios.contains(&cell.scenario)
+            && pass.tools.contains(&config.tool())
+            && !pass.stopped.contains(&(cell.scenario, cell.name))
     }) {
         let count = pass
             .done
@@ -187,6 +208,21 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             let work = done.work;
             if work.pages == pass.site_pages && work.missing.is_empty() && work.extra.is_empty() {
                 whole.push(done);
+                continue;
+            }
+            // On the script-rendered site, every page past the first is
+            // linked only by a script: a trial that missed some never
+            // rendered their links.
+            if scenario.renders_links() && work.extra.is_empty() && work.pages > 0 {
+                findings.push(Finding::new(
+                    "unrendered_pages",
+                    pass.subject(done),
+                    format!(
+                        "{} of the site's {} pages its script links not reached",
+                        work.missing.len(),
+                        pass.site_pages.saturating_sub(1)
+                    ),
+                ));
                 continue;
             }
             findings.push(Finding::new(

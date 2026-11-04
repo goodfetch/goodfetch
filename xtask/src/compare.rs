@@ -4,11 +4,15 @@
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
 //! exist yet is marked pending (the owner's comments of 2026-10-30 on
-//! #1577). `run` crawls the Proving ground's 1,000-page site with each
-//! measured cell's tool in the declared number of trials, interleaved in
-//! random order, each tool in a fresh process at the same concurrency,
-//! measuring every metric of the owner's list from outside the tools; then
-//! counts each cell's system calls under strace, crawls the 100,000-page
+//! #1577). `run` crawls each scenario's 1,000-page Proving ground site
+//! (`scale.test`'s, the multi-domain site for the polite scenario, the
+//! script-rendered site for the headless browser) with each measured cell's
+//! tool in the declared number of trials, interleaved in random order, each
+//! tool in a fresh process at the same concurrency and, in a run of the
+//! full trials, once the machine is quiet, measuring every metric of the
+//! owner's list from outside the tools; then
+//! counts each cell's system calls under strace, stopping a run whose crawl
+//! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
 //! `foxhound.spider_instruction_ratio` (ADR 0140). `report` holds every
@@ -69,6 +73,15 @@ pub(crate) struct RunArguments {
     /// Spider's side, `xtask/compare-spider`'s executable.
     #[arg(long)]
     spider: PathBuf,
+    /// Spider's side built with its `chrome` feature, for the headless
+    /// browser scenario.
+    #[arg(long)]
+    spider_chrome: PathBuf,
+    /// Chrome for Testing's folder, which every tool of the headless
+    /// browser scenario runs: by default, the build Foxhound pins as
+    /// Playwright installed it (`PLAYWRIGHT_BROWSERS_PATH`).
+    #[arg(long)]
+    browser: Option<PathBuf>,
     /// Crawlee's side, `xtask/compare-crawlee`'s script, run by Node.js
     /// once its packages are installed beside it.
     #[arg(long, default_value = "xtask/compare-crawlee/crawl.mjs")]
@@ -92,6 +105,10 @@ pub(crate) struct RunArguments {
     /// same-work check refuses: the check shown failing.
     #[arg(long, hide = true)]
     spider_pages: Option<u64>,
+    /// Runs only this scenario's cells; repeatable. Every scenario by
+    /// default.
+    #[arg(long = "scenario", value_enum)]
+    scenarios: Vec<Scenario>,
 }
 
 #[derive(Args)]
@@ -129,6 +146,9 @@ pub(crate) struct TrialArguments {
     concurrency: u32,
     #[arg(long, value_enum)]
     mode: Mode,
+    /// Chrome for Testing's folder, for the headless browser scenario.
+    #[arg(long)]
+    browser: Option<PathBuf>,
     /// Where a counted trial's tool writes its counts.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -154,11 +174,22 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 .current_dir(&environment.root)
                 .output()
                 .context("running git rev-parse")?;
+            let browser = match &arguments.browser {
+                Some(browser) => environment.path(browser),
+                None => trial::chrome_folder().with_context(|| {
+                    format!(
+                        "Playwright's Chrome for Testing {} is not installed: run `pnpm exec playwright install chromium`, or name its folder with --browser",
+                        trial::CHROME_FOR_TESTING_BUILD
+                    )
+                })?,
+            };
             let trials = run::run(
                 &run::Executables {
                     proving_ground: &tools.proving_ground,
                     foxhound: &tools.foxhound,
                     spider: &environment.path(&arguments.spider),
+                    spider_chrome: &environment.path(&arguments.spider_chrome),
+                    browser: &browser,
                     crawlee: &environment.path(&arguments.crawlee),
                     scrapy: &environment.path(&arguments.scrapy),
                 },
@@ -167,6 +198,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     trials: arguments.trials,
                     growth: arguments.growth,
                     spider_pages: arguments.spider_pages,
+                    scenarios: if arguments.scenarios.is_empty() {
+                        Scenario::ALL.to_vec()
+                    } else {
+                        arguments.scenarios.clone()
+                    },
                 },
             )?;
             let out = environment.path(&arguments.out);
@@ -214,6 +250,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 },
                 mode,
                 goodfetch_variables: &environment.goodfetch_variables,
+                browser: arguments.browser.as_deref(),
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

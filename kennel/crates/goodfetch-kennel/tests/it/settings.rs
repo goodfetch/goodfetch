@@ -23,6 +23,7 @@ fn without_a_settings_file_the_defaults_apply() {
             controls: true,
             confirm_stop: true,
             keep_daemon_alive: false,
+            window: true,
         })
     );
 }
@@ -41,6 +42,7 @@ fn keeping_the_daemon_alive_is_a_setting_of_its_own() {
             controls: true,
             confirm_stop: true,
             keep_daemon_alive: true,
+            window: true,
         })
     );
 }
@@ -59,6 +61,7 @@ fn the_stop_confirmation_is_a_setting_of_its_own() {
             controls: true,
             confirm_stop: false,
             keep_daemon_alive: false,
+            window: true,
         })
     );
 }
@@ -105,4 +108,21 @@ fn a_settings_file_with_an_unknown_key_says_which() {
         panic!("an unknown key is refused: {read:?}");
     };
     assert!(why.contains("contrls"), "{why}");
+}
+
+#[test]
+fn turning_the_window_off_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "window = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            window: false,
+            ..Settings::default()
+        })
+    );
 }

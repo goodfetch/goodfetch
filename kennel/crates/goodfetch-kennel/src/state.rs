@@ -56,6 +56,7 @@ use crate::daemon_start::{InstalledProduct, StartFailure};
 use crate::settings::{Settings, SettingsError};
 use crate::text;
 
+pub mod details;
 mod needs_you;
 
 pub use needs_you::Action;
@@ -96,6 +97,9 @@ pub enum Input {
     Settings(Result<Settings, SettingsError>),
     /// The `daemon start` the person chose has ended.
     StartEnded(Result<(), StartFailure>),
+    /// The details window's process ended: the person closed it, or it
+    /// could not start.
+    DetailsClosed,
     /// A call the person made through the Client was answered, or failed.
     Answered(Call, Result<(), CallFailure>),
 }
@@ -114,6 +118,8 @@ pub enum MenuChange {
 pub enum Choice {
     /// Run the installed Product's `daemon start`.
     StartDaemon,
+    /// Open the details window, or bring it forward when it is open.
+    OpenDetails,
     /// One of a Run's controls.
     Control {
         /// The Run.
@@ -157,6 +163,11 @@ pub enum Control {
 pub enum Effect {
     /// Run this Product's `daemon start`, then look for the Daemon again.
     StartDaemon(InstalledProduct),
+    /// Start the details window's process, which reads the runtime file
+    /// and connects itself.
+    OpenDetails,
+    /// Bring the open details window forward.
+    RaiseDetails,
     /// Ask the person this, then give the State their yes with
     /// [`State::confirmed`].
     Confirm(Confirmation),
@@ -409,6 +420,8 @@ pub struct State {
     /// Bumped each time the live Runs' rows are to be read again.
     live_runs: u64,
     menu_open: bool,
+    /// Whether the details window's process runs.
+    details_open: bool,
     drawn: Option<Drawn>,
 }
 
@@ -434,6 +447,7 @@ impl State {
             failed: None,
             live_runs: 0,
             menu_open: false,
+            details_open: false,
             drawn: None,
         }
     }
@@ -503,6 +517,7 @@ impl State {
             }
             Input::StartEnded(Ok(())) => self.start = Start::Started,
             Input::StartEnded(Err(failure)) => self.start = Start::Failed(failure),
+            Input::DetailsClosed => self.details_open = false,
             // An answered call shows in what it changes, which the events
             // bring.
             Input::Answered(_, Ok(())) => {}
@@ -525,6 +540,12 @@ impl State {
     pub fn choose(&mut self, choice: Choice) -> Vec<Effect> {
         match choice {
             Choice::Quit => vec![Effect::Quit],
+            Choice::OpenDetails if !self.settings.window => Vec::new(),
+            Choice::OpenDetails if self.details_open => vec![Effect::RaiseDetails],
+            Choice::OpenDetails => {
+                self.details_open = true;
+                vec![Effect::OpenDetails]
+            }
             Choice::Control { run, control } => {
                 if !self.offered(&run).contains(&control) {
                     return Vec::new();
@@ -583,6 +604,7 @@ impl State {
         Wanted {
             live_runs: self.live_runs,
             progress,
+            ..Wanted::default()
         }
     }
 
@@ -636,6 +658,12 @@ impl State {
             needs_you::rows(&self.needs_you, self.settings.controls, &mut rows);
         }
         rows.push(Row::Separator);
+        if self.settings.window {
+            rows.push(Row::Choice {
+                label: "Open details".to_owned(),
+                choice: Choice::OpenDetails,
+            });
+        }
         rows.push(Row::Choice {
             label: "Quit".to_owned(),
             choice: Choice::Quit,

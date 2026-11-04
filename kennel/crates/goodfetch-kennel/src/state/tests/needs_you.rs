@@ -106,13 +106,14 @@ fn the_menu_lists_the_needs_you_items_longest_waiting_first_each_with_its_action
             "> The filesystem of /data is at the low storage level",
             "> Dismiss",
             "---",
+            "Open details",
             "Quit",
         ]
     );
     let dismissed: Vec<Choice> = choices(&state)
         .into_iter()
         .map(|(_, choice)| choice)
-        .filter(|choice| *choice != Choice::Quit)
+        .filter(|choice| !matches!(choice, Choice::Quit | Choice::OpenDetails))
         .collect();
     assert_eq!(
         dismissed,
@@ -227,7 +228,7 @@ fn submenu_and_calls(state: &mut State) -> (Vec<String>, Vec<Call>) {
         .collect();
     let mut calls = Vec::new();
     for (_, choice) in choices(state) {
-        if choice == Choice::Quit {
+        if matches!(choice, Choice::Quit | Choice::OpenDetails) {
             continue;
         }
         for effect in state.choose(choice) {

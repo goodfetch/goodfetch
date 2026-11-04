@@ -22,7 +22,7 @@ The icon shows one verdict for the Daemon, worst first, with no numbers:
 | A Run runs | a ring with its left half filled |
 | Idle | a filled disc |
 
-A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then the Needs you items, then Quit. With no Daemon running, the menu offers "Start Daemon".
+A left or a right click opens the menu. It shows the Daemon's state, then its live Runs, then the Needs you items, then "Open details" and Quit. With no Daemon running, the menu offers "Start Daemon".
 
 - **Each Run** shows its Recipe, or its Run ID when it ran none, and its Lifecycle. Its progress message goes on the line below. On a Foxhound Daemon, a crawl also shows its succeeded, failed and pending counts.
 - **What it lists.** The menu lists at most 10 Runs and counts the others. A Run that failed or was stopped by a Limit comes first. It stays in the menu and in the icon until the menu that showed it closes.
@@ -57,7 +57,19 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
   - A failed Run offers no control.
   - A control the Daemon refuses shows its reason under the Daemon's state, such as "Pausing nightly failed: …", as a Needs you action's does.
   - Quitting the Kennel stops none of the Runs, those it resumed included.
+- **Open details.** It opens the details window. While the window is open, it brings the window forward on macOS.
 - **Shown text.** Text from the Daemon, a Run's program or a crawled site is shown as plain text. Control and bidirectional characters are stripped and long text is truncated. Credentials are masked as `••••`: a URL's password, a credential's query parameter (`token`, `password`, `api_key`, a signed URL's signature) and the value after `Authorization:`. The engine already masks the Secret values a Run resolved.
+
+## The details window
+
+"Open details" starts the window as a second process of the same executable, `goodfetch-kennel window`, with `eframe` on glow. The process exits when the window closes, so a closed window costs nothing.
+
+- **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, never the token.
+- **The Runs table** lists the Run index's rows, newest first, filtered by a text (found in a Run ID or a tag, the Recipe's among them) and a Lifecycle. It is listed again after each resync and each Run that starts or ends.
+- **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away.
+- **What it reads.** It follows `run.progress` only of the running Runs on screen and of the chosen Run while it runs. It reads the chosen Run's report with `run.report`, and its Usage with `run.usage`, again at each new progress while it runs. Nothing is read once the window is closed.
+- **Repaints.** The window asks for a repaint only when what it shows changed, at most once a second. The person's own clicks and typing are drawn as they come.
+- **Fonts.** The window draws with the system's own fonts, read as it starts (SF and SF Mono on macOS, with Helvetica and Menlo after them), so no font ships in the executable.
 
 ## Release
 
@@ -105,6 +117,7 @@ The Kennel's own settings live in `<home>/kennel.toml`, never in the engine's co
 |---|---|---|
 | `controls` | `true` | a read-only Kennel: the menu offers no action, "Start Daemon", the Run controls and the Needs you items' actions included |
 | `confirm_stop` | `true` | Stop acts at once, without asking. Abort and Retry failed always ask, and Pause never does |
+| `window` | `true` | a menu-only Kennel: the menu offers no "Open details" |
 | `keep_daemon_alive` | `false` | the Kennel only observes: the Daemon stops at its idle timeout, and hands over to its major's pick, as if no Kennel were connected. On, a connected Kennel keeps the Daemon alive. A change reconnects, since `hello` carries it |
 
 Later features each add a switch here.
@@ -113,8 +126,8 @@ Later features each add a switch here.
 
 | Path | What |
 |---|---|
-| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model), the settings, the Daemon start, the menu's edits |
-| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit`; on Linux, on a GTK thread of its own (`src/tray/linux.rs`) |
+| `crates/goodfetch-kennel` | The modules that need no graphical toolkit: the Client, the State (the pure model, the details window's included), the settings, the Daemon start, the window's process, the menu's edits |
+| `crates/goodfetch-kennel-app` | The executable, `goodfetch-kennel`: the Tray, with `tray-icon` and `muda` on `winit` (on Linux, on a GTK thread of its own, `src/tray/linux.rs`), and the details window, with `eframe` on glow |
 | `scripts/` | `install.sh` (`just kennel`), `check.sh` (`just kennel-check`), `release.sh` (`just kennel-release`), `bundle.sh` (assembles `Kennel.app`), `install-kennel.sh` (the install script a release publishes), `measure.sh` |
 | `Info.plist` | The `.app`'s property list, which `bundle.sh` stamps with the Kennel's version |
 
@@ -125,7 +138,7 @@ Later features each add a switch here.
 - **Off macOS.** The display-less Linux gate builds and tests `goodfetch-kennel` and type-checks `goodfetch-kennel-app` with Clippy, for macOS (`aarch64-apple-darwin`) and for the Linux host. The Linux type-check needs the development files of GTK 3 and libdbus (`libgtk-3-dev` and `libdbus-1-dev` on Debian and Ubuntu) and no display. Without the Rust target or those files, the check is listed in `target/skipped.txt` with the reason, and fails under `CI`.
 - **Which changes run it.** The merge gate runs `just kennel-check` for a change to `kennel/` or `goodfetch-protocol`.
 - **On every change.** `just lint` checks the formatting, the lockfile and the `cargo-deny` rules. `just audit` checks the advisories.
-- **Advisory exceptions.** `deny.toml` and `.cargo/audit.toml` ignore two advisories of the GTK 3 bindings (gtk-rs 0.18), which only Linux builds link: RUSTSEC-2024-0370 (`proc-macro-error`, build time only) and RUSTSEC-2024-0429 (`glib`'s `VariantStrIter`, which nothing here calls). No maintained GTK 3 binding exists; `tray-icon`'s `ksni` backend, with no GTK, would remove both. `winit` builds without its Wayland window decorations, which the Tray never draws, so their font parser and its advisory are gone.
+- **Advisory exceptions.** `deny.toml` and `.cargo/audit.toml` ignore two advisories of the GTK 3 bindings (gtk-rs 0.18), which only Linux builds link: RUSTSEC-2024-0370 (`proc-macro-error`, build time only) and RUSTSEC-2024-0429 (`glib`'s `VariantStrIter`, which nothing here calls). No maintained GTK 3 binding exists; `tray-icon`'s `ksni` backend, with no GTK, would remove both. `winit` builds without its own Wayland window decorations, so their unmaintained font parser (`ttf-parser`, RUSTSEC-2026-0192) is gone: the Tray opens no `winit` window, and on Wayland the details window takes the compositor's decorations where it offers them (KDE Plasma does; GNOME does not, so there the window has no title bar).
 
 ## Performance targets
 
@@ -138,7 +151,8 @@ The first figures are [#1915](https://github.com/goodfetch/goodfetch/issues/1915
 | Tray memory at most 30 MB `phys_footprint` | 13 MB idle (14 MB peak), 20 MB with the window open | 2026-11-02, Mac15,11, macOS 27.2 |
 | Idle CPU below 0.1% over 60 s | 0.00% | 2026-11-02, Mac15,11, macOS 27.2 |
 | CPU below 0.5% with a live Run | not measured yet: measured on the first build that reaches a Daemon with a live Run | |
-| Window at most 100 MB once settled (no frame for 5 s), none when closed | 52 MB settled; 258 MB start-up peak | 2026-11-02, Mac15,11, macOS 27.2 |
+| Window at most 100 MB once settled (no frame for 5 s), none when closed | 52 MB settled; 258 MB start-up peak: #1915's throwaway window, with egui's own fonts | 2026-11-02, Mac15,11, macOS 27.2 |
+| Window, as above | not measured yet: the first build with the details window, measured on the owner's Mac with `scripts/measure.sh` while the window shows a Run, then once nothing changed for 5 s | |
 | One executable at most 6 MB, stripped, with LTO | 4.77 MB (4,773,024 bytes), glow only | 2026-11-02, Mac15,11, macOS 27.2 |
 | One executable, as above | 1.79 MB (1,789,744 bytes): this workspace's first build, the Tray alone, before the window | 2026-11-03, Mac15,11, macOS 27.2 |
 | At most one redraw a second, none while hidden | about one a second | 2026-11-02, Mac15,11, macOS 27.2 |

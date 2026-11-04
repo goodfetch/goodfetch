@@ -50,10 +50,17 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # The Tray (ADR 0141), at the versions #1915 checked on the owner's Mac.
 tray-icon = { version = "=0.26.1" }
 # Without its default `wayland-csd-adwaita`: the Tray opens no `winit`
-# window, so Wayland's client-side decorations, and the font parser they
-# bring (`ttf-parser`, RUSTSEC-2026-0192), have nothing to draw. The event
-# loop keeps both Linux backends, Wayland loaded at run time.
+# window, and the font parser those decorations bring (`ttf-parser`,
+# RUSTSEC-2026-0192) is unmaintained. The event loop keeps both Linux
+# backends, Wayland loaded at run time. The details window draws no
+# decorations of its own either: on Wayland it takes the compositor's,
+# where the compositor offers them (#2077).
 winit = { version = "=0.30.13", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+# The details window (ADR 0141): glow, default features off, at the
+# version #1915 measured on the owner's Mac; `x11` and `wayland` reach only
+# Linux. No `default_fonts`: the window draws with the system's own fonts,
+# read at its start, so no font file ships in the executable.
+eframe = { version = "=0.37.0", default-features = false, features = ["glow", "x11", "wayland"] }
 # The Run controls' confirmations, a native message dialog on macOS and
 # Windows, and "Copy resume command"'s clipboard, text only. On Linux the
 # Tray's own GTK thread asks instead, so `rfd` starts no GTK thread beside it.
@@ -66,7 +73,7 @@ arboard = { version = "3.7.0", default-features = false }
 # The menu's closing on macOS, from AppKit's notification, at the versions
 # `tray-icon` already locks.
 block2 = { version = "0.6.2", default-features = false, features = ["std"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSMenu"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSMenu", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSString"] }
 
 # The root workspace's `[workspace.lints]`, copied (see above).

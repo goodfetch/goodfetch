@@ -282,3 +282,26 @@ fn icon(verdict: Verdict) -> Icon {
     Icon::from_rgba(rgba, SIZE, SIZE)
         .expect("invariant: the icon's buffer holds SIZE × SIZE pixels")
 }
+
+/// Brings the details window's process `pid` forward, with its windows.
+#[cfg(target_os = "macos")]
+pub(crate) fn raise(pid: u32) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+    let Ok(pid) = i32::try_from(pid) else {
+        return;
+    };
+    let raised =
+        NSRunningApplication::runningApplicationWithProcessIdentifier(pid).is_some_and(|window| {
+            window.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows)
+        });
+    if !raised {
+        tracing::info!(pid, "the details window was not brought forward");
+    }
+}
+
+/// Brings the details window forward: on Linux and Windows the Tray has no
+/// way to, so the person finds it among their windows.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn raise(pid: u32) {
+    tracing::info!(pid, "the details window is already open");
+}

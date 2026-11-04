@@ -15,7 +15,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 arboard.workspace = true
+eframe.workspace = true
 goodfetch-kennel.workspace = true
+goodfetch-protocol.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true
@@ -32,7 +34,8 @@ rfd.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk.workspace = true
 
-# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`.
+# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`, and
+# the details window brought forward, through `NSRunningApplication`.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
 objc2-app-kit.workspace = true

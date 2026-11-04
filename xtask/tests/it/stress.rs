@@ -6,6 +6,8 @@
 //! This spec's stories stay outside the Feature inventory (#325, Out of
 //! Scope), so the module declares no Feature.
 
+use rstest::rstest;
+
 use crate::workspace::{Workspace, finding};
 
 /// How many times a new or changed test runs, and a test taken off the
@@ -310,6 +312,79 @@ fn a_trailer_naming_a_deleted_test_accepts_it() {
             "quality-change",
             "stressed steady::tests::unchanged"
         )],
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// The tests `changed.rs` gains in a module `reads`, as rstest generates
+/// the cases of a test `reads`: one test per case, `case_<n>_<description>`
+/// or `case_<n>` with none, `<n>` its position zero-padded to the width of
+/// the case count. The fixture crate has no dependencies, so the module
+/// spells them out.
+fn rstest_cases(names: &[&str]) -> String {
+    let tests: Vec<String> = names
+        .iter()
+        .map(|name| format!("        #[test]\n        fn {name}() {{}}\n"))
+        .collect();
+    format!(
+        "fn kept() {{}}\n\n    mod reads {{\n{}    }}",
+        tests.join("\n")
+    )
+}
+
+/// A case's position is not its name: inserting a case renumbers the ones
+/// after it, which the head still lists under their descriptions. A case
+/// with no description has its position alone, and a renamed test any
+/// other new name; each the head lacks is deleted.
+#[rstest]
+#[case::an_inserted_case_renumbers_the_ones_after_it(
+    &["case_1_first", "case_2_second"],
+    &["case_1_inserted", "case_2_first", "case_3_second"],
+    &[]
+)]
+#[case::a_removed_case_is_deleted(
+    &["case_1_first", "case_2_second"],
+    &["case_1_second"],
+    &["case_1_first"]
+)]
+#[case::a_renamed_test_is_deleted(&["before"], &["after"], &["before"])]
+#[case::a_case_with_no_description_is_matched_on_its_position(
+    &["case_1", "case_2", "case_3"],
+    &["case_1", "case_2"],
+    &["case_3"]
+)]
+fn a_test_case_is_deleted_when_the_head_lists_none_of_its_name(
+    #[case] before: &[&str],
+    #[case] after: &[&str],
+    #[case] deleted: &[&str],
+) {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.edit("src/changed.rs", "fn kept() {}", &rstest_cases(before));
+    workspace.install_runners();
+    let base = workspace.commit_all();
+    workspace.edit(
+        "src/changed.rs",
+        &rstest_cases(before),
+        &rstest_cases(after),
+    );
+    workspace.commit_all();
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base, "--within", "stressed"]);
+
+    let expected: Vec<_> = deleted
+        .iter()
+        .map(|test| {
+            finding(
+                "deleted-test",
+                &format!("stressed changed::tests::reads::{test}"),
+            )
+        })
+        .collect();
+    assert_eq!(outcome.stderr_findings(), expected, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.code,
+        i32::from(!deleted.is_empty()),
         "{}",
         outcome.stderr
     );

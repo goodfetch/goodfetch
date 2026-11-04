@@ -696,15 +696,7 @@ impl Observe for Record {
         });
         let run = self.run.clone();
         self.run.spawn(async move {
-            if let Err(error) = goodfetch_engine::run_trace::provenance(
-                run.owner(),
-                run.folder(),
-                run.secrets().mask(),
-                run.metrics().counted_work(),
-                &entry,
-            )
-            .await
-            {
+            if let Err(error) = run.provenance(entry).await {
                 tracing::warn!(%error, "the Run's Provenance did not take a host the egress relay terminated");
             }
         });

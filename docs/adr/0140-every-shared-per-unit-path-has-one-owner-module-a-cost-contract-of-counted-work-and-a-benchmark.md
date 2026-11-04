@@ -283,6 +283,11 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The Valgrind rows keep #1870's figures:** `just counts --valgrind` on this head read each within 0.2 % of them, under the row's 0.5 %.
 > - **`coverage.project`'s first figure, 88.61 % of 171,035 lines, is a local run's,** as `coverage.yml` is disabled (#2047): `just coverage all` at `bd3b2cafe`, its Vitest, Playwright and pytest runs, which nextest's two failures had skipped, run after it on the same instrumented executables, then `xtask register coverage --write`. One profile of the Rust run's 14,680 was corrupt and was left out.
 
+> Note (agent decisions of #1908, pending owner review), 2026-11-04, on the Provenance log's held file:
+> - **The Run holds the Provenance log's file, opened at its first entry,** not when the Run starts, so a Run that writes no Provenance leaves no file, as before. That open and its folder's creation are the Run's work, built once, and count on `E5.file_opens` alone (the `strace` cross-check sees them), never on a page's `F1.file_opens`, which reads 0 on B1. A file that fails to open is opened again at the next entry.
+> - **Each entry is written to the held file at once,** in one `write` with no sync and no buffer: every flush point of "Interface changes" (a Call's return, a group's commit, the Run's end) then finds nothing held back, and a killed process loses no entry already written. The 64 KiB buffer that flushes at those points comes with the one Run-trace writer (#1890), which also takes the request log's per-entry opens and every entry's spawn (Exception X2).
+> - **An entry is taken by value and masked in place:** the deep copy and the path rebuilt per entry (#1882's E5-2) are gone. The entry stays the `serde_json::Value` its callers build, encoded once after the Mask walks it, so it is not encoded twice.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

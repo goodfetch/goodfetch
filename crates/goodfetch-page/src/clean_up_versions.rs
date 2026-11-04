@@ -602,7 +602,7 @@ impl Versions {
             entry["fallback"] = json!({ "reason": fallback.reason, "message": fallback.message });
             entry["recorded"] = json!(recorded);
         }
-        trace::provenance(run, &entry).await;
+        trace::provenance(run, entry).await;
         if let Some(fallback) = fallback {
             warn_of(run, &fallback).await;
         }
@@ -675,7 +675,7 @@ impl Versions {
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
                     trace::provenance(
                         run,
-                        &json!({
+                        json!({
                             "action": "clean_up_rules",
                             "digest": EMBEDDED_DIGEST,
                             "source": RulesSource::Embedded,

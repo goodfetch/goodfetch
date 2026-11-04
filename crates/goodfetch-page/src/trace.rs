@@ -27,21 +27,14 @@ pub(crate) const FILE: &str = "trace/cdp-commands.jsonl";
 /// Records `entry`, one Provenance entry of `run`, such as of one of its
 /// pages or of a request a fetch tier sent for it, as a line of
 /// the Run trace's Provenance log, appended through the Run's blocking
-/// policy; a line that cannot be written is logged and lost.
+/// policy to the file the Run holds; a line that cannot be written is
+/// logged and lost.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future never stops a line being written once it began.
-pub async fn provenance(run: &Run, entry: &serde_json::Value) {
-    let written = goodfetch_engine::run_trace::provenance(
-        run.owner(),
-        run.folder(),
-        run.secrets().mask(),
-        run.metrics().counted_work(),
-        entry,
-    )
-    .await;
-    if let Err(error) = written {
+pub async fn provenance(run: &Run, entry: serde_json::Value) {
+    if let Err(error) = run.provenance(entry).await {
         tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
     }
 }
@@ -52,7 +45,7 @@ pub async fn provenance(run: &Run, entry: &serde_json::Value) {
 /// # Cancel safety
 ///
 /// As [`provenance`]'s.
-pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: &serde_json::Value) {
+pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: serde_json::Value) {
     run.metrics().counted_work().count(row);
     provenance(run, entry).await;
 }

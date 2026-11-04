@@ -132,12 +132,13 @@ fn a_planted_unit_of_a_run_trace_row_adds_one_a_page(#[case] row: Row) {
     assert_eq!(planted - default, u64::try_from(PAGES.len() + 1).unwrap());
 }
 
-/// The crawl writes Run-trace entries, and each costs what the Run-trace rows
-/// count (Exception X2): a folder created and a file opened, the page's opens
-/// too, and a task spawned for its write. No kind of entry the crawl writes can
-/// be switched off, so none is formatted while off.
+/// The crawl writes Run-trace entries, all Provenance's, and each costs what
+/// the Run-trace rows count: a task spawned for its write (Exception X2). The
+/// Run holds the Provenance log's file, so its folder is created and its file
+/// opened once a Run, and no page opens any. No kind of entry the crawl writes
+/// can be switched off, so none is formatted while off.
 #[test]
-fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawns_its_write() {
+fn each_run_trace_entry_of_the_crawl_spawns_its_write_and_its_run_opens_the_file_once() {
     let env = TestEnv::new();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -161,7 +162,7 @@ fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawn
             work.read(Row::RunTraceFormattingOff),
             work.read(Row::PageFileOpens),
         ),
-        (2 * entries, entries, 0, 2 * entries)
+        (2, entries, 0, 0)
     );
 }
 
@@ -210,9 +211,9 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
     // The Clean-up rules compile their 613 selectors once a Run, kept in
     // their cache, and a page's own 10 compile on every page; with the Filter
-    // lists off only the page's own are left. Each of the crawl's 27
-    // Run-trace entries opens its folder and its file. #1577 lowers these,
-    // and writes its figures here.
+    // lists off only the page's own are left. The Run holds its Provenance
+    // log's file, so no page opens one. #1577 lowers the rest, and writes
+    // its figures here.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
@@ -222,7 +223,7 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (pages, 613 + 10 * pages, 10 * pages, 2 * 27, 0, 1)
+        (pages, 613 + 10 * pages, 10 * pages, 0, 0, 1)
     );
 }
 

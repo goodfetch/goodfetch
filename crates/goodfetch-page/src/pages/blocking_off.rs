@@ -90,7 +90,7 @@ impl Pages {
                 trace::counted_provenance(
                     &page.run,
                     Row::NavigationProvenanceEntries,
-                    &loaded(domain.as_deref()).learned(),
+                    loaded(domain.as_deref()).learned(),
                 )
                 .await;
             }
@@ -218,7 +218,7 @@ impl Pages {
         trace::counted_provenance(
             &page.run,
             Row::NavigationProvenanceEntries,
-            &loaded.retried(reason, passed),
+            loaded.retried(reason, passed),
         )
         .await;
     }

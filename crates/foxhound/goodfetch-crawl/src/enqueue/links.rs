@@ -22,7 +22,6 @@
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::run_trace;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
@@ -379,15 +378,7 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             "from": from,
             "revealable": *mark == Mark::Revealable,
         });
-        let written = run_trace::provenance(
-            run.owner(),
-            run.folder(),
-            run.secrets().mask(),
-            run.metrics().counted_work(),
-            &entry,
-        )
-        .await;
-        if let Err(error) = written {
+        if let Err(error) = run.provenance(entry).await {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
     }

@@ -249,8 +249,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/run_trace.rs",
-        1,
-        "masked: the request and Provenance logs pass through the Run's `Mask`, `Scope::KeptOutput`",
+        2,
+        "masked: the request log's lines and the Provenance log's, which the Run's held file takes, pass through the Run's `Mask`, `Scope::KeptOutput`",
     ),
     (
         "crates/goodfetch-engine/src/rpc/connection.rs",

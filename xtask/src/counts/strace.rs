@@ -7,7 +7,8 @@
 //! - **Opens and folders:** each creation of a Run trace's folder, and each
 //!   open for writing of a file in it, against `E5.file_opens` and
 //!   `C1.file_opens`, which count both at the one function each goes through.
-//!   `F1.file_opens` counts the same opens again (Exception X2). A read of a
+//!   The Provenance log's, which its Run holds, are the Run's and no page's
+//!   `F1.file_opens`. A read of a
 //!   trace file is no row's work: the benchmark reads the entries it divides
 //!   by. A creation `create_dir_all` makes of a missing parent is that
 //!   parent's own, and its first try at the folder, refused for the missing

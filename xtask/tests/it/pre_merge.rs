@@ -296,6 +296,46 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
     assert_eq!(run.calls, expected);
 }
 
+/// The docs form's steps, in order, for a change of documents alone
+/// (`xtask affected`'s `gate=docs`): the checks that read the change's
+/// commits and the bar, then the checks of `just lint` that read documents;
+/// no code lint, suite, OS service or step beside the host's.
+const DOCS_STEPS: [&str; 5] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "lint-documents",
+];
+
+#[test]
+fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge(&workspace, &stand_in, &["docs"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut expected: Vec<String> = DOCS_STEPS.iter().map(|step| (*step).to_owned()).collect();
+    expected.push("_skips-report".to_owned());
+    assert_eq!(run.calls, expected);
+}
+
+#[test]
+fn a_red_check_ends_the_docs_form_before_the_document_checks() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), "floor-guard").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["docs"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        ["dco", "commit-messages", "floor-guard", "_skips-report"]
+    );
+}
+
 /// A red check of the whole change ends the gate before the Console build
 /// and before any step beside the host's starts, so a gate that fails in
 /// seconds never starts perf (the test-gate audit's F3).
@@ -345,6 +385,7 @@ fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
 #[rstest]
 #[case::all("all", "|unset|unset", true)]
 #[case::quick("quick", "|unset|unset", true)]
+#[case::docs("docs", "|unset|unset", true)]
 #[case::what_changed("", "|4|4", false)]
 fn the_gate_forms_run_without_the_callers_thread_and_job_caps(
     #[case] form: &str,
@@ -447,6 +488,10 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
         "journeys-tasks", "notices",
     ],
 )]
+#[case::docs(
+    "docs",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks", "lint-documents"],
+)]
 fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &[&str]) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
@@ -458,7 +503,8 @@ fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     let (times, unended) = step_times(&run.stdout);
     assert!(unended.is_empty(), "never ended: {unended:?}");
-    let mut expected: Vec<&str> = if cfg!(target_os = "linux") {
+    // The docs form runs no test, so it sets up no OS service.
+    let mut expected: Vec<&str> = if cfg!(target_os = "linux") && form != "docs" {
         vec!["os-services"]
     } else {
         vec![]
@@ -977,6 +1023,7 @@ fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
 #[rstest]
 #[case::what_changed("")]
 #[case::quick("quick")]
+#[case::docs("docs")]
 fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);

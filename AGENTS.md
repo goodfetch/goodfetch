@@ -34,7 +34,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 CI runs locally (ADR 0135); GitHub Actions runs the Release suite only.
 
-- Merge a pull request only with `just merge <number>`: it gates the pull request's exact head in a clean, locked worktree, runs the quick gate instead when `xtask affected` prints `gate=quick`, and merges only when the gate passes. In a stack of pull requests, merge the bottom one first. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
+- Merge a pull request only with `just merge <number>`: it gates the pull request's exact head in a clean, locked worktree, runs the quick gate instead when `xtask affected` prints `gate=quick` and the docs gate when it prints `gate=docs`, and merges only when the gate passes. It refuses once 10 merges have landed on `main` since the backstop's last green run; only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04). In a stack of pull requests, merge the bottom one first. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.
 - Keep every other workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
 - Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.

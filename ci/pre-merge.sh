@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# `just pre-merge [all|quick]`: the Pre-merge suite on this host (TESTING.md,
-# The three suites), which `just merge` runs before every merge (ADR 0135);
-# `all` runs it over the whole workspace, else over what changed. `quick` is
-# the gate of a change that no test, benchmark, model, container or
-# Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
-# change needs, over the whole workspace.
+# `just pre-merge [all|quick|docs]`: the Pre-merge suite on this host
+# (TESTING.md, The three suites), which `just merge` runs before every merge
+# (ADR 0135); `all` runs it over the whole workspace, else over what changed.
+# `quick` is the gate of a change that no test, benchmark, model, container
+# or Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
+# change needs, over the whole workspace. `docs` is the gate of such a change
+# made of documents alone (`gate=docs`): the checks that read its commits and
+# the bar, then `just lint-documents`, the checks of `just lint` that read
+# documents; no code lint and no suite.
 #
 # The checks that need Linux run beside the host steps, each in its own
 # container, with its lines marked `[<step>]`: `just perf`, the counted
@@ -48,9 +51,9 @@ timed() {
 
 all=${1:-}
 case "$all" in
-  all | quick | "") ;;
+  all | quick | docs | "") ;;
   *)
-    echo "error: the argument is \`all\` or \`quick\`, not $all" >&2
+    echo "error: the argument is \`all\`, \`quick\` or \`docs\`, not $all" >&2
     exit 2
     ;;
 esac
@@ -78,7 +81,7 @@ os_services() {
 # server's shared settings export for implementers, would cap nextest and
 # Cargo for the whole gate (the test-gate audit's F1). A run over what
 # changed keeps the caller's.
-if [[ $all == all || $all == quick ]]; then
+if [[ $all == all || $all == quick || $all == docs ]]; then
   removed=()
   for variable in NEXTEST_TEST_THREADS CARGO_BUILD_JOBS; do
     if [[ -n ${!variable+set} ]]; then
@@ -91,11 +94,23 @@ if [[ $all == all || $all == quick ]]; then
   fi
 fi
 
-# The checks that judge the whole change in seconds, which both forms run
+# The checks that judge the whole change in seconds, which every form runs
 # first: a red one ends the gate before any build (the test-gate audit's F3).
-whole_change=(dco commit-messages floor-guard commit-leaks audit notices)
+# The docs form runs those that read the change's commits and the bar; the
+# advisories and the notices read the lockfiles, which a document never
+# changes.
+of_the_commits=(dco commit-messages floor-guard commit-leaks)
+whole_change=("${of_the_commits[@]}" audit notices)
 
 rm -f target/skipped.txt
+if [[ $all == docs ]]; then
+  trap 'just _skips-report' EXIT
+  echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
+  for step in "${of_the_commits[@]}" lint-documents; do
+    timed "$step" just "$step"
+  done
+  exit 0
+fi
 if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
   os_services

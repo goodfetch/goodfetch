@@ -48,8 +48,21 @@ fmt-check:
     pnpm exec oxfmt --check .
     uv run ruff format --check .
 
-# Formatting checks, then every linter and the repository's own static checks.
-lint: fmt-check
+# The checks of `just lint` that read documents: formatting, typos, the
+# Quality register, the Feature and Journey checks, the wording and the
+# repository's policy files. The docs gate runs them alone for a change of
+# documents (`xtask affected`'s `gate=docs`, ADR 0135).
+lint-documents: fmt-check
+    ci/tool.sh typos typos
+    cargo run --quiet -p xtask -- register check
+    cargo run --quiet -p xtask -- features check
+    cargo run --quiet -p xtask -- wording
+    cargo run --quiet -p xtask -- journeys check
+    ci/repository-files.sh
+
+# Formatting checks and the checks that read documents, then every linter and
+# the repository's own static checks.
+lint: lint-documents
     cargo metadata --locked --format-version 1 > /dev/null
     cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
     ci/fuzz-check.sh locked
@@ -64,7 +77,6 @@ lint: fmt-check
     uv run ruff check .
     uv run pyright
     uv run mypy .
-    ci/tool.sh typos typos
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
     ci/tool.sh gitleaks ci/canary-rule.sh
@@ -81,7 +93,6 @@ lint: fmt-check
     ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
-    cargo run --quiet -p xtask -- register check
     cargo run --quiet -p xtask -- egress check
     cargo run --quiet -p xtask -- os-services workflows
     cargo run --quiet -p xtask -- fixture-size
@@ -100,13 +111,9 @@ lint: fmt-check
       cargo run --quiet -p xtask -- axe-exceptions check
     cargo run --quiet -p xtask -- modules
     cargo run --quiet -p xtask -- codegen --check
-    cargo run --quiet -p xtask -- features check
     cargo run --quiet -p xtask -- clients check
     cargo run --quiet -p xtask -- compat check
-    cargo run --quiet -p xtask -- wording
-    cargo run --quiet -p xtask -- journeys check
     cargo run --quiet -p xtask -- containment
-    ci/repository-files.sh
     ci/tool-versions.sh
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
@@ -807,14 +814,17 @@ test-affected suite *change:
 # Each suite lists the parts it could not run on this host, with the reason,
 # even when a part fails: the list is printed when the suite stops.
 
-# The Quick suite: lints and in-process tests of what changed (`all`: the
-# whole workspace).
+# The Quick suite: the floor guard and the scan of the change's commits for
+# secrets, which take seconds, then lints and in-process tests of what
+# changed (`all`: the whole workspace). The pre-push hook runs it.
 quick *all:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
     rm -f target/skipped.txt
     trap '"$just" _skips-report' EXIT
+    "$just" floor-guard
+    "$just" commit-leaks
     "$just" lint
     "$just" _suite quick "{{ all }}"
 
@@ -1371,9 +1381,12 @@ hooks:
 # `just quick all`'s lint and Quick suite, passes on its exact head, in a
 # clean checkout in the gate's own worktree (AGENTS.md, "Merging"), or `just
 # pre-merge quick` when no test reads the change (`xtask affected`'s
-# `gate=quick`, ADR 0135).
-merge number:
-    ci/merge-pr.sh {{ number }}
+# `gate=quick`, ADR 0135), or `just pre-merge docs` when it is documents
+# alone (`gate=docs`). It refuses once 10 merges have landed on `main` since
+# the backstop's last green run (ci/merge-cap.sh) unless the owner passes
+# `--past-cap`: `just merge <number> --past-cap`.
+merge number *override:
+    ci/merge-pr.sh {{ number }} {{ override }}
 
 # Installs the owner's copy of the self-hosted allowlist and the runner's
 # pre-job and post-job scripts into a folder the runner user can read but not
@@ -1488,6 +1501,15 @@ _gate-record head step status *evidence:
 # ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
 gate-backstop ref="origin/main":
     ci/gate-backstop.sh {{ ref }}
+
+# The test-health runs the gate host's cron starts while Actions is off
+# (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
+# backstop's gate worktree: `constrained`, the constrained test-health run,
+# and `mutants`, the advisory mutation run over the last day's Rust changes
+# (ci/test-health/scheduled.sh). Logs and results go to ~/test-health/
+# (GOODFETCH_TEST_HEALTH_LOG). Run from the main checkout.
+test-health run ref="origin/main":
+    ci/test-health/scheduled.sh {{ run }} {{ ref }}
 
 # The backstop's comparison (ADR 0135): each result an incremental run in
 # `runs` on the full run's tree reused and the full run on `full` found red.

@@ -102,6 +102,9 @@ pub(crate) struct Selection {
     bench_targets: BTreeSet<String>,
     /// The TLA+ models TLC checks, by name.
     models: BTreeSet<String>,
+    /// Whether the change is documents alone: at least one path, and every
+    /// path a document (`is_document`).
+    documents_only: bool,
 }
 
 /// The folder of every sink process (ADR 0087).
@@ -132,6 +135,16 @@ pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
         || ["rnd", "docs", "website"]
             .iter()
             .any(|folder| path.is_in(folder))
+}
+
+/// Whether the path is a document: Markdown among the paths no test reads,
+/// which only the checks of `just lint` that read documents check (`just
+/// lint-documents`). Any other file, even one no test reads, is not.
+fn is_document(path: &RepoPath) -> bool {
+    needs_no_tests(path)
+        && Path::new(path.as_str())
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
 /// What the visual job reads besides its tests and the code they exercise:
@@ -520,6 +533,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
         touched_sinks: names(reached.iter().filter(|krate| is_sink(krate))),
         bench_targets,
         models,
+        documents_only: !paths.is_empty() && paths.iter().all(is_document),
     }
 }
 
@@ -565,12 +579,15 @@ impl Selection {
 
     /// What the local gate runs (ADR 0135): `quick` when the change selects
     /// no job but the docs', so no test, benchmark, model, container or
-    /// Evaluation reads it, else `full`.
+    /// Evaluation reads it, and `docs` when, of those, it is documents alone;
+    /// else `full`.
     fn gate(&self) -> &'static str {
-        if self.jobs.iter().all(|job| *job == Job::Docs) {
-            "quick"
-        } else {
+        if !self.jobs.iter().all(|job| *job == Job::Docs) {
             "full"
+        } else if self.documents_only {
+            "docs"
+        } else {
+            "quick"
         }
     }
 }

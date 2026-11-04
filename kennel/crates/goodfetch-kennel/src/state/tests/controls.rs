@@ -160,6 +160,7 @@ fn a_paused_run_stays_listed_as_paused_until_it_runs_again() {
             "---",
             "a-run — Paused >",
             "---",
+            "Open details",
             "Quit"
         ]
     );
@@ -360,6 +361,7 @@ fn a_failed_call_shows_in_the_menu_until_the_menu_that_showed_it_closes() {
             "---",
             "nightly — Running >",
             "---",
+            "Open details",
             "Quit"
         ]
     );

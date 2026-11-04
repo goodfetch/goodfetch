@@ -32,6 +32,7 @@ fn without_a_settings_file_the_defaults_apply() {
                 run_finished: false,
                 period_minutes: 20,
             },
+            window: true,
         })
     );
 }
@@ -170,4 +171,21 @@ fn an_unknown_key_among_the_desktop_notices_is_refused() {
         panic!("an unknown key is refused: {read:?}");
     };
     assert!(why.contains("run_crashed"), "{why}");
+}
+
+#[test]
+fn turning_the_window_off_is_a_setting_of_its_own() {
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    fs::write(home.settings_file(), "window = false\n").unwrap();
+
+    let read = settings::read(&home.settings_file());
+
+    assert_eq!(
+        read,
+        Ok(Settings {
+            window: false,
+            ..Settings::default()
+        })
+    );
 }

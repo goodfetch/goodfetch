@@ -15,7 +15,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 arboard.workspace = true
+eframe.workspace = true
 goodfetch-kennel.workspace = true
+goodfetch-protocol.workspace = true
 rfd.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
@@ -25,6 +27,7 @@ tray-icon.workspace = true
 winit.workspace = true
 
 # The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`,
+# the details window brought forward, through `NSRunningApplication`,
 # and the desktop notices, from `UNUserNotificationCenter`.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true

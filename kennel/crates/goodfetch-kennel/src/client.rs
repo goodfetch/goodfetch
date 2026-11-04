@@ -26,10 +26,13 @@
 //!   the Daemon's live Runs and Needs you items, and the stream continues
 //!   from that state with nothing lost between.
 //! - **The reads the view needs.** `run.list` of the live Runs each time
-//!   [`Wanted::live_runs`] changes, and `run.progress` for each Run of
+//!   [`Wanted::live_runs`] changes, and of a filter each time
+//!   [`Wanted::listing`] changes; `run.progress` for each Run of
 //!   [`Wanted::progress`]: read at once, then followed with `after` until
 //!   the Run leaves the set, when the read is cancelled, or its progress
-//!   is the last.
+//!   is the last; `run.report` of [`Wanted::report`], which a live Run
+//!   answers at its end, cancelled once another Run or none is wanted;
+//!   and `run.usage` each time [`Wanted::usage`] changes.
 //! - **A person's calls** ([`Call`]): each is sent on the Connection as it
 //!   is made, and its answer reported; one made while no Daemon is reached
 //!   is not sent, and one whose Connection closes before its answer fails.
@@ -66,9 +69,9 @@ use goodfetch_protocol::needs_you::{
     NeedsYouRemoveRefetchDomainParams,
 };
 use goodfetch_protocol::run::{
-    Lifecycle, RUN_ABORT, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RUN_STOP, RunAbortParams,
-    RunAxes, RunId, RunIndexRow, RunList, RunListParams, RunParams, RunProgress, RunProgressParams,
-    RunWaitParams,
+    Lifecycle, RUN_ABORT, RUN_AXES_CHANGED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP,
+    RUN_USAGE, RunAbortParams, RunAxes, RunId, RunIndexRow, RunList, RunListParams, RunParams,
+    RunProgress, RunProgressParams, RunReport, RunUsage, RunWaitParams,
 };
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde::Serialize;
@@ -294,6 +297,29 @@ pub enum Report {
     LiveRuns(Vec<RunIndexRow>),
     /// A Run's progress, as `run.progress` answered.
     Progress(RunProgress),
+    /// The rows of [`Wanted::listing`], as `run.list` answered.
+    Listed {
+        /// The listing's generation, which the answer is of.
+        generation: u64,
+        /// The rows, in the listing's order.
+        rows: Vec<RunIndexRow>,
+    },
+    /// The answer to the read of [`Wanted::report`]: the Run's report, or
+    /// the Error code the read failed with.
+    RunReport {
+        /// The Run.
+        run_id: RunId,
+        /// Its report, or why there is none.
+        report: Result<Box<RunReport>, String>,
+    },
+    /// A Run's Usage, as `run.usage` answered the read of
+    /// [`Wanted::usage`].
+    Usage {
+        /// The Run.
+        run_id: RunId,
+        /// What it used.
+        usage: RunUsage,
+    },
     /// A call made through [`Follow::calls`] was answered, or failed.
     Answered(Call, Result<(), CallFailure>),
 }
@@ -305,6 +331,32 @@ pub struct Wanted {
     pub live_runs: u64,
     /// The Runs whose progress is read and followed.
     pub progress: BTreeSet<RunId>,
+    /// The Run index's rows of a filter, read again each time this
+    /// changes.
+    pub listing: Option<Listing>,
+    /// The Run whose report is read while it is wanted: at once for a Run
+    /// that ended, at its end for a live one.
+    pub report: Option<RunId>,
+    /// The Run whose Usage is read, again each time this changes.
+    pub usage: Option<UsageRead>,
+}
+
+/// A read of the Run index's rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listing {
+    /// Changed each time the rows are to be read again.
+    pub generation: u64,
+    /// The filter and order.
+    pub params: RunListParams,
+}
+
+/// A read of a Run's Usage.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsageRead {
+    /// The Run.
+    pub run_id: RunId,
+    /// Changed each time its Usage is to be read again.
+    pub generation: u64,
 }
 
 /// What the Client follows the Daemon with.
@@ -764,6 +816,49 @@ impl Connection {
                 }
                 Ok(())
             }
+            Some(Pending::Listed(generation)) => {
+                match answer.map(serde_json::from_value::<RunList>) {
+                    Ok(Ok(list)) => report(Report::Listed {
+                        generation,
+                        rows: list.runs,
+                    }),
+                    Ok(Err(error)) => {
+                        tracing::warn!(%error, "a run.list answer the Kennel cannot read");
+                    }
+                    Err(error) => tracing::warn!(code = error.data.code, "run.list failed"),
+                }
+                Ok(())
+            }
+            Some(Pending::Report(run)) => {
+                if let Some((reported, reading)) = &mut reads.report
+                    && *reported == run
+                {
+                    *reading = None;
+                }
+                let answer = answer.map_err(|error| error.data.code).and_then(|value| {
+                    serde_json::from_value::<Box<RunReport>>(value).map_err(|error| {
+                        tracing::warn!(%error, run_id = %run, "a run.report answer the Kennel cannot read");
+                        "invalid_run_report".to_owned()
+                    })
+                });
+                report(Report::RunReport {
+                    run_id: run,
+                    report: answer,
+                });
+                Ok(())
+            }
+            Some(Pending::Usage(run)) => {
+                match answer.map(serde_json::from_value::<RunUsage>) {
+                    Ok(Ok(usage)) => report(Report::Usage { run_id: run, usage }),
+                    Ok(Err(error)) => {
+                        tracing::warn!(%error, run_id = %run, "a run.usage answer the Kennel cannot read");
+                    }
+                    Err(error) => {
+                        tracing::warn!(code = error.data.code, run_id = %run, "run.usage failed");
+                    }
+                }
+                Ok(())
+            }
             Some(Pending::Call(call)) => {
                 let answer = answer.map(drop).map_err(|error| CallFailure {
                     code: error.data.code,
@@ -817,6 +912,52 @@ impl Connection {
             };
             send(&mut self.writer, &request(id, RUN_LIST.name, &params)).await?;
             reads.pending.insert(id, Pending::LiveRuns);
+        }
+        if wanted.listing != reads.listing {
+            reads.listing.clone_from(&wanted.listing);
+            if let Some(listing) = &wanted.listing {
+                let id = reads.next_id();
+                send(
+                    &mut self.writer,
+                    &request(id, RUN_LIST.name, &listing.params),
+                )
+                .await?;
+                reads
+                    .pending
+                    .insert(id, Pending::Listed(listing.generation));
+            }
+        }
+        if wanted.usage != reads.usage {
+            reads.usage.clone_from(&wanted.usage);
+            if let Some(usage) = &wanted.usage {
+                let id = reads.next_id();
+                let params = RunParams {
+                    run_id: usage.run_id.clone(),
+                };
+                send(&mut self.writer, &request(id, RUN_USAGE.name, &params)).await?;
+                reads
+                    .pending
+                    .insert(id, Pending::Usage(usage.run_id.clone()));
+            }
+        }
+        if wanted.report.as_ref() != reads.report.as_ref().map(|(run, _)| run) {
+            if let Some((_, Some(id))) = reads.report.take() {
+                reads.pending.remove(&id);
+                let params = CancelParams {
+                    id: RequestId::Number(id),
+                };
+                send(&mut self.writer, &notification(CANCEL, &params)).await?;
+            }
+            reads.report = None;
+            if let Some(run) = &wanted.report {
+                let id = reads.next_id();
+                let params = RunParams {
+                    run_id: run.clone(),
+                };
+                send(&mut self.writer, &request(id, RUN_REPORT.name, &params)).await?;
+                reads.pending.insert(id, Pending::Report(run.clone()));
+                reads.report = Some((run.clone(), Some(id)));
+            }
         }
         let dropped: Vec<RunId> = reads
             .followed
@@ -873,6 +1014,13 @@ struct Reads {
     followed: BTreeMap<RunId, Followed>,
     /// The [`Wanted::live_runs`] last read.
     live_runs: u64,
+    /// The [`Wanted::listing`] last read.
+    listing: Option<Listing>,
+    /// The [`Wanted::usage`] last read.
+    usage: Option<UsageRead>,
+    /// The Run whose report is read, with the id of the call that reads
+    /// it until it answers.
+    report: Option<(RunId, Option<i64>)>,
     /// What was wanted as the Connection opened.
     first: Option<Wanted>,
 }
@@ -887,6 +1035,9 @@ impl Reads {
             pending: BTreeMap::new(),
             followed: BTreeMap::new(),
             live_runs: first.live_runs,
+            listing: first.listing.clone(),
+            usage: first.usage.clone(),
+            report: None,
             first: Some(first),
         }
     }
@@ -903,6 +1054,9 @@ impl Reads {
 #[derive(Debug)]
 enum Pending {
     LiveRuns,
+    Listed(u64),
+    Report(RunId),
+    Usage(RunId),
     Progress(RunId),
     /// A person's call.
     Call(Call),

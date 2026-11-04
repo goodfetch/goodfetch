@@ -19,6 +19,10 @@ use crate::tasks::Tasks;
 /// The Kennel's settings.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each feature is a switch of its own with a free off state, as `kennel.toml` spells it (ADR 0141)"
+)]
 pub struct Settings {
     /// Whether the menu offers actions; off gives a read-only Kennel.
     pub controls: bool,
@@ -29,6 +33,9 @@ pub struct Settings {
     /// only observes, and the Daemon stops at its idle timeout and hands
     /// over to its major's pick as if no Kennel were connected (ADR 0141).
     pub keep_daemon_alive: bool,
+    /// Whether the menu offers "Open details", the details window; off
+    /// gives a menu-only Kennel.
+    pub window: bool,
     /// The desktop notices, the `[notifications]` table.
     pub notifications: Notifications,
 }
@@ -39,6 +46,7 @@ impl Default for Settings {
             controls: true,
             confirm_stop: true,
             keep_daemon_alive: false,
+            window: true,
             notifications: Notifications::default(),
         }
     }

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use goodfetch_kennel::client::{
     self, CONNECTION_LOST, Call, CallFailure, ConnectionChange, DaemonEvent, DaemonIdentity,
-    NO_DAEMON, Refusal, Report, Wanted,
+    Listing, NO_DAEMON, Refusal, Report, UsageRead, Wanted,
 };
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
@@ -23,7 +23,7 @@ use goodfetch_protocol::needs_you::{
     NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
     NeedsYouRemoveRefetchDomainParams,
 };
-use goodfetch_protocol::run::{Lifecycle, RunAbortParams, RunId, RunParams};
+use goodfetch_protocol::run::{Lifecycle, RunAbortParams, RunId, RunListParams, RunParams};
 use goodfetch_protocol::usage::UsageRaiseParams;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
@@ -484,8 +484,8 @@ fn a_runs_progress_is_followed_while_the_view_wants_it_and_its_read_cancelled_af
         TOKEN,
     );
     let wanted = Wanted {
-        live_runs: 0,
         progress: BTreeSet::from([run_id("shop-crawl")]),
+        ..Wanted::default()
     };
     let mut kennel = Following::wanting(&home, false, NEVER, wanted);
     kennel.next(1);
@@ -760,4 +760,84 @@ fn a_runs_controls_are_sent_to_their_operations_and_their_answers_reported() {
     );
     assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
     assert!(daemon.ended().success(), "the Daemon saw both calls");
+}
+
+#[test]
+fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
+    let Some(engine) = scripted_engine("the_details_windows_reads_follow_what_it_wants") else {
+        return;
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let home = Home::new(folder.path());
+    let daemon = ScriptedDaemon::start(&engine, &home, &script("details-reads.json"), TOKEN);
+    let mut kennel = Following::start(&home, false, NEVER);
+    kennel.next(1);
+
+    kennel.wanted.send_modify(|wanted| {
+        wanted.listing = Some(Listing {
+            generation: 1,
+            params: RunListParams {
+                text: Some("shop".to_owned()),
+                ..RunListParams::default()
+            },
+        });
+    });
+    let listed = kennel.next_report();
+    kennel.wanted.send_modify(|wanted| {
+        wanted.usage = Some(UsageRead {
+            run_id: run_id("shop-crawl"),
+            generation: 1,
+        });
+        wanted.report = Some(run_id("shop-crawl"));
+    });
+    let usage = kennel.next_report();
+    // A live Run's report comes at its end: no longer wanted, its read is
+    // cancelled.
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.report = Some(run_id("old-crawl")));
+    let ended = kennel.next_report();
+    kennel
+        .wanted
+        .send_modify(|wanted| wanted.report = Some(run_id("gone-crawl")));
+    let interrupted = kennel.next_report();
+
+    let Report::Listed { generation, rows } = listed else {
+        panic!("the listing's rows, not {listed:?}");
+    };
+    assert_eq!((generation, rows.len()), (1, 1));
+    assert_eq!(rows[0].run_id, run_id("shop-crawl"));
+    let Report::RunReport {
+        run_id: ended_run,
+        report: Ok(report),
+    } = ended
+    else {
+        panic!("the ended Run's report, not {ended:?}");
+    };
+    assert_eq!(ended_run, run_id("old-crawl"));
+    assert_eq!(report.lifecycle, Lifecycle::Finished);
+    let Report::RunReport {
+        run_id: interrupted_run,
+        report: Err(code),
+    } = interrupted
+    else {
+        panic!("the refused report read, not {interrupted:?}");
+    };
+    assert_eq!(
+        (interrupted_run, code.as_str()),
+        (run_id("gone-crawl"), "run_interrupted")
+    );
+    let Report::Usage {
+        run_id: used_by,
+        usage,
+    } = usage
+    else {
+        panic!("the Run's Usage, not {usage:?}");
+    };
+    assert_eq!((used_by, usage.requests), (run_id("shop-crawl"), 12));
+    assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
+    assert!(
+        daemon.ended().success(),
+        "the Daemon saw each read the window wanted, and the live Run's cancelled"
+    );
 }

@@ -100,6 +100,7 @@ fn with_no_daemon_the_icon_shows_it_unreachable_and_the_menu_offers_start_daemon
         choices(&state),
         [
             ("Start Daemon".to_owned(), Choice::StartDaemon),
+            ("Open details".to_owned(), Choice::OpenDetails),
             ("Quit".to_owned(), Choice::Quit),
         ]
     );
@@ -336,4 +337,51 @@ fn a_health_reading_with_no_daemon_reached_changes_nothing() {
 
     assert_eq!(state.view().verdict, Verdict::Unreachable);
     assert_eq!(texts(&state), ["No Daemon"]);
+}
+
+#[test]
+fn open_details_opens_the_details_window() {
+    let mut state = no_daemon();
+    state.apply(Input::Connection(foxhound_daemon()));
+
+    let effects = state.choose(Choice::OpenDetails);
+
+    assert_eq!(
+        choices(&state),
+        [
+            ("Open details".to_owned(), Choice::OpenDetails),
+            ("Quit".to_owned(), Choice::Quit),
+        ]
+    );
+    assert_eq!(effects, [Effect::OpenDetails]);
+}
+
+#[test]
+fn open_details_while_the_window_is_open_brings_it_forward_and_opens_none() {
+    let mut state = no_daemon();
+    state.choose(Choice::OpenDetails);
+
+    let while_open = state.choose(Choice::OpenDetails);
+    state.apply(Input::DetailsClosed);
+    let once_closed = state.choose(Choice::OpenDetails);
+
+    assert_eq!(while_open, [Effect::RaiseDetails]);
+    assert_eq!(once_closed, [Effect::OpenDetails]);
+}
+
+#[test]
+fn with_the_window_setting_off_the_kennel_is_a_menu_only() {
+    let mut state = no_daemon();
+
+    state.apply(Input::Settings(Ok(Settings {
+        window: false,
+        ..Settings::default()
+    })));
+
+    assert!(
+        !choices(&state)
+            .iter()
+            .any(|(_, choice)| *choice == Choice::OpenDetails)
+    );
+    assert_eq!(state.choose(Choice::OpenDetails), []);
 }

@@ -63,6 +63,7 @@ A left or a right click opens the menu. It shows the Daemon's state, then its li
 "Open details" starts the window as a second process of the same executable, `goodfetch-kennel window`, with `eframe` on glow. The process exits when the window closes, so a closed window costs nothing.
 
 - **Its own Connection.** The window reads `daemon.json` itself and connects as its own `kennel` Connection, which only observes. The tray passes it nothing but the argument `window`, and `hidden-icon` when the hidden-icon check opens it, never the token.
+- **Views.** The window shows the Runs, and the Kennel settings while `views.kennel_settings` is on (see Settings), chosen at its top.
 - **The Runs table** lists the Run index's rows, newest first, filtered by a text (found in a Run ID or a tag, the Recipe's among them) and a Lifecycle. It is listed again after each resync and each Run that starts or ends.
 - **A chosen Run.** A click on a Run shows its progress, its Usage with the Limits that apply to it, a crawl's failures by Error code, and its Run report. A live Run's report comes when it ends. A second click puts the Run away.
 - **What it reads.** It follows `run.progress` only of the running Runs on screen and of the chosen Run while it runs. It reads the chosen Run's report with `run.report`, and its Usage with `run.usage`, again at each new progress while it runs. Nothing is read once the window is closed.

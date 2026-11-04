@@ -26,3 +26,20 @@ fn each_cells_trials_run_once_each_interleaved_with_the_others() {
     expected.sort_unstable();
     assert_eq!((ran, mixed), (expected, true));
 }
+
+/// Only a run of the matrix's full trials waits for a quiet machine before
+/// each timed trial: a quicker try, which its report flags as short of the
+/// 10, never sleeps, so a check that the cells run holds no slot idle.
+#[test]
+fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
+    let waits = |trials| {
+        super::waits_for_quiet(&super::Options {
+            trials,
+            growth: false,
+            spider_pages: None,
+            scenarios: crate::compare::matrix::Scenario::ALL.to_vec(),
+        })
+    };
+
+    assert_eq!((waits(10), waits(3), waits(1)), (true, false, false));
+}

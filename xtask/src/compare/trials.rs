@@ -69,6 +69,14 @@ pub(crate) struct Declared {
     /// The Chrome for Testing build every tool of the headless browser
     /// scenario runs.
     pub(crate) browser: String,
+    /// The scenarios whose cells ran: every scenario, unless the run asked
+    /// for some.
+    #[serde(default = "every_scenario")]
+    pub(crate) scenarios: Vec<Scenario>,
+}
+
+fn every_scenario() -> Vec<Scenario> {
+    Scenario::ALL.to_vec()
 }
 
 /// The machine the trials ran on: never a published host (ADR 0076).

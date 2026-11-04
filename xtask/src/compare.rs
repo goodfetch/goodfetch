@@ -104,6 +104,10 @@ pub(crate) struct RunArguments {
     /// same-work check refuses: the check shown failing.
     #[arg(long, hide = true)]
     spider_pages: Option<u64>,
+    /// Runs only this scenario's cells; repeatable. Every scenario by
+    /// default.
+    #[arg(long = "scenario", value_enum)]
+    scenarios: Vec<Scenario>,
 }
 
 #[derive(Args)]
@@ -193,6 +197,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     trials: arguments.trials,
                     growth: arguments.growth,
                     spider_pages: arguments.spider_pages,
+                    scenarios: if arguments.scenarios.is_empty() {
+                        Scenario::ALL.to_vec()
+                    } else {
+                        arguments.scenarios.clone()
+                    },
                 },
             )?;
             let out = environment.path(&arguments.out);

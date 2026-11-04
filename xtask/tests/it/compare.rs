@@ -569,6 +569,37 @@ fn the_report_shows_the_load_each_trial_started_at() {
     }
 }
 
+/// A run of some scenarios only (`--scenario`) declares them: the
+/// same-work check holds only their cells to their trials, and the report
+/// gives only those scenarios.
+#[test]
+fn a_run_of_some_scenarios_reports_those_scenarios_only() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["declared"]["scenarios"] = json!(["polite", "browser"]);
+    let kept: Vec<Value> = trials["trials"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|trial| trial["scenario"] == "polite" || trial["scenario"] == "browser")
+        .cloned()
+        .collect();
+    trials["trials"] = json!(kept);
+    trials["instructions"] = not_run("scenario 1 did not run");
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let scenarios: Vec<&Value> = report["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|scenario| &scenario["scenario"])
+        .collect();
+    assert_eq!(scenarios, [&json!("polite"), &json!("browser")]);
+}
+
 #[test]
 fn the_system_call_cell_gives_each_cells_syncs() {
     let workspace = Workspace::from_fixture("empty");

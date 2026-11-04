@@ -46,6 +46,22 @@ pub(crate) struct Options {
     /// Gives Spider the site of this many pages instead, which the
     /// same-work check refuses: the check shown failing.
     pub(crate) spider_pages: Option<u64>,
+    /// The scenarios whose cells run.
+    pub(crate) scenarios: Vec<Scenario>,
+}
+
+/// Whether each timed trial waits for a quiet machine: only in a run of the
+/// matrix's full [`super::trials::TRIALS`], so a quicker try, which its
+/// report flags as short, never sleeps.
+pub(crate) fn waits_for_quiet(options: &Options) -> bool {
+    options.trials >= super::trials::TRIALS
+}
+
+/// The measured cells of the scenarios a run asked for.
+fn measured(options: &Options) -> Vec<(&'static Cell, Config)> {
+    matrix::measured()
+        .filter(|(cell, _)| options.scenarios.contains(&cell.scenario))
+        .collect()
 }
 
 /// `SplitMix64`, for the trials' order: nothing here needs more.
@@ -239,11 +255,15 @@ fn timed(
     state: &mut u64,
     pass: &str,
 ) -> Result<Vec<Trial>> {
-    let cells: Vec<_> = matrix::measured().collect();
+    let cells = measured(options);
     let mut trials = Vec::new();
     for (cell, config, number) in order(&cells, options.trials, state) {
         let site_pages = pages_of(config, pages, options.spider_pages);
-        let load = quiet();
+        let load = if waits_for_quiet(options) {
+            quiet()
+        } else {
+            load()
+        };
         let measured: Measured = trial(executables, cell, config, site_pages, ("timed", None))?;
         output::line(&format!(
             "{pass}{} {} trial {number}: {} pages in {:.3} s, peak {} bytes",
@@ -319,7 +339,7 @@ pub(crate) fn run(
     let order_seed = drawn_seed();
     let mut state = order_seed;
     let trials = timed(executables, options, SITE_PAGES, &mut state, "")?;
-    let measured: Vec<_> = matrix::measured().collect();
+    let measured = measured(options);
     let syscalls = match strace_missing() {
         Some(reason) => {
             output::line(&format!("The system-call cell does not run: {reason}."));
@@ -357,6 +377,9 @@ pub(crate) fn run(
         })
         .collect();
     let instructions = match callgrind_missing() {
+        _ if scenario_1.is_empty() => CountedCell::NotRun {
+            reason: "the run asked for no scenario 1 cell".to_owned(),
+        },
         Some(reason) => {
             output::line(&format!("The Callgrind cell does not run: {reason}."));
             CountedCell::NotRun { reason }
@@ -382,6 +405,7 @@ pub(crate) fn run(
             playwright: PLAYWRIGHT_VERSION.to_owned(),
             scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
             browser: super::trial::CHROME_FOR_TESTING_BUILD.to_owned(),
+            scenarios: options.scenarios.clone(),
         },
         machine,
         commit,

@@ -50,6 +50,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             playwright: "1.64.1".to_owned(),
             scrapy_playwright: "0.0.48".to_owned(),
             browser: "156.0.8078.4".to_owned(),
+            scenarios: Scenario::ALL.to_vec(),
         },
         machine: Machine {
             class: "local-controlled".to_owned(),

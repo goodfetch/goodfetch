@@ -100,11 +100,17 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         )];
     };
     let declared = trials.declared.trials;
+    let ran = &trials.declared.scenarios[..];
+    let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
+        &[Scenario::Raw]
+    } else {
+        &[]
+    };
     let mut findings = check_pass(&Pass {
         suffix: "",
         declared,
         site_pages: pages,
-        scenarios: &Scenario::ALL,
+        scenarios: ran,
         tools: &Tool::ALL,
         done: of_trials(&trials.trials),
     });
@@ -112,14 +118,14 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " strace",
             &trials.syscalls,
-            &Scenario::ALL[..],
+            ran,
             &Tool::ALL[..],
             "strace counted no system call, so the run measured nothing",
         ),
         (
             " callgrind",
             &trials.instructions,
-            &[Scenario::Raw][..],
+            raw,
             &INSTRUCTION_TOOLS[..],
             "Callgrind counted no instruction, so the run measured nothing",
         ),
@@ -155,7 +161,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             suffix: " growth",
             declared: *declared,
             site_pages: *site_pages,
-            scenarios: &Scenario::ALL,
+            scenarios: ran,
             tools: &Tool::ALL,
             done: of_trials(trials_run),
         }));

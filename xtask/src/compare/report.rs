@@ -492,7 +492,7 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
 pub(crate) fn of(trials: &Comparison) -> Report<'_> {
     let mut scenarios = Vec::new();
     let mut tools = BTreeMap::new();
-    for scenario in Scenario::ALL {
+    for &scenario in &trials.declared.scenarios {
         let mut cells = Vec::new();
         for cell in CELLS.iter().filter(|cell| cell.scenario == scenario) {
             let status = match cell.status {

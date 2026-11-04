@@ -669,6 +669,77 @@ fn a_cell_whose_strace_run_was_stopped_reports_its_system_calls_not_measured_wit
     );
 }
 
+/// A timed trial the comparison stopped once and ran again counts its
+/// retry's figures, and the trials table marks that trial with why the
+/// first attempt stopped.
+#[test]
+fn a_timed_trial_stopped_and_retried_is_marked_with_why() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let why = "timed trial 2 stopped after 130 s: the Proving ground received no request for 120 s after 0 requests";
+    trials["trials"][1]["retried"] = json!(why);
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = format!("| raw | foxhound | 2 (retried: {why}) | not measured | 2.000 |");
+    assert!(
+        markdown.contains(&expected),
+        "{expected} missing:\n{markdown}"
+    );
+}
+
+/// A cell whose timed trial was stopped twice, its first attempt and its
+/// retry, is not measured, with the measured reasons; it is not short of
+/// its declared trials, and the run's other cells report as before.
+#[test]
+fn a_cell_whose_timed_trial_was_stopped_twice_is_not_measured_with_why() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["trials"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|trial| !(trial["scenario"] == "browser" && trial["cell"] == "crawlee"));
+    let why = "timed trial 1 stopped after 600 s, the longest a timed trial may take, at 0 requests; its first attempt: timed trial 1 stopped after 130 s: the Proving ground received no request for 120 s after 0 requests";
+    trials["stopped"] = json!([{
+        "scenario": "browser",
+        "cell": "crawlee",
+        "tool": "crawlee",
+        "number": 1,
+        "reason": why,
+    }]);
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 4, "crawlee")["status"],
+            &cell(&report, 4, "crawlee")["reason"],
+            &cell(&report, 4, "scrapy")["status"],
+        ),
+        (&json!("not_measured"), &json!(why), &json!("measured"))
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = format!("  - not measured: {why}.");
+    assert!(
+        markdown.contains(&expected),
+        "{expected} missing:\n{markdown}"
+    );
+}
+
 #[test]
 fn a_tool_given_a_different_page_set_fails_the_same_work_check_and_reports_no_figure() {
     let workspace = Workspace::from_fixture("empty");

@@ -1,0 +1,160 @@
+{
+  "description": "The Kennel makes a person's calls on the Needs you items through its Connection, each to its operation: usage.raise, needs_you.allow_consent_domain, which the engine refuses, needs_you.deny_wall_domain, needs_you.remove_refetch_domain and needs_you.dismiss. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "usage.raise",
+        "params": {
+          "scope": "daemon",
+          "scope_id": "0.4",
+          "usage_kind": "page_loads",
+          "period": {
+            "every": "day",
+            "time_zone": "Europe/Paris"
+          },
+          "amount": 1000
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "limit": {
+            "scope": {
+              "kind": "daemon",
+              "id": "0.4"
+            },
+            "usage_kind": "page_loads",
+            "period": {
+              "every": "day",
+              "time_zone": "Europe/Paris"
+            },
+            "amount": 1000,
+            "must_understand": false,
+            "set_by": "person"
+          },
+          "standing": "held",
+          "charged": 500,
+          "held": 0,
+          "left": 500
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "needs_you.allow_consent_domain",
+        "params": {
+          "domain": "news.example"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "An Operator policy locks consent.domains: ask its administrator.",
+          "data": {
+            "code": "setting_locked",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "needs_you.deny_wall_domain",
+        "params": {
+          "domain": "shop.example",
+          "reason": "Denied by a person from the Kennel's menu"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "domain": "shop.example",
+          "added": true,
+          "reason": "Denied by a person from the Kennel's menu"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "needs_you.remove_refetch_domain",
+        "params": {
+          "domain": "shop.example"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "domain": "shop.example",
+          "removed": true,
+          "layer": "user",
+          "domains": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "needs_you.dismiss",
+        "params": {
+          "item": "consent_wall:news.example"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "dismissed": true
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

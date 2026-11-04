@@ -236,7 +236,12 @@ enum Command {
     /// Fails on an import between top-level modules that a crate's
     /// `modules.toml` does not allow, and on a long file that does not say
     /// why it is one concern (ADR 0126).
-    Modules,
+    Modules {
+        /// The Cargo workspace to check, from the repository's root: the
+        /// root's own by default, `kennel` for the Kennel's (ADR 0141).
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+    },
     /// Fails on any setting, flag, variable or workflow pattern that retries a
     /// test (ADRs 0064 and 0074).
     NoRetry,
@@ -510,7 +515,11 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
-        Command::Modules => Ok(check::report(&modules::check(cargo, root)?)),
+        Command::Modules { workspace } => {
+            let workspace =
+                workspace.map_or_else(|| root.to_path_buf(), |folder| root.join(folder));
+            Ok(check::report(&modules::check(cargo, &workspace)?))
+        }
         Command::NoRetry => Ok(check::report(&no_retry::check(root)?)),
         Command::Notices(arguments) => notices::run(&arguments, environment),
         Command::OsServices { command } => os_services::run(command, environment),

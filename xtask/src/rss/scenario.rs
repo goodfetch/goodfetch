@@ -196,6 +196,7 @@ fn hello_with(needs: Product, token: Option<String>) -> Result<Vec<u8>> {
                 .context("xtask's version is a Product version")?,
             log_level: None,
             client_surface: None,
+            keep_daemon_alive: false,
         })?),
     });
     let mut line = serde_json::to_vec(&hello)?;

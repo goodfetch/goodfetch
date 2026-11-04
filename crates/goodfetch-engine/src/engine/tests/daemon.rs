@@ -159,6 +159,16 @@ fn sdk_hello() -> Value {
     hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
 }
 
+/// The `hello` of a Kennel's Connection, which asks the Daemon to count it
+/// as a Client that keeps it alive when `keep_daemon_alive` (ADR 0141).
+pub(super) fn kennel_hello(keep_daemon_alive: bool) -> Value {
+    let mut hello = hello_with("collie", "0.1", "kennel", Some(TOKEN));
+    if keep_daemon_alive {
+        hello["params"]["keep_daemon_alive"] = json!(true);
+    }
+    hello
+}
+
 /// A Client that said `hello` with the token.
 pub(super) async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
     let mut client = connect(dialer).await;
@@ -288,6 +298,38 @@ fn a_connected_client_keeps_the_daemon_past_its_idle_timeout(#[case] surface: &s
     assert_eq!(
         (info, format!("{end:?}")),
         (json!("collie"), "Idle".to_owned())
+    );
+}
+
+/// A Kennel only observes the Daemon (ADR 0141): with its Connection the
+/// only one and no Run live, the Daemon stops at its idle timeout. A Kennel
+/// whose `hello` asks to keep the Daemon alive holds it past its idle
+/// timeout as any other Client does.
+///
+/// Covers: story:3-18, setting:daemon.idle_timeout
+#[rstest]
+#[case::observing(false, false)]
+#[case::keeping_it_alive(true, true)]
+fn a_kennel_holds_off_the_idle_stop_only_when_it_asks_to_keep_the_daemon_alive(
+    #[case] keep_daemon_alive: bool,
+    #[case] answered: bool,
+) {
+    let (end, after_the_timeout) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        the_pick(),
+        |dialer| async move {
+            let kennel = opened(&dialer, kennel_hello(keep_daemon_alive)).await;
+            tokio::time::sleep(11 * MINUTE).await;
+            let answered = answers(&dialer).await;
+            drop(kennel);
+            answered
+        },
+    );
+
+    assert_eq!(
+        (after_the_timeout, format!("{end:?}")),
+        (answered, "Idle".to_owned())
     );
 }
 
@@ -456,6 +498,44 @@ fn the_runs_a_cli_connection_starts_outlive_it() {
 
     assert_eq!(
         (live, index_row(&env, "lasting")["lifecycle"].clone()),
+        (json!(1), json!("finished"))
+    );
+}
+
+/// A Run a person resumes from the Kennel outlives the Kennel's
+/// Connection, as a CLI command's Runs do (ADR 0141): the next Client finds
+/// it live.
+///
+/// Covers: story:11-199, operation:run.resume
+#[test]
+fn a_run_a_kennel_connection_resumes_outlives_it() {
+    let env = TestEnv::new();
+
+    let (_, live) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut starting = opened(&dialer, cli_hello()).await;
+            call(&mut starting, 1, "run.start", json!({ "run_id": "paused" })).await;
+            call(&mut starting, 2, "run.pause", json!({ "run_id": "paused" })).await;
+            starting.close().await;
+            while starting.next().await.is_some() {}
+            let mut kennel = opened(&dialer, kennel_hello(false)).await;
+            call(&mut kennel, 1, "run.resume", json!({ "run_id": "paused" })).await;
+            kennel.close().await;
+            while kennel.next().await.is_some() {}
+            tokio::time::sleep(MINUTE).await;
+            let mut next = opened(&dialer, cli_hello()).await;
+            let status = call(&mut next, 1, "daemon.status", json!({})).await;
+            call(&mut next, 2, "run.finish", json!({ "run_id": "paused" })).await;
+            next.close().await;
+            status["result"]["live_runs"].clone()
+        },
+    );
+
+    assert_eq!(
+        (live, index_row(&env, "paused")["lifecycle"].clone()),
         (json!(1), json!("finished"))
     );
 }
@@ -691,6 +771,45 @@ fn a_daemon_not_the_pick_hands_over_once_only_a_console_is_left() {
             matches!(end, DaemonEnd::HandedOver(_))
         ),
         (true, 1, true)
+    );
+}
+
+/// A Daemon that is not its major's pick hands over once only a Kennel is
+/// left and no Run is live, since a Kennel only observes it (ADR 0141); a
+/// Kennel whose `hello` asks to keep the Daemon alive holds the handover
+/// off while it stays connected.
+///
+/// Covers: story:3-138
+#[rstest]
+#[case::observing(false, 1)]
+#[case::keeping_it_alive(true, 0)]
+fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_daemon_alive(
+    #[case] keep_daemon_alive: bool,
+    #[case] handed_over_while_connected: u32,
+) {
+    let handovers = no_handover();
+    let counted = Arc::clone(&handovers);
+
+    let (end, while_connected) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        options(false, &handovers),
+        |dialer| async move {
+            let kennel = opened(&dialer, kennel_hello(keep_daemon_alive)).await;
+            let mut script = opened(&dialer, sdk_hello()).await;
+            call(&mut script, 1, "run.start", json!({ "run_id": "busy" })).await;
+            script.close().await;
+            while script.next().await.is_some() {}
+            tokio::time::sleep(MINUTE).await;
+            let while_connected = begun(&counted);
+            drop(kennel);
+            while_connected
+        },
+    );
+
+    assert_eq!(
+        (while_connected, matches!(end, DaemonEnd::HandedOver(_))),
+        (handed_over_while_connected, true)
     );
 }
 

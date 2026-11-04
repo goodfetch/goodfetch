@@ -417,3 +417,52 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
         "{answer}"
     );
 }
+
+/// The Kennel is a person surface (ADR 0141): its answer is admitted, as
+/// the CLI's and the Console's are, and the Audit log records it as the
+/// Kennel's; an SDK's is still refused with `person_required` and writes
+/// nothing.
+///
+/// Covers: operation:needs_you.allow_consent_domain
+#[rstest]
+#[case::from_the_kennel("kennel", json!(true), Value::Null, &["kennel"])]
+/// Covers: error:person_required
+#[case::from_an_sdk("sdk_python", Value::Null, json!("person_required"), &[])]
+fn a_persons_answer_is_admitted_from_the_kennel_and_refused_from_an_sdk(
+    #[case] surface: &str,
+    #[case] added: Value,
+    #[case] refused: Value,
+    #[case] recorded: &[&str],
+) {
+    let env = TestEnv::new();
+    configure(&env, "");
+    let surface = surface.to_owned();
+
+    let answer = attached_on(&walled_engine(&env), &env, |mut client| async move {
+        opened(&mut client, &surface).await;
+        call(
+            &mut client,
+            2,
+            "needs_you.allow_consent_domain",
+            json!({ "domain": "walled.test" }),
+        )
+        .await
+    });
+
+    assert_eq!(
+        (
+            answer["result"]["added"].clone(),
+            answer["error"]["data"]["code"].clone(),
+            audit_entries(&env)
+                .iter()
+                .map(|entry| entry["surface"].clone())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            added,
+            refused,
+            recorded.iter().map(|surface| json!(surface)).collect()
+        ),
+        "{answer}"
+    );
+}

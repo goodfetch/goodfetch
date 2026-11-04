@@ -18,8 +18,9 @@ members = [
   "xtask",
 ]
 # Goodfetch's forks of `wreq` and `wreq-util`, which `[patch.crates-io]`
-# below carries: crates of their own, not members.
-exclude = ["vendor/wreq", "vendor/wreq-util"]
+# below carries: crates of their own, not members. The Kennel's workspace,
+# `kennel/`, has its own lockfile and toolchain (ADR 0141).
+exclude = ["kennel", "vendor/wreq", "vendor/wreq-util"]
 
 [workspace.package]
 version = "0.0.0"

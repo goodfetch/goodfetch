@@ -1,0 +1,56 @@
+[package]
+name = "goodfetch-kennel-app"
+description = "The Kennel's executable: the Tray on tray-icon, muda and winit, over goodfetch-kennel (ADR 0141)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "goodfetch-kennel"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+arboard.workspace = true
+eframe.workspace = true
+goodfetch-kennel.workspace = true
+goodfetch-protocol.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tray-icon.workspace = true
+winit.workspace = true
+
+# The confirmations' dialog; on Linux the Tray's GTK thread asks instead.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd.workspace = true
+
+# The Tray's GTK thread on Linux: GTK's start, its main loop and the
+# confirmations' dialog.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk.workspace = true
+
+# The menu's closing, from AppKit's `NSMenuDidEndTrackingNotification`,
+# the details window brought forward, through `NSRunningApplication`,
+# and the desktop notices, from `UNUserNotificationCenter`.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-user-notifications.workspace = true
+
+# The desktop notices on Linux and Windows.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

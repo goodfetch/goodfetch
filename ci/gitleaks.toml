@@ -39,3 +39,7 @@ regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']
 [[allowlists]]
 description = "The made-up private key a TLS settings test pastes where a Secret reference belongs (#626), in its first and its final form: 57 and 53 characters, not base64, no key at all"
 regexes = ['''AgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg''']
+
+[[allowlists]]
+description = "The made-up token the Kennel's Text tests mask where the truncation cuts it (spec #2052): sixteen hex digits counting up, no key at all"
+regexes = ['''0123456789abcdef''']

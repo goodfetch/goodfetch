@@ -5815,6 +5815,11 @@
           "arrived_in": "0.1",
           "description": "The form its user writes names in (ADR 0099); none until each\nsurface names its own."
         },
+        "keep_daemon_alive": {
+          "arrived_in": "0.1",
+          "description": "On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the\nConnection as a Client that keeps it alive, holding off its idle\nstop and a handover to its major's pick as every other surface's\nConnection does (ADR 0141). Read only from a `kennel` Connection,\nand ignored on any other surface's.",
+          "type": "boolean"
+        },
         "log_level": {
           "anyOf": [
             {
@@ -15395,6 +15400,11 @@
         {
           "const": "console",
           "description": "The Console.",
+          "type": "string"
+        },
+        {
+          "const": "kennel",
+          "description": "The Kennel, a person surface that observes the Daemon: its Runs\noutlive its Connection, which holds the Daemon neither awake nor\nback from a handover unless its `hello` sets `keep_daemon_alive`\n(ADR 0141).",
           "type": "string"
         },
         {

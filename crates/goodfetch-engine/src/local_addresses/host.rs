@@ -78,12 +78,14 @@ fn any_of_prefix(_prefix: Ipv6Prefix) -> bool {
 }
 
 /// The `RTF_LOCAL` flag of a route in `/proc/net/ipv6_route`.
+#[cfg(any(target_os = "linux", test))]
 const LOCAL_ROUTE: u32 = 0x8000_0000;
 
 /// Whether `routes`, `/proc/net/ipv6_route`'s text, holds a local route
 /// covering `prefix`. Each line is the destination's 32 hexadecimal
 /// digits, its length in hexadecimal, the source and its length, the next
 /// hop, the metric, two counters, the flags and the device.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn routed_locally(routes: &str, prefix: Ipv6Prefix) -> bool {
     routes.lines().any(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();

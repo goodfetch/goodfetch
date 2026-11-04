@@ -288,6 +288,7 @@ fn max_redirects_option(surface: Surface) -> &'static str {
         | Surface::Cli
         | Surface::Mcp
         | Surface::Console
+        | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost
         | Surface::Worker => "max_redirects",

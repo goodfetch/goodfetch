@@ -2799,6 +2799,13 @@ class Surface(StrEnum):
     """The MCP server, as a Client of a Daemon."""
     console = "console"
     """The Console."""
+    kennel = "kennel"
+    """
+    The Kennel, a person surface that observes the Daemon: its Runs
+    outlive its Connection, which holds the Daemon neither awake nor
+    back from a handover unless its `hello` sets `keep_daemon_alive`
+    (ADR 0141).
+    """
     cloud = "cloud"
     """
     Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
@@ -4002,6 +4009,14 @@ class HelloParams(BaseModel):
     """
     The form its user writes names in (ADR 0099); none until each
     surface names its own.
+    """
+    keep_daemon_alive: bool | None = None
+    """
+    On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
+    Connection as a Client that keeps it alive, holding off its idle
+    stop and a handover to its major's pick as every other surface's
+    Connection does (ADR 0141). Read only from a `kennel` Connection,
+    and ignored on any other surface's.
     """
     log_level: LogLevel | None = None
     """

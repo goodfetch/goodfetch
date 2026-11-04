@@ -632,7 +632,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "description": "Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,

@@ -34,10 +34,14 @@ pub(crate) enum Job {
     Evaluation,
     /// TLC on `models`, with their small constants (ADR 0060).
     Tlc,
+    /// The Kennel's checks, `just kennel-check` (ADR 0141): its workspace's
+    /// Clippy and tests, run when it or the protocol crate it is built on
+    /// changes, and for no other change.
+    Kennel,
 }
 
 impl Job {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::PreMerge,
         Self::Sinks,
         Self::Perf,
@@ -45,6 +49,7 @@ impl Job {
         Self::Docs,
         Self::Evaluation,
         Self::Tlc,
+        Self::Kennel,
     ];
 
     const fn id(self) -> &'static str {
@@ -56,6 +61,7 @@ impl Job {
             Self::Docs => "docs",
             Self::Evaluation => "evaluation",
             Self::Tlc => "tlc",
+            Self::Kennel => "kennel",
         }
     }
 }
@@ -111,6 +117,10 @@ const PROMPT_FOLDERS: [&str; 2] = ["skills", CATALOG_CRATE];
 /// samples are generated too.
 const CATALOG_CRATE: &str = "crates/goodfetch-protocol";
 const PROMPT_SEGMENTS: [&str; 2] = ["prompts", "request-snapshots"];
+
+/// The Kennel's workspace (ADR 0141), no member of the root one: its own
+/// job checks it, and its changes select nothing else.
+const KENNEL_FOLDER: &str = "kennel";
 
 /// Paths no test reads: the Quick suite, which always runs, checks them.
 pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
@@ -261,13 +271,18 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
         if is_prompt_affecting(path) {
             changed.jobs.insert(Job::Evaluation);
         }
+        if path.is_in(KENNEL_FOLDER) || path.is_in(CATALOG_CRATE) {
+            changed.jobs.insert(Job::Kennel);
+        }
         match owner(workspace, path) {
             Some(Owner::Crate(krate)) => {
                 changed.crates.insert(krate.name.clone());
             }
             Some(Owner::Package(package)) => changed.packages.push(package),
-            // The models are checked by TLC alone.
-            None if needs_no_tests(path) || path.is_in(tlc::MODELS_FOLDER) => {}
+            // The models are checked by TLC alone, the Kennel by its job.
+            None if needs_no_tests(path)
+                || path.is_in(tlc::MODELS_FOLDER)
+                || path.is_in(KENNEL_FOLDER) => {}
             None => everything = true,
         }
     }

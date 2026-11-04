@@ -324,6 +324,7 @@ gated journeys-tasks just journeys-tasks --check
 # One invocation, so the listings `journeys-tests` writes serve both.
 gated features-tests just features-tests clients-tests
 whole tlc just _tlc "$all"
+whole kennel just _kennel "$all"
 whole msrv just msrv
 whole miri just miri
 gated notices just notices

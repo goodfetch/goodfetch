@@ -236,6 +236,11 @@
             "type": "string"
           },
           {
+            "const": "kennel",
+            "description": "The Kennel, a person surface that observes the Daemon: its Runs\noutlive its Connection, which holds the Daemon neither awake nor\nback from a handover unless its `hello` sets `keep_daemon_alive`\n(ADR 0141).",
+            "type": "string"
+          },
+          {
             "const": "cloud",
             "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
             "type": "string"

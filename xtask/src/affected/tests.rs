@@ -266,7 +266,11 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","visual","evaluation"]"#)]
 #[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","visual","evaluation"]"#)]
 // The catalog is the docs' reference too (spec #130, Pre-merge suite).
-#[case::evaluation_and_docs_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
+// The Kennel is built on the protocol crate alone (ADR 0141).
+#[case::evaluation_docs_and_kennel_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation","kennel"]"#)]
+// The Kennel's own workspace selects its checks and nothing else (ADR 0141).
+#[case::only_kennel_for_the_kennels_code(&["kennel/crates/goodfetch-kennel/src/state.rs"], r#"["kennel"]"#)]
+#[case::only_kennel_for_the_kennels_lockfile(&["kennel/Cargo.lock", "kennel/deny.toml"], r#"["kennel"]"#)]
 #[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
 #[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
 // The visual job runs when a visual test, a Reference screenshot, a runner's
@@ -305,6 +309,7 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 #[case::a_workspace_input(&["Cargo.lock"], "full")]
 #[case::docs_with_a_crate(&["docs/adr/0135-local-gate.md", "crates/goodfetch-collie/src/main.rs"], "full")]
 #[case::a_visual_input(&["ci/visual/image.toml"], "full")]
+#[case::the_kennel(&["kennel/README.md"], "full")]
 fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
     #[case] paths: &[&str],
     #[case] gate: &str,

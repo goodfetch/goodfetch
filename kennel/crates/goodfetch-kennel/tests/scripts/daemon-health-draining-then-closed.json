@@ -1,0 +1,65 @@
+{
+  "description": "A Foxhound Daemon accepts the Kennel's hello and its subscription, answers its daemon.health poll that it drains, then closes the Connection, as a Daemon that stops does.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "daemon.health",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "live": true,
+          "ready": false,
+          "unready": ["draining"]
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

@@ -18,7 +18,8 @@ use crate::check::Finding;
 
 use super::matrix::{self, Scenario};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, Tool, Trial, Work,
+    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, StoppedRun, Tool, Trial,
+    Work,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -83,6 +84,14 @@ fn of_runs(runs: &[CountedRun]) -> Vec<Done<'_>> {
         .collect()
 }
 
+/// The cells of stopped runs or trials, not measured.
+fn of_stopped(stopped: &[StoppedRun]) -> Vec<(Scenario, &str)> {
+    stopped
+        .iter()
+        .map(|run| (run.scenario, run.cell.as_str()))
+        .collect()
+}
+
 /// The pages of the site `/sites/<n>/1` declares.
 fn site_pages(first: &str) -> Option<u64> {
     first
@@ -116,7 +125,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         scenarios: ran,
         tools: &Tool::ALL,
         done: of_trials(&trials.trials),
-        stopped: Vec::new(),
+        stopped: of_stopped(&trials.stopped),
     });
     for (suffix, cell, scenarios, tools, empty) in [
         (
@@ -147,10 +156,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 scenarios,
                 tools,
                 done: of_runs(runs),
-                stopped: stopped
-                    .iter()
-                    .map(|run| (run.scenario, run.cell.as_str()))
-                    .collect(),
+                stopped: of_stopped(stopped),
             };
             findings.extend(check_pass(&pass));
             for (run, done) in runs.iter().zip(&pass.done) {
@@ -164,6 +170,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         trials: declared,
         site_pages,
         trials_run,
+        stopped,
     } = &trials.growth
     {
         findings.extend(check_pass(&Pass {
@@ -173,7 +180,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             scenarios: ran,
             tools: &Tool::ALL,
             done: of_trials(trials_run),
-            stopped: Vec::new(),
+            stopped: of_stopped(stopped),
         }));
     }
     findings

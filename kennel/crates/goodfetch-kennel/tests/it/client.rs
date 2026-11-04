@@ -858,8 +858,6 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
         &script("details-records-and-settings.json"),
         TOKEN,
     );
-    let mut kennel = Following::start(&home, false, NEVER);
-    kennel.next(1);
     let query = |generation: u64, sql: &str| Query {
         generation,
         params: DatasetQueryParams {
@@ -869,10 +867,19 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
         },
     };
     let first = "SELECT dataset, number FROM records('shop-crawl')";
+    // Wanted as the Connection opens, the first query is sent before any
+    // later change of what is wanted.
+    let mut kennel = Following::wanting(
+        &home,
+        false,
+        NEVER,
+        Wanted {
+            records: Some(query(1, first)),
+            ..Wanted::default()
+        },
+    );
+    kennel.next(1);
 
-    kennel
-        .wanted
-        .send_modify(|wanted| wanted.records = Some(query(1, first)));
     // Another page wanted before the first answered: the first query is
     // cancelled.
     kennel.wanted.send_modify(|wanted| {

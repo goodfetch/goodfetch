@@ -15,22 +15,23 @@ How Goodfetch is tested: every surface, at every level. Each rule comes with its
 9. [Simulation, model checking and crash testing](#simulation-model-checking-and-crash-testing)
 10. [Flaky tests and Live checks](#flaky-tests-and-live-checks)
 11. [Test-first process](#test-first-process)
-12. [Review checklist](#review-checklist)
-13. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
-14. [AI features and agent skills](#ai-features-and-agent-skills)
-15. [Journeys](#journeys)
-16. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
-17. [SDK and CLI tests](#sdk-and-cli-tests)
-18. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
-19. [Performance budgets](#performance-budgets)
-20. [Quality register](#quality-register)
-21. [Security](#security)
-22. [Console and docs site](#console-and-docs-site)
-23. [Feature coverage](#feature-coverage)
-24. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
-25. [Which stories need a Journey](#which-stories-need-a-journey)
-26. [Goodfetch Chromium](#goodfetch-chromium)
-27. [Free tiers and local secrets](#free-tiers-and-local-secrets)
+12. [Checks by role](#checks-by-role)
+13. [Review checklist](#review-checklist)
+14. [Suites, commands and time budgets](#suites-commands-and-time-budgets)
+15. [AI features and agent skills](#ai-features-and-agent-skills)
+16. [Journeys](#journeys)
+17. [Upgrades and version mismatches](#upgrades-and-version-mismatches)
+18. [SDK and CLI tests](#sdk-and-cli-tests)
+19. [MCP, framework adapters and Integrations](#mcp-framework-adapters-and-integrations)
+20. [Performance budgets](#performance-budgets)
+21. [Quality register](#quality-register)
+22. [Security](#security)
+23. [Console and docs site](#console-and-docs-site)
+24. [Feature coverage](#feature-coverage)
+25. [Accessibility, localization and visual regression](#accessibility-localization-and-visual-regression)
+26. [Which stories need a Journey](#which-stories-need-a-journey)
+27. [Goodfetch Chromium](#goodfetch-chromium)
+28. [Free tiers and local secrets](#free-tiers-and-local-secrets)
 
 Sections 1 to 7, 11 and 12 are decided in [ADR 0062](docs/adr/0062-tests-sit-beside-their-code-and-share-one-test-support-written-once.md), apart from section 2's rule that a test is never retried, which [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md) wrote in place of the line ADR 0062 moved there.
 
@@ -508,6 +509,24 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
   _Why:_ a test never seen failing may test nothing, and green commits keep `git bisect` and the "all green" check working.
 - **A bug fix starts with a test that reproduces the bug**, named by the behaviour, not the issue.
 
+## Checks by role
+
+Which checks each role runs, and when (the owner's decision of 2026-11-05). Orchestrator briefs, `implement-spec` runs and relays of `/implement` point here and list no checks of their own; where a brief or a skill asks for more, this section wins.
+
+| Role | Runs | Does not run |
+|---|---|---|
+| Implementer of a ticket | While editing: `tdd`'s red-green cycles and the tests of the modules it touches, by name. Done, once, on the tree it reports: `just quick`, which reads the change against the branch's upstream, the integration branch's tip, and the [Quality register](#quality-register)'s rows whose Runs at is implementer done, for the Shared paths it touched ([Rules](#rules)). | `just pre-merge`, `just stress`, `just perf`, `just linux`, `just visual`, a per-merge smoke run, a build, database, Journey, end-to-end or benchmark suite, `just counts` before the change or for a family the change does not touch, unless its spec names one for implementer done. |
+| Merger of a ticket into an integration branch | The merge. The pre-push hook is its only check, and runs nothing when the merge leaves a tree `just quick` already passed on. | Any other lint, suite, `just counts` or smoke run. |
+| A pull request to `main`, an integration branch's included | `just merge <number>`, once on its head: the gate `xtask affected` picks: for a change a test reads, the full gate (the Pre-merge suite with `perf` and every family of `just counts`, and the stress run). | |
+| `main` | The backstop, `just gate-backstop`, daily from the gate host's cron, and the cron jobs of [After merge](#after-merge); the Release suite on dispatch. | |
+
+- **No check runs twice on one tree,** whoever ran it first: the agent, the pre-push hook or the merger. `ci/quick.sh` records each tree a green `just quick` passed on a clean checkout in the repository's common folder (`goodfetch-quick-green`, which every worktree shares), and `.githooks/pre-push` runs nothing for a push of recorded trees. After an edit, run again only what the edit can reach.
+- **An unchanged check runs again once, and only after a diagnosed environment fault** (a full disk, a killed process, a timing failure on a loaded host), in a free slot, not under the same load: never to see whether a failure goes away ([No retries](#no-retries)).
+- **`just quick` reads the change against its base:** the commit the push's remote ref holds when the pre-push hook runs it, else the branch's upstream off `main` (a ticket's integration branch), else `origin/main`. A ticket's quick gate covers its own change, not the integration branch's whole diff with `main`.
+- **One heavy suite at a time per machine** (a build, database, end-to-end, benchmark or Pre-merge run), and at most 3 implementers on one machine. Wait for a run through its completion notice, never through a `pgrep` or `sleep` loop.
+
+_Why:_ on the gate host, in M1 and spec #1577's run up to 2026-11-05, Pre-merge runs by implementers took about 1,749 minutes, the hook's `just quick` on trees that had already passed 162 pushes and 2,598 minutes, and `just counts` before and after each ticket over every family 139 runs and 1,375 minutes. The merge gate of the pull request to `main` still runs each of them once.
+
 ## Review checklist
 
 A pull request's tests meet this list, a standard the `code-review` skill applies:
@@ -568,7 +587,7 @@ Each suite runs everything the suite before it runs.
 
 ### Commands
 
-- **Run `just quick` before every push.** `just hooks` installs an opt-in pre-push hook that does it. It starts with the floor guard (`just floor-guard`) and the scan of the change's commits for secrets (`just commit-leaks`), which take seconds and which the gate would otherwise first run at merge, then the checks the change's own gate runs at merge, from `xtask affected`'s `gate=` line as `just merge` picks its form (`ci/quick.sh`): for a change of documents alone (`gate=docs`) `just lint-documents`, as the docs gate runs it, and no code lint or suite; for any other change `just lint` and the Quick suite over what changed. `just quick all` runs every lint and the whole Quick suite, whatever changed.
+- **Run `just quick` before every push, once.** `just hooks` installs an opt-in pre-push hook that does it, unless a green `just quick` already passed on the pushed tree ([Checks by role](#checks-by-role)). With the hook on, the push is that run: run it by hand only when your role's done check asks for it, and the hook then skips that tree. It starts with the floor guard (`just floor-guard`) and the scan of the change's commits for secrets (`just commit-leaks`), which take seconds and which the gate would otherwise first run at merge, then the checks the change's own gate runs at merge, from `xtask affected`'s `gate=` line as `just merge` picks its form (`ci/quick.sh`): for a change of documents alone (`gate=docs`) `just lint-documents`, as the docs gate runs it, and no code lint or suite; for any other change `just lint` and the Quick suite over what changed, read against the change's base: the commit the push's remote ref holds, else the branch's upstream off `main`, else `origin/main`. `just quick all` runs every lint and the whole Quick suite, whatever changed.
 - **`just test <suite> [packages]`** runs one suite's tests without lints. CI jobs call it, and so can you.
 - **`just repeat <count> --test <runner>=<test ID>`** runs a test `count` times whatever each run's result, as a diagnostic run does; `--quarantined <n>` takes the quarantine list's n oldest entries, and `--tests-file <file>` a file of `<runner>=<test ID>` lines, as the stress run hands it its selection. A runner whose arguments would pass the operating system's limits (Linux's 128 KiB for one argument, `getconf ARG_MAX` for all) runs in batches, each with the same counts and its part of the tests, each batch's JUnit file kept as `<runner>.<batch>.xml`. Every run counts, so it is no retry. With `--until-red`, given first, as the stress run gives it, the run stops at the end of its first red iteration: nextest runs one iteration a command (`--stress-count=1`, since nextest's `--max-fail` ends a stress run in the middle of an iteration), each iteration's JUnit file kept as `<runner>.<batch>.<iteration>.xml`, and after a red one no later iteration, runner or count runs. A selected LazyFS power cut (`lazyfs::`) runs past nextest's default filter where `GOODFETCH_LAZYFS` names a LazyFS build, and fails the run elsewhere rather than being dropped: a Linux host that runs the local gate builds LazyFS once (`just lazyfs-build` prints the executable's path), keeps that `bin/` folder outside the gate's checkout, whose `target/lazyfs/` each gate clears, and exports `GOODFETCH_LAZYFS` to it.
 - **`just stress [base]`** runs the stress run of [Before merge](#before-merge) against `base`, the merge base with `origin/main` by default. The incremental local gate narrows it, `just stress "" <since> <workspace member>…`: only the new and changed tests of the workspace members the change since an earlier gate run's head reaches, plus each test whose file that change changed; Vitest, Playwright and pytest keep every one of their new and changed tests, so they run in the head's order as in a full run ([ADR 0135](docs/adr/0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)).
@@ -579,7 +598,7 @@ Each suite runs everything the suite before it runs.
 - **`just counts`** prints each counted row's figure and fails over its limit, and `just counts --valgrind` each row read under Valgrind ([Quality register](#quality-register)). B1's `F2.prepares` and `F3.prepares` and B3's `E3.prepares` need Valgrind, for Callgrind's count of statement preparations.
 - **`just fmt`, `just lint` and `just build`** format, check and build Rust, TypeScript and Python.
 - **`just kennel-check` runs the Kennel's checks** ([ADR 0141](docs/adr/0141-the-kennel-is-a-tray-tool-of-its-own-workspace-that-reaches-the-daemon-as-an-observing-person-surface-and-is-published-apart-from-the-products.md)): its own workspace's Clippy and tests, the Client's against `goodfetch-scripted-engine` and the Run controls' against a real Daemon of `goodfetch-collie` (with its Console build), which the root workspace builds. A change to the engine alone does not select it, by the spec's rule; the daily backstop runs it. It is the Pre-merge suite's `kennel` step, which `xtask affected` selects (its `kennel` job) for a change to `kennel/` or `goodfetch-protocol` and for no other; `just lint` checks the Kennel's formatting, lockfile and `cargo-deny` rules on every change, and `just audit` its advisories. On a host other than macOS, such as the display-less Linux gate, it tests the non-graphical crate and type-checks the graphical one for macOS (`aarch64-apple-darwin`) and, on Linux, for the host, whose Tray runs on GTK 3; each type-check is listed as skipped without its Rust target or, on Linux, the development files of GTK 3 and libdbus (`libgtk-3-dev`, `libdbus-1-dev`), and fails in CI.
-- **What changed comes from `xtask affected`**, in CI and locally; `just quick all` and `just pre-merge all` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`. Rust selects through `rdeps(…)`, so dependants run too. A crate whose tests run another crate's executable through the test tool manifest names that crate in `[package.metadata.goodfetch] runs`, and a pnpm or uv package names it in its `package.json`'s `goodfetch.runs` or its `pyproject.toml`'s `[tool.goodfetch] runs`. A change to that crate, or to a crate its build depends on (a normal or build dependency, not a dev-dependency), reaches them as a dependency's would: `goodfetch-conformance` names the Proving ground and both Products, so a change to the Proving ground or to the engine runs the self-test suite, and the test-support packages name them too, so the same change runs their tests and their dependants', the Console's and the SDKs'. The Quick suite runs in-process tests only (nextest's `quick` profile: no `tests/` binary), so it runs no test that starts an executable, whatever `xtask affected` selects; it builds only the libraries and executables those tests are in (`ci/quick-targets.sh`), and no `tests/` binary or example, which `just lint`'s Clippy checks and the Pre-merge suite builds. It builds them for every workspace member, so its build is the same whatever changed and shares its crates with `xtask compat check`'s, and runs the selected members' tests alone through a nextest filterset (`ci/quick-nextest.sh`).
+- **What changed comes from `xtask affected`**, in CI and locally; `just quick all` and `just pre-merge all` run over the whole workspace. Locally it diffs the working tree, uncommitted changes included, against the merge base with `origin/main`, or with the revision `--since` names, as `just quick` gives it its change's base. Rust selects through `rdeps(…)`, so dependants run too. A crate whose tests run another crate's executable through the test tool manifest names that crate in `[package.metadata.goodfetch] runs`, and a pnpm or uv package names it in its `package.json`'s `goodfetch.runs` or its `pyproject.toml`'s `[tool.goodfetch] runs`. A change to that crate, or to a crate its build depends on (a normal or build dependency, not a dev-dependency), reaches them as a dependency's would: `goodfetch-conformance` names the Proving ground and both Products, so a change to the Proving ground or to the engine runs the self-test suite, and the test-support packages name them too, so the same change runs their tests and their dependants', the Console's and the SDKs'. The Quick suite runs in-process tests only (nextest's `quick` profile: no `tests/` binary), so it runs no test that starts an executable, whatever `xtask affected` selects; it builds only the libraries and executables those tests are in (`ci/quick-targets.sh`), and no `tests/` binary or example, which `just lint`'s Clippy checks and the Pre-merge suite builds. It builds them for every workspace member, so its build is the same whatever changed and shares its crates with `xtask compat check`'s, and runs the selected members' tests alone through a nextest filterset (`ci/quick-nextest.sh`).
 - **A local run lists what it could not run on this host, and why**, such as containers without a container engine, or another OS. Its exit code covers what ran. CI is the verdict.
 - **`just release-ci` dispatches the Release suite on your pushed branch** and follows it to the end. While the repository is private, on `main` it also runs the macOS cells on the owner's machine, which stands in for the reference host, and on any other branch the hosted cells alone; it takes the cells to run, all by default, and on `main` a commit of `main`, its head by default: `just release-ci windows-x64,macos-arm64 <sha>` ([ADR 0108](docs/adr/0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md)).
 
@@ -1499,11 +1518,11 @@ Each known gap between today's code and ADR 0140's contracts, recorded at adopti
 
 ### Rules
 
-- **"Runs at" names one of two moments:** implementer done (`tdd`) or the merge gate. The rows of counted work run at implementer done, at most 60 seconds per benchmark family; the rows read under Valgrind (instructions, allocations, bytes) run at the merge gate, through `xtask perf`.
+- **"Runs at" names one of two moments:** implementer done (`tdd`) or the merge gate. The rows of counted work run at implementer done, at most 60 seconds per benchmark family, once after the change and only for the families whose Shared paths it touched: `just counts --family <its Benchmark>`, or `--path` for one path. Their baseline is each row's Today figure, never a run before the change, and a change that touches no Shared path runs none. The merge gate's `perf` step runs every family. The rows read under Valgrind (instructions, allocations, bytes) run at the merge gate, through `xtask perf`.
 - **Every enforced row has a number and a command.** A dimension with a number and no command stays in the Measured table until its command exists.
 - **Counters only.** An enforced row counts counted work (ADR 0140), or instructions, allocations, bytes or system calls. Wall time and resident memory stay [Performance targets](#performance-targets), each figure with the setup it was measured on, and compared only with a figure from the same setup. Work is counted per unit of the outcome that does it, and each benchmark's input produces every outcome its path has.
 - **A ceiling is the measured value, or the value an ADR sets,** never a round number above it. For work ADR 0140 plans and no code does yet, the row starts at the ADR's value. Raising a row up to its Cost contract, in the pull request whose spec names the added count, is not a loosening: the commit records it with a `Quality-change:` trailer. Above the contract, it is a loosening.
-- **The ratchet.** A measured figure is compared with its recorded Today value. The pull request that improves a figure writes the new value in the same change. Counted work has zero tolerance. A figure that varies (coverage, instructions, bytes allocated) has a tolerance of 0.5 %. In parallel runs, only the merger writes a new Today value.
+- **The ratchet.** A measured figure is compared with its recorded Today value. The pull request that improves a figure writes the new value in the same change. Counted work has zero tolerance. A figure that varies (coverage, instructions, bytes allocated) has a tolerance of 0.5 %. In parallel runs, only the merger writes a new Today value: the figure the merged ticket's implementer measured at done, since the merger runs no `just counts` of its own ([Checks by role](#checks-by-role)).
 - **Coverage is a ratchet,** "must not fall", with no per-changed-line threshold; test quality, when measured, is ADR 0072's mutation score.
 - **Tightening is silent; loosening is loud.** These need no approval:
   - lowering a number, adding a row or promoting a measured row to enforced;

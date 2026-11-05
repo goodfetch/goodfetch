@@ -326,6 +326,24 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
+/// The cell with no format asked and `frontier.learning` off: the crawl
+/// runs neither the clean-up nor the main-content step (ADR 0138).
+fn learning_off() -> Cell {
+    Cell {
+        name: "learning_off",
+        settings: scoped(json!({ "frontier": { "learning": false } })),
+        frontier: FRONTIER,
+        removes: &[
+            Row::PageParses,
+            Row::PageSelectorCompilations,
+            Row::PageReadabilityRuns,
+        ],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 fn cells() -> [Cell; 11] {
     [
         Cell {
@@ -350,21 +368,7 @@ fn cells() -> [Cell; 11] {
             handler: false,
             limit: false,
         },
-        // No format asked and `frontier.learning` off: the crawl runs
-        // neither the clean-up nor the main-content step (ADR 0138).
-        Cell {
-            name: "learning_off",
-            settings: scoped(json!({ "frontier": { "learning": false } })),
-            frontier: FRONTIER,
-            removes: &[
-                Row::PageParses,
-                Row::PageSelectorCompilations,
-                Row::PageReadabilityRuns,
-            ],
-            removes_syncs: false,
-            handler: false,
-            limit: false,
-        },
+        learning_off(),
         Cell {
             name: "document_tier_handler",
             settings: json!({}),

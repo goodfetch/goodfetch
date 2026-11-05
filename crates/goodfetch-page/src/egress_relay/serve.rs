@@ -653,7 +653,7 @@ where
         .filter(|terminating| terminating.terminates(host));
     let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
         if let Target::Absolute { .. } = head.target {
-            return pass(browser, site, &rest).await;
+            return answered_once(browser, site, &rest).await;
         }
         let authority = head.target.authority();
         let noted = |hello| observe.client_hello(&authority, hello);
@@ -665,6 +665,35 @@ where
         Terminated::Relayed { up, down } => Served::Relayed { up, down },
         Terminated::Stopped => Served::Refused,
         Terminated::Failed => Served::Failed,
+    }
+}
+
+/// Passes a plain request's bytes both ways, as [`pass`] does, with the
+/// site's answer head marked `Connection: close` on its way to the
+/// browser ([`head::closing`]), so the browser's connection carries that
+/// one request. An answer head the relay cannot read fails the request,
+/// as a site that never answered does.
+async fn answered_once<B, S>(mut browser: B, mut site: S, rest: &[u8]) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    if !rest.is_empty() && site.write_all(rest).await.is_err() {
+        return Served::Failed;
+    }
+    let Ok((answer, after)) = head::closing(&mut site).await else {
+        return Served::Failed;
+    };
+    if browser.write_all(&answer).await.is_err() || browser.write_all(&after).await.is_err() {
+        return Served::Failed;
+    }
+    let (early_up, early_down) = (rest.len(), answer.len() + after.len());
+    match tokio::io::copy_bidirectional(&mut browser, &mut site).await {
+        Ok((up, down)) => Served::Relayed {
+            up: up.saturating_add(u64::try_from(early_up).unwrap_or(u64::MAX)),
+            down: down.saturating_add(u64::try_from(early_down).unwrap_or(u64::MAX)),
+        },
+        Err(_) => Served::Failed,
     }
 }
 

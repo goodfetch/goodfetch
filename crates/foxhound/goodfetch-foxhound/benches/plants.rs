@@ -96,13 +96,12 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
                     .expect("invariant: the planted file takes a write");
             })
         }
+        // A read no longer reaches the writer (#1923): `RunState::read` runs
+        // on the file's readers, so nothing reads through the writer, and
+        // the row's counted seam is the count alone.
         "F2.writer_reads" => {
-            let (runtime, folder, state) = writer(counted);
-            Arc::new(move |_: &str| {
-                let _kept = &folder;
-                beside(runtime, state.read(|_| Ok(())))
-                    .expect("invariant: the planted file takes a read");
-            })
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::WriterReads))
         }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();

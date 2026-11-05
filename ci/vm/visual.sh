@@ -19,7 +19,7 @@ source "$here/common.sh"
 
 if [[ "$mode" == install ]]; then
   "$here/exec.sh" bash -c \
-    "mkdir -p target/visual && cargo run --quiet -p xtask -- quarantine exclude >target/visual/quarantine.tsv"
+    "mkdir -p target/visual && cargo run --quiet --bin xtask -- quarantine exclude >target/visual/quarantine.tsv"
   vm_shell nerdctl run --detach --name "$VISUAL_CONTAINER" --platform linux/amd64 --ipc=host \
     --volume /work:/work --volume /cache:/cache:ro \
     --env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST" \

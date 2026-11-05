@@ -91,17 +91,17 @@ case "$part" in
     # profile runs before it: its executables were built again and
     # overwritten there, and its xtask never ran (6.5 of the 15 minutes the
     # build took on the server on 2026-10-23).
-    cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci-test \
+    cargo run --quiet --locked --bin xtask -- test-tools --cargo-profile ci-test \
       --target "$target" --out "$GOODFETCH_TEST_TOOLS"
-    cargo run --quiet --locked -p xtask -- quarantine exclude >"$exclusions"
-    cargo run --quiet --locked -p xtask -- test-tools --cargo-profile ci \
+    cargo run --quiet --locked --bin xtask -- quarantine exclude >"$exclusions"
+    cargo run --quiet --locked --bin xtask -- test-tools --cargo-profile ci \
       --target "$target" --out "$rss_tools"
     ;;
   size)
     tree=$(git rev-parse 'HEAD^{tree}')
     [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "tree=$tree" >>"$GITHUB_OUTPUT"
     ci/release/size-manifest.sh "$target" >target/release-suite/size-files.toml
-    cargo run --quiet --locked -p xtask -- size estimate \
+    cargo run --quiet --locked --bin xtask -- size estimate \
       --files target/release-suite/size-files.toml \
       --save "target/release-suite/size-report-$tree-$target.json"
     ;;
@@ -175,10 +175,10 @@ case "$part" in
     ;;
   rss)
     rm -f "$rss_peaks"
-    cargo run --quiet --locked -p xtask -- rss measure --tools "$rss_tools" --out "$rss_peaks"
+    cargo run --quiet --locked --bin xtask -- rss measure --tools "$rss_tools" --out "$rss_peaks"
     summary=()
     [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && summary=(--summary "$GITHUB_STEP_SUMMARY")
-    cargo run --quiet --locked -p xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
+    cargo run --quiet --locked --bin xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
     ;;
   *)
     echo "error: the part is build, size, rust, lazyfs, typescript, python or rss, not $part" >&2

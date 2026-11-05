@@ -11,7 +11,6 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -55,7 +54,7 @@ fn linked() -> Result<Emitted> {
 
 fn run_example(cargo: &OsStr, root: &Path) -> Result<Emitted> {
     let folder = tempfile::tempdir().context("creating a folder for the emitter")?;
-    let output = Command::new(cargo)
+    let output = crate::child_cargo::command(cargo)
         .args([
             "run",
             "--quiet",

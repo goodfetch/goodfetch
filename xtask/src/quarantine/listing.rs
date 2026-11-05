@@ -63,7 +63,7 @@ pub(crate) fn output(
 ) -> Result<Vec<u8>> {
     let output = match runner {
         Runner::Nextest => {
-            let mut command = Command::new(cargo);
+            let mut command = crate::child_cargo::command(cargo);
             command.args(["nextest", "list", "--workspace", "--message-format", "json"]);
             if let Some(profile) = cargo_profile {
                 command.args(["--cargo-profile", profile]);

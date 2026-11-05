@@ -17,6 +17,7 @@ mod axe_exceptions;
 mod budgets;
 mod ceiling;
 mod check;
+mod child_cargo;
 mod clients;
 mod codegen;
 mod commit_messages;

@@ -26,7 +26,8 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
 ///
 /// When the run file cannot be written.
 pub fn answered(connection: &Connection, answers: &[Enqueued]) -> rusqlite::Result<()> {
-    let mut insert = connection.prepare("INSERT INTO seeds (position, answer) VALUES (?1, ?2)")?;
+    let mut insert =
+        connection.prepare_cached("INSERT INTO seeds (position, answer) VALUES (?1, ?2)")?;
     for (position, answer) in answers.iter().enumerate() {
         insert.execute((
             i64::try_from(position + 1).unwrap_or(i64::MAX),
@@ -51,18 +52,15 @@ async fn seeds(params: RunSeedsParams, context: CallContext) -> Result<RunSeeds,
 /// Each seed's answer in order; none in a run file no crawl wrote.
 fn read(connection: &Connection) -> rusqlite::Result<Vec<Enqueued>> {
     let has_seeds = connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'seeds'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'seeds'")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !has_seeds {
         return Ok(Vec::new());
     }
     connection
-        .prepare("SELECT answer FROM seeds ORDER BY position")?
+        .prepare_cached("SELECT answer FROM seeds ORDER BY position")?
         .query_map([], |row| row.get::<_, String>(0))?
         .map(|answer| {
             let answer = answer?;

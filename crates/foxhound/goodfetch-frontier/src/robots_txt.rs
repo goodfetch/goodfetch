@@ -99,26 +99,28 @@ pub(crate) fn applies(copy: Option<&Copy>, answer: &Answer) -> Fetched {
 
 pub(crate) fn stored(connection: &Connection, location: &str) -> rusqlite::Result<Option<Copy>> {
     connection
-        .query_row(
-            "SELECT fetched_at, status, body FROM robots_txt WHERE location = ?1",
-            [location],
-            |row| {
+        .prepare_cached("SELECT fetched_at, status, body FROM robots_txt WHERE location = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([location], |row| {
                 Ok(Copy {
                     fetched_at: row.get(0)?,
                     status: row.get(1)?,
                     body: row.get(2)?,
                 })
-            },
-        )
+            })
+        })
         .optional()
 }
 
 pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO robots_txt (location, fetched_at, status, body) VALUES (?1, ?2, ?3, ?4)
+    connection
+        .prepare_cached(
+            "INSERT INTO robots_txt (location, fetched_at, status, body) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT (location) DO UPDATE SET fetched_at = ?2, status = ?3, body = ?4",
-        (location, copy.fetched_at, copy.status, &copy.body),
-    )?;
+        )
+        .and_then(|mut cached| {
+            cached.execute((location, copy.fetched_at, copy.status, &copy.body))
+        })?;
     Ok(())
 }
 

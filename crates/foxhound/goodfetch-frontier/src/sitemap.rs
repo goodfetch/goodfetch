@@ -439,11 +439,8 @@ fn admit_fetch(
         return Ok(not_added(admitting, NotAddedReason::DomainPolicy));
     }
     let known = connection
-        .query_row(
-            "SELECT 1 FROM sitemaps WHERE url = ?1",
-            [url.as_str()],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sitemaps WHERE url = ?1")
+        .and_then(|mut cached| cached.query_row([url.as_str()], |_| Ok(())))
         .optional()?
         .is_some()
         || admitting
@@ -453,10 +450,11 @@ fn admit_fetch(
         return Ok(not_added(admitting, NotAddedReason::Duplicate));
     }
     let id = add(&url)?;
-    connection.execute(
-        "INSERT INTO sitemaps (work_item, url, seed, rules, read) VALUES (?1, ?2, ?3, ?4, 0)",
-        (&id, url.as_str(), seed.unwrap_or(&id), rules),
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO sitemaps (work_item, url, seed, rules, read) VALUES (?1, ?2, ?3, ?4, 0)",
+        )
+        .and_then(|mut cached| cached.execute((&id, url.as_str(), seed.unwrap_or(&id), rules)))?;
     admitting.sitemap_added(url.as_str());
     Ok(Enqueued::Added {
         id,
@@ -471,9 +469,8 @@ fn admit_fetch(
 /// When the run file cannot be read.
 pub fn is_fetch(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row("SELECT 1 FROM sitemaps WHERE work_item = ?1", [id], |_| {
-            Ok(())
-        })
+        .prepare_cached("SELECT 1 FROM sitemaps WHERE work_item = ?1")
+        .and_then(|mut cached| cached.query_row([id], |_| Ok(())))
         .optional()?
         .is_some())
 }
@@ -508,17 +505,16 @@ pub fn read(
     mut add: impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<()> {
     let Some((url, seed, given_rules)) = connection
-        .query_row(
-            "SELECT url, seed, rules FROM sitemaps WHERE work_item = ?1",
-            [id],
-            |row| {
+        .prepare_cached("SELECT url, seed, rules FROM sitemaps WHERE work_item = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                 ))
-            },
-        )
+            })
+        })
         .optional()?
     else {
         return Ok(());
@@ -572,10 +568,14 @@ pub fn read(
             }
         }
     }
-    connection.execute("UPDATE sitemaps SET read = 1 WHERE work_item = ?1", [id])?;
+    connection
+        .prepare_cached("UPDATE sitemaps SET read = 1 WHERE work_item = ?1")
+        .and_then(|mut cached| cached.execute([id]))?;
     // Read at last, after `run.retry_failed` re-admitted it.
-    connection.execute("DELETE FROM sitemap_failures WHERE url = ?1", [&url])?;
-    let mut insert = connection.prepare(
+    connection
+        .prepare_cached("DELETE FROM sitemap_failures WHERE url = ?1")
+        .and_then(|mut cached| cached.execute([&url]))?;
+    let mut insert = connection.prepare_cached(
         "INSERT INTO sitemap_entries (work_item, reason, count) VALUES (?1, ?2, ?3)
          ON CONFLICT DO UPDATE SET count = count + excluded.count",
     )?;
@@ -637,17 +637,20 @@ fn keep_failure(
     seed: &str,
     failure: &SitemapFailure,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT OR REPLACE INTO sitemap_failures (url, seed, code, status, message)
+    connection
+        .prepare_cached(
+            "INSERT OR REPLACE INTO sitemap_failures (url, seed, code, status, message)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        (
-            &failure.url,
-            seed,
-            &failure.code,
-            failure.status,
-            &failure.message,
-        ),
-    )?;
+        )
+        .and_then(|mut cached| {
+            cached.execute((
+                &failure.url,
+                seed,
+                &failure.code,
+                failure.status,
+                &failure.message,
+            ))
+        })?;
     Ok(())
 }
 
@@ -662,11 +665,12 @@ fn keep_failure(
 /// When the run file cannot be read or written.
 pub fn ended(connection: &Connection, id: &str, ending: &Ending) -> rusqlite::Result<()> {
     let Some((url, seed)) = connection
-        .query_row(
-            "SELECT url, seed FROM sitemaps WHERE work_item = ?1",
-            [id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
+        .prepare_cached("SELECT url, seed FROM sitemaps WHERE work_item = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+        })
         .optional()?
     else {
         return Ok(());
@@ -765,31 +769,32 @@ fn reason_name(reason: NotAddedReason) -> String {
 /// When the run file cannot be read.
 pub fn reports(connection: &Connection) -> rusqlite::Result<Vec<SitemapReport>> {
     let has_sitemaps = connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sitemaps'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sitemaps'")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !has_sitemaps {
         return Ok(Vec::new());
     }
     let count = |count: i64| u64::try_from(count).unwrap_or_default();
-    let mut read = connection.prepare("SELECT url FROM sitemaps WHERE seed = ?1 AND read = 1")?;
-    let mut entries = connection.prepare(
+    let mut read =
+        connection.prepare_cached("SELECT url FROM sitemaps WHERE seed = ?1 AND read = 1")?;
+    let mut entries = connection.prepare_cached(
         "SELECT entries.reason, sum(entries.count) FROM sitemap_entries AS entries
          JOIN sitemaps ON sitemaps.work_item = entries.work_item
          WHERE sitemaps.seed = ?1 GROUP BY entries.reason ORDER BY entries.reason",
     )?;
-    let mut failed = connection.prepare("SELECT count(*) FROM sitemap_failures WHERE seed = ?1")?;
-    let mut failures = connection.prepare(
+    let mut failed =
+        connection.prepare_cached("SELECT count(*) FROM sitemap_failures WHERE seed = ?1")?;
+    let mut failures = connection.prepare_cached(
         "SELECT url, code, status, message FROM sitemap_failures WHERE seed = ?1
          ORDER BY url LIMIT ?2",
     )?;
     let listed = i64::try_from(SITEMAP_FAILURES_LISTED).expect("invariant: 20 fits in i64");
     let seeds: Vec<(String, String)> = connection
-        .prepare("SELECT work_item, url FROM sitemaps WHERE seed = work_item ORDER BY rowid")?
+        .prepare_cached(
+            "SELECT work_item, url FROM sitemaps WHERE seed = work_item ORDER BY rowid",
+        )?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     seeds

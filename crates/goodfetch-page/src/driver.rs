@@ -2024,9 +2024,12 @@ impl PageDriver {
     }
 
     /// The page's document as the DOM holds it now, serialized once, with
-    /// its URL and base URL.
+    /// its URL and base URL: two commands, each counted on
+    /// `C2.serialization_commands` (ADR 0140).
     pub(crate) async fn document(&self) -> Result<SerializedDocument, CallError> {
         let call = Call::Document;
+        let work = &self.browser.work;
+        work.count(Row::PageSerializationCommands);
         let root = self
             .browser
             .send(
@@ -2039,6 +2042,7 @@ impl PageDriver {
             )
             .await?
             .root;
+        work.count(Row::PageSerializationCommands);
         let html = self
             .browser
             .send(

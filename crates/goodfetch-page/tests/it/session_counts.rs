@@ -153,6 +153,35 @@ fn each_read_counts_its_commands_and_its_world() {
     assert_eq!(counted.read_commands, counted.count(Row::PageReadCommands));
 }
 
+/// A formats read serializes the page with two commands, `DOM.getDocument`
+/// and `DOM.getOuterHTML`, each counted on its row (ADR 0140): every command
+/// sent while the program read formats is the serialization's, one in each of
+/// the three documents.
+#[test]
+fn each_serialization_counts_its_two_commands() {
+    let counted = run(None);
+
+    assert_eq!(counted.serializations, 3);
+    assert_eq!(
+        (
+            counted.count(Row::PageSerializationCommands),
+            counted.serialization_commands
+        ),
+        (2 * counted.serializations, 2 * counted.serializations)
+    );
+}
+
+/// A plant runs once per command the browser reads, two per serialization.
+#[test]
+fn a_planted_unit_adds_two_a_serialization() {
+    let counted = run(Some(Row::PageSerializationCommands));
+
+    assert_eq!(
+        counted.count(Row::PageSerializationCommands),
+        4 * counted.serializations
+    );
+}
+
 /// A plant runs once per command the browser reads, two per read, so each of
 /// C2's rows gains two units a read.
 #[rstest]

@@ -139,3 +139,47 @@ fn a_call_reading_nothing_of_the_cleaned_page_runs_no_rule_and_records_none() {
 
     assert_eq!((runs, entry), (0, None));
 }
+
+/// A browser page's formats read takes one serialization of its DOM and
+/// parses it once, whatever it asks for: every format, the runner's hidden
+/// selector removed in place on that one tree, with no serialization handed
+/// between modules but the cleaned HTML it asks for (ADR 0138).
+#[test]
+fn a_browser_pages_formats_read_parses_its_serialization_once_with_every_format() {
+    let work = goodfetch_counted_work::CountedWork::default();
+    let document = SerializedDocument {
+        html: ARTICLE.replace(
+            "</article>",
+            "<table><tr><th>Line</th></tr><tr><td>Polyester</td></tr></table>\
+             <a href=\"mailto:kites@kites.test\">Write</a><img src=\"/reel.png\" alt=\"A reel\"></article>",
+        ),
+        url: "https://kites.test/journal/lines".to_owned(),
+        base_url: "https://kites.test/journal/lines".to_owned(),
+    };
+    let request: FormatsRequest = serde_json::from_value(json!({
+        "markdown": true,
+        "html": { "kind": "cleaned" },
+        "text": true,
+        "links": true,
+        "images": true,
+        "media": true,
+        "tables": true,
+        "metadata": true,
+        "contacts": true,
+    }))
+    .unwrap();
+    let hidden = [".ad-slot".to_owned()];
+
+    let (formats, done) = read(
+        &document,
+        Serialization::Dom,
+        request,
+        (BuiltIn::default().extractor(), ShareMeasure::default()),
+        (None, &hidden),
+        &work,
+    );
+
+    assert_eq!(work.read(goodfetch_counted_work::Row::PageParses), 1);
+    assert!(!formats.html.unwrap().contains("ad-slot"));
+    assert!(done.is_some_and(|done| !done.removed.is_empty()));
+}

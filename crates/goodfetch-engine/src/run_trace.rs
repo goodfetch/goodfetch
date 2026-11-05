@@ -130,9 +130,14 @@ pub const PROVENANCE: &str = "trace/provenance.jsonl";
 /// file. Each entry is written to the file at once, in one `write` with no
 /// sync and nothing held back: a read straight after the Call that wrote it
 /// sees it, and a killed process loses no entry it wrote.
+///
+/// With `provenance.log` off (ADR 0138), it holds no file and writes no
+/// entry: an entry is neither masked, encoded nor written.
 #[derive(Debug)]
 pub struct Provenance {
     held: Arc<Held>,
+    /// Whether the Run writes its Provenance log.
+    logs: bool,
 }
 
 /// The Provenance log's file, opened at its first entry.
@@ -149,7 +154,14 @@ struct Held {
 impl Provenance {
     /// The log of the Run whose folder is `run_folder`, opening nothing yet.
     pub fn new(run_folder: &Path) -> Self {
+        Self::logging(run_folder, true)
+    }
+
+    /// The log of the Run whose folder is `run_folder`, which writes its
+    /// entries when `logs`, its `provenance.log`, and else none.
+    pub fn logging(run_folder: &Path, logs: bool) -> Self {
         Self {
+            logs,
             held: Arc::new(Held {
                 path: run_folder.join(PROVENANCE),
                 #[expect(
@@ -180,6 +192,9 @@ impl Provenance {
         work: &CountedWork,
         mut entry: serde_json::Value,
     ) -> io::Result<()> {
+        if !self.logs {
+            return Ok(());
+        }
         mask.masks().apply_value(&mut entry, Scope::KeptOutput);
         let mut line = serde_json::to_vec(&entry)?;
         line.push(b'\n');

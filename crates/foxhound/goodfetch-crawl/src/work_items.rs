@@ -787,6 +787,9 @@ pub(crate) struct Committed<'a> {
     pub(crate) not_added: &'a [NotAddedAtCommit],
     /// Where its Records' work is counted (F4, ADR 0140).
     pub(crate) work: &'a CountedWork,
+    /// Whether the crawl keeps Records, its `dataset.records`: off, the
+    /// commit writes none and reads nothing for one (ADR 0138).
+    pub(crate) keeps_records: bool,
 }
 
 /// Commits an attempt's Records, once, each numbered in its Dataset and
@@ -808,10 +811,59 @@ pub(crate) fn commit(
         ended_at,
         not_added,
         work,
+        keeps_records,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
+    let counted = if keeps_records {
+        commit_records(
+            connection,
+            id,
+            (records, fetched, fields),
+            masks,
+            ended_at,
+            work,
+        )?
+    } else {
+        Vec::new()
+    };
+    connection
+        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
+    let nothing_committed = if !keeps_records {
+        Some(NothingCommitted::RecordsOff)
+    } else if counted.is_empty() {
+        Some(NothingCommitted::NonePushed)
+    } else if counted.iter().all(|dataset| dataset.committed == 0) {
+        Some(NothingCommitted::NoneKept)
+    } else {
+        None
+    };
+    write_outcome(
+        connection,
+        id,
+        ended_at,
+        Ending::Succeeded {
+            records: counted,
+            nothing_committed,
+            not_added: not_added.to_vec(),
+        },
+    )?;
+    Ok(true)
+}
+
+/// Commits the attempt `id`'s Records, each numbered in its Dataset and
+/// naming its Provenance: its request, how its document was fetched and
+/// the Clean-up rules the Run holds to; answers what each Dataset counted.
+fn commit_records(
+    connection: &Connection,
+    id: &str,
+    (records, fetched, fields): (&Checked, &Fetched, &FieldsRead),
+    masks: &Masks,
+    ended_at: &PointInTime,
+    work: &CountedWork,
+) -> rusqlite::Result<Vec<DatasetRecords>> {
     let url: String = connection
         .prepare_cached("SELECT url FROM work_items WHERE id = ?1")
         .and_then(|mut cached| cached.query_row([id], |row| row.get(0)))?;
@@ -843,28 +895,7 @@ pub(crate) fn commit(
         masks,
         work,
     };
-    let counted = goodfetch_dataset::commit(connection, committing, records)?;
-    connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
-        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
-    let nothing_committed = if counted.is_empty() {
-        Some(NothingCommitted::NonePushed)
-    } else if counted.iter().all(|dataset| dataset.committed == 0) {
-        Some(NothingCommitted::NoneKept)
-    } else {
-        None
-    };
-    write_outcome(
-        connection,
-        id,
-        ended_at,
-        Ending::Succeeded {
-            records: counted,
-            nothing_committed,
-            not_added: not_added.to_vec(),
-        },
-    )?;
-    Ok(true)
+    goodfetch_dataset::commit(connection, committing, records)
 }
 
 /// Ends an attempt that committed nothing as `unsuccessful` says, ended at

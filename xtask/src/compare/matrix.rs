@@ -234,13 +234,13 @@ pub(crate) const CELLS: [Cell; 21] = [
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
         name: "foxhound",
-        mapping: "code-free crawl on the `http` tier, `run_state.durability: fast`, \
+        mapping: "the maximum-throughput combination (`docs/throughput.md`): code-free crawl on \
+                  the `http` tier, `run_state.durability: fast`, \
                   `site_preferences.respect_robots_txt: false`, `politeness.domain` delay 0 and \
-                  concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
+                  concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`, \
+                  `frontier.learning: false`, `provenance.log: false`, `dataset.records: false` \
+                  and `fetch.block_classification: false`",
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
         status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
@@ -282,7 +282,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Foxhound,
         name: "foxhound full",
         mapping: "scenario 1's settings with `run_state.durability: full`, its default: every \
-                  outcome synced; killed with SIGKILL once half the site is served, then \
+                  outcome synced, and `dataset.records` on, as its resume is judged by them; killed with SIGKILL once half the site is served, then \
                   `run.resume` in a new process on the same home",
         pending: &[],
         status: Status::Measured(Config::Foxhound { durability: "full" }),
@@ -393,12 +393,10 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Foxhound,
         name: "foxhound",
         mapping: "scenario 1's settings with `formats: { text: true }`, the text of each page's \
-                  main content, and the field `title` (the CSS selector `title`), each page's \
-                  Record committed to the code-free crawl's Dataset `pages` in its run file",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
+                  main content, and the field `title` (the CSS selector `title`), with \
+                  `dataset.records` on, each page's Record committed to the code-free crawl's \
+                  Dataset `pages` in its run file",
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
         status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
@@ -439,10 +437,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         mapping: "scenario 1's settings on the `browser` tier (`fetch.tier: browser`), headless \
                   Chrome for Testing, its pinned build, from a Browser cache laid out beside \
                   the data folder (`GOODFETCH_BROWSERS_PATH`)",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
         status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {

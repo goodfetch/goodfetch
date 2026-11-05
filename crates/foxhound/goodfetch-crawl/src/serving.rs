@@ -20,6 +20,7 @@ use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
+use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
@@ -94,11 +95,21 @@ const JOINING: usize = 16;
 #[derive(Clone, Default)]
 pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
 
+/// Whether the crawl `run` keeps Records, its `dataset.records` (ADR 0138):
+/// off, it checks and commits none.
+pub(crate) fn keeps_records(run: &Run) -> bool {
+    run.settings()
+        .and_then(|settings| settings.resolved().boolean(DATASET_RECORDS.name))
+        != Some(false)
+}
+
 impl Crawls {
     /// Opens the crawl `run`, under its domain policy `egress` and with the
-    /// Datasets it declares, to Connections that join it and to seeds added
-    /// to it, and answers where each arrives.
+    /// Datasets it declares, keeping Records in them as its
+    /// `dataset.records` says, to Connections that join it and to seeds
+    /// added to it, and answers where each arrives.
     pub(crate) async fn open(&self, run: &Run, egress: Policy, datasets: Datasets) -> Opened {
+        let datasets = datasets.keeping_records(keeps_records(run));
         let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
         let staging = run

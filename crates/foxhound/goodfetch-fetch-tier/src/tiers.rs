@@ -72,6 +72,7 @@ use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
+use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
@@ -1566,15 +1567,23 @@ impl FetchTiers {
     /// The Block cause of `document`, which `response` answered for
     /// `run`, as the Product's Block classification tells it (ADR 0035),
     /// with the `blocked` its crawl request ends with when nothing moves
-    /// it, read on the CPU pool. `None` for a document no rule
-    /// classifies, or before the engine's pages were handed over.
+    /// it, read on the CPU pool, and counted on `F1.block_classifications`.
+    /// `None` for a document no rule classifies, under
+    /// `fetch.block_classification` off, which reads none (ADR 0138), or
+    /// before the engine's pages were handed over.
     async fn classified(
         &self,
         run: &Run,
         response: PageResponse,
         document: Arc<ServedDocument>,
     ) -> Option<(Block, CallError)> {
+        if !classifies_blocks(run) {
+            return None;
+        }
         let pages = Arc::clone(self.served.browser.get()?);
+        run.metrics()
+            .counted_work()
+            .count(Row::PageBlockClassifications);
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
@@ -2428,6 +2437,14 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
 /// The `blocked` a crawl request whose document `response` answered,
 /// received at `received`, ends with for `block`: its cause, URL, status
 /// and the time the site's `Retry-After` asks for (ADR 0079).
+/// Whether the Run `run` reads its documents for a Block cause, its
+/// `fetch.block_classification` (ADR 0138).
+fn classifies_blocks(run: &Run) -> bool {
+    run.settings()
+        .and_then(|settings| settings.resolved().boolean(FETCH_BLOCK_CLASSIFICATION.name))
+        != Some(false)
+}
+
 fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTime) -> CallError {
     let retry_after = response
         .headers

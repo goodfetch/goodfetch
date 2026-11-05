@@ -901,6 +901,8 @@ class NothingCommitted(StrEnum):
     Every Record it pushed was dropped or rejected, as its `records`
     count.
     """
+    records_off = "records_off"
+    """`dataset.records` is off, so the crawl keeps no Record (ADR 0138)."""
 
 
 class Now(StrEnum):

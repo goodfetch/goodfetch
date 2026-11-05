@@ -1296,6 +1296,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F1.locale_form_builds` | locale-form builds per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F1.plugin_serializations` | serializations per page for a chosen Extractor Plugin (0 when none is) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F1.plugin_answer_parses` | parses of an Extractor Plugin's answer per page (0 when none is chosen) | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F1.block_classifications` | documents read by the Block classification rules per page (0 with `fetch.block_classification` off) | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.transactions` | run-file transactions per attempt (`full`, `fast`) | ≤ 2 | 7.539 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 9.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prepares` | statement preparations per page added | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |

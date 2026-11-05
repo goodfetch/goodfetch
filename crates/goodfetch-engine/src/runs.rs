@@ -123,7 +123,9 @@ use crate::governor::{
 };
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
+use crate::ledger::{
+    Charged, Charging, Counted, Ledger, LedgerError, Refusal, Reservation, SliceId,
+};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -609,6 +611,42 @@ pub enum ChargeError {
     /// What it charged could not be journaled in its run state.
     #[error(transparent)]
     State(#[from] RunStateError),
+}
+
+/// What a Run charged with [`Run::charge_unjournaled`] that no journal
+/// holds yet: the Slices its charges took from, and what they counted in
+/// the Run's Usage, which [`Run::write_charged`] journals.
+#[derive(Debug, Default)]
+pub struct UnjournaledCharges {
+    slices: Vec<SliceId>,
+    counted: Vec<Counted>,
+}
+
+impl UnjournaledCharges {
+    /// Whether no charge is held.
+    pub fn is_empty(&self) -> bool {
+        self.slices.is_empty() && self.counted.is_empty()
+    }
+
+    /// Adds `charged`: each Slice it touched once, and its counts summed
+    /// with those of the same kind, currency and part.
+    fn add(&mut self, charged: Charged) {
+        for (slice, _) in charged.used {
+            if !self.slices.contains(&slice) {
+                self.slices.push(slice);
+            }
+        }
+        for counted in charged.counted {
+            match self.counted.iter_mut().find(|held| {
+                held.usage_kind == counted.usage_kind
+                    && held.currency == counted.currency
+                    && held.part == counted.part
+            }) {
+                Some(held) => held.delta += counted.delta,
+                None => self.counted.push(counted),
+            }
+        }
+    }
 }
 
 /// What a Run reserved ahead of a part of a Usage kind it is about to use,
@@ -2103,6 +2141,103 @@ impl Run {
         .map(drop)
     }
 
+    /// Charges `amount` of `usage_kind` as [`Run::charge`] does, without
+    /// journaling it: what it charged joins `charges`, which
+    /// [`Run::write_charged`] journals in the write that uses it, so the
+    /// journal and that write commit as one job of the run state's writer.
+    ///
+    /// # Errors
+    ///
+    /// `Refused` as [`Run::charge`]'s, which asks the Run to stop as its
+    /// does; nothing joins `charges` then.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Slice taken, or the charge made and
+    /// not in `charges`: charged and never journaled, before anything used
+    /// it, so never more charged than the Run used.
+    pub async fn charge_unjournaled(
+        &self,
+        charges: &mut UnjournaledCharges,
+        usage_kind: &str,
+        amount: u64,
+    ) -> Result<(), ChargeError> {
+        let kind = usage_kind.to_owned();
+        let shared = Arc::clone(&self.shared);
+        let now = self.runs.limits.now();
+        let changed = self
+            .owner
+            .blocking(move || {
+                let mut held = shared.charging();
+                let charging = held.as_mut()?;
+                Some(charging.charge(&kind, amount, now))
+            })
+            .await;
+        match changed {
+            None => Ok(()),
+            Some(Ok(journaled)) => {
+                charges.add(journaled);
+                Ok(())
+            }
+            Some(Err(refusal)) => Err(self.refused(refusal).await),
+        }
+    }
+
+    /// Queues `work` as one write of the Run's state that first journals
+    /// `charges` under its run epoch, as [`Run::charge`] journals each:
+    /// with what the Run has now used of each Slice they took from, read
+    /// under its charging's lock as the write takes its place in the queue,
+    /// so journals reach the run state in the order of the changes. A Run
+    /// whose charging ended journals nothing. Answers what `work` returned
+    /// once the write's commit is acknowledged.
+    ///
+    /// # Errors
+    ///
+    /// `State` when `work` or its commit failed, or the run state's writer
+    /// stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the write is queued does not withdraw it.
+    pub async fn write_charged<T, F>(
+        &self,
+        charges: UnjournaledCharges,
+        work: F,
+    ) -> Result<T, ChargeError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let place = self.state.reserve().await?;
+        let shared = Arc::clone(&self.shared);
+        let epoch = self.state.epoch();
+        let written = self
+            .owner
+            .blocking(move || {
+                let held = shared.charging();
+                let journaled = held.as_ref().map(|charging| {
+                    let UnjournaledCharges { slices, counted } = charges;
+                    (
+                        Charged {
+                            used: charging.used_of(&slices),
+                            counted,
+                        },
+                        charging.uncapped(),
+                    )
+                });
+                place.write(move |connection| {
+                    if let Some((journaled, uncapped)) = journaled
+                        && (!journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped)
+                    {
+                        journal(connection, epoch, &journaled, uncapped)?;
+                    }
+                    work(connection)
+                })
+            })
+            .await;
+        Ok(written.await?)
+    }
+
     /// Reserves ahead an amount of `usage_kind` the Run is about to use, as
     /// [`Run::reserve`] reserves a worst case, counted under `part` of the
     /// kind, and with `currency` its `cost` too, in one ledger transaction:
@@ -2332,11 +2467,21 @@ impl Run {
                 }
                 Ok(Some(value))
             }
-            Err(Refusal::Reached(reached)) => {
+            Err(refusal) => Err(self.refused(refusal).await),
+        }
+    }
+
+    /// What `refusal`, a Limit's or the ledger's, does to the Run: a Limit
+    /// with nothing left, or one this engine cannot evaluate, asks it to
+    /// stop at its next safe point; a ledger that cannot be stored stops
+    /// every Run of the engine (ADR 0122).
+    async fn refused(&self, refusal: Refusal) -> ChargeError {
+        match refusal {
+            Refusal::Reached(reached) => {
                 self.stop_at_safe_point(StopReason::Limit(Box::new(ReachedLimit::clone(&reached))));
-                Err(Refusal::Reached(reached).into())
+                Refusal::Reached(reached).into()
             }
-            Err(Refusal::NotUnderstood(limit)) => {
+            Refusal::NotUnderstood(limit) => {
                 self.stop_at_safe_point(StopReason::LimitNotUnderstood(Box::new(
                     NotUnderstoodLimit {
                         scope: limit.scope.clone(),
@@ -2345,9 +2490,9 @@ impl Run {
                         period: limit.period.clone(),
                     },
                 )));
-                Err(Refusal::NotUnderstood(limit).into())
+                Refusal::NotUnderstood(limit).into()
             }
-            Err(Refusal::Ledger(LedgerError::Storage { path, message })) => {
+            Refusal::Ledger(LedgerError::Storage { path, message }) => {
                 // The ledger holds every Run's Limits: each Run of the
                 // engine stops as at `critical` (ADR 0122).
                 let folder = path.parent().map_or_else(|| path.clone(), Path::to_owned);
@@ -2356,9 +2501,9 @@ impl Run {
                     .commands
                     .send(Command::StorageFailed(folder))
                     .await;
-                Err(Refusal::Ledger(LedgerError::Storage { path, message }).into())
+                Refusal::Ledger(LedgerError::Storage { path, message }).into()
             }
-            Err(refusal) => Err(refusal.into()),
+            refusal => refusal.into(),
         }
     }
 

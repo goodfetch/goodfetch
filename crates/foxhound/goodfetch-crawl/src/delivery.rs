@@ -1704,7 +1704,12 @@ async fn journal(run: &Run, admission: &mut Admission) {
     if let Some(journal) = admission.journal(clock.wall(), clock.now())
         && let Err(error) = run
             .state()
-            .write(move |connection| journal(connection))
+            // A domain's hold or backoff joins the next group that syncs
+            // (ADR 0138's note of #1926).
+            .write_with(
+                goodfetch_engine::run_state::Syncing::Deferred { charged: 0 },
+                move |connection| journal(connection),
+            )
             .await
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's per-domain queues were not journaled");

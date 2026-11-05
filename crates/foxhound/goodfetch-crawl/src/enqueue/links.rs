@@ -187,26 +187,31 @@ pub(crate) async fn enqueue_links(
         lease_epoch: params.lease_epoch,
     };
     let (run, staging, batch) = prepared(&params, &crawls, &tiers).await?;
+    // An enqueue's answers promise nothing (ADR 0138's note of #1926): the
+    // attempt's outcome syncs them with it.
     let answered = run
         .state()
-        .write(move |connection| {
-            let (crawl_request_id, lease_epoch) = (
-                batch.request.crawl_request_id.clone(),
-                batch.request.lease_epoch,
-            );
-            let answered = staging.admit(
-                connection,
-                &crawl_request_id,
-                lease_epoch,
-                move |connection, positions| batch.add(connection, positions),
-            )?;
-            note_suspected(
-                &staging,
-                (&crawl_request_id, lease_epoch),
-                answered.as_ref(),
-            );
-            Ok(answered)
-        })
+        .write_with(
+            goodfetch_engine::run_state::Syncing::Deferred { charged: 0 },
+            move |connection| {
+                let (crawl_request_id, lease_epoch) = (
+                    batch.request.crawl_request_id.clone(),
+                    batch.request.lease_epoch,
+                );
+                let answered = staging.admit(
+                    connection,
+                    &crawl_request_id,
+                    lease_epoch,
+                    move |connection, positions| batch.add(connection, positions),
+                )?;
+                note_suspected(
+                    &staging,
+                    (&crawl_request_id, lease_epoch),
+                    answered.as_ref(),
+                );
+                Ok(answered)
+            },
+        )
         .await;
     match answered {
         Ok(Some(Ok(admitted))) => Ok(admitted.links),

@@ -32,8 +32,9 @@ test = false
 doc = false
 bench = false
 
-# Goodfetch's forks of `wreq` and `wreq-util`, as the workspace's
-# `[patch.crates-io]` carries them.
+# Goodfetch's forks of `wreq`, `wreq-util` and `dom_smoothie`, as the
+# workspace's `[patch.crates-io]` carries them.
 [patch.crates-io]
+dom_smoothie = { path = "../../../../vendor/dom_smoothie" }
 wreq = { path = "../../../../vendor/wreq" }
 wreq-util = { path = "../../../../vendor/wreq-util" }

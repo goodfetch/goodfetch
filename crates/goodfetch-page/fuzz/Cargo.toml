@@ -33,3 +33,8 @@ path = "fuzz_targets/relay_client_hello.rs"
 test = false
 doc = false
 bench = false
+
+# Goodfetch's fork of `dom_smoothie`, as the workspace's `[patch.crates-io]`
+# carries it.
+[patch.crates-io]
+dom_smoothie = { path = "../../../vendor/dom_smoothie" }

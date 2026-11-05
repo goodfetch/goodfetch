@@ -47,7 +47,12 @@ struct Listening {
 #[cfg(unix)]
 pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     use std::os::unix::fs::PermissionsExt as _;
-    match std::fs::remove_file(place) {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "it runs on the tasks module's blocking policy"
+    )]
+    let removed = std::fs::remove_file(place);
+    match removed {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),

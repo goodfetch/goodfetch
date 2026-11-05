@@ -799,7 +799,7 @@ Decided in [ADR 0066](docs/adr/0066-upgrades-are-tested-from-a-frozen-corpus-and
 ### The Compatibility corpus
 
 - **A new format lands with its `compat/<format>/head/` set and its scenario**: a `compat-<format>` example in the package that owns the format, which `xtask compat write` runs with the folder to write into.
-- **Never edit a fixture by hand.** Regenerate `head/` with `xtask compat write`; `xtask compat check` fails on drift.
+- **Never edit a fixture by hand.** Regenerate `head/` with `xtask compat write`; `xtask compat check` fails on drift, and on a writer whose second run writes other bytes than its first: it runs each writer twice.
 - **Never change a frozen set** (`compat/<format>/<major>.<minor>/`). If the reading of an old file must change, change its snapshot in a reviewed pull request whose changelog entry says so.
   _Why:_ a frozen file is what a released version really wrote.
 - **Change a format's schema only with a version bump** once a frozen set exists. `xtask compat check` fails otherwise.

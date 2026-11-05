@@ -132,12 +132,22 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                 .is_ok_and(|committed| !committed.is_empty())
         })
         .collect();
+    let first = writers.write(cargo, root, &written)?;
+    // Every writer runs a second time, after the first run of all of them,
+    // and must write the same bytes: a writer right most of the time would
+    // otherwise pass the check by chance and fail a later one (#1924's run
+    // state differed in 1 run of 19).
+    let second = writers.write(cargo, root, &written)?;
+    let mut findings = Vec::new();
+    for ((format, first), second) in written.iter().zip(&first).zip(&second) {
+        let folder = subject(root, &set_folder(root, format.name.as_str(), HEAD));
+        nondeterministic(&folder, first, second, &mut findings);
+    }
     let mut produced: BTreeMap<&str, Tree> = written
         .iter()
         .map(|format| format.name.as_str())
-        .zip(writers.write(cargo, root, &written)?)
+        .zip(first)
         .collect();
-    let mut findings = Vec::new();
     for format in &formats {
         let produced = produced.remove(format.name.as_str());
         check_format(root, format, &folders, &writers, produced, &mut findings)?;
@@ -305,6 +315,20 @@ fn drift(folder: &str, committed: &Tree, produced: &Tree, findings: &mut Vec<Fin
     }
 }
 
+/// A finding for each file that differs between two runs of one writer.
+fn nondeterministic(folder: &str, first: &Tree, second: &Tree, findings: &mut Vec<Finding>) {
+    let paths: BTreeSet<&String> = first.keys().chain(second.keys()).collect();
+    for path in paths {
+        if first.get(path) != second.get(path) {
+            findings.push(Finding::new(
+                "nondeterministic",
+                format!("{folder}/{path}"),
+                "the format's writer wrote other bytes on its second run; give its scenario a fixed order, Entropy seed and Clock start (ADR 0059)",
+            ));
+        }
+    }
+}
+
 /// What `freeze` did.
 pub(crate) enum Freeze {
     /// The tag names a release candidate or a nightly, which freeze nothing.
@@ -395,7 +419,8 @@ pub(crate) enum Command {
     /// writer, the `compat-<format>` example of the package that owns it.
     Write,
     /// Fails on a `head/` set that differs from what `write` produces, a
-    /// changed frozen byte, a missing set, incomplete schema coverage, and a
+    /// writer whose second run writes other bytes than its first, a changed
+    /// frozen byte, a missing set, incomplete schema coverage, and a
     /// schema changed without a version bump.
     Check,
     /// Copies each format's `head/` set from a stable release's or patch's

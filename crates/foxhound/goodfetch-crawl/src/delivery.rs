@@ -81,7 +81,7 @@ use goodfetch_engine::local_addresses::{
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{ChargeError, Ending, Run};
+use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
@@ -121,7 +121,7 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
-use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices};
+use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
 use crate::tier_race::{Latencies, Raced};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
@@ -230,7 +230,7 @@ pub(crate) async fn drive(
         interface,
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
         egress: std::sync::Arc::clone(&arrivals.egress),
-        labels: &labels,
+        labels: std::sync::Arc::new(labels),
         run_tier,
         run_encoding: settings
             .resolved()
@@ -315,6 +315,8 @@ async fn deliver(
     fetching: &Fetching<'_>,
 ) {
     let run_leases = leases_of(run, arrivals);
+    // The pool is out of `pool` only while a write that leases work items
+    // draws from it: the loop ends on that write's error.
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
@@ -404,7 +406,7 @@ async fn deliver(
             }
             Some(first) = attempts.join_next() => {
                 let ended = ended_with(first, &mut attempts);
-                let pool = (&mut pool, fetching);
+                let pool = (held(&mut pool), fetching);
                 settled(run, settings, &mut admission, pool, servers, ended).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
@@ -567,7 +569,7 @@ struct Fetching<'a> {
     /// Session's sockets bind (ADR 0044).
     interface: Option<String>,
     /// The Labels the crawl declares: their settings and their pools.
-    labels: &'a labels::Declared,
+    labels: std::sync::Arc<labels::Declared>,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
     /// The Run's own `fetch.encoding`, a WHATWG Encoding label.
@@ -628,71 +630,40 @@ impl Fetching<'_> {
         }
     }
 
-    /// How `leased`'s attempt runs, as its Label and the Run's
-    /// `fetch.tier` choose and, under `auto`, on the browser for a domain a
-    /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
-    /// races its tiers, as a sample while its Label on its domain is due
-    /// one, else as a race timed by its Label on its domain's browser-fetch
-    /// latencies, else as its Label on its domain learned, and what it
-    /// fetches its document with. Each request a learned choice
-    /// serves is counted in `run`'s file.
+    /// How `leased`'s attempt runs, as `chosen` (its Label and the Run's
+    /// `fetch.tier` chose it as its Session was drawn): a race is timed by
+    /// its Label on its domain's browser-fetch latencies; and what it
+    /// fetches its document with.
     async fn served(
         &self,
-        run: &Run,
         leased: &Leased,
-        (to_browser, local): (bool, Local),
+        (chosen, local): (Chosen, Local),
         second_copies: &SecondCopies,
     ) -> Tiering {
-        let now = wall_ms(run);
         let request = &leased.crawl_request;
-        // A sitemap's fetch runs no handler and takes no tier choice: its
-        // attempt fetches it on the Run's HTTP tier.
-        let choosing = if leased.sitemap {
-            Choosing::Alone
-        } else {
-            self.labels.settings.choose(&request.label, self.run_tier)
-        };
-        // A request keeping its URL's fragment is served only by a tier
-        // that runs the page's scripts, which the engine's choice is then
-        // (ADR 0120); the start refused it on any forced tier but those.
-        let keeps_fragment = !leased.sitemap && self.labels.fragments.keeps(&request.label);
-        let plan = match choosing {
-            Choosing::Alone | Choosing::Engine if keeps_fragment => AttemptPlan::On(TierChoice {
-                tier: FetchTier::Browser,
-                forced: None,
+        let plan = match chosen {
+            Chosen::Planned(plan) => plan,
+            // Until the sample comparison weighs a race's runs (#768), a
+            // race learns nothing: a Label on its domain due a sample takes
+            // it, so a racing Run learns its choice as any other (ADR
+            // 0040's #945 note).
+            Chosen::Racing(sample @ AttemptPlan::Sample(_)) => sample,
+            Chosen::Racing(learned) => AttemptPlan::Race(Raced {
+                label: request.label.clone(),
+                domain_key: leased.waiting.key.clone(),
+                delay: self
+                    .latencies
+                    .lock()
+                    .await
+                    .delay(&request.label, &leased.waiting.key),
+                agrees: !matches!(
+                    learned,
+                    AttemptPlan::On(TierChoice {
+                        tier: FetchTier::Browser,
+                        ..
+                    })
+                ),
             }),
-            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
-                match self.learned(run, leased, now).await {
-                    // Until the sample comparison weighs a race's runs
-                    // (#768), a race learns nothing: a Label on its domain
-                    // due a sample takes it, so a racing Run learns its
-                    // choice as any other (ADR 0040's #945 note).
-                    sample @ AttemptPlan::Sample(_) => sample,
-                    learned => AttemptPlan::Race(Raced {
-                        label: request.label.clone(),
-                        domain_key: leased.waiting.key.clone(),
-                        delay: self
-                            .latencies
-                            .lock()
-                            .await
-                            .delay(&request.label, &leased.waiting.key),
-                        agrees: !matches!(
-                            learned,
-                            AttemptPlan::On(TierChoice {
-                                tier: FetchTier::Browser,
-                                ..
-                            })
-                        ),
-                    }),
-                }
-            }
-            Choosing::Alone => AttemptPlan::Alone,
-            Choosing::Forced(choice) => AttemptPlan::On(choice),
-            Choosing::Engine if to_browser => AttemptPlan::On(TierChoice {
-                tier: FetchTier::Browser,
-                forced: None,
-            }),
-            Choosing::Engine => self.learned(run, leased, now).await,
         };
         let http = self.session_tier(local);
         Tiering::of(
@@ -702,30 +673,6 @@ impl Fetching<'_> {
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
-    }
-
-    /// How `leased`'s attempt runs at `now` as its Label on its domain
-    /// learned, its choice's count of requests served written into `run`'s
-    /// file, so a resumed crawl goes on counting toward its refresh.
-    async fn learned(&self, run: &Run, leased: &Leased, now: u64) -> AttemptPlan {
-        let request = &leased.crawl_request;
-        let (plan, counted) = {
-            let mut choices = self.choices.lock().await;
-            let (plan, unit) =
-                choices.serve_attempt(&request.label, &leased.waiting.key, &request.url, now);
-            (plan, unit.cloned())
-        };
-        if let Some(unit) = counted {
-            let (label, key) = (request.label.clone(), leased.waiting.key.clone());
-            if let Err(error) = run
-                .state()
-                .write(move |connection| tier_choice::record(connection, &label, &key, &unit))
-                .await
-            {
-                tracing::warn!(%error, run_id = %run.id(), "a Label's count of requests served was not written; a resumed crawl counts from the last one written");
-            }
-        }
-        plan
     }
 
     /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
@@ -795,16 +742,21 @@ impl Fetching<'_> {
 
 /// What each attempt is given: a Session drawn from the crawl's Session
 /// pool under the Run's settings now, and the tier that fetches its
-/// request's document.
+/// request's document. The pool is out of `pool` only while a write that
+/// leases work items draws from it.
 struct Pooled<'a> {
-    pool: &'a mut SessionPool,
+    pool: &'a mut Option<SessionPool>,
     settings: PoolSettings,
     fetching: &'a Fetching<'a>,
 }
 
 impl<'a> Pooled<'a> {
     /// Draws from `pool` under `resolved`, fetching on `fetching`.
-    fn of(pool: &'a mut SessionPool, resolved: &Resolved, fetching: &'a Fetching<'a>) -> Self {
+    fn of(
+        pool: &'a mut Option<SessionPool>,
+        resolved: &Resolved,
+        fetching: &'a Fetching<'a>,
+    ) -> Self {
         Self {
             pool,
             settings: PoolSettings::of(resolved),
@@ -813,17 +765,140 @@ impl<'a> Pooled<'a> {
     }
 }
 
+/// How an attempt's tier is chosen, settled as its Session is drawn.
+enum Chosen {
+    /// On this plan.
+    Planned(AttemptPlan),
+    /// As a race, unless its Label on its domain, which learned this plan,
+    /// is due a sample, which it then takes.
+    Racing(AttemptPlan),
+}
+
+/// A work item leased, with the Session drawn for its attempt, as that
+/// Session runs in the browser, its local addresses, and how its tier is
+/// chosen.
+struct Drawn {
+    leased: Leased,
+    session: ServingSession,
+    in_browser: PooledSession,
+    local: Local,
+    chosen: Chosen,
+}
+
+/// What a write that leases work items draws their Sessions and tier
+/// choices with, on the writer's connection.
+struct Drawing {
+    labels: std::sync::Arc<labels::Declared>,
+    settings: PoolSettings,
+    run_tier: SetTier,
+    races: bool,
+    /// The Run's wall clock as the write was queued, and in milliseconds
+    /// since the Unix epoch.
+    wall: (SystemTime, u64),
+}
+
+impl Drawing {
+    /// Draws the Session of `pool` that serves `leased`, and chooses how its
+    /// tier is chosen, as its Label and the Run's `fetch.tier` choose and,
+    /// under `auto`, on the browser for a domain a Challenge moved there
+    /// (ADR 0021), else, when the Run races its tiers, as a sample while its
+    /// Label on its domain is due one, else as a race, else as its Label on
+    /// its domain learned in `choices`; answers too the choice whose count
+    /// of requests served moved, which the write records, so a resumed
+    /// crawl goes on counting toward its refresh.
+    fn draw(
+        &self,
+        (pool, choices): (&mut SessionPool, &mut TierChoices),
+        leased: Leased,
+    ) -> (Drawn, Option<Unit>) {
+        let request = &leased.crawl_request;
+        let key = self.labels.pools.pool(&request.label);
+        let session = pool.draw(&key, &leased.waiting.key, &self.settings, self.wall.0);
+        let in_browser = PooledSession {
+            id: session.id.clone(),
+            source: self.labels.pools.source(&key),
+            address_ordinal: pool.address_ordinal(&session.id),
+        };
+        let to_browser = pool.browser(&leased.waiting.key);
+        let local = pool.local_addresses(&session.id);
+        // A sitemap's fetch runs no handler and takes no tier choice: its
+        // attempt fetches it on the Run's HTTP tier.
+        let choosing = if leased.sitemap {
+            Choosing::Alone
+        } else {
+            self.labels.settings.choose(&request.label, self.run_tier)
+        };
+        // A request keeping its URL's fragment is served only by a tier
+        // that runs the page's scripts, which the engine's choice is then
+        // (ADR 0120); the start refused it on any forced tier but those.
+        let keeps_fragment = !leased.sitemap && self.labels.fragments.keeps(&request.label);
+        let browser = AttemptPlan::On(TierChoice {
+            tier: FetchTier::Browser,
+            forced: None,
+        });
+        let mut learned = || {
+            let (plan, unit) = choices.serve_attempt(
+                &request.label,
+                &leased.waiting.key,
+                &request.url,
+                self.wall.1,
+            );
+            (plan, unit.cloned())
+        };
+        let (chosen, counted) = match choosing {
+            Choosing::Alone | Choosing::Engine if keeps_fragment => {
+                (Chosen::Planned(browser), None)
+            }
+            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
+                let (plan, counted) = learned();
+                (Chosen::Racing(plan), counted)
+            }
+            Choosing::Alone => (Chosen::Planned(AttemptPlan::Alone), None),
+            Choosing::Forced(choice) => (Chosen::Planned(AttemptPlan::On(choice)), None),
+            Choosing::Engine if to_browser => (Chosen::Planned(browser), None),
+            Choosing::Engine => {
+                let (plan, counted) = learned();
+                (Chosen::Planned(plan), counted)
+            }
+        };
+        let drawn = Drawn {
+            leased,
+            session,
+            in_browser,
+            local,
+            chosen,
+        };
+        (drawn, counted)
+    }
+}
+
+/// The Session pool and tier choices a write that leases work items draws
+/// from, sent back to the delivery loop once the write is done with them:
+/// when it ran, or when the writer dropped it unrun.
+struct Lent {
+    held: Option<(SessionPool, TierChoices)>,
+    back: Option<oneshot::Sender<(SessionPool, TierChoices)>>,
+}
+
+impl Drop for Lent {
+    fn drop(&mut self) {
+        if let (Some(held), Some(back)) = (self.held.take(), self.back.take()) {
+            let _ = back.send(held);
+        }
+    }
+}
+
 /// Admits work items up to each serving Connection's room and the HTTP
-/// admissions the engine's Resource governor gives the Run now, draws the
-/// Session of the pool that serves each, written in run state before any
-/// handler request is sent, and starts an attempt for each on that
-/// Connection, which holds its admission until it ends (ADR 0040). A Run
-/// the governor gave none waits for its turn.
+/// admissions the engine's Resource governor gives the Run now, leases
+/// them and draws the Session of the pool that serves each in one write of
+/// run state, committed before any handler request is sent, and starts an
+/// attempt for each on that Connection, which holds its admission until it
+/// ends (ADR 0040). A Run the governor gave none waits for its turn.
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
     policy: CrawlPolicy,
-    pooled: Pooled<'_>,
+    mut pooled: Pooled<'_>,
     admission: &mut Admission,
     servers: &mut [Serving],
     attempts: &mut JoinSet<Attempt>,
@@ -839,43 +914,23 @@ async fn lease_to_servers(
         if permits.is_empty() {
             return Ok(());
         }
-        let labels = &pooled.fetching.labels.pools;
-        let served: Vec<(Leased, ServingSession, PooledSession, (bool, Local))> =
-            admit(run, admission, permits.len())
-                .await?
-                .into_iter()
-                .map(|leased| {
-                    let key = labels.pool(&leased.crawl_request.label);
-                    let session = pooled.pool.draw(
-                        &key,
-                        &leased.waiting.key,
-                        &pooled.settings,
-                        run.clock().wall(),
-                    );
-                    let in_browser = PooledSession {
-                        id: session.id.clone(),
-                        source: labels.source(&key),
-                        address_ordinal: pooled.pool.address_ordinal(&session.id),
-                    };
-                    let to_browser = pooled.pool.browser(&leased.waiting.key);
-                    let local = pooled.pool.local_addresses(&session.id);
-                    (leased, session, in_browser, (to_browser, local))
-                })
-                .collect();
-        for rotated in pooled.pool.rotated_within_block() {
+        let served = admit(run, admission, permits.len(), &mut pooled).await?;
+        let pool = pooled
+            .pool
+            .as_mut()
+            .ok_or(ChargeError::State(RunStateError::Closed))?;
+        for rotated in pool.rotated_within_block() {
             warn_rotated(run, rotated).await;
         }
-        pooled
-            .fetching
-            .retire(run, pooled.pool, &server.context)
-            .await;
-        let changes = pooled.pool.changes();
-        if !changes.is_empty() {
-            run.state()
-                .write(move |connection| changes.write(connection))
-                .await?;
-        }
-        for (leased, session, in_browser, (to_browser, local)) in served {
+        pooled.fetching.retire(run, pool, &server.context).await;
+        for drawn in served {
+            let Drawn {
+                leased,
+                session,
+                in_browser,
+                local,
+                chosen,
+            } = drawn;
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
@@ -884,9 +939,7 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering = fetching
-                .served(run, &leased, (to_browser, local), &copies)
-                .await;
+            let tiering = fetching.served(&leased, (chosen, local), &copies).await;
             let admission = FetchAdmission::holding(
                 permits
                     .pop()
@@ -924,6 +977,13 @@ async fn lease_to_servers(
         }
     }
     Ok(())
+}
+
+/// The Session pool `pool` holds: back in it once each write that drew
+/// from it answered.
+fn held(pool: &mut Option<SessionPool>) -> &mut SessionPool {
+    pool.as_mut()
+        .expect("invariant: the Session pool is back once each write that drew from it answered")
 }
 
 /// Runs `attempt`, holding its HTTP `admission` until it ends, unless its
@@ -1215,9 +1275,9 @@ async fn returned(
 
 /// Opens the Run's admission and Session pool, or ends the Run as failed
 /// when they could not open.
-async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, SessionPool)> {
+async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Option<SessionPool>)> {
     match open(run, settings).await {
-        Ok(opened) => Some(opened),
+        Ok((admission, pool)) => Some((admission, Some(pool))),
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
             run.end(failed(run, &error)).await;
@@ -1389,21 +1449,24 @@ async fn fill(
     Ok(())
 }
 
-/// Admits up to `room` work items ready now and leases them, then fills
-/// again each domain's queue that drained. Each one first charges the
-/// request it is against the Limits that hold the Run (ADR 0041): once one
-/// has nothing left, or one the engine cannot evaluate covers it, the Run
-/// is asked to stop at its next safe point and nothing more is admitted.
+/// Admits up to `room` work items ready now, leases them and draws their
+/// Sessions, then fills again each domain's queue that drained. Each one
+/// first charges the request it is against the Limits that hold the Run
+/// (ADR 0041): once one has nothing left, or one the engine cannot
+/// evaluate covers it, the Run is asked to stop at its next safe point and
+/// nothing more is admitted.
 async fn admit(
     run: &Run,
     admission: &mut Admission,
     room: usize,
-) -> Result<Vec<Leased>, ChargeError> {
+    pooled: &mut Pooled<'_>,
+) -> Result<Vec<Drawn>, ChargeError> {
     let now = run.clock().now();
     let mut ids = Vec::new();
     let mut keys = Vec::new();
     let mut drained = Vec::new();
     let mut refused = Vec::new();
+    let mut charges = UnjournaledCharges::default();
     while ids.len() < room {
         let Some(admitted) = admission.admit(now).await else {
             break;
@@ -1415,7 +1478,7 @@ async fn admit(
             refused.push((admitted, until));
             continue;
         }
-        match run.charge(REQUESTS, 1).await {
+        match run.charge_unjournaled(&mut charges, REQUESTS, 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
             Err(error) => return Err(error),
@@ -1430,24 +1493,91 @@ async fn admit(
         end_unsent(run, admission, refused).await?;
     }
     let asked = ids.clone();
-    let leased = if ids.is_empty() {
+    let drawn = if ids.is_empty() {
         Vec::new()
     } else {
-        run.state()
-            .write(move |connection| work_items::lease(connection, &ids))
-            .await?
+        leased_and_drawn(run, charges, ids, pooled).await?
     };
     // A work item a rule learned later merged after the gate took it is
     // no longer pending: it gives its domain's turn back unsent.
     for (id, key) in asked.iter().zip(&keys) {
-        if !leased.iter().any(|leased| leased.crawl_request.id == *id) {
+        if !drawn
+            .iter()
+            .any(|drawn| drawn.leased.crawl_request.id == *id)
+        {
             admission.ended(id, key, now, Ended::Done).await;
         }
     }
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }
-    Ok(leased)
+    Ok(drawn)
+}
+
+/// Leases each pending work item of `ids` and draws the Session of
+/// `pooled`'s pool that serves each, in one write of run state that also
+/// journals `charges` and holds what the pool's draws changed and each
+/// tier choice's count of requests served: each attempt's claim, one job
+/// of the writer (ADR 0138). The pool and the tier choices are the write's
+/// while it runs.
+async fn leased_and_drawn(
+    run: &Run,
+    unjournaled: UnjournaledCharges,
+    ids: Vec<String>,
+    pooled: &mut Pooled<'_>,
+) -> Result<Vec<Drawn>, ChargeError> {
+    let pool = pooled
+        .pool
+        .take()
+        .ok_or(ChargeError::State(RunStateError::Closed))?;
+    let fetching = pooled.fetching;
+    let mut choices = fetching.choices.lock().await;
+    let (back, returned) = oneshot::channel();
+    let mut lent = Lent {
+        held: Some((pool, std::mem::take(&mut *choices))),
+        back: Some(back),
+    };
+    let drawing = Drawing {
+        labels: std::sync::Arc::clone(&fetching.labels),
+        settings: pooled.settings,
+        run_tier: fetching.run_tier,
+        races: fetching.races,
+        wall: (run.clock().wall(), wall_ms(run)),
+    };
+    let written = run
+        .write_charged(unjournaled, move |connection| {
+            let (pool, choices) = lent
+                .held
+                .as_mut()
+                .expect("invariant: a write that draws holds the pool until it is dropped");
+            let mut drawn = Vec::new();
+            let mut counted = Vec::new();
+            for leased in work_items::lease(connection, &ids)? {
+                let key = (
+                    leased.crawl_request.label.clone(),
+                    leased.waiting.key.clone(),
+                );
+                let (one, unit) = drawing.draw((pool, choices), leased);
+                drawn.push(one);
+                counted.extend(unit.map(|unit| (key, unit)));
+            }
+            let changes = pool.changes();
+            if !changes.is_empty() {
+                changes.write(connection)?;
+            }
+            for ((label, domain_key), unit) in &counted {
+                tier_choice::record(connection, label, domain_key, unit)?;
+            }
+            Ok(drawn)
+        })
+        .await;
+    // The write's job is dropped once it ran, or unrun once the writer
+    // stopped: either way the pool and the choices come back.
+    if let Ok((pool, taken)) = returned.await {
+        *pooled.pool = Some(pool);
+        *choices = taken;
+    }
+    written
 }
 
 /// Writes what the gate changed into the run file.

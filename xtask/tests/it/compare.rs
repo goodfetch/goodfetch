@@ -557,7 +557,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 45 timed trials started above a 1-minute load of 4.",
+        "1 of the 48 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

@@ -3250,9 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "html-cleaning"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7cfa21711b17b9dc0d4e3e094bdc5883a47a5ea552b4d808d879f9343786f75"
+version = "0.3.0+goodfetch.1"
 dependencies = [
  "dom_query 0.24.0",
  "thiserror 2.0.21",
@@ -5517,9 +5515,7 @@ dependencies = [
 
 [[package]]
 name = "quick_html2md"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a74b751c205e0d079506263fdccc0f875c28f5474ddef649d9cfe73fa4770ee"
+version = "0.2.1+goodfetch.1"
 dependencies = [
  "dom_query 0.24.0",
 ]
@@ -5835,9 +5831,7 @@ dependencies = [
 
 [[package]]
 name = "rs-trafilatura"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7349ec610fed6e49c175da51034aca74c02ec3951a7acbbf10eb2ac3ee04e3b"
+version = "0.2.2+goodfetch.1"
 dependencies = [
  "chrono",
  "dom_query 0.24.0",

@@ -168,6 +168,29 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
     }
 }
 
+/// The units the browser and the program counted of `session`, by name.
+fn units(session: &session::Counted) -> Map<String, Value> {
+    let mut units = Map::from_iter([
+        ("commands".to_owned(), json!(session.commands)),
+        ("reads".to_owned(), json!(session.reads)),
+        ("documents".to_owned(), json!(session.documents)),
+        ("serializations".to_owned(), json!(session.serializations)),
+        ("pages_opened".to_owned(), json!(session.pages_opened)),
+        ("requests".to_owned(), json!(session.requests)),
+        ("pauses".to_owned(), json!(session.paused)),
+        ("refusals".to_owned(), json!(session.refused)),
+        ("checks".to_owned(), json!(session.checks)),
+        ("navigations".to_owned(), json!(session.navigations)),
+    ]);
+    units.extend(
+        session
+            .attempts
+            .iter()
+            .map(|(kind, count)| (format!("{kind}_attempts"), json!(count))),
+    );
+    units
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -211,6 +234,13 @@ fn main() {
             cell.name
         );
         assert!(
+            session.serializations > 0 && session.serialization_commands >= session.serializations,
+            "the cell {} serialized {} pages with {} commands",
+            cell.name,
+            session.serializations,
+            session.serialization_commands
+        );
+        assert!(
             session.pages_opened > 0,
             "the cell {} opened no page",
             cell.name
@@ -248,23 +278,7 @@ fn main() {
             .iter()
             .map(|row| (row.name().to_owned(), json!(session.count(*row))))
             .collect();
-        let mut units = Map::from_iter([
-            ("commands".to_owned(), json!(session.commands)),
-            ("reads".to_owned(), json!(session.reads)),
-            ("documents".to_owned(), json!(session.documents)),
-            ("pages_opened".to_owned(), json!(session.pages_opened)),
-            ("requests".to_owned(), json!(session.requests)),
-            ("pauses".to_owned(), json!(session.paused)),
-            ("refusals".to_owned(), json!(session.refused)),
-            ("checks".to_owned(), json!(session.checks)),
-            ("navigations".to_owned(), json!(session.navigations)),
-        ]);
-        units.extend(
-            session
-                .attempts
-                .iter()
-                .map(|(kind, count)| (format!("{kind}_attempts"), json!(count))),
-        );
+        let units = units(session);
         println!(
             "{}",
             json!({ "cell": cell.name, "units": units, "counts": counts })

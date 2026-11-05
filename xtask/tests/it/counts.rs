@@ -883,6 +883,7 @@ const B2_ROWS: &str = "\
 | `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.world_creations` | worlds per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.document_worlds` | worlds per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C2.serialization_commands` | CDP commands per serialization | 2 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.closed_root_commands` | CDP commands per read in a closed root's document | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `E4.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
@@ -903,7 +904,8 @@ const B2_ROWS: &str = "\
 | `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 ";
 
-/// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 1 page opened,
+/// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 2 serializations,
+/// 1 page opened,
 /// 4 requests paused 6 times, 2 of them refused, one check and attempt of each
 /// action kind and 3 navigations, each row at its limit, which counts `extra`
 /// more of `planted` when told to plant it.
@@ -916,6 +918,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C2.commands", 8),
         ("C2.world_creations", 4),
         ("C2.document_worlds", 4),
+        ("C2.serialization_commands", 4),
         ("E4.pool_walks", 0),
         ("C5.fetch_messages_no_rule", 13),
         ("C5.spawns", 2),
@@ -941,7 +944,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -1101,8 +1104,8 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"E4.pool_walks\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[
@@ -1161,6 +1164,7 @@ fn page_read_rows_divide_by_their_reads_and_a_ratchet_not_run_yet_passes() {
     for line in [
         "C2.commands [default]: 2 per read, limit 2 (8 over 4)",
         "C2.document_worlds [default]: 2 per document, limit 2 (4 over 2)",
+        "C2.serialization_commands [default]: 2 per serialization, limit 2 (4 over 2)",
         "C2.closed_root_commands: not run yet, limit 3, until #726 builds its path",
         "C2.live_view_commands: not run yet, a ratchet with no figure yet, until #1683 builds its path",
     ] {

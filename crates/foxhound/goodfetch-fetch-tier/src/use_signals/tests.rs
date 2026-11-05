@@ -2,10 +2,23 @@
 //! its document's markup, the files a site declares them in, and the
 //! Purpose (spec #581's pure rules, tested in process).
 
+use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;
 use url::Url;
 
 use super::{Purpose, UseSignals, content_signals_refusing, rsl_refusing, tdmrep_file_refusing};
+use crate::untouched::{UntouchedDemand, UntouchedReaders};
+
+/// The signals `headers` and the markup `html` of a document a handler's
+/// page navigated to at `at` carry, as the navigation gate reads them, and
+/// the parses that read took.
+fn read_markup(headers: &[(String, String)], html: &str, at: &Url) -> (UseSignals, u64) {
+    let work = CountedWork::default();
+    let readers = UntouchedReaders::of(UntouchedDemand::default(), &work);
+    let before = work.read(Row::PageParses);
+    let signals = readers.markup_use_signals(UseSignals::of(headers), html, at, &work);
+    (signals, work.read(Row::PageParses) - before)
+}
 
 fn headers(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     pairs
@@ -221,7 +234,7 @@ fn no_file_is_judged_against_search() {
 )]
 #[case::no_markup("<p>tdm-reservation</p>", false)]
 fn a_documents_meta_reserves_its_rights(#[case] html: &str, #[case] reserved: bool) {
-    let signals = UseSignals::of(&[]).with_markup(html, &url("https://example.test/a/b"));
+    let (signals, _) = read_markup(&[], html, &url("https://example.test/a/b"));
 
     assert_eq!(refusals(|purpose| signals.refusing(purpose)), [reserved; 3]);
 }
@@ -264,10 +277,69 @@ fn a_document_names_its_rsl_license(
         .into_iter()
         .map(|value| ("link".to_owned(), value))
         .collect();
-    let signals = UseSignals::of(&headers).with_markup(html, &at);
+    let (signals, _) = read_markup(&headers, html, &at);
 
     assert_eq!(
         signals.license().map(String::from),
         expected.map(str::to_owned)
+    );
+}
+
+/// A whole document whose head holds `head`, as a server sends one: its
+/// tree is the streaming pass's stack.
+fn document(head: &str) -> String {
+    format!(
+        "<!doctype html>\n<html lang=\"en\"><head><title>A page</title>{head}</head><body><p>Text</p></body></html>"
+    )
+}
+
+#[rstest]
+#[case::a_tdmrep_meta(&[], r#"<meta name="tdm-reservation" content="1">"#)]
+#[case::a_tdmrep_meta_in_any_case(&[], r#"<META NAME="TDM-Reservation" content=" 1">"#)]
+#[case::a_tdmrep_meta_not_reserving(&[], r#"<meta name="tdm-reservation" content="0">"#)]
+#[case::a_link_element_and_its_base(
+    &[],
+    r#"<base href="/base/"><link rel="stylesheet" href="s.css"><link rel="license" type="application/rsl+xml" href="license.xml">"#
+)]
+#[case::a_character_reference_in_its_href(
+    &[],
+    r#"<link rel="license" type="application/rsl+xml" href="/l&amp;i.xml">"#
+)]
+#[case::the_header_first(
+    &[("link", r#"</header.xml>; rel="license"; type="application/rsl+xml""#)],
+    r#"<link rel="license" type="application/rsl+xml" href="/element.xml">"#
+)]
+#[case::both(
+    &[],
+    r#"<base href="https://elsewhere.test/"><meta name="tdm-reservation" content="1"><link rel="license" type="application/rsl+xml" href="license.xml">"#
+)]
+fn a_documents_markup_signals_are_read_in_one_streaming_pass_as_its_tree_holds_them(
+    #[case] pairs: &[(&str, &str)],
+    #[case] head: &str,
+) {
+    let at = url("https://example.test/a/b");
+    let html = document(head);
+    let tree = {
+        let work = CountedWork::default();
+        let readers = UntouchedReaders::of(UntouchedDemand::default(), &work);
+        let parsed = work.parse_html(Row::PageParses, &html);
+        readers.use_signals(UseSignals::of(&headers(pairs)), (&html, &parsed), &at)
+    };
+
+    let (signals, parses) = read_markup(&headers(pairs), &html, &at);
+
+    assert_eq!((signals, parses), (tree, 0));
+}
+
+#[test]
+fn a_document_whose_tree_the_pass_cannot_vouch_for_is_parsed_once() {
+    // No doctype: quirks mode, whose tree the pass does not follow.
+    let html = r#"<head><meta name="tdm-reservation" content="1"></head>"#;
+
+    let (signals, parses) = read_markup(&[], html, &url("https://example.test/"));
+
+    assert_eq!(
+        (signals.refusing(Purpose::Collect).is_some(), parses),
+        (true, 1)
     );
 }

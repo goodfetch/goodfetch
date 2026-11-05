@@ -309,10 +309,9 @@ pub(crate) fn read_sitemap(
         work,
         |url, adding| add(connection, &mut positions, url, from_sitemap(adding)),
     )?;
-    connection.execute(
-        "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
-        (SUCCEEDED, id),
-    )?;
+    connection
+        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     Ok(true)
 }
 
@@ -424,14 +423,14 @@ impl Positions {
     /// The positions after everything the run file `connection` holds,
     /// admitting against the run file alone.
     pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
-        let next: i64 = connection.query_row(
-            "SELECT max(
+        let next: i64 = connection
+            .prepare_cached(
+                "SELECT max(
                  (SELECT coalesce(max(position), 0) FROM work_items),
                  (SELECT coalesce(max(reserved), 0) FROM work_item_positions)
              ) + 1",
-            [],
-            |row| row.get(0),
-        )?;
+            )
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         Ok(Self {
             kept: BTreeMap::new(),
             used: BTreeSet::new(),
@@ -543,11 +542,12 @@ impl Positions {
     /// Reserves in the run file every position given so far, so that no
     /// later work item takes one, though none of it is written yet.
     pub(crate) fn reserve(&self, connection: &Connection) -> rusqlite::Result<()> {
-        connection.execute(
-            "INSERT INTO work_item_positions (id, reserved) VALUES (1, ?1)
+        connection
+            .prepare_cached(
+                "INSERT INTO work_item_positions (id, reserved) VALUES (1, ?1)
              ON CONFLICT (id) DO UPDATE SET reserved = max(reserved, excluded.reserved)",
-            [integer(self.next.saturating_sub(1))],
-        )?;
+            )
+            .and_then(|mut cached| cached.execute([integer(self.next.saturating_sub(1))]))?;
         Ok(())
     }
 }
@@ -562,12 +562,10 @@ pub(crate) fn add(
     adding: Adding<'_>,
 ) -> rusqlite::Result<String> {
     let position = integer(positions.take(url.as_str()));
-    connection.query_row(
-        "INSERT INTO work_items
+    connection.prepare_cached("INSERT INTO work_items
              (id, position, url, method, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront)
          VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, 0, ?7, CASE WHEN ?8 THEN ?1 END)
-         RETURNING id",
-        (
+         RETURNING id").and_then(|mut cached| cached.query_row((
             position,
             url.as_str(),
             adding.method.as_str(),
@@ -576,9 +574,7 @@ pub(crate) fn add(
             adding.depth,
             adding.priority,
             adding.forefront,
-        ),
-        |row| row.get(0),
-    )
+        ), |row| row.get(0)))
     .and_then(|id: String| {
         payload::store(connection, &id, adding.payload, &positions.work)?;
         Ok(id)
@@ -589,7 +585,7 @@ pub(crate) fn add(
 /// order: those a resume would deliver.
 pub(crate) fn pending_of(connection: &Connection, label: &str) -> rusqlite::Result<Vec<String>> {
     connection
-        .prepare(
+        .prepare_cached(
             "SELECT id FROM work_items WHERE label = ?1 AND status IN ('pending', 'leased')
              ORDER BY position",
         )?
@@ -605,11 +601,7 @@ pub(crate) fn attempt(
     lease_epoch: u64,
 ) -> rusqlite::Result<Option<(String, u32)>> {
     connection
-        .query_row(
-            "SELECT url, depth FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2",
-            (id, integer(lease_epoch)),
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached("SELECT url, depth FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2").and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |row| Ok((row.get(0)?, row.get(1)?))))
         .optional()
 }
 
@@ -620,7 +612,7 @@ pub(crate) fn unkeyed(
     limit: usize,
 ) -> rusqlite::Result<Vec<(String, Waiting)>> {
     connection
-        .prepare(
+        .prepare_cached(
             "SELECT url, id, priority, position, forefront IS NOT NULL FROM work_items
              WHERE domain_key IS NULL ORDER BY position LIMIT ?1",
         )?
@@ -641,7 +633,8 @@ pub(crate) fn unkeyed(
 
 /// Records each work item's domain key.
 pub(crate) fn set_keys(connection: &Connection, keys: &[(String, String)]) -> rusqlite::Result<()> {
-    let mut update = connection.prepare("UPDATE work_items SET domain_key = ?2 WHERE id = ?1")?;
+    let mut update =
+        connection.prepare_cached("UPDATE work_items SET domain_key = ?2 WHERE id = ?1")?;
     for (id, key) in keys {
         update.execute((id, key))?;
     }
@@ -669,7 +662,7 @@ pub(crate) fn waiting(
     };
     match key {
         Some(key) => connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM work_items
                  WHERE status = 'pending' AND domain_key = ?1
                  ORDER BY forefront DESC, priority DESC, position LIMIT ?2",
@@ -677,7 +670,7 @@ pub(crate) fn waiting(
             .query_map((key, bound), row)?
             .collect(),
         None => connection
-            .prepare(
+            .prepare_cached(
                 "SELECT id, domain_key, priority, position, forefront IS NOT NULL FROM (
                      SELECT id, domain_key, priority, position, forefront, row_number() OVER (
                          PARTITION BY domain_key ORDER BY forefront DESC, priority DESC, position
@@ -693,12 +686,10 @@ pub(crate) fn waiting(
 /// Leases each pending work item of `ids`, in that order: each one's
 /// attempts and lease epoch go up by one.
 pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result<Vec<Leased>> {
-    let mut statement = connection.prepare(
-        "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
+    let mut statement = connection.prepare_cached("UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
-             forefront IS NOT NULL, method, body, attempts - retried_from",
-    )?;
+             forefront IS NOT NULL, method, body, attempts - retried_from")?;
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
         let row = statement
@@ -747,11 +738,10 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
 /// Whether the work item `id` is still leased under `lease_epoch`.
 fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row(
+        .prepare_cached(
             "SELECT 1 FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2",
-            (id, integer(lease_epoch)),
-            |_| Ok(()),
         )
+        .and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |_| Ok(())))
         .optional()?
         .is_some())
 }
@@ -822,14 +812,14 @@ pub(crate) fn commit(
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let url: String =
-        connection.query_row("SELECT url FROM work_items WHERE id = ?1", [id], |row| {
-            row.get(0)
-        })?;
+    let url: String = connection
+        .prepare_cached("SELECT url FROM work_items WHERE id = ?1")
+        .and_then(|mut cached| cached.query_row([id], |row| row.get(0)))?;
     // The Run's constant digest, read again at each commit.
     work.count(Row::RecordConstantLookups);
     let clean_up_rules: Option<String> = connection
-        .query_row("SELECT clean_up_digest FROM run", [], |row| row.get(0))
+        .prepare_cached("SELECT clean_up_digest FROM run")
+        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
         .optional()?
         .flatten();
     let provenance = RecordProvenance {
@@ -854,10 +844,9 @@ pub(crate) fn commit(
         work,
     };
     let counted = goodfetch_dataset::commit(connection, committing, records)?;
-    connection.execute(
-        "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
-        (SUCCEEDED, id),
-    )?;
+    connection
+        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     let nothing_committed = if counted.is_empty() {
         Some(NothingCommitted::NonePushed)
     } else if counted.iter().all(|dataset| dataset.committed == 0) {
@@ -897,10 +886,9 @@ pub(crate) fn end(
         Unsuccessful::Skipped { .. } => (SKIPPED, None),
         Unsuccessful::Blocked(_) => (BLOCKED, None),
     };
-    connection.execute(
-        "UPDATE work_items SET status = ?1, error_code = ?2 WHERE id = ?3",
-        (status, error_code, id),
-    )?;
+    connection
+        .prepare_cached("UPDATE work_items SET status = ?1, error_code = ?2 WHERE id = ?3")
+        .and_then(|mut cached| cached.execute((status, error_code, id)))?;
     let ending = match unsuccessful {
         Unsuccessful::Retried(failure) => {
             keep_error(connection, id, &failure)?;
@@ -930,13 +918,14 @@ pub(crate) fn end_merged(
     let mut members = Vec::with_capacity(ids.len());
     for id in ids {
         let member = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT position, status, url, domain_key, EXISTS (
                      SELECT 1 FROM outcomes WHERE work_item = ?1 AND kind = ?2
                          AND json_extract(outcome, '$.reason') = 'duplicate')
                  FROM work_items WHERE id = ?1",
-                (id, SKIPPED),
-                |row| {
+            )
+            .and_then(|mut cached| {
+                cached.query_row((id, SKIPPED), |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, String>(1)?,
@@ -944,8 +933,8 @@ pub(crate) fn end_merged(
                         row.get::<_, Option<String>>(3)?,
                         row.get::<_, bool>(4)?,
                     ))
-                },
-            )
+                })
+            })
             .optional()?;
         members.extend(member.map(|member| (id.clone(), member)));
     }
@@ -961,10 +950,9 @@ pub(crate) fn end_merged(
     }
     let mut ended = Vec::new();
     for (id, (_, _, url, key, _)) in pending {
-        connection.execute(
-            "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
-            (SKIPPED, &id),
-        )?;
+        connection
+            .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+            .and_then(|mut cached| cached.execute((SKIPPED, &id)))?;
         write_outcome(
             connection,
             &id,
@@ -986,23 +974,24 @@ fn keep_error(
     id: &str,
     failure: &Failure,
 ) -> rusqlite::Result<AttemptError> {
-    let attempt: u32 = connection.query_row(
-        "SELECT attempts FROM work_items WHERE id = ?1",
-        [id],
-        |row| row.get(0),
-    )?;
-    connection.execute(
-        "INSERT INTO attempt_errors (work_item, attempt, code, message, details)
+    let attempt: u32 = connection
+        .prepare_cached("SELECT attempts FROM work_items WHERE id = ?1")
+        .and_then(|mut cached| cached.query_row([id], |row| row.get(0)))?;
+    connection
+        .prepare_cached(
+            "INSERT INTO attempt_errors (work_item, attempt, code, message, details)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        (
-            id,
-            attempt,
-            &failure.code,
-            &failure.message,
-            (!failure.details.is_empty())
-                .then(|| Value::Object(failure.details.clone()).to_string()),
-        ),
-    )?;
+        )
+        .and_then(|mut cached| {
+            cached.execute((
+                id,
+                attempt,
+                &failure.code,
+                &failure.message,
+                (!failure.details.is_empty())
+                    .then(|| Value::Object(failure.details.clone()).to_string()),
+            ))
+        })?;
     Ok(AttemptError {
         attempt,
         code: failure.code.clone(),
@@ -1026,13 +1015,15 @@ fn write_outcome(
     if sitemap::is_fetch(connection, id)? {
         return sitemap::ended(connection, id, &ending);
     }
-    let (url, label, depth, attempts): (String, String, u32, u32) = connection.query_row(
-        "SELECT url, label, depth, attempts FROM work_items WHERE id = ?1",
-        [id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    )?;
+    let (url, label, depth, attempts): (String, String, u32, u32) = connection
+        .prepare_cached("SELECT url, label, depth, attempts FROM work_items WHERE id = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+        })?;
     let errors = connection
-        .prepare(
+        .prepare_cached(
             "SELECT attempt, code, message, details FROM attempt_errors
              WHERE work_item = ?1
                AND attempt > (SELECT coalesce(max(attempts), 0) FROM outcomes WHERE work_item = ?1)
@@ -1050,11 +1041,13 @@ fn write_outcome(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let position: u64 = connection.query_row(
-        "SELECT coalesce(max(position), 0) + 1 FROM outcomes",
-        [],
-        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
-    )?;
+    let position: u64 = connection
+        .prepare_cached("SELECT coalesce(max(position), 0) + 1 FROM outcomes")
+        .and_then(|mut cached| {
+            cached.query_row([], |row| {
+                Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default())
+            })
+        })?;
     let kind = ending.kind();
     // The work item had no counted outcome: it was leased or pending, a
     // re-admission having taken its last one out of the counts.
@@ -1072,18 +1065,21 @@ fn write_outcome(
         ended_at: ended_at.clone(),
         ending,
     };
-    connection.execute(
-        "INSERT INTO outcomes (position, work_item, kind, label, attempts, outcome)
+    connection
+        .prepare_cached(
+            "INSERT INTO outcomes (position, work_item, kind, label, attempts, outcome)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        (
-            integer(position),
-            id,
-            kind.as_str(),
-            label,
-            attempts,
-            serde_json::to_string(&outcome).expect("invariant: an outcome encodes as JSON"),
-        ),
-    )?;
+        )
+        .and_then(|mut cached| {
+            cached.execute((
+                integer(position),
+                id,
+                kind.as_str(),
+                label,
+                attempts,
+                serde_json::to_string(&outcome).expect("invariant: an outcome encodes as JSON"),
+            ))
+        })?;
     Ok(())
 }
 
@@ -1106,13 +1102,14 @@ fn counted_as(ending: &Ending) -> (&'static str, String) {
 /// ended requests and, for a request that succeeded, its Records.
 pub(crate) fn count(connection: &Connection, ending: &Ending, by: i64) -> rusqlite::Result<()> {
     let (kind, name) = counted_as(ending);
-    connection.execute(
-        "INSERT INTO request_counts (kind, name, count) VALUES (?1, ?2, ?3)
+    connection
+        .prepare_cached(
+            "INSERT INTO request_counts (kind, name, count) VALUES (?1, ?2, ?3)
          ON CONFLICT (kind, name) DO UPDATE SET count = count + excluded.count",
-        (kind, name, by),
-    )?;
+        )
+        .and_then(|mut cached| cached.execute((kind, name, by)))?;
     if let Ending::Succeeded { records, .. } = ending {
-        let mut counted = connection.prepare(
+        let mut counted = connection.prepare_cached(
             "INSERT INTO record_counts (dataset, committed, dropped, rejected)
              VALUES (?1, ?2 * ?5, ?3 * ?5, ?4 * ?5)
              ON CONFLICT (dataset) DO UPDATE SET
@@ -1150,7 +1147,7 @@ pub(crate) fn ended_counts(
     connection: &Connection,
 ) -> rusqlite::Result<(Vec<KindCount>, Vec<DatasetRecords>)> {
     let requests = connection
-        .prepare(
+        .prepare_cached(
             "SELECT kind, name, count FROM request_counts WHERE count > 0 ORDER BY kind, name",
         )?
         .query_map([], |row| {
@@ -1162,7 +1159,7 @@ pub(crate) fn ended_counts(
         })?
         .collect::<rusqlite::Result<_>>()?;
     let records = connection
-        .prepare(
+        .prepare_cached(
             "SELECT dataset, committed, dropped, rejected FROM record_counts ORDER BY dataset",
         )?
         .query_map([], |row| {
@@ -1195,22 +1192,23 @@ pub(crate) fn readmitted(blocked: bool) -> &'static [&'static str] {
 /// in a run file no crawl wrote.
 pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::Result<u64> {
     let crawled = connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'work_items'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'work_items'")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !crawled {
         return Ok(0);
     }
     let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
-    connection.query_row(
-        "SELECT COUNT(*) FROM work_items WHERE status IN (SELECT value FROM json_each(?1))",
-        [statuses],
-        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
-    )
+    connection
+        .prepare_cached(
+            "SELECT COUNT(*) FROM work_items WHERE status IN (SELECT value FROM json_each(?1))",
+        )
+        .and_then(|mut cached| {
+            cached.query_row([statuses], |row| {
+                Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default())
+            })
+        })
 }
 
 /// Re-admits every work item [`readmitted`] names, which ends again with a
@@ -1222,7 +1220,7 @@ pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::
 pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Result<Vec<String>> {
     let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
     let mut ids = connection
-        .prepare(
+        .prepare_cached(
             "UPDATE work_items SET status = 'pending', error_code = NULL, retried_from = attempts
              WHERE status IN (SELECT value FROM json_each(?1))
              RETURNING id, position",
@@ -1230,7 +1228,7 @@ pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Resul
         .query_map([statuses], |row| Ok((row.get::<_, i64>(1)?, row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<(i64, String)>>>()?;
     ids.sort();
-    let mut latest = connection.prepare(
+    let mut latest = connection.prepare_cached(
         "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
     )?;
     for (_, id) in &ids {
@@ -1252,10 +1250,11 @@ pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Resul
 /// Returns every leased work item to pending without counting its attempt:
 /// the program's own stop counts nothing (ADR 0093).
 pub(crate) fn release_leases(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute(
-        "UPDATE work_items SET status = ?1, attempts = attempts - 1 WHERE status = ?2",
-        (PENDING, LEASED),
-    )?;
+    connection
+        .prepare_cached(
+            "UPDATE work_items SET status = ?1, attempts = attempts - 1 WHERE status = ?2",
+        )
+        .and_then(|mut cached| cached.execute((PENDING, LEASED)))?;
     Ok(())
 }
 
@@ -1265,14 +1264,11 @@ pub(crate) fn pending_and_leased(
     connection: &Connection,
 ) -> rusqlite::Result<(u64, BTreeSet<(String, u32)>)> {
     let pending = connection
-        .query_row(
-            "SELECT COUNT(*) FROM work_items WHERE status = ?1",
-            [PENDING],
-            |row| row.get::<_, i64>(0),
-        )
+        .prepare_cached("SELECT COUNT(*) FROM work_items WHERE status = ?1")
+        .and_then(|mut cached| cached.query_row([PENDING], |row| row.get::<_, i64>(0)))
         .map(|pending| u64::try_from(pending).unwrap_or(0))?;
     let mut statement =
-        connection.prepare("SELECT id, attempts FROM work_items WHERE status = ?1")?;
+        connection.prepare_cached("SELECT id, attempts FROM work_items WHERE status = ?1")?;
     let leased = statement
         .query_map([LEASED], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -1283,11 +1279,8 @@ pub(crate) fn pending_and_leased(
 /// attempt.
 pub(crate) fn left(connection: &Connection) -> rusqlite::Result<u64> {
     connection
-        .query_row(
-            "SELECT COUNT(*) FROM work_items WHERE status IN (?1, ?2)",
-            [PENDING, LEASED],
-            |row| row.get::<_, i64>(0),
-        )
+        .prepare_cached("SELECT COUNT(*) FROM work_items WHERE status IN (?1, ?2)")
+        .and_then(|mut cached| cached.query_row([PENDING, LEASED], |row| row.get::<_, i64>(0)))
         .map(|left| u64::try_from(left).unwrap_or(0))
 }
 
@@ -1304,7 +1297,7 @@ pub(crate) fn recover_leases(
     ended_at: &PointInTime,
 ) -> rusqlite::Result<()> {
     let lost = connection
-        .prepare(
+        .prepare_cached(
             "SELECT id, lease_epoch, attempts - retried_from <= ?1 FROM work_items
              WHERE status = ?2 ORDER BY position",
         )?
@@ -1330,11 +1323,8 @@ pub(crate) fn recover_leases(
 /// Whether any work item is still pending.
 pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row(
-            "SELECT 1 FROM work_items WHERE status = ?1 LIMIT 1",
-            [PENDING],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM work_items WHERE status = ?1 LIMIT 1")
+        .and_then(|mut cached| cached.query_row([PENDING], |_| Ok(())))
         .optional()?
         .is_some())
 }

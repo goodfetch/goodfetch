@@ -36,11 +36,8 @@ async fn list(params: DatasetListParams, context: CallContext) -> Result<Dataset
 /// The Datasets the run file `connection` declares, with their counts.
 fn listed(connection: &Connection) -> rusqlite::Result<DatasetList> {
     let crawled = connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'datasets'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'datasets'")
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !crawled {

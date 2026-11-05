@@ -379,7 +379,8 @@ fn a_request_whose_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
 }
 
 /// With `site_preferences.respect_robots_txt` off, a request robots.txt
-/// disallows is fetched and handled.
+/// disallows is fetched and handled, and robots.txt itself is never
+/// fetched: off costs nothing (ADR 0138).
 ///
 /// Covers: story:6-239, setting:site_preferences.respect_robots_txt
 #[test]
@@ -401,11 +402,13 @@ fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
             crawled.handled,
             crawled.outcomes,
             pages_received(&proving_ground, FILE_HOST),
+            received(&proving_ground, FILE_HOST),
         ),
         (
             vec!["/private/catalog/1".to_owned()],
             vec![ended("/private/catalog/1", "succeeded", None)],
             vec!["/private/catalog/1".to_owned()],
+            (0, 1),
         )
     );
 }

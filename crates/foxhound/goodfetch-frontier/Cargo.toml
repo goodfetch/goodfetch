@@ -24,8 +24,7 @@ jsonschema.workspace = true
 psl.workspace = true
 # A sitemap seed's sitemaps are XML (ADR 0093).
 quick-xml.workspace = true
-# Its statement cache keeps the per-seed scope insert prepared (prepare_cached).
-rusqlite = { workspace = true, features = ["cache"] }
+rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
@@ -40,7 +39,7 @@ gungraun.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 # The learned rules' tests read the statements a re-keying runs (trace_v2).
-rusqlite = { workspace = true, features = ["cache", "trace"] }
+rusqlite = { workspace = true, features = ["trace"] }
 rstest.workspace = true
 # The Frontier at scale keeps its run file on disk, in a folder of its own.
 tempfile.workspace = true

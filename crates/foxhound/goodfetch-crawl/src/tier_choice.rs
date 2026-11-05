@@ -591,10 +591,11 @@ pub(crate) fn record(
     unit: &Unit,
 ) -> rusqlite::Result<()> {
     let unit = serde_json::to_string(unit).expect("invariant: a tier choice encodes as JSON");
-    connection.execute(
-        "INSERT OR REPLACE INTO tier_choices (label, domain_key, unit) VALUES (?1, ?2, ?3)",
-        params![label, domain_key, unit],
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT OR REPLACE INTO tier_choices (label, domain_key, unit) VALUES (?1, ?2, ?3)",
+        )
+        .and_then(|mut cached| cached.execute(params![label, domain_key, unit]))?;
     Ok(())
 }
 
@@ -606,8 +607,8 @@ pub(crate) fn record(
 ///
 /// The run file's, when the rows cannot be read.
 pub(crate) fn read(connection: &Connection) -> rusqlite::Result<TierChoices> {
-    let mut select =
-        connection.prepare("SELECT label, domain_key, unit FROM tier_choices ORDER BY label")?;
+    let mut select = connection
+        .prepare_cached("SELECT label, domain_key, unit FROM tier_choices ORDER BY label")?;
     let rows = select.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,

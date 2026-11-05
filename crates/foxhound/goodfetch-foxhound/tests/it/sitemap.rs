@@ -19,6 +19,7 @@
 )]
 
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -262,11 +263,20 @@ fn a_sitemap_index_seeds_its_entries_with_the_first_matching_rules_label() {
 /// cross-submits on another host: it admits the site's own entries from
 /// it, and the other host's are `out_of_scope`, so the partner's sitemap
 /// never widens the crawl; the robots.txt is read once, as the copy the
-/// sitemap's fetch read.
+/// sitemap's fetch read. With `site_preferences.respect_robots_txt` off,
+/// the seed's robots.txt is still read for its `Sitemap:` lines, which the
+/// crawl asked for, and the partner's robots.txt is never fetched (ADR
+/// 0138).
 ///
 /// Covers: story:6-205, story:6-203, operation:crawl.start
-#[test]
-fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_submits() {
+#[rstest]
+#[case::respected(true, &["/cross.xml", "/robots.txt"])]
+/// Covers: setting:site_preferences.respect_robots_txt
+#[case::not_respected(false, &["/cross.xml"])]
+fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_submits(
+    #[case] respected: bool,
+    #[case] partner_received: &[&str],
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |host: &str, path: &str| proving_ground.url(host, path);
@@ -276,7 +286,11 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
         "rules": [{ "pattern": "**/books/*", "label": "book" }],
     });
 
-    let crawled = crawl_sitemap(&proving_ground, &seed, &json!({}));
+    let crawled = crawl_sitemap(
+        &proving_ground,
+        &seed,
+        &json!({ "site_preferences": { "respect_robots_txt": respected } }),
+    );
 
     assert_eq!(
         (
@@ -289,7 +303,10 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
             handled(&[("book", &url(SITE, "/books/4"))]),
             json!([counts(&robots, 1, &[], 1, &[("out_of_scope", 1)])]),
             vec!["/robots.txt".to_owned()],
-            vec!["/cross.xml".to_owned(), "/robots.txt".to_owned()],
+            partner_received
+                .iter()
+                .map(|&target| target.to_owned())
+                .collect::<Vec<_>>(),
         )
     );
 }

@@ -914,7 +914,7 @@ pub fn fuzz_request_head(data: &[u8]) {
     if let Ok(Some((head, _))) = head::parse(data) {
         let _ = head.target.url();
         let _ = head.target.authority();
-        let _ = head.forwarded(true, Some("Basic Z29vZGZldGNoOng="));
+        let _ = head.as_sent(true, Some("Basic Z29vZGZldGNoOng="));
     }
 }
 

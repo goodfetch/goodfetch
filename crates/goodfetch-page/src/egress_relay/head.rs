@@ -218,20 +218,10 @@ fn host_of(url: &url::Url) -> Result<String, Unread> {
 impl Head {
     /// The head sent on for a plain request: to the site in origin form,
     /// or to an upstream HTTP proxy in absolute form with `authorization`,
-    /// its credentials; the hop-by-hop fields left out, and the connection
-    /// closed after one answer (`Connection: close`), since its sender
-    /// judges each request's host once, at the connection's start.
-    pub(crate) fn forwarded(&self, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
-        let mut head = self.as_sent(to_proxy, authorization);
-        head.truncate(head.len() - 2);
-        head.extend_from_slice(b"Connection: close\r\n\r\n");
-        head
-    }
-
-    /// The head sent on for a plain request as [`Head::forwarded`] sends
-    /// it, but with no `Connection: close` added, so the site answers it as
-    /// it answers the browser's own request: the egress relay closes the
-    /// browser's connection after one answer instead ([`closing`]).
+    /// its credentials; the hop-by-hop fields left out and nothing added,
+    /// so the site answers it as it answers the browser's own request: the
+    /// egress relay closes the browser's connection after one answer
+    /// instead ([`closing`]).
     pub(crate) fn as_sent(&self, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
         let target = match (&self.target, to_proxy) {
             (Target::Absolute { url, .. }, true) => url.as_str(),

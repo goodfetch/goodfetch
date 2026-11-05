@@ -814,19 +814,14 @@ test-affected suite *change:
 # Each suite lists the parts it could not run on this host, with the reason,
 # even when a part fails: the list is printed when the suite stops.
 
-# The Quick suite: the floor guard and the scan of the change's commits for
-# secrets, which take seconds, then lints and in-process tests of what
-# changed (`all`: the whole workspace). The pre-push hook runs it.
+# The pre-push tier (T1): the floor guard and the scan of the change's
+# commits for secrets, which take seconds, then the checks the change's own
+# gate runs at merge (ci/quick.sh): for a change of documents alone
+# (`xtask affected`'s `gate=docs`) the checks that read documents, else
+# lints and in-process tests of what changed (`all`: every lint and the
+# whole workspace). The pre-push hook runs it.
 quick *all:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just="{{ just_executable() }}"
-    rm -f target/skipped.txt
-    trap '"$just" _skips-report' EXIT
-    "$just" floor-guard
-    "$just" commit-leaks
-    "$just" lint
-    "$just" _suite quick "{{ all }}"
+    PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'

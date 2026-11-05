@@ -287,8 +287,8 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
     // Both handler requests come, neither answered: the first page gave
     // its admission back once its document was fetched, and the second was
     // fetched meanwhile. Held until the first's answer, the admission
-    // would keep the second from ever coming, and nextest's kill would end
-    // the test. The verdict reads the requests themselves, not
+    // would keep the second from ever coming, and the engine's silence
+    // would fail the read at its 10 s deadline. The verdict reads the requests themselves, not
     // `run.progress`: its `waiting` is the delivery's view at its last
     // admission, which still shows the second under `governor` for a
     // moment after the admission came back (4 of 20 runs, #1905's flake).

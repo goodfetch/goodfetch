@@ -7,11 +7,33 @@
 use std::sync::LazyLock;
 
 use goodfetch_clean_up_rules::matching::{Choices, List};
-use goodfetch_clean_up_rules::removal::{self, Selectors, Share};
+use goodfetch_clean_up_rules::removal::{self, Removal, Rules, Share};
 use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_counted_work::{CountedWork, Row};
 
 static LISTS: LazyLock<FilterLists> =
     LazyLock::new(|| FilterLists::embedded().expect("the embedded Filter lists load"));
+
+/// The digest the tests' rules are of.
+const VERSION: &str = "embedded";
+
+/// `html`, the document of the page at `url`, with what the rules of the
+/// lists `choices` turn on removed in place on its one tree, through the
+/// engine's cache on `work`: what was removed, and the tree serialized.
+fn removed(html: &str, url: &str, choices: &Choices, work: &CountedWork) -> (Removal, String) {
+    let document = work.parse_html(Row::PageParses, html);
+    let removal = removal::remove(
+        &document,
+        url,
+        Rules {
+            lists: &LISTS,
+            version: VERSION,
+            choices,
+        },
+        work,
+    );
+    (removal, document.html().to_string())
+}
 
 fn defaults() -> Choices {
     Choices {
@@ -39,14 +61,14 @@ const PAGE: &str = r#"<!DOCTYPE html>
 /// Covers: story:5-98
 #[test]
 fn removal_walks_open_and_closed_shadow_roots_and_exposes_what_it_matched() {
-    let removal = removal::remove(
+    let (removal, html) = removed(
         PAGE,
         "https://news.example/article",
-        (&LISTS, &defaults()),
-        &Selectors::default(),
+        &defaults(),
+        &CountedWork::default(),
     );
 
-    let kept = |text: &str| removal.html.contains(text);
+    let kept = |text: &str| html.contains(text);
     assert_eq!(
         [
             "The article's own text.",
@@ -58,8 +80,7 @@ fn removal_walks_open_and_closed_shadow_roots_and_exposes_what_it_matched() {
         ]
         .map(kept),
         [true, true, true, false, false, false],
-        "{}",
-        removal.html
+        "{html}"
     );
     let removed: Vec<(&str, List, bool, Vec<&str>)> = removal
         .removed
@@ -102,24 +123,26 @@ const PLAIN: &str = "<!DOCTYPE html>
 <main><h1>An article</h1><p>The article's own text.</p></main>
 </body></html>";
 
-/// The pages that share their selectors, as a Run's do, parse each of a
-/// rule set's selectors once: a page whose rules the earlier pages held
-/// parses none, and one that holds a class a generic rule keys parses that
-/// rule's selector alone (#1765). Each removes what a page with its own
-/// selectors does.
+/// The pages that share the engine's cache of compilations, as its Runs'
+/// do, compile each of a rule set's selectors once: a page whose rules the
+/// earlier pages held compiles none, and one that holds a class a generic
+/// rule keys compiles that rule's selector alone (#1765, #1912). Each
+/// removes what a page with a cache of its own does. Rules of another
+/// version compile their selectors again.
 /// Covers: story:5-98
 #[test]
-fn pages_that_share_their_selectors_parse_each_selector_of_their_rules_once() {
-    let shared = Selectors::default();
+fn pages_that_share_the_engines_cache_compile_each_selector_of_their_rules_once() {
+    let shared = CountedWork::default();
+    let compiled = || shared.read(Row::PageSelectorCompilations);
     let remove = |html, path| {
         let url = format!("https://news.example/{path}");
-        let removal = removal::remove(html, &url, (&LISTS, &defaults()), &shared);
-        let alone = removal::remove(html, &url, (&LISTS, &defaults()), &Selectors::default());
+        let (removal, cleaned) = removed(html, &url, &defaults(), &shared);
+        let (alone, alone_cleaned) = removed(html, &url, &defaults(), &CountedWork::default());
         assert_eq!(
-            (&removal.html, &removal.removed),
-            (&alone.html, &alone.removed)
+            (&cleaned, &removal.removed),
+            (&alone_cleaned, &alone.removed)
         );
-        (shared.parsed(), removal.removed.len())
+        (compiled(), removal.removed.len())
     };
 
     let (first, _) = remove(PLAIN, "first");
@@ -128,13 +151,25 @@ fn pages_that_share_their_selectors_parse_each_selector_of_their_rules_once() {
         remove(PAGE, "third"),
         remove(PAGE, "fourth"),
     ];
+    let document = shared.parse_html(Row::PageParses, PLAIN);
+    let _ = removal::remove(
+        &document,
+        "https://news.example/fifth",
+        Rules {
+            lists: &LISTS,
+            version: "another",
+            choices: &defaults(),
+        },
+        &shared,
+    );
 
-    assert!(first > 0, "the first page parsed no selector");
+    assert!(first > 0, "the first page compiled no selector");
     // `.ad-slot`, EasyList's generic rule the class `ad-slot` keys, is the
     // one selector the third page's rules hold that the first's did not.
+    // The shadow roots' selector is the engine's own, of no version.
     assert_eq!(
-        [second, with_ads, again],
-        [(first, 0), (first + 1, 3), (first + 1, 3)]
+        ([second, with_ads, again], compiled()),
+        ([(first, 0), (first + 1, 3), (first + 1, 3)], 2 * first)
     );
 }
 
@@ -145,15 +180,15 @@ fn a_list_turned_off_removes_nothing() {
         ads: false,
         ..defaults()
     };
-    let removal = removal::remove(
+    let (removal, html) = removed(
         PAGE,
         "https://news.example/article",
-        (&LISTS, &choices),
-        &Selectors::default(),
+        &choices,
+        &CountedWork::default(),
     );
 
     assert_eq!(
-        (removal.removed.len(), removal.html.contains("A light ad")),
+        (removal.removed.len(), html.contains("A light ad")),
         (0, true)
     );
 }
@@ -182,17 +217,26 @@ const NOTICED: &str = r#"<!DOCTYPE html>
 /// Covers: story:5-98
 #[test]
 fn the_prompts_the_runner_hid_go_from_extracted_content_with_no_list() {
-    let removal = removal::remove(
-        NOTICED,
+    let work = CountedWork::default();
+    let document = work.parse_html(Row::PageParses, NOTICED);
+    let mut removal = removal::remove(
+        &document,
         "https://news.example/article",
-        (&LISTS, &defaults()),
-        &Selectors::default(),
+        Rules {
+            lists: &LISTS,
+            version: VERSION,
+            choices: &defaults(),
+        },
+        &work,
     );
 
-    let removal = removal::remove_selected(
-        removal,
+    removal::remove_selected(
+        &document,
+        &mut removal,
         &["#cookie-notice".to_owned(), ".banner".to_owned()],
+        &work,
     );
+    let html = document.html().to_string();
 
     assert_eq!(
         (
@@ -201,7 +245,7 @@ fn the_prompts_the_runner_hid_go_from_extracted_content_with_no_list() {
                 "This website uses cookies.",
                 "Cookies in a root."
             ]
-            .map(|text| removal.html.contains(text)),
+            .map(|text| html.contains(text)),
             removal
                 .removed
                 .iter()

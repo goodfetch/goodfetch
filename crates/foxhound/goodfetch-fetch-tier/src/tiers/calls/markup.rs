@@ -45,7 +45,7 @@ pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Sh
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = work.compile_selector(Row::PageSelectorCompilations, selector)?;
+    let matcher = work.selector(Row::PageSelectorCompilations, selector)?;
     let document = work.parse_html(Row::PageParses, html);
     let selection = document.select_matcher(&matcher);
     let nodes = selection.nodes();
@@ -89,6 +89,19 @@ pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Sh
             .chain(element.descendants())
             .any(|node| DRAWN.contains(&name(&node).as_str()));
     (draws && !in_closed_details && !styled(&document, work)).then_some(Shown::Visible)
+}
+
+/// The selectors [`shown`] matches beside its own, which
+/// [`compile_selectors`] keeps.
+const SELECTORS: [&str; 2] = ["style", "link[rel]"];
+
+/// Compiles into the engine's cache on `work` the selectors [`shown`]
+/// matches beside its own, so that a Run compiles them before its first
+/// page, not on it (ADRs 0138 and 0140).
+pub(crate) fn compile_selectors(work: &CountedWork) {
+    for selector in SELECTORS {
+        let _ = work.literal_selector(Row::PageSelectorCompilations, selector);
+    }
 }
 
 /// Whether `document` holds a stylesheet: a `<style>` element, or a

@@ -20,6 +20,24 @@ const NOT_CONTENT: &str = "script, style, noscript, template, [hidden], nav, asi
 /// not the page's banner and content information (WAI-ARIA's HTML mapping).
 const SECTIONING: &str = "article, aside, main, nav, section";
 
+/// Every selector the step matches, which [`compile_selectors`] keeps.
+const SELECTORS: [&str; 5] = [
+    "head title",
+    NOT_CONTENT,
+    "header, footer",
+    SECTIONING,
+    "body",
+];
+
+/// Compiles into the engine's cache on `work` every selector the step
+/// matches, so that a Run which runs it compiles them before its first page,
+/// not on it (ADRs 0138 and 0140).
+pub fn compile_selectors(work: &CountedWork) {
+    for selector in SELECTORS {
+        let _ = work.literal_selector(Row::PageSelectorCompilations, selector);
+    }
+}
+
 /// The main content `extractor` finds in `html`, read at `url`, as HTML,
 /// and the length of its text, as [`main_text_length`] counts it; none
 /// when the document has no text a person reads it for.
@@ -134,11 +152,11 @@ fn outside_landmarks_of(document: ParsedHtml, work: &CountedWork) -> Option<Stri
     document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
         .remove();
+    let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
     for landmark in document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "header, footer"))
         .nodes()
     {
-        let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
         if !landmark
             .ancestors_it(None)
             .any(|ancestor| ancestor.is_match(&sectioning))

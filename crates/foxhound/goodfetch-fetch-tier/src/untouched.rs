@@ -183,9 +183,15 @@ impl StreamRead {
 }
 
 impl UntouchedReaders {
-    /// The readers of `demand`, each selector compiled once on `work`.
+    /// The readers of `demand`, each selector compiled once on `work`, in
+    /// the engine's cache. So are the selectors of the main-content step a
+    /// Run that learns reads its Page signature with, so that no page
+    /// compiles them (ADRs 0138 and 0140).
     pub fn of(demand: UntouchedDemand, work: &CountedWork) -> Self {
         let literal = |selector| work.literal_selector(Row::PageSelectorCompilations, selector);
+        if demand.signs {
+            goodfetch_extractor::compile_selectors(work);
+        }
         let UntouchedDemand {
             links,
             fields,

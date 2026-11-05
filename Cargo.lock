@@ -2424,6 +2424,7 @@ dependencies = [
  "dom_query 0.28.0",
  "glob",
  "lol_html",
+ "moka",
  "regex",
  "tempfile",
 ]

@@ -106,7 +106,7 @@ use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, Transp
 use crate::untouched::{self, UntouchedReaders};
 use crate::use_signals::UseSignals;
 
-mod calls;
+pub(crate) mod calls;
 mod reading;
 mod sitemap;
 #[cfg(test)]
@@ -1329,6 +1329,7 @@ impl FetchTiers {
         &self,
         page_id: &PageId,
         selector: &str,
+        work: &CountedWork,
     ) -> Option<Result<ServedLinks, LinksUnread>> {
         let opened = {
             let pages = lock(&self.served.pages);
@@ -1346,7 +1347,7 @@ impl FetchTiers {
             })
         };
         let Some((served, encoding, untouched)) = opened else {
-            return self.browser_links(page_id, selector).await;
+            return self.browser_links(page_id, selector, work).await;
         };
         // The readers of its untouched page read the links the Run asked
         // for as they read it.
@@ -1481,9 +1482,12 @@ impl FetchTiers {
         &self,
         page_id: &PageId,
         selector: &str,
+        work: &CountedWork,
     ) -> Option<Result<ServedLinks, LinksUnread>> {
         let pages = self.served.browser.get()?;
-        if let Err(invalid) = document::check_selector(selector) {
+        // Checked through the engine's cache, so a Run's pages compile the
+        // selector once between them (#1884's C2-3).
+        if let Err(invalid) = document::matcher(selector, work) {
             return Some(Err(LinksUnread::Selector(invalid)));
         }
         let answer = match pages

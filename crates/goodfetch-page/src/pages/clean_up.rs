@@ -10,8 +10,8 @@
 
 use std::cell::RefCell;
 
-use goodfetch_clean_up_rules::removal::{self, Removed, Share};
-use goodfetch_counted_work::CountedWork;
+use goodfetch_clean_up_rules::removal::{self, Removed, Rules, Share};
+use goodfetch_counted_work::{CountedWork, ParsedHtml};
 use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_extractor::{
     BuiltIn, CleanUp, Context, Demand, Document, Extractor, Measured, Plan, Reader, Serialization,
@@ -63,32 +63,37 @@ impl FormatsRead {
 }
 
 /// The cosmetic matcher of one call: the rules of `cosmetic`, then the
-/// runner's of the selectors `hidden`; it keeps what it removed.
+/// runner's of the selectors `hidden`, both removing in place on the page's
+/// one tree, their selectors from the engine's cache on `work`; it keeps
+/// what it removed.
 struct Matcher<'a> {
     cosmetic: Option<&'a Cosmetic>,
     hidden: &'a [String],
+    work: &'a CountedWork,
     removal: RefCell<Option<removal::Removal>>,
 }
 
 impl CleanUp for Matcher<'_> {
-    fn remove(&self, html: &str, url: &str) -> String {
-        let removal = match self.cosmetic {
-            Some(cosmetic) => removal::remove(
-                html,
-                url,
-                (&cosmetic.lists, &cosmetic.choices),
-                &cosmetic.selectors,
-            ),
-            None => removal::Removal {
-                html: html.to_owned(),
-                removed: Vec::new(),
-                removed_text: 0,
-            },
-        };
-        let removal = removal::remove_selected(removal, self.hidden);
-        let cleaned = removal.html.clone();
+    fn remove(&self, document: &ParsedHtml, url: &str) -> bool {
+        let mut removal = self
+            .cosmetic
+            .map(|cosmetic| {
+                removal::remove(
+                    document,
+                    url,
+                    Rules {
+                        lists: &cosmetic.lists,
+                        version: &cosmetic.version,
+                        choices: &cosmetic.choices,
+                    },
+                    self.work,
+                )
+            })
+            .unwrap_or_default();
+        removal::remove_selected(document, &mut removal, self.hidden, self.work);
+        let took = !removal.removed.is_empty();
         *self.removal.borrow_mut() = Some(removal);
-        cleaned
+        took
     }
 }
 
@@ -142,6 +147,7 @@ pub(super) fn read(
     let matcher = Matcher {
         cosmetic,
         hidden,
+        work,
         removal: RefCell::new(None),
     };
     let context = Context {

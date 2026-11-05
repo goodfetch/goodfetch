@@ -55,6 +55,13 @@ pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
+/// Compiles into the engine's cache on `work` the selectors a handler's
+/// served calls on a document tier match beside its own, so that a Run
+/// compiles them as its crawl starts, not on a page (ADRs 0138 and 0140).
+pub fn compile_served_call_selectors(work: &goodfetch_counted_work::CountedWork) {
+    tiers::calls::markup::compile_selectors(work);
+}
+
 pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check_xpath};
 pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,

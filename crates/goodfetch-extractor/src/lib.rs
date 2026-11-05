@@ -30,6 +30,7 @@ pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
     main_content_length, measured_formats,
 };
+pub use main_content::compile_selectors;
 pub use plan::{Demand, Plan, Product, Reader};
 pub use signature::{page_signature, page_signature_of};
 pub use social::SOCIAL_NETWORKS_VERSION;

@@ -1014,6 +1014,7 @@ dependencies = [
  "dom_query",
  "glob",
  "lol_html",
+ "moka",
  "regex",
 ]
 

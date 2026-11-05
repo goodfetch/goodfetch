@@ -86,6 +86,9 @@ How proven crawlers shape this work. Each was checked against its primary source
 
 - **Nothing that depends only on a Run's inputs is computed per page:**
   - Compiled selectors live in a bounded cache of the engine, keyed by the selector's text and the Clean-up rules' digest (a Run holds to one version, ADR 0047).
+
+    > Note (agent decision of #1912, pending owner review), 2026-11-05: the cache rides on `CountedWork`, the value the engine already hands every owner, so no owner's interface grows a second dependency and a test's engine keeps a cache of its own. It is moka's concurrent cache, which `hickory-resolver` already links with the same feature, so a lookup takes no lock around a page's others. It keeps 16,384 selectors (B1's default Filter lists compile 613 a Run), and 1,024 regular expressions and 1,024 globs; one over a bound evicts, by moka's `TinyLFU`, rather than grows. A selector of the Clean-up rules is keyed by the rules' digest, every other selector by its text alone. A selector the engine's own code matches on every page (the main-content step's, a handler's markup waits') is compiled into the cache as the crawl starts, with the untouched page's readers, so no page compiles it; a selector only a handler names compiles at its first use and is read from the cache after.
+
   - A crawl's Dataset declarations are parsed, and their validators compiled, when the crawl starts.
   - Settings, the Operator policy and user configuration are resolved once per Run.
   - Provenance's file and the Run index are opened once per Run.

@@ -121,11 +121,12 @@ impl CleanUp for AdSlots {
         clippy::disallowed_methods,
         reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
     )]
-    fn remove(&self, html: &str, url: &str) -> String {
+    fn remove(&self, document: &goodfetch_counted_work::ParsedHtml, url: &str) -> bool {
         assert_eq!(url, URL);
-        self.given.borrow_mut().push(html.to_owned());
-        let document = Dom::from(html);
-        document.select(".ad-slot").remove();
+        self.given.borrow_mut().push(document.html().to_string());
+        let ads = document.select(".ad-slot");
+        let mut took = !ads.is_empty();
+        ads.remove();
         for template in document.select("template[shadowrootmode]").nodes() {
             let contents = template
                 .query(|node| {
@@ -135,12 +136,12 @@ impl CleanUp for AdSlots {
                 .flatten()
                 .and_then(|id| document.tree.get(&id));
             if let Some(contents) = contents {
-                dom_query::Selection::from(contents)
-                    .select(".ad-slot")
-                    .remove();
+                let ads = dom_query::Selection::from(contents).select(".ad-slot");
+                took |= !ads.is_empty();
+                ads.remove();
             }
         }
-        document.html().to_string()
+        took
     }
 }
 
@@ -164,7 +165,7 @@ fn the_cosmetic_matcher_takes_its_elements_out_of_the_markdown_shadow_roots_incl
     assert!(
         read.contains("Text in a closed root, which a person reads.")
             && !read.contains("ad.")
-            && matcher.given.borrow().as_slice() == [html.clone()],
+            && matcher.given.borrow().as_slice() == [Dom::from(html.as_str()).html().to_string()],
         "{read}"
     );
 }

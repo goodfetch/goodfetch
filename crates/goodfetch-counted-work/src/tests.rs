@@ -173,3 +173,57 @@ fn each_row_counts_on_its_own() {
         Row::ALL.map(|row| u64::from(row.name() == "F6.writer_reads"))
     );
 }
+
+/// The engine's cache compiles each text once, counted on its miss, and
+/// answers every later lookup from what it kept, a selector that does not
+/// parse included; a selector of the Clean-up rules is kept apart for each
+/// version of them.
+#[test]
+fn a_kept_compilation_counts_once_for_its_text_and_its_rules_version() {
+    let work = CountedWork::default();
+    let row = Row::PageSelectorCompilations;
+    let answers = (0..3)
+        .map(|_| {
+            (
+                work.selector(row, "p").is_some(),
+                work.selector(row, "p[").is_some(),
+                work.parse_html(Row::PageParses, "<h1>a</h1>")
+                    .select_matcher(&work.literal_selector(row, "h1"))
+                    .nodes()[0]
+                    .is_match(&work.literal_selector(row, "h1, h2")),
+                work.rules_selector(row, "version-a", "p").is_some(),
+                work.rules_selector(row, "version-b", "p").is_some(),
+                work.regex(row, "a+").is_ok(),
+                work.regex(row, "a(").is_ok(),
+                work.glob(row, "*.rs").is_ok(),
+                work.glob(row, "***").is_ok(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        (answers[0], answers[0] == answers[2], work.read(row)),
+        (
+            (true, false, true, true, true, true, false, true, false),
+            true,
+            10
+        )
+    );
+}
+
+/// The cache holds at most [`super::CAPACITY`] compilations: one over it
+/// evicts one kept before rather than grows.
+#[test]
+fn a_compilation_over_the_bound_evicts_rather_than_grows() {
+    let work = CountedWork::default();
+    let row = Row::PageSelectorCompilations;
+    let over = super::CAPACITY + 64;
+    for class in 0..over {
+        let _ = work.selector(row, &format!(".c{class}"));
+    }
+
+    assert_eq!(
+        (work.kept() <= super::CAPACITY, work.read(row)),
+        (true, over)
+    );
+}

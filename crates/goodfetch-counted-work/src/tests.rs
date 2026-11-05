@@ -16,7 +16,7 @@ fn each_parse_counts_once_on_every_clone_and_no_other_value() {
     );
 }
 
-/// A parsed tree is `Send` (dom_query's `atomic` tendrils), so a page's one
+/// A parsed tree is `Send` (`dom_query`'s `atomic` tendrils), so a page's one
 /// tree can move to the task that keeps it and be read there (#2109, #1918).
 #[test]
 fn a_parsed_tree_is_send_so_one_task_can_keep_it_and_read_it() {

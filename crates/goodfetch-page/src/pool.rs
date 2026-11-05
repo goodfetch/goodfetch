@@ -1259,7 +1259,7 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
                 "domains": domains,
             });
             let recorded = run.clone();
-            run.spawn(async move { crate::trace::provenance(&recorded, &entry).await });
+            run.spawn(async move { crate::trace::provenance(&recorded, entry).await });
             Some(Arc::new(authority))
         }
         Err(error) => {

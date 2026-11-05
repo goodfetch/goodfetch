@@ -265,6 +265,53 @@ fn a_take_that_meets_a_full_disk_is_rolled_back_and_reported_as_a_storage_failur
     );
 }
 
+/// Under `BlockingPolicy::Inline`, the Simulation's and the Compatibility
+/// corpus writers', the Politeness file opens with no thread of the
+/// runtime's blocking pool, here all held by another job: work on such a
+/// thread lets the other tasks run for as long as the thread takes, so a
+/// run's interleaving, which writes its group commits and its journal
+/// position, hung on the host's load (the crawl run-state head's journal
+/// position flipped between two values under #1924).
+#[test]
+fn a_politeness_file_opened_under_inline_blocking_takes_no_thread_of_the_runtime() {
+    let env = TestEnv::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (holding, holds) = std::sync::mpsc::channel::<()>();
+
+    let opened = runtime.block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let pool = tokio::runtime::Handle::current().spawn_blocking(move || {
+            holding.send(()).unwrap();
+            let _ = held.recv();
+        });
+        holds.recv().unwrap();
+        let opened = tokio::time::timeout(
+            Duration::from_secs(5),
+            Politeness::open(
+                env.home().join("politeness.sqlite"),
+                &PolitenessOptions::default(),
+                Vec::new(),
+                gone_unless_live,
+                "inline".to_owned(),
+                &owner,
+            ),
+        )
+        .await
+        .map(|opened| opened.map(drop).map_err(|error| error.to_string()));
+        release.send(()).unwrap();
+        pool.await.unwrap();
+        owner.cancel();
+        opened
+    });
+
+    assert_eq!(opened, Ok(Ok(())), "the open waited for the blocking pool");
+}
+
 /// Covers: story:3-80
 #[test]
 fn a_permit_given_back_wakes_the_waiter_whose_turn_it_is_through_its_wake_endpoint() {

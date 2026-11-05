@@ -34,18 +34,20 @@ struct Listening {
 /// on a named pipe named after `place`'s file name on Windows. Answers the
 /// endpoint a waiter's row names.
 ///
+/// It blocks on the file system, so it runs as its owner's blocking work
+/// ([`crate::tasks::TaskOwner::blocking`]), in the runtime's context, which
+/// registers the listener: inline under
+/// [`crate::tasks::BlockingPolicy::Inline`], so a run replays from its seed
+/// whatever the host's load, where the runtime's own blocking pool let the
+/// other tasks run for as long as its thread took.
+///
 /// # Errors
 ///
 /// When the OS refuses the socket or the pipe.
-///
-/// # Cancel safety
-///
-/// Dropping the future leaves at most a socket file that the next listener
-/// at its path replaces.
 #[cfg(unix)]
-pub async fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
+pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     use std::os::unix::fs::PermissionsExt as _;
-    match tokio::fs::remove_file(place).await {
+    match std::fs::remove_file(place) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
@@ -55,7 +57,7 @@ pub async fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
         reason = "the transport module is the one place that opens sockets (ADR 0060)"
     )]
     let listener = tokio::net::UnixListener::bind(place)?;
-    tokio::fs::set_permissions(place, std::fs::Permissions::from_mode(0o600)).await?;
+    std::fs::set_permissions(place, std::fs::Permissions::from_mode(0o600))?;
     let endpoint = place.to_str().map(str::to_owned).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -65,17 +67,14 @@ pub async fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     Ok((WakeListener(Listening(listener)), endpoint))
 }
 
-/// Listens for wakes on a named pipe named after `place`'s file name.
+/// Listens for wakes on a named pipe named after `place`'s file name, as
+/// blocking work as on Unix.
 ///
 /// # Errors
 ///
 /// When the OS refuses the pipe.
-///
-/// # Cancel safety
-///
-/// Dropping the future leaves no pipe.
 #[cfg(windows)]
-pub async fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
+pub fn listen_wakes(place: &Path) -> io::Result<(WakeListener, String)> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let file = place
         .file_name()

@@ -110,13 +110,13 @@ impl Engine {
     }
 
     /// Starts the code-free crawl of `scenario`'s site from `start` at
-    /// `durability`.
+    /// `durability`, with its `run_state.commit_interval` at `periodic`.
     pub(crate) fn start(
         &mut self,
         site: &Site<'_>,
         scenario: Scenario,
         start: &str,
-        durability: &str,
+        durability: (&str, Option<u64>),
     ) -> Result<()> {
         self.call(
             "start",
@@ -137,7 +137,7 @@ impl Engine {
         &mut self,
         site: &Site<'_>,
         scenario: Scenario,
-        durability: &str,
+        durability: (&str, Option<u64>),
     ) -> Result<()> {
         self.call(
             "resume",
@@ -233,7 +233,11 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise.
-fn settings(site: &Site<'_>, scenario: Scenario, durability: &str) -> Value {
+fn settings(
+    site: &Site<'_>,
+    scenario: Scenario,
+    (durability, commit_interval): (&str, Option<u64>),
+) -> Value {
     let hosts = scenario.site().hosts();
     let resolve: serde_json::Map<String, Value> = hosts
         .iter()
@@ -244,6 +248,9 @@ fn settings(site: &Site<'_>, scenario: Scenario, durability: &str) -> Value {
         "egress": { "private_ranges": hosts },
         "run_state": { "durability": durability },
     });
+    if let Some(interval) = commit_interval {
+        settings["run_state"]["commit_interval"] = json!(interval);
+    }
     let concurrency = site.concurrency;
     let added = match scenario {
         // ADR 0086's 1 s and 1 in flight per domain, which the catalog

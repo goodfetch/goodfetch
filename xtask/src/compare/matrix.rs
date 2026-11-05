@@ -176,9 +176,13 @@ impl Scenario {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Config {
     /// Foxhound's code-free crawl on its `http` tier at this
-    /// `run_state.durability`, robots.txt not obeyed, `politeness.domain`
-    /// delay 0 and concurrency 16, no format.
-    Foxhound { durability: &'static str },
+    /// `run_state.durability`, with this `run_state.commit_interval` in
+    /// milliseconds at `periodic`, robots.txt not obeyed,
+    /// `politeness.domain` delay 0 and concurrency 16, no format.
+    Foxhound {
+        durability: &'static str,
+        commit_interval: Option<u64>,
+    },
     /// Spider's HTTP mode, or with `chrome` its `chrome` feature's
     /// executable rendering each page in Chrome; at the scenario's settings.
     Spider { chrome: bool },
@@ -208,8 +212,6 @@ pub(crate) enum Status {
     Measured(Config),
     /// The tool cannot do what the scenario asks.
     NotSupported(&'static str),
-    /// Foxhound's value does not exist yet.
-    Pending(&'static str),
 }
 
 /// One cell: a tool's configuration in one scenario.
@@ -235,13 +237,16 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Foxhound,
         name: "foxhound",
         mapping: "the maximum-throughput combination (`docs/throughput.md`): code-free crawl on \
-                  the `http` tier, `run_state.durability: fast`, \
+                  the `http` tier, `run_state.durability: off`, \
                   `site_preferences.respect_robots_txt: false`, `politeness.domain` delay 0 and \
                   concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`, \
                   `frontier.learning: false`, `provenance.log: false`, `dataset.records: false` \
                   and `fetch.block_classification: false`",
-        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
-        status: Status::Measured(Config::Foxhound { durability: "fast" }),
+        pending: &[],
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -285,7 +290,10 @@ pub(crate) const CELLS: [Cell; 21] = [
                   outcome synced, and `dataset.records` on, as its resume is judged by them; killed with SIGKILL once half the site is served, then \
                   `run.resume` in a new process on the same home",
         pending: &[],
-        status: Status::Measured(Config::Foxhound { durability: "full" }),
+        status: Status::Measured(Config::Foxhound {
+            durability: "full",
+            commit_interval: None,
+        }),
     },
     Cell {
         scenario: Scenario::Durable,
@@ -295,9 +303,10 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `run_state.commit_interval: 60s`, the like-for-like cell against Crawlee's \
                   `persistStorage` and Scrapy's `JOBDIR`",
         pending: &[],
-        status: Status::Pending(
-            "`run_state.durability: periodic` and `run_state.commit_interval` arrive with #1927",
-        ),
+        status: Status::Measured(Config::Foxhound {
+            durability: "periodic",
+            commit_interval: Some(60_000),
+        }),
     },
     Cell {
         scenario: Scenario::Durable,
@@ -351,7 +360,10 @@ pub(crate) const CELLS: [Cell; 21] = [
                   and `crawl.scope.strategy: all`, since the site spans 50 domains and links \
                   nothing else",
         pending: &[],
-        status: Status::Measured(Config::Foxhound { durability: "full" }),
+        status: Status::Measured(Config::Foxhound {
+            durability: "full",
+            commit_interval: None,
+        }),
     },
     Cell {
         scenario: Scenario::Polite,
@@ -396,8 +408,11 @@ pub(crate) const CELLS: [Cell; 21] = [
                   main content, and the field `title` (the CSS selector `title`), with \
                   `dataset.records` on, each page's Record committed to the code-free crawl's \
                   Dataset `pages` in its run file",
-        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
-        status: Status::Measured(Config::Foxhound { durability: "fast" }),
+        pending: &[],
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -437,8 +452,11 @@ pub(crate) const CELLS: [Cell; 21] = [
         mapping: "scenario 1's settings on the `browser` tier (`fetch.tier: browser`), headless \
                   Chrome for Testing, its pinned build, from a Browser cache laid out beside \
                   the data folder (`GOODFETCH_BROWSERS_PATH`)",
-        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
-        status: Status::Measured(Config::Foxhound { durability: "fast" }),
+        pending: &[],
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
     },
     Cell {
         scenario: Scenario::Browser,
@@ -495,6 +513,6 @@ pub(crate) fn cell(scenario: Scenario, name: &str) -> Option<&'static Cell> {
 pub(crate) fn measured() -> impl Iterator<Item = (&'static Cell, Config)> {
     CELLS.iter().filter_map(|cell| match cell.status {
         Status::Measured(config) => Some((cell, config)),
-        Status::NotSupported(_) | Status::Pending(_) => None,
+        Status::NotSupported(_) => None,
     })
 }

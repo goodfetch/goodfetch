@@ -21,9 +21,9 @@ const PAGE: &str = include_str!("../fixtures/article.html");
 struct Counted(Cell<u32>);
 
 impl CleanUp for Counted {
-    fn remove(&self, html: &str, _url: &str) -> String {
+    fn remove(&self, _document: &goodfetch_counted_work::ParsedHtml, _url: &str) -> bool {
         self.0.set(self.0.get() + 1);
-        html.to_owned()
+        false
     }
 }
 

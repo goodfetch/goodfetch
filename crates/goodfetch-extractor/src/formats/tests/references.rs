@@ -3,10 +3,6 @@
 //! value that does not parse kept as written with no URL, read from the
 //! document as it stands.
 #![expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a test's own parse, on no Shared path"
-)]
-#![expect(
     clippy::disallowed_methods,
     reason = "ADR 0140: a test's own parse, on no Shared path"
 )]
@@ -265,10 +261,11 @@ fn images_carry_their_alt_and_media_their_kind_and_type() {
 struct AdSlots;
 
 impl CleanUp for AdSlots {
-    fn remove(&self, html: &str, _url: &str) -> String {
-        let document = dom_query::Document::from(html);
-        document.select(".ad-slot").remove();
-        document.html().to_string()
+    fn remove(&self, document: &goodfetch_counted_work::ParsedHtml, _url: &str) -> bool {
+        let ads = document.select(".ad-slot");
+        let took = !ads.is_empty();
+        ads.remove();
+        took
     }
 }
 

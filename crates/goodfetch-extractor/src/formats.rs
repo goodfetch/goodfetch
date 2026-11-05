@@ -16,7 +16,7 @@ use crate::references::{Head, References, references};
 use crate::shadow::composed;
 use crate::structured_data::{json_ld, microdata};
 use crate::tables::tables;
-use goodfetch_counted_work::CountedWork;
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::page::{
     Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
     MarkdownOptions, Metadata, PageFormats,
@@ -52,13 +52,13 @@ pub enum Serialization {
 }
 
 /// The Clean-up rules' cosmetic matcher (ADR 0047), area 5's, which a
-/// call's [`Context`] carries: it takes out of a document's HTML the
-/// elements the cosmetic rules match, inside its shadow roots too (each a
-/// `<template shadowrootmode>`).
+/// call's [`Context`] carries: it takes out of a document's tree, in place,
+/// the elements the cosmetic rules match, inside its shadow roots too (each
+/// a `<template shadowrootmode>`).
 pub trait CleanUp {
-    /// `html`, the document of the page at `url`, without the elements the
-    /// cosmetic rules match.
-    fn remove(&self, html: &str, url: &str) -> String;
+    /// Removes from `document`, the tree of the page at `url`, the elements
+    /// the cosmetic rules match; whether it removed any.
+    fn remove(&self, document: &ParsedHtml, url: &str) -> bool;
 }
 
 /// What a call reads with beside its document: the Clean-up rules'
@@ -142,10 +142,18 @@ pub fn measured_formats(
         formats: request,
         learning: false,
     });
+    // The clean-up removes in place on one tree of the page, serialized only
+    // when it removed something, for the readers that read the cleaned page
+    // as text (ADR 0138).
     let cleaned = context
         .clean_up
         .filter(|_| plan.runs(Reader::CleanUp))
-        .map(|clean_up| clean_up.remove(document.html, document.url));
+        .and_then(|clean_up| {
+            let tree = context.work.parse_html(Row::PageParses, document.html);
+            clean_up
+                .remove(&tree, document.url)
+                .then(|| tree.html().to_string())
+        });
     let cleaned = cleaned.as_deref().unwrap_or(document.html);
     let seen = if plan.runs(Reader::CleanUp) {
         composed(cleaned)

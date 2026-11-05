@@ -498,3 +498,142 @@ fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
         "{refused}"
     );
 }
+
+/// The maximum-throughput combination (ADR 0138, `docs/throughput.md`):
+/// a code-free crawl that asks for no format, with learning, the
+/// Provenance log, the Records and the Block classification switched off,
+/// still fetches the index and every page it links, once each, but keeps
+/// no Record, each outcome saying why, and writes no Provenance log; its
+/// report names each switch in its warnings and `weakened`, beside the
+/// Proving ground's private ranges and no delay, and the Audit log records
+/// each new switch once.
+///
+/// Covers: story:6-304, operation:crawl.start, setting:provenance.log, setting:dataset.records, setting:fetch.block_classification, setting:frontier.learning
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothing_else() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = Attached::start(&env);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let switched_off = json!({
+        "fetch": { "tier": "http", "block_classification": false },
+        "crawl": { "max_depth": 1 },
+        "frontier": { "learning": false },
+        "provenance": { "log": false },
+        "dataset": { "records": false },
+    });
+
+    let (started, records) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("throughput", &[json!({ "url": index, "label": "page" })]),
+        &json!({ "formats": {} }),
+        &switched_off,
+    );
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "throughput" }),
+        &mut |_| None,
+    );
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "throughput" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let observations = proving_ground.observations().unwrap();
+    let received: BTreeSet<String> = ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request["target"] != "/robots.txt")
+        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .collect();
+    let marks: BTreeSet<String> = outcomes["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {outcomes}"))
+        .iter()
+        .map(|outcome| outcome["nothing_committed"].to_string())
+        .collect();
+    let codes = |field: &str, key: &str| strings(&report["result"][field], key);
+    let log = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join("throughput")
+        .join("trace")
+        .join("provenance.jsonl");
+    assert_eq!(
+        (
+            started["result"]["run_id"].clone(),
+            records.len(),
+            received.len(),
+            marks,
+            codes("warnings", "code"),
+            codes("weakened", "key"),
+            switched_off_in_audit_log(&env),
+            log.exists(),
+        ),
+        (
+            json!("throughput"),
+            0,
+            MARKDOWN_PAGES + 1,
+            BTreeSet::from(["\"records_off\"".to_owned()]),
+            [
+                "block_classification_off",
+                "learning_off",
+                "provenance_off",
+                "records_off",
+            ]
+            .map(str::to_owned)
+            .into(),
+            [
+                "dataset.records",
+                "egress.private_ranges",
+                "fetch.block_classification",
+                "frontier.learning",
+                "politeness.domain.delay",
+                "provenance.log",
+            ]
+            .map(str::to_owned)
+            .into(),
+            BTreeSet::from([
+                "dataset.records".to_owned(),
+                "fetch.block_classification".to_owned(),
+                "provenance.log".to_owned(),
+            ]),
+            false,
+        ),
+        "{report}"
+    );
+}
+
+/// The `key` of each entry of the array `entries`.
+fn strings(entries: &Value, key: &str) -> BTreeSet<String> {
+    entries
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry[key].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The setting of each `feature_switched_off` entry of `env`'s Audit log.
+fn switched_off_in_audit_log(env: &TestEnv) -> BTreeSet<String> {
+    let exported = goodfetch_test_support::cli(env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["audit", "export"])
+        .run()
+        .unwrap();
+    exported
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["kind"] == "feature_switched_off")
+        .filter_map(|entry| entry["details"]["setting"].as_str().map(str::to_owned))
+        .collect()
+}

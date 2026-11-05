@@ -250,6 +250,7 @@ impl Subject {
                         ended_at: &ended_at,
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
+                        keeps_records: true,
                     },
                 )
             }

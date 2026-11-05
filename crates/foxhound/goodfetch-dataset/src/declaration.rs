@@ -46,9 +46,21 @@ pub struct Refused {
 }
 
 /// The Datasets a crawl declares, in the order declared, each checked, with
-/// the validator of each schema, built once with them. A clone shares them.
+/// the validator of each schema, built once with them, and whether the
+/// crawl keeps Records in them, its `dataset.records` (ADR 0138). A clone
+/// shares them.
 #[derive(Clone, Debug, Default)]
-pub struct Datasets(Arc<Declared>);
+pub struct Datasets(Arc<Declared>, Keeping);
+
+/// Whether a crawl keeps the Records its attempts give.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Keeping {
+    /// Each is checked against its Dataset and committed.
+    #[default]
+    Records,
+    /// None is checked or committed: `dataset.records` is off.
+    Nothing,
+}
 
 /// The declarations, and the validator of each one's schema, at the same
 /// position: none for a Dataset with no schema, or for one whose schema the
@@ -147,10 +159,13 @@ impl Datasets {
                 ));
             }
         }
-        Ok(Self(Arc::new(Declared {
-            declarations: declarations.to_vec(),
-            validators,
-        })))
+        Ok(Self(
+            Arc::new(Declared {
+                declarations: declarations.to_vec(),
+                validators,
+            }),
+            Keeping::Records,
+        ))
     }
 
     /// Records the declarations in the run file `connection` holds, as the
@@ -178,6 +193,25 @@ impl Datasets {
         Ok(())
     }
 
+    /// The same Datasets, keeping the Records the crawl's attempts give
+    /// when `keeps`, its `dataset.records`, and else none: a Record is then
+    /// neither validated, encoded nor committed, though one named for a
+    /// Dataset the crawl does not declare is still refused (ADR 0138).
+    #[must_use]
+    pub fn keeping_records(self, keeps: bool) -> Self {
+        let keeping = if keeps {
+            Keeping::Records
+        } else {
+            Keeping::Nothing
+        };
+        Self(self.0, keeping)
+    }
+
+    /// Whether the crawl keeps the Records its attempts give.
+    pub fn keeps_records(&self) -> bool {
+        self.1 == Keeping::Records
+    }
+
     /// The declarations, in the order declared.
     pub fn declarations(&self) -> &[DatasetDeclaration] {
         &self.0.declarations
@@ -192,16 +226,16 @@ impl Datasets {
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let Declarations(declarations) = Declarations::read(connection)?;
-        Ok(Self(Arc::new(Declared::of(
-            declarations,
-            |declaration, schema| {
+        Ok(Self(
+            Arc::new(Declared::of(declarations, |declaration, schema| {
                 built(schema)
                 .inspect_err(|error| {
                     tracing::warn!(dataset = %declaration.name, %error, "a declared Dataset's schema in the run file no longer builds; its Records are not checked against it");
                 })
                 .ok()
-            },
-        ))))
+            })),
+            Keeping::Records,
+        ))
     }
 
     /// `records`, once each holds for the Dataset it names.
@@ -217,6 +251,12 @@ impl Datasets {
         records: Vec<PushedRecord>,
         work: &CountedWork,
     ) -> Result<Checked, CallError> {
+        if !self.keeps_records() {
+            for record in &records {
+                self.declared(&record.dataset)?;
+            }
+            return Ok(Checked::default());
+        }
         for record in &records {
             self.check_one(record, work)?;
         }
@@ -236,6 +276,15 @@ impl Datasets {
         record: PushedRecord,
         work: &CountedWork,
     ) -> Result<Checked, Refused> {
+        if !self.keeps_records() {
+            return match self.declared(&record.dataset) {
+                Ok(_) => Ok(Checked::default()),
+                Err(error) => Err(Refused {
+                    error,
+                    rejected: Checked::default(),
+                }),
+            };
+        }
         let issues = match self.issues(&record, work) {
             Ok(issues) if issues.is_empty() => return Ok(Checked::new(vec![record])),
             Ok(issues) => issues,

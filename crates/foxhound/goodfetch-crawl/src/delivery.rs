@@ -99,8 +99,14 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::report::{LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK};
+use goodfetch_protocol::foxhound::report::{
+    BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
+    RECORDS_OFF,
+};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::foxhound::settings::{
+    DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
+};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
@@ -248,25 +254,52 @@ pub(crate) async fn drive(
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
-    if settings.resolved().boolean(FRONTIER_LEARNING.name) == Some(false) {
-        warn_learning_off(&run).await;
+    for (setting, code, message) in SWITCHED_OFF {
+        if settings.resolved().boolean(setting) == Some(false) {
+            warn_switched_off(&run, code, message).await;
+        }
     }
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
 }
 
-/// Hands the Run's report, once, the warning that its Frontier learns no
-/// rule, `frontier.learning` being off (ADR 0138), so an empty
-/// `learned_rules` is not read as a site that taught nothing.
-async fn warn_learning_off(run: &Run) {
+/// Each per-page feature a crawl switches off with its warning (ADR 0138):
+/// its key, the warning's code and its message, so an empty result is not
+/// misread.
+const SWITCHED_OFF: [(&str, &str, &str); 4] = [
+    (
+        FRONTIER_LEARNING.name,
+        LEARNING_OFF,
+        "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.",
+    ),
+    (
+        PROVENANCE_LOG.name,
+        PROVENANCE_OFF,
+        "`provenance.log` is off: the Run trace holds no Provenance log; each Record still carries its own Provenance.",
+    ),
+    (
+        DATASET_RECORDS.name,
+        RECORDS_OFF,
+        "`dataset.records` is off: the crawl kept no Record, so its Datasets hold none.",
+    ),
+    (
+        FETCH_BLOCK_CLASSIFICATION.name,
+        BLOCK_CLASSIFICATION_OFF,
+        "`fetch.block_classification` is off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the successes.",
+    ),
+];
+
+/// Hands the Run's report, once, the warning `code` with `message`, of a
+/// per-page feature its settings switch off (ADR 0138).
+async fn warn_switched_off(run: &Run, code: &str, message: &str) {
     let warning = RunWarning {
-        code: LEARNING_OFF.to_owned(),
-        message: "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.".to_owned(),
+        code: code.to_owned(),
+        message: message.to_owned(),
         sessions: Vec::new(),
         folder: None,
     };
     if let Err(error) = run.warn_once(warning).await {
-        tracing::warn!(%error, run_id = %run.id(), "the warning that the crawl learns no rule was not kept");
+        tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
     }
 }
 
@@ -545,7 +578,7 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress, datasets).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
     drive(
         run,
         context,

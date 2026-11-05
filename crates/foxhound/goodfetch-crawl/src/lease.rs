@@ -445,6 +445,7 @@ impl WorkItemLease {
                     ended_at: &ended_at,
                     not_added: &not_added,
                     work: &counted_work,
+                    keeps_records: declared.keeps_records(),
                 };
                 Ok(
                     work_items::commit(connection, &work_item, epoch, committed)?

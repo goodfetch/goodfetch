@@ -46,7 +46,7 @@ fn read_measured(request: Value, measure: ShareMeasure) -> (usize, Option<Value>
     let hidden = [".ad-slot".to_owned()];
 
     let (_, done) = read(
-        &document,
+        (&document, None),
         Serialization::Served,
         request,
         (&counted, measure),

@@ -28,7 +28,7 @@ mod tables;
 pub use extractor::{BuiltIn, Extractor, Found};
 pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
-    main_content_length, measured_formats,
+    main_content_length, main_content_length_of, measured_formats, measured_formats_of,
 };
 pub use main_content::compile_selectors;
 pub use plan::{Demand, Plan, Product, Reader};

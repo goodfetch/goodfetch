@@ -683,7 +683,8 @@ struct Untouched {
 impl Untouched {
     /// `run`'s readers, of its Labels `labels`: a code-free crawl's
     /// `code_free` links and fields, each Label's Page check, else the
-    /// Run's, and the Page signature while the Run learns.
+    /// Run's, and the Page signature while the Run learns; a program's
+    /// keep each page's tree for its handler.
     fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
         let work = run.metrics().counted_work();
         goodfetch_fetch_tier::compile_served_call_selectors(work);
@@ -693,6 +694,9 @@ impl Untouched {
             fields: fields.clone(),
             page_check,
             signs: attempt::learns(run),
+            // A program's handler reads its pages: each keeps its untouched
+            // tree for the handler's calls (spec #1577's #1918).
+            keeps: code_free.is_none(),
         };
         let readers =
             |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));

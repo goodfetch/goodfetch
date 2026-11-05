@@ -57,23 +57,23 @@ pub(crate) const FIELDS_READ: &str = include_str!("document/fields.js");
 #[error("`{0}` is no CSS selector")]
 pub struct SelectorInvalid(pub String);
 
-/// Every element of `html` that `selector` matches, in document order:
-/// `html` parsed for this call alone, as a handler's own read of a page is
-/// until its tree is kept (spec #1577's #1918); a crawl request's own
-/// document is read once, by [`matched_in`] on its untouched tree.
+/// Every element of `document`, a served page's tree, that `selector`
+/// matches, in document order, as [`matched_in`] reads them: a handler's
+/// own read of a page, on its kept tree (spec #1577's #1918); a crawl
+/// request's own document is read once, by [`matched_in`] as its untouched
+/// tree is read.
 ///
 /// # Errors
 ///
 /// When `selector` is no CSS selector.
 pub(crate) fn matched(
-    html: &str,
+    document: &ParsedHtml,
     selector: &str,
     work: &CountedWork,
 ) -> Result<Vec<Matched>, SelectorInvalid> {
     let matcher = matcher(selector, work)?;
-    let document = work.parse_html(Row::PageParses, html);
     let controls = work.literal_selector(Row::PageSelectorCompilations, CONTROLS);
-    Ok(matched_in(&document, &matcher, &controls))
+    Ok(matched_in(document, &matcher, &controls))
 }
 
 /// What names the ids a button or a tab shows and hides: `aria-controls`.
@@ -314,23 +314,22 @@ pub(crate) fn locating(
         .collect()
 }
 
-/// The first element of `html` that each of `locators` finds, in order,
-/// as [`first_elements_in`] reads them: `html` parsed for this call alone,
-/// as a handler's own read of a page is; a crawl request's own document is
-/// read once, on its untouched tree.
+/// The first element of `document`, a served page's tree, that each of
+/// `locators` finds, in order, as [`first_elements_in`] reads them: a
+/// handler's own read of a page, on its kept tree; a crawl request's own
+/// document is read once, as its untouched tree is read.
 ///
 /// # Errors
 ///
 /// When one of `locators` is no CSS selector or `XPath` expression the
 /// engine reads.
 pub(crate) fn first_elements(
-    html: &str,
+    document: &ParsedHtml,
     locators: &[FieldLocator],
     work: &CountedWork,
 ) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
     let locating = locating(locators, work)?;
-    let document = work.parse_html(Row::PageParses, html);
-    Ok(first_elements_in(&document, &locating))
+    Ok(first_elements_in(document, &locating))
 }
 
 /// The first element of `document` that each of `locating` finds, in

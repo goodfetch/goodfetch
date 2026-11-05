@@ -84,7 +84,10 @@ expectrl = { version = "0.9.0", default-features = false }
 # goodfetch-extractor's own htmd handlers read.
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
-dom_query = { version = "0.28.0", default-features = false }
+# `atomic` makes a tree `Send` (its strings' counts atomic), so a handler's
+# page keeps its one tree for the attempt, lent by its owner to each read on
+# the CPU pool (spec #1577's #1918).
+dom_query = { version = "0.28.0", default-features = false, features = ["atomic"] }
 # Its CSS tokenizer, on which the fetch tiers find the selector extensions
 # dom_query reads and a browser refuses; the version dom_query links.
 cssparser = { version = "0.37.0", default-features = false }

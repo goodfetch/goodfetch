@@ -36,17 +36,21 @@ const DRAWN: [&str; 13] = [
     "embed", "hr", "progress",
 ];
 
-/// What the markup `html` says of the element the CSS selector `selector`
-/// matches; `None` when it cannot tell: a selector the matcher does not
-/// parse, a document with a declarative shadow root, more than one match,
-/// whose wait the browser refuses as not strict, or an element whose
-/// visibility needs layout or a stylesheet's rules.
-pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Shown> {
+/// What the markup `html`, whose tree is `document`, says of the element
+/// the CSS selector `selector` matches; `None` when it cannot tell: a
+/// selector the matcher does not parse, a document with a declarative
+/// shadow root, more than one match, whose wait the browser refuses as not
+/// strict, or an element whose visibility needs layout or a stylesheet's
+/// rules.
+pub(crate) fn shown(
+    (document, html): (&ParsedHtml, &str),
+    selector: &str,
+    work: &CountedWork,
+) -> Option<Shown> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
     let matcher = work.selector(Row::PageSelectorCompilations, selector)?;
-    let document = work.parse_html(Row::PageParses, html);
     let selection = document.select_matcher(&matcher);
     let nodes = selection.nodes();
     let element = match nodes {
@@ -88,7 +92,7 @@ pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Sh
         || std::iter::once(*element)
             .chain(element.descendants())
             .any(|node| DRAWN.contains(&name(&node).as_str()));
-    (draws && !in_closed_details && !styled(&document, work)).then_some(Shown::Visible)
+    (draws && !in_closed_details && !styled(document, work)).then_some(Shown::Visible)
 }
 
 /// The selectors [`shown`] matches beside its own, which

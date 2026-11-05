@@ -56,6 +56,11 @@ pub struct UntouchedDemand {
     /// Whether the Run learns from its pages (`frontier.learning`): their
     /// `rel=canonical` and Page signature.
     pub signs: bool,
+    /// Whether a handler reads its pages (a Label that declares one, or a
+    /// code-free crawl reading formats): each document's untouched tree is
+    /// then kept for the attempt's later reads, the Page signature reading
+    /// a copy of it (spec #1577's #1918).
+    pub keeps: bool,
 }
 
 /// The readers of the untouched page, built once per Run for a Label.
@@ -71,6 +76,7 @@ pub struct UntouchedReaders {
     fields: Option<(Vec<FieldLocator>, Located)>,
     page_check: Option<(PageCheck, CheckMatchers)>,
     signs: bool,
+    keeps: bool,
     /// The streaming path's selectors, when it serves every reader.
     stream: Option<StreamReaders>,
 }
@@ -197,6 +203,7 @@ impl UntouchedReaders {
             fields,
             page_check,
             signs,
+            keeps,
         } = demand;
         let page_check = page_check.map(|check| {
             let selectors = expected_page::selectors(&check)
@@ -228,6 +235,7 @@ impl UntouchedReaders {
             }),
             page_check,
             signs,
+            keeps,
             stream: None,
         };
         readers.stream = StreamReaders::of(&readers, work);
@@ -388,16 +396,24 @@ impl UntouchedReaders {
         signals.with_tree(html, document, url, &self.signals)
     }
 
+    /// Whether a handler reads the Run's pages, whose untouched trees are
+    /// kept for its reads.
+    pub(crate) fn keeps(&self) -> bool {
+        self.keeps
+    }
+
     /// What the readers of a crawl request's own document read of
-    /// `document`, its untouched tree, which they consume: the document
-    /// fetched at `url`, whose base URL is `base`. `signed` reads its Page
-    /// signature once the others read it, on the same tree.
+    /// `document`, its untouched tree: the document fetched at `url`,
+    /// whose base URL is `base`. `signed` reads its Page signature once the
+    /// others read it, on the same tree, which it consumes, or, while a
+    /// handler reads the Run's pages, on a copy taken on `work`, the tree
+    /// then answered for the handler's reads.
     pub(crate) fn read(
         &self,
         document: ParsedHtml,
         (url, base): (&str, &str),
-        signed: impl FnOnce(ParsedHtml) -> [u8; 32],
-    ) -> Read {
+        (signed, work): (impl FnOnce(ParsedHtml) -> [u8; 32], &CountedWork),
+    ) -> (Read, Option<ParsedHtml>) {
         let links = self
             .links
             .iter()
@@ -432,14 +448,22 @@ impl UntouchedReaders {
         } else {
             None
         };
-        let signature = self.signs.then(|| signed(document));
-        Read {
+        let (signature, kept) = match (self.signs, self.keeps) {
+            (true, true) => (
+                Some(signed(work.copy_tree(Row::PageTreeCopies, &document))),
+                Some(document),
+            ),
+            (true, false) => (Some(signed(document)), None),
+            (false, keeps) => (None, keeps.then_some(document)),
+        };
+        let read = Read {
             links,
             fields,
             page_check,
             canonical,
             signature,
-        }
+        };
+        (read, kept)
     }
 }
 

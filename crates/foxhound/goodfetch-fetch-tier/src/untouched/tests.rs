@@ -2,7 +2,7 @@
 //! of a document gives what each reader read of its own parse before
 //! (spec #1577's #1910), and the Page signature consumes the tree last.
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 use rstest::rstest;
@@ -56,6 +56,7 @@ fn demand() -> UntouchedDemand {
             }),
         }),
         signs: true,
+        keeps: false,
     }
 }
 
@@ -73,7 +74,7 @@ fn one_tree_reads_what_each_reader_read_of_its_own_parse(#[case] html: &str) {
     let tree = work.parse_html(Row::PageParses, html);
     let base = readers.base_href(&tree);
     let refreshed = readers.refresh(&url, &tree);
-    let read = readers.read(tree, (URL, URL), |_| [7; 32]);
+    let (read, _) = readers.read(tree, (URL, URL), (|_| [7; 32], &work));
     assert_eq!(
         (
             work.read(Row::PageParses),
@@ -94,11 +95,22 @@ fn one_tree_reads_what_each_reader_read_of_its_own_parse(#[case] html: &str) {
     );
     assert_eq!(refreshed, refresh::in_markup(&url, html.as_bytes(), &alone));
     for selector in &demand.links {
-        assert_eq!(read.links(selector), Some(matched(html, selector, &alone)));
+        assert_eq!(
+            read.links(selector),
+            Some(matched(
+                &alone.parse_html(Row::PageParses, html),
+                selector,
+                &alone
+            ))
+        );
     }
     assert_eq!(
         read.fields(&demand.fields),
-        Some(first_elements(html, &demand.fields, &alone))
+        Some(first_elements(
+            &alone.parse_html(Row::PageParses, html),
+            &demand.fields,
+            &alone
+        ))
     );
     let check = demand.page_check.as_ref().unwrap();
     let (verdict, robots) = read.judged(check).unwrap();
@@ -118,10 +130,15 @@ fn what_the_run_did_not_ask_for_is_not_read() {
     let work = CountedWork::default();
     let readers = UntouchedReaders::of(UntouchedDemand::default(), &work);
     let mut signed = false;
-    let read = readers.read(work.parse_html(Row::PageParses, PAGE), (URL, URL), |_| {
+    let signing = |_| {
         signed = true;
         [0; 32]
-    });
+    };
+    let (read, _) = readers.read(
+        work.parse_html(Row::PageParses, PAGE),
+        (URL, URL),
+        (signing, &work),
+    );
     assert!(!signed);
     assert_eq!(read.links("a[href]"), None);
     assert_eq!(read.fields(&[css("h1")]), None);
@@ -219,6 +236,7 @@ fn streaming_demand() -> UntouchedDemand {
             }),
         }),
         signs: false,
+        keeps: false,
     }
 }
 
@@ -254,7 +272,7 @@ fn the_stream_reads_what_the_tree_reads_on_the_corpus() {
             readers.refresh(&url, &tree),
             "{html}"
         );
-        let on_tree = readers.read(tree, (URL, URL), |_| [0; 32]);
+        let (on_tree, _) = readers.read(tree, (URL, URL), (|_| [0; 32], &work));
         let on_stream = readers.read_streamed(streamed, URL);
         for selector in &demand.links {
             assert_eq!(
@@ -299,4 +317,39 @@ fn a_document_naming_a_use_signal_is_read_on_its_tree() {
         "<meta name=\"tdm-reservation\" content=\"1\"><title>",
     );
     assert!(readers.stream(&signalled).is_none());
+}
+
+/// While a handler reads the Run's pages, the Page signature reads a copy
+/// of the page's one tree, so the readers answer the tree as it was served
+/// for the handler's reads, whatever the main-content step took out of the
+/// copy: one parse and one copy for the page (spec #1577's #1918).
+#[test]
+fn a_handlers_page_keeps_its_untouched_tree_and_signs_a_copy() {
+    let work = CountedWork::default();
+    let readers = UntouchedReaders::of(
+        UntouchedDemand {
+            keeps: true,
+            ..demand()
+        },
+        &work,
+    );
+    let tree = work.parse_html(Row::PageParses, PAGE);
+    let served = tree.html().to_string();
+    let main = work.literal_selector(Row::PageSelectorCompilations, "main");
+    let stripping = |tree: ParsedHtml| {
+        tree.select_matcher(&main).remove();
+        [7; 32]
+    };
+
+    let (read, kept) = readers.read(tree, (URL, URL), (stripping, &work));
+
+    assert_eq!(
+        (
+            read.signed().map(|(signature, _)| signature),
+            kept.map(|tree| tree.html().to_string()),
+            work.read(Row::PageParses),
+            work.read(Row::PageTreeCopies),
+        ),
+        (Some([7; 32]), Some(served), 1, 1)
+    );
 }

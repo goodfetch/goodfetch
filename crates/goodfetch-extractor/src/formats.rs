@@ -139,6 +139,34 @@ pub fn measured_formats(
     request: &FormatsRequest,
     context: &Context<'_>,
 ) -> Measured {
+    measured(document, request, context, || {
+        context.work.parse_html(Row::PageParses, document.html)
+    })
+}
+
+/// [`measured_formats`] of `document` whose untouched tree, `kept`, a
+/// caller keeps for other reads (a handler's page, spec #1577's #1918):
+/// the formats that read a tree read a copy of it, on `F1.tree_copies`,
+/// never a parse of the HTML, and `kept` stays as it was.
+pub fn measured_formats_of(
+    document: &Document<'_>,
+    kept: &ParsedHtml,
+    request: &FormatsRequest,
+    context: &Context<'_>,
+) -> Measured {
+    measured(document, request, context, || {
+        context.work.copy_tree(Row::PageTreeCopies, kept)
+    })
+}
+
+/// [`measured_formats`], its one tree, when a reader reads one or the
+/// rules run, from `tree_of`.
+fn measured(
+    document: &Document<'_>,
+    request: &FormatsRequest,
+    context: &Context<'_>,
+    tree_of: impl FnOnce() -> ParsedHtml,
+) -> Measured {
     let work = &context.work;
     // The demand plan runs only the readers the request reads from (ADR
     // 0138). A request that reads nothing of the cleaned page runs no rule.
@@ -155,7 +183,7 @@ pub fn measured_formats(
         || full_markdown
         || plan.runs(Reader::CleanedTree)
         || plan.runs(Reader::MainContent))
-    .then(|| work.parse_html(Row::PageParses, document.html));
+    .then(tree_of);
     let removed = match (clean_up, &tree) {
         (Some(clean_up), Some(tree)) => clean_up.remove(tree, document.url),
         _ => false,
@@ -407,7 +435,39 @@ pub fn main_content_length(
     extractor: &dyn Extractor,
     work: &CountedWork,
 ) -> usize {
-    let tree = work.parse_html(Row::PageParses, document.html);
+    main_length(
+        work.parse_html(Row::PageParses, document.html),
+        document,
+        extractor,
+        work,
+    )
+}
+
+/// [`main_content_length`] of `document` whose untouched tree, `kept`, a
+/// caller keeps for other reads: it reads a copy of it, on
+/// `F1.tree_copies`, never a parse of the HTML.
+pub fn main_content_length_of(
+    document: &Document<'_>,
+    kept: &ParsedHtml,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> usize {
+    main_length(
+        work.copy_tree(Row::PageTreeCopies, kept),
+        document,
+        extractor,
+        work,
+    )
+}
+
+/// [`main_content_length`] read on `tree`, the page's tree, which it
+/// consumes.
+fn main_length(
+    tree: ParsedHtml,
+    document: &Document<'_>,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> usize {
     if compose_in_place(&tree, work) {
         merge_texts(&tree);
     }

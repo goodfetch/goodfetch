@@ -8642,6 +8642,11 @@
           "const": "none_kept",
           "description": "Every Record it pushed was dropped or rejected, as its `records`\ncount.",
           "type": "string"
+        },
+        {
+          "const": "records_off",
+          "description": "`dataset.records` is off, so the crawl keeps no Record (ADR 0138).",
+          "type": "string"
         }
       ]
     },
@@ -18343,6 +18348,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "records": {
+                    "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -18552,6 +18561,10 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_classification": {
+                    "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+                    "type": "boolean"
+                  },
                   "coalesce": {
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
@@ -19171,6 +19184,16 @@
                       "per_daemon",
                       "run"
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "log": {
+                    "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -20986,6 +21009,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "records": {
+                    "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -21195,6 +21222,10 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_classification": {
+                    "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+                    "type": "boolean"
+                  },
                   "coalesce": {
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
@@ -21814,6 +21845,16 @@
                       "per_daemon",
                       "run"
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "log": {
+                    "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -23645,6 +23686,10 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "records": {
+                    "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -23854,6 +23899,10 @@
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
+                  "block_classification": {
+                    "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+                    "type": "boolean"
+                  },
                   "coalesce": {
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
@@ -24473,6 +24522,16 @@
                       "per_daemon",
                       "run"
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "log": {
+                    "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"

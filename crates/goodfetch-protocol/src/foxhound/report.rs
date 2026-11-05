@@ -1,7 +1,8 @@
 //! What a crawl's Run report adds to every Run's (ADR 0102): how its
 //! requests ended, its Records per Dataset, its Sinks, its Frontier's
 //! learned URL rules and its sitemaps; the warnings Foxhound adds to the
-//! warning table, such as `trap_links_off` and `learning_off`; and the
+//! warning table, such as `trap_links_off`, `learning_off` and the
+//! warnings of a per-page feature switched off (ADR 0138); and the
 //! Completeness reasons a crawl adds to every Run's (ADRs 0005, 0045,
 //! 0048, 0107, 0118 and 0120), each named by its setting or its cause.
 
@@ -27,6 +28,18 @@ pub const TRAP_LINKS_OFF: &str = "trap_links_off";
 /// The warning that a crawl ran with `frontier.learning` off, so its
 /// Frontier learned no rule (ADR 0138).
 pub const LEARNING_OFF: &str = "learning_off";
+
+/// The warning that a crawl ran with `provenance.log` off, so its Run trace
+/// holds no Provenance log (ADR 0138).
+pub const PROVENANCE_OFF: &str = "provenance_off";
+
+/// The warning that a crawl ran with `dataset.records` off, so it kept no
+/// Record (ADR 0138).
+pub const RECORDS_OFF: &str = "records_off";
+
+/// The warning that a crawl ran with `fetch.block_classification` off, so
+/// no document was read for a Block cause (ADR 0138).
+pub const BLOCK_CLASSIFICATION_OFF: &str = "block_classification_off";
 
 /// The warning that a Session replacing one a block retired found every
 /// block of the Run's local addresses blocked on its domain, so it rotated
@@ -324,6 +337,24 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::RunWarningCode,
             name: LEARNING_OFF,
             description: "The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: PROVENANCE_OFF,
+            description: "The crawl ran with `provenance.log` off: its Run trace holds no Provenance log, while each Record still carries its own Provenance.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: RECORDS_OFF,
+            description: "The crawl ran with `dataset.records` off: it kept no Record, so its Datasets are empty by the setting, not for want of pages.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: BLOCK_CLASSIFICATION_OFF,
+            description: "The crawl ran with `fetch.block_classification` off: no document was read for a Challenge or a captcha, so a page a site blocked may be among its successes.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

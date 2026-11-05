@@ -45,6 +45,7 @@ mod sniffing;
 mod sniffing_tests;
 mod tiers;
 mod transports;
+mod untouched;
 mod use_signals;
 mod xpath;
 
@@ -79,6 +80,7 @@ pub use tiers::{
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
 };
+pub use untouched::{UntouchedDemand, UntouchedReaders};
 pub use use_signals::{
     Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
     tdmrep_file_refusing,

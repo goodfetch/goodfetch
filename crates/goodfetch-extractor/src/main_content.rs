@@ -7,7 +7,7 @@
 //! article): then the answer is empty, never the page's chrome, which
 //! Readability falls back to, in its place (pitfall D02).
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
 use crate::extractor::{Extractor, dom_smoothie_article};
 
@@ -47,13 +47,25 @@ pub(crate) fn main_text_length(
 /// with every run of white space made one space and none at either end;
 /// an empty text when it has no main content.
 pub(crate) fn title_and_main_text(html: &str, url: &str, work: &CountedWork) -> (String, String) {
+    title_and_main_text_of(work.parse_html(Row::PageParses, html), html, url, work)
+}
+
+/// [`title_and_main_text`] of `html`, whose untouched tree `tree` its caller
+/// parsed once: the main-content step consumes it, the last reader of the
+/// page as it was served (ADR 0138).
+pub(crate) fn title_and_main_text_of(
+    tree: ParsedHtml,
+    html: &str,
+    url: &str,
+    work: &CountedWork,
+) -> (String, String) {
     let title = collapsed(
-        &work
-            .parse_html(Row::PageParses, html)
+        &tree
             .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "head title"))
             .text(),
     );
-    let text = has_content_text(html, work)
+    let text = outside_landmarks_of(tree, work)
+        .is_some()
         .then(|| {
             work.count(Row::PageReadabilityRuns);
             dom_smoothie_article(html, url)
@@ -107,15 +119,18 @@ fn text_length(html: &str) -> usize {
         .count()
 }
 
-/// Whether `html` holds text outside its navigation landmarks.
-fn has_content_text(html: &str, work: &CountedWork) -> bool {
-    outside_landmarks(html, work).is_some()
-}
-
 /// The HTML of `html`'s body without its navigation landmarks and what no
 /// person reads; none when no text is left in it.
 fn outside_landmarks(html: &str, work: &CountedWork) -> Option<String> {
-    let document = work.parse_html(Row::PageParses, html);
+    outside_landmarks_of(work.parse_html(Row::PageParses, html), work)
+}
+
+/// [`outside_landmarks`] of the tree `document`, which it consumes.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the step removes the landmarks from the untouched tree: taking it leaves no reader after it (ADR 0138)"
+)]
+fn outside_landmarks_of(document: ParsedHtml, work: &CountedWork) -> Option<String> {
     document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
         .remove();

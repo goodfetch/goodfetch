@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use url::Url;
 
 /// A document's refresh directive.
@@ -59,13 +59,30 @@ pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refre
 
 /// The first `<meta http-equiv="refresh">` outside `<noscript>` of the
 /// HTML document `body` at `url` that parses: a whole parse of the
-/// document, which blocks.
+/// document, which blocks, for a hop no untouched tree reads (a sitemap's,
+/// or a body whose type sniffs as no document).
 pub(crate) fn in_markup(url: &Url, body: &[u8], work: &CountedWork) -> Option<Refresh> {
     let document = work.parse_html(Row::PageParses, String::from_utf8_lossy(body).as_ref());
+    in_tree(
+        url,
+        &document,
+        &work.literal_selector(Row::PageSelectorCompilations, META),
+    )
+}
+
+/// What names a document's refresh `<meta>` elements, among others.
+pub(crate) const META: &str = "meta[http-equiv][content]";
+
+/// The first `<meta http-equiv="refresh">` outside `<noscript>` of
+/// `document`, the untouched tree of the HTML document at `url`, that
+/// parses, `meta` being [`META`]'s matcher.
+pub(crate) fn in_tree(
+    url: &Url,
+    document: &ParsedHtml,
+    meta: &dom_query::Matcher,
+) -> Option<Refresh> {
     document
-        .select_matcher(
-            &work.literal_selector(Row::PageSelectorCompilations, "meta[http-equiv][content]"),
-        )
+        .select_matcher(meta)
         .nodes()
         .iter()
         .filter(|meta| {

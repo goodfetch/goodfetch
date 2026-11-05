@@ -14,7 +14,7 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use rstest::rstest;
 use url::Url;
 
-use super::{Following, next_hop};
+use super::{Following, MarkupRefresh, Step, next_hop};
 use crate::driver::{Fetched, Hop};
 
 /// The crawl's defaults: refresh stubs followed whatever their delay.
@@ -47,15 +47,15 @@ fn stub(content: &str) -> Fetched {
 async fn next(fetched: &Fetched, following: &Following) -> Option<String> {
     let hop = Hop::get(fetched.url.clone());
     let owner = TaskOwner::root(BlockingPolicy::Inline);
-    next_hop(
-        &hop,
-        fetched,
-        following,
-        (&owner, &goodfetch_counted_work::CountedWork::default()),
-    )
-    .await
-    .unwrap_or_else(|_| panic!("the stub fails its chain"))
-    .map(|hop| hop.url.to_string())
+    let reading =
+        std::sync::Arc::new(MarkupRefresh(goodfetch_counted_work::CountedWork::default()));
+    match next_hop(&hop, fetched, following, (&owner, &reading))
+        .await
+        .unwrap_or_else(|_| panic!("the stub fails its chain"))
+    {
+        Step::Next(hop) => Some(hop.url.to_string()),
+        Step::End(_) => None,
+    }
 }
 
 /// A refresh to a `javascript:` or `data:` URL is the document, as the

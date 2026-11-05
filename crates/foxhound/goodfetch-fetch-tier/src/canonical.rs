@@ -4,11 +4,13 @@
 //! resolves a link's, or else the first `Link` header field value with
 //! `rel="canonical"`, resolved against the URL it was fetched at.
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use url::Url;
 
 /// The URL `html`'s head, or else its `headers` (names lower-cased), name
-/// as its canonical; `None` when they name none that parses.
+/// as its canonical; `None` when they name none that parses. `html` is
+/// parsed for this call alone; a crawl request's own document is read
+/// once, by [`in_head`] on its untouched tree.
 pub(crate) fn canonical(
     html: &str,
     headers: &[(String, String)],
@@ -17,22 +19,34 @@ pub(crate) fn canonical(
     work: &CountedWork,
 ) -> Option<Url> {
     let document = work.parse_html(Row::PageParses, html);
-    let in_head = document
-        .select_matcher(
-            &work.literal_selector(Row::PageSelectorCompilations, "head link[rel][href]"),
-        )
+    let link = work.literal_selector(Row::PageSelectorCompilations, LINK);
+    in_head(&document, &link, base).or_else(|| in_headers(headers, url))
+}
+
+/// What names a document's head links, among them its canonical.
+pub(crate) const LINK: &str = "head link[rel][href]";
+
+/// The URL the first `<link rel="canonical">` with an `href` in
+/// `document`'s head names, resolved against `base`, `link` being
+/// [`LINK`]'s matcher; `None` when it names none that parses.
+pub(crate) fn in_head(document: &ParsedHtml, link: &dom_query::Matcher, base: &Url) -> Option<Url> {
+    document
+        .select_matcher(link)
         .nodes()
         .iter()
         .find(|link| link.attr("rel").is_some_and(|rel| has_canonical(&rel)))
         .and_then(|link| link.attr("href"))
-        .and_then(|href| base.join(href.trim()).ok());
-    in_head.or_else(|| {
-        headers
-            .iter()
-            .filter(|(name, _)| name == "link")
-            .flat_map(|(_, value)| links(value))
-            .find_map(|(target, rel)| has_canonical(rel).then(|| url.join(target).ok()).flatten())
-    })
+        .and_then(|href| base.join(href.trim()).ok())
+}
+
+/// The URL the first `Link` header field value with `rel="canonical"`
+/// among `headers` (names lower-cased) names, resolved against `url`.
+pub(crate) fn in_headers(headers: &[(String, String)], url: &Url) -> Option<Url> {
+    headers
+        .iter()
+        .filter(|(name, _)| name == "link")
+        .flat_map(|(_, value)| links(value))
+        .find_map(|(target, rel)| has_canonical(rel).then(|| url.join(target).ok()).flatten())
 }
 
 /// Whether the `rel` value `rel`, a list of link types, holds

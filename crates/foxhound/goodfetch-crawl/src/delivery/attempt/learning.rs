@@ -72,7 +72,7 @@ pub(super) async fn learn(
 
 /// Whether a crawl under `run`'s settings learns from its pages:
 /// `frontier.learning`, on unless set off (ADR 0138).
-fn learns(run: &Run) -> bool {
+pub(in crate::delivery) fn learns(run: &Run) -> bool {
     run.settings()
         .map(RunSettings::resolved)
         .is_none_or(|settings| settings.boolean(FRONTIER_LEARNING.name) != Some(false))

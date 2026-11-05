@@ -13,7 +13,7 @@
 
 use std::collections::HashSet;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use serde_json::Value;
@@ -57,7 +57,10 @@ pub(crate) const FIELDS_READ: &str = include_str!("document/fields.js");
 #[error("`{0}` is no CSS selector")]
 pub struct SelectorInvalid(pub String);
 
-/// Every element of `html` that `selector` matches, in document order.
+/// Every element of `html` that `selector` matches, in document order:
+/// `html` parsed for this call alone, as a handler's own read of a page is
+/// until its tree is kept (spec #1577's #1918); a crawl request's own
+/// document is read once, by [`matched_in`] on its untouched tree.
 ///
 /// # Errors
 ///
@@ -69,10 +72,25 @@ pub(crate) fn matched(
 ) -> Result<Vec<Matched>, SelectorInvalid> {
     let matcher = matcher(selector, work)?;
     let document = work.parse_html(Row::PageParses, html);
+    let controls = work.literal_selector(Row::PageSelectorCompilations, CONTROLS);
+    Ok(matched_in(&document, &matcher, &controls))
+}
+
+/// What names the ids a button or a tab shows and hides: `aria-controls`.
+pub(crate) const CONTROLS: &str = "[aria-controls]";
+
+/// Every element of `document` that `matcher` matches, in document order,
+/// with what its markup states of whether a person sees it, `controls`
+/// being [`CONTROLS`]'s matcher.
+pub(crate) fn matched_in(
+    document: &ParsedHtml,
+    matcher: &dom_query::Matcher,
+    controls: &dom_query::Matcher,
+) -> Vec<Matched> {
     // The ids an element names in `aria-controls`: what a button or a tab
     // shows and hides.
     let controlled: HashSet<String> = document
-        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "[aria-controls]"))
+        .select_matcher(controls)
         .nodes()
         .iter()
         .filter_map(|control| control.attr("aria-controls"))
@@ -82,8 +100,8 @@ pub(crate) fn matched(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let selection = document.select_matcher(&matcher);
-    Ok(selection
+    let selection = document.select_matcher(matcher);
+    selection
         .nodes()
         .iter()
         .map(|node| {
@@ -117,7 +135,7 @@ pub(crate) fn matched(
                 sight: Sight::Markup(markup),
             }
         })
-        .collect())
+        .collect()
 }
 
 /// One element of a served document as its markup states it: its tag name,
@@ -140,7 +158,10 @@ const EXTENSIONS: [&str; 3] = ["contains", "has-text", "only-text"];
 /// # Errors
 ///
 /// When `selector` is no CSS selector a browser reads.
-fn matcher(selector: &str, work: &CountedWork) -> Result<dom_query::Matcher, SelectorInvalid> {
+pub(crate) fn matcher(
+    selector: &str,
+    work: &CountedWork,
+) -> Result<dom_query::Matcher, SelectorInvalid> {
     let invalid = || SelectorInvalid(selector.to_owned());
     let matcher = work
         .compile_selector(Row::PageSelectorCompilations, selector)
@@ -210,10 +231,41 @@ pub(crate) enum LocatorInvalid {
     Xpath(#[from] XpathInvalid),
 }
 
-/// The first element of `html` that each of `locators` finds, in order:
-/// a CSS selector's first match, or an `XPath` expression's first node in
-/// document order when it is an element, as a browser reads both; `None`
-/// for one that finds none.
+/// A field's locator, read once: a CSS selector's matcher or a checked
+/// `XPath` expression.
+#[derive(Clone, Debug)]
+pub(crate) enum Locating {
+    Css(dom_query::Matcher),
+    Xpath(xpath::Expression),
+}
+
+/// Each of `locators`, read once, in order.
+///
+/// # Errors
+///
+/// When one of `locators` is no CSS selector or `XPath` expression the
+/// engine reads.
+pub(crate) fn locating(
+    locators: &[FieldLocator],
+    work: &CountedWork,
+) -> Result<Vec<Locating>, LocatorInvalid> {
+    locators
+        .iter()
+        .map(|locator| {
+            Ok(match locator {
+                FieldLocator::Css { selector } => Locating::Css(matcher(selector, work)?),
+                FieldLocator::Xpath { selector } => {
+                    Locating::Xpath(xpath::Expression::parse(selector)?)
+                }
+            })
+        })
+        .collect()
+}
+
+/// The first element of `html` that each of `locators` finds, in order,
+/// as [`first_elements_in`] reads them: `html` parsed for this call alone,
+/// as a handler's own read of a page is; a crawl request's own document is
+/// read once, on its untouched tree.
 ///
 /// # Errors
 ///
@@ -224,41 +276,39 @@ pub(crate) fn first_elements(
     locators: &[FieldLocator],
     work: &CountedWork,
 ) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
+    let locating = locating(locators, work)?;
     let document = work.parse_html(Row::PageParses, html);
+    Ok(first_elements_in(&document, &locating))
+}
+
+/// The first element of `document` that each of `locating` finds, in
+/// order: a CSS selector's first match, or an `XPath` expression's first
+/// node in document order when it is an element, as a browser reads both;
+/// `None` for one that finds none.
+pub(crate) fn first_elements_in(
+    document: &ParsedHtml,
+    locating: &[Locating],
+) -> Vec<Option<FieldElement>> {
     // Built once, at the first `XPath` locator.
     let mut held: Option<xpath::Document> = None;
-    locators
+    locating
         .iter()
         .map(|locator| {
             let found = match locator {
-                FieldLocator::Css { selector } => {
-                    let matcher = matcher(selector, work)?;
-                    document.select_matcher(&matcher).nodes().first().copied()
-                }
-                FieldLocator::Xpath { selector } => {
-                    let expression = xpath::Expression::parse(selector)?;
-                    held.get_or_insert_with(|| xpath::Document::of(&document))
-                        .first_element(&expression)
-                        .and_then(|id| document.tree.get(&id))
-                }
+                Locating::Css(matcher) => document.select_matcher(matcher).nodes().first().copied(),
+                Locating::Xpath(expression) => held
+                    .get_or_insert_with(|| xpath::Document::of(document))
+                    .first_element(expression)
+                    .and_then(|id| document.tree.get(&id)),
             };
-            Ok(found.map(|node| FieldElement {
+            found.map(|node| FieldElement {
                 tag: node
                     .node_name()
                     .map(|name| name.to_ascii_lowercase())
                     .unwrap_or_default(),
                 text: node.text().to_string(),
-                attributes: node
-                    .attrs()
-                    .iter()
-                    .map(|attribute| {
-                        (
-                            attribute.name.local.to_string(),
-                            attribute.value.to_string(),
-                        )
-                    })
-                    .collect(),
-            }))
+                attributes: attributes(&node),
+            })
         })
         .collect()
 }

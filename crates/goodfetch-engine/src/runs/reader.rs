@@ -1,8 +1,12 @@
 //! A reader of one Run's committed state (ADRs 0031 and 0102): it reads the
-//! run file on a read-only connection of its own, opened for each read and
-//! closed after it, so it never takes the writer lock and never holds the
-//! writer back, whichever engine wrote the file and whether or not one
-//! still does. While this engine's writer works the Run, the reader waits
+//! run file read-only, so it never takes the writer lock and never holds
+//! the writer back, whichever engine wrote the file and whether or not one
+//! still does. While this engine's writer works the Run, it reads on the
+//! connections that writer's readers keep (ADR 0138); otherwise on a
+//! connection of its own, opened for each read and closed after it, which
+//! never outlives the writer of another engine that may still close the
+//! file, so that writer stays the last connection and folds its WAL into
+//! the file. While this engine's writer works the Run, the reader waits
 //! for its next commit or the Run's end; while another engine's writer
 //! holds the Run's writer lock, as an Attached engine crawling a Run a
 //! reader on the Daemon follows, the reader looks at the run file again
@@ -20,6 +24,7 @@ use tokio::sync::watch;
 use super::folder::open_reader;
 use super::{Ended, RUN_FILE, RunError, Writer, test_writer};
 use crate::clock::Clock;
+use crate::run_state::RunStateReaders;
 use crate::tasks::TaskOwner;
 
 /// How often a reader looks at the run file again while another engine's
@@ -70,6 +75,8 @@ pub(super) struct Following {
     pub(super) commits: Option<watch::Receiver<u64>>,
     /// The Run's report, once it ended.
     pub(super) report: watch::Receiver<Option<Ended>>,
+    /// The writer's readers, which read the run file beside it.
+    pub(super) readers: Option<Arc<RunStateReaders>>,
 }
 
 impl RunReader {
@@ -154,8 +161,10 @@ impl RunReader {
     }
 
     /// Runs `work` on a read-only connection of the run file's committed
-    /// state, under the engine's blocking policy. A commit made after it
-    /// started makes the next [`RunReader::changed`] return.
+    /// state, on the writer's readers while it follows the Run, otherwise
+    /// on one opened for it, under the engine's blocking policy. A
+    /// commit made after it started makes the next [`RunReader::changed`]
+    /// return.
     ///
     /// # Errors
     ///
@@ -170,24 +179,16 @@ impl RunReader {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        if let Some(Following {
-            commits: Some(commits),
-            ..
-        }) = &mut self.following
-        {
-            commits.borrow_and_update();
-        }
-        let file = self.folder.join(RUN_FILE);
-        let vfs = self.vfs.clone();
-        let read = self
-            .tasks
-            .blocking(move || -> rusqlite::Result<Option<T>> {
-                match open_reader(&file, vfs.as_deref())? {
-                    Some(connection) => work(&connection).map(Some),
-                    None => Ok(None),
-                }
-            })
-            .await;
+        let readers = self.following.as_mut().and_then(|following| {
+            if let Some(commits) = &mut following.commits {
+                commits.borrow_and_update();
+            }
+            following.readers.clone()
+        });
+        let read = match readers {
+            Some(readers) => readers.read(work).await.map(Some),
+            None => self.read_opened(work).await,
+        };
         match read {
             Ok(Some(answer)) => Ok(answer),
             Ok(None) => Err(RunError::NotFound(self.run_id.clone())),
@@ -199,6 +200,25 @@ impl RunReader {
         }
     }
 
+    /// Runs `work` as [`RunReader::read`] does, on a connection opened for
+    /// it alone: `None` when the Run has no run file.
+    async fn read_opened<T, F>(&self, work: F) -> rusqlite::Result<Option<T>>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let file = self.folder.join(RUN_FILE);
+        let vfs = self.vfs.clone();
+        self.tasks
+            .blocking(move || -> rusqlite::Result<Option<T>> {
+                match open_reader(&file, vfs.as_deref())? {
+                    Some(connection) => work(&connection).map(Some),
+                    None => Ok(None),
+                }
+            })
+            .await
+    }
+
     /// Waits for a commit after the last read began, or for the Run's end;
     /// while another engine's writer works the Run, for [`ELSEWHERE_POLL`];
     /// returns at once when nothing more comes.
@@ -207,7 +227,10 @@ impl RunReader {
     ///
     /// Dropping the future only stops waiting.
     pub async fn changed(&mut self) {
-        let Some(Following { commits, report }) = &mut self.following else {
+        let Some(Following {
+            commits, report, ..
+        }) = &mut self.following
+        else {
             if self.elsewhere {
                 self.clock.sleep(ELSEWHERE_POLL).await;
             }

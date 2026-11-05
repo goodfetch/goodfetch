@@ -119,15 +119,17 @@ impl TaskOwner {
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
-        match self.policy {
-            BlockingPolicy::Inline => work(),
-            BlockingPolicy::Threads => match self.tracker.spawn_blocking(work).await {
-                Ok(answer) => answer,
-                Err(error) => match error.try_into_panic() {
-                    Ok(panic) => std::panic::resume_unwind(panic),
-                    Err(error) => panic!("invariant: a blocking task is never cancelled: {error}"),
-                },
-            },
+        run_blocking(&self.tracker, self.policy, work).await
+    }
+
+    /// Its blocking threads, as a handle that runs blocking work as
+    /// [`TaskOwner::blocking`] does for whoever holds it, such as a run
+    /// file's readers, which its writer's handles hold; the owner waits for
+    /// that work too.
+    pub fn blocking_threads(&self) -> BlockingThreads {
+        BlockingThreads {
+            tracker: self.tracker.clone(),
+            policy: self.policy,
         }
     }
 
@@ -288,6 +290,48 @@ impl TaskOwner {
         self.closing.cancel();
         self.actors.close();
         self.actors.wait().await;
+    }
+}
+
+/// An owner's blocking threads, under its policy, for whoever holds the
+/// handle ([`TaskOwner::blocking_threads`]).
+#[derive(Clone, Debug)]
+pub struct BlockingThreads {
+    tracker: TaskTracker,
+    policy: BlockingPolicy,
+}
+
+impl BlockingThreads {
+    /// Runs `work`, which blocks, as [`TaskOwner::blocking`] does.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`TaskOwner::blocking`]'s.
+    pub async fn run<T, F>(&self, work: F) -> T
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        run_blocking(&self.tracker, self.policy, work).await
+    }
+}
+
+/// Runs `work` under `policy`, on a blocking thread `tracker` tracks, and
+/// answers what it returns; a panic in `work` resumes in the caller.
+async fn run_blocking<T, F>(tracker: &TaskTracker, policy: BlockingPolicy, work: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    match policy {
+        BlockingPolicy::Inline => work(),
+        BlockingPolicy::Threads => match tracker.spawn_blocking(work).await {
+            Ok(answer) => answer,
+            Err(error) => match error.try_into_panic() {
+                Ok(panic) => std::panic::resume_unwind(panic),
+                Err(error) => panic!("invariant: a blocking task is never cancelled: {error}"),
+            },
+        },
     }
 }
 

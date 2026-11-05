@@ -13,6 +13,7 @@
 //! takes it too. The labels of [`Row`] are `goodfetch-protocol`'s metric
 //! declaration's values, which the engine's metric tests compare.
 
+mod compiled;
 mod sync;
 
 use std::fs::{File, OpenOptions};
@@ -20,6 +21,8 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+use compiled::Compiled;
+pub use compiled::{CAPACITY, PATTERN_CAPACITY};
 use sync::Count;
 
 /// A tree of an HTML document, parsed by [`CountedWork::parse_html`]: its
@@ -674,9 +677,12 @@ impl Row {
 }
 
 /// The counts of one engine's Counted work, shared by every clone. A thread
-/// may count while another reads: a read sees some count that was true.
+/// may count while another reads: a read sees some count that was true. It
+/// holds the engine's bounded cache of compilations too ([`Self::selector`]),
+/// which every owner it is given to compiles through, so a text compiles once
+/// for the engine and its compilation counts once.
 #[derive(Clone, Debug, Default)]
-pub struct CountedWork(Arc<Counts>);
+pub struct CountedWork(Arc<Counts>, Arc<Compiled>);
 
 #[derive(Debug)]
 struct Counts([Count; Row::ALL.len()]);
@@ -730,15 +736,67 @@ impl CountedWork {
         dom_query::Matcher::new(selector).ok()
     }
 
-    /// [`Self::compile_selector`] of a selector written in the code.
+    /// The selector `selector`, from the engine's cache, compiled through
+    /// [`Self::compile_selector`] and counted on `row` only when the cache
+    /// does not keep it: what a tree reader matches with, never a
+    /// `select("…")` that compiles on each call (ADR 0138).
+    #[must_use]
+    pub fn selector(&self, row: Row, selector: &str) -> Option<dom_query::Matcher> {
+        self.1
+            .selector(None, selector, || self.compile_selector(row, selector))
+    }
+
+    /// [`Self::selector`] of a selector of the Clean-up rules of the version
+    /// whose digest is `rules`, kept apart from another version's.
+    #[must_use]
+    pub fn rules_selector(
+        &self,
+        row: Row,
+        rules: &str,
+        selector: &str,
+    ) -> Option<dom_query::Matcher> {
+        self.1.selector(Some(rules), selector, || {
+            self.compile_selector(row, selector)
+        })
+    }
+
+    /// [`Self::selector`] of a selector written in the code.
     ///
     /// # Panics
     ///
     /// When `selector` is no selector, which a test of its code shows.
     #[must_use]
     pub fn literal_selector(&self, row: Row, selector: &'static str) -> dom_query::Matcher {
-        self.compile_selector(row, selector)
+        self.selector(row, selector)
             .expect("invariant: a selector written in the code is CSS")
+    }
+
+    /// The regular expression `pattern`, from the engine's cache, compiled
+    /// through [`Self::compile_regex`] and counted on `row` only when the
+    /// cache does not keep it.
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no regular expression.
+    pub fn regex(&self, row: Row, pattern: &str) -> Result<regex::Regex, regex::Error> {
+        self.1.regex(pattern, || self.compile_regex(row, pattern))
+    }
+
+    /// The glob `pattern`, from the engine's cache, compiled through
+    /// [`Self::compile_glob`] and counted on `row` only when the cache does
+    /// not keep it.
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no glob.
+    pub fn glob(&self, row: Row, pattern: &str) -> Result<glob::Pattern, Arc<glob::PatternError>> {
+        self.1.glob(pattern, || self.compile_glob(row, pattern))
+    }
+
+    /// How many selectors the engine's cache keeps, at most [`CAPACITY`].
+    #[must_use]
+    pub fn kept(&self) -> u64 {
+        self.1.selectors()
     }
 
     /// `pattern` compiled, counted on `row`: the one function a regular

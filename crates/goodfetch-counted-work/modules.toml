@@ -1,3 +1,4 @@
 # Which of goodfetch-counted-work's top-level modules may import which (ADR 0126).
 [modules]
+compiled = []
 sync = []

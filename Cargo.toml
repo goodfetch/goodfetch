@@ -269,6 +269,11 @@ hickory-resolver = { version = "0.26.3", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
+# The engine's bounded cache of compiled selectors, regular expressions
+# and globs (ADRs 0138 and 0140), in goodfetch-counted-work: concurrent, so
+# a lookup takes no lock around a page's others. hickory-resolver already
+# links it with the same feature.
+moka = { version = "0.12.16", default-features = false, features = ["sync"] }
 # `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
 # starts its child with raw system calls on Linux (ADR 0067).

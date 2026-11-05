@@ -11,10 +11,13 @@
 //! that lease of its work item; a late commit is refused with
 //! `lease_lost`. After every step the run file holds each counted
 //! commit's Records once, its link and its lesson, and nothing of a
-//! refused one, and each work item's status is the model's; after a crash,
-//! the file the next process opens passes `PRAGMA integrity_check` (in
-//! `after_crash`) and still holds every counted commit whole: no page half
-//! written. 16 cases in the Quick suite and 256 in the Pre-merge suite
+//! refused one, and each work item's status is the model's. A lease is
+//! taken as an attempt's claim is, in a write that needs no sync of its
+//! own (ADR 0138's note of #1926); after a crash, the file the next process
+//! opens passes `PRAGMA integrity_check` (in `after_crash`) and still holds
+//! every counted commit whole, no page half written, and each work item's
+//! status but that a lease whose claim a power cut took may read pending
+//! again: a lost claim costs a fetch, never an outcome that was told. 16 cases in the Quick suite and 256 in the Pre-merge suite
 //! (`proptest_config`).
 
 use std::time::Duration;
@@ -23,7 +26,7 @@ use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::{RunState, RunStateOptions};
+use goodfetch_engine::run_state::{RunState, RunStateOptions, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
@@ -420,7 +423,7 @@ impl StateMachineTest for Subject {
                 let state = subject.state().clone();
                 let leased = subject
                     .runtime
-                    .block_on(state.write(|connection| {
+                    .block_on(state.write_with(Syncing::Deferred { charged: 0 }, |connection| {
                         let first: Vec<String> = connection
                             .prepare("SELECT id FROM work_items WHERE status = 'pending' ORDER BY position LIMIT 1")?
                             .query_map([], |row| row.get(0))?
@@ -488,7 +491,7 @@ impl StateMachineTest for Subject {
                 subject.vfs.crash(kind);
                 subject.close();
                 let connection = after_crash(&subject.vfs, &subject.path).unwrap();
-                let (records, _) = stored(&connection);
+                let (records, statuses) = stored(&connection);
                 assert_eq!(
                     (sorted(records), lessons(&connection)),
                     (
@@ -496,6 +499,15 @@ impl StateMachineTest for Subject {
                         (model.learned.clone(), true)
                     )
                 );
+                assert_eq!(statuses.len(), model.items.len(), "{statuses:?}");
+                for (stored, item) in statuses.iter().zip(&model.items) {
+                    let lost_claim = item.status == Status::Leased && stored == "pending";
+                    assert!(
+                        stored == item.status.as_str() || lost_claim,
+                        "a work item reads {stored} where the model says {}: {statuses:?}",
+                        item.status.as_str()
+                    );
+                }
                 subject.finished = true;
             }
         }

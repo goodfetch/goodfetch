@@ -16,8 +16,8 @@ use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
 use super::{
-    Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions, RunStateTables,
-    open_reader,
+    DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions,
+    RunStateTables, Syncing, open_reader,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -749,4 +749,127 @@ fn a_group_the_file_refuses_counts_no_transaction() {
 
     assert!(refused);
     assert_eq!(work.read(Row::RunTransactions), before);
+}
+
+/// The Run row a write counts its declared deferred charges on.
+fn run_row(connection: &Connection) -> rusqlite::Result<()> {
+    connection
+        .execute(
+            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
+             VALUES ('r', 'crawl', 'foxhound', 'os_user', 1, '{}', 'running', 't')",
+            [],
+        )
+        .map(drop)
+}
+
+/// What the run file declares a power cut may take of a Slice's charges.
+fn declared(connection: &Connection) -> rusqlite::Result<i64> {
+    connection.query_row("SELECT deferred_charges FROM run", [], |row| row.get(0))
+}
+
+/// Runs `test` on a writer at `durability` whose file holds a Run row,
+/// opened through a VFS that counts its syncs (ADR 0140), with that VFS.
+fn with_counted_writer<T>(
+    durability: Durability,
+    test: impl AsyncFnOnce(&RunState, &goodfetch_test_support::CountingVfs) -> T,
+) -> T {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        durability,
+        ..RunStateOptions::default()
+    };
+    with_writer_options(&env, &options, async |state| {
+        state.write(run_row).await.unwrap();
+        test(state, &vfs).await
+    })
+}
+
+/// A write of `value` that charges nothing, deferred.
+async fn deferred(state: &RunState, value: i64) {
+    state
+        .write_with(Syncing::Deferred { charged: 0 }, insert(value))
+        .await
+        .unwrap();
+}
+
+/// ADR 0138's note of #1926: at `full`, a group of deferred writes commits
+/// without a sync, and the next group with a write that needs one syncs
+/// once, which covers them.
+///
+/// Covers: story:3-25, setting:run_state.durability
+#[test]
+fn at_full_deferred_writes_commit_unsynced_and_the_next_synced_group_syncs_once() {
+    let added = with_counted_writer(Durability::Full, async |state, vfs| {
+        let mut added = Vec::new();
+        for value in [1, 2] {
+            let before = vfs.syncs();
+            deferred(state, value).await;
+            added.push(vfs.syncs() - before);
+        }
+        let before = vfs.syncs();
+        state.write(insert(3)).await.unwrap();
+        added.push(vfs.syncs() - before);
+        added
+    });
+
+    assert_eq!(added, vec![0, 0, 1]);
+}
+
+/// One group, whatever it mixes, syncs once at `full` when any of its
+/// writes needs a sync, and never at `fast`.
+///
+/// Covers: story:3-25, story:3-27, setting:run_state.durability
+#[rstest::rstest]
+#[case::full(Durability::Full, 1)]
+#[case::fast(Durability::Fast, 0)]
+fn a_group_with_one_synced_write_syncs_once_at_full(
+    #[case] durability: Durability,
+    #[case] syncs: u64,
+) {
+    let added = with_counted_writer(durability, async |state, vfs| {
+        let before = vfs.syncs();
+        let (first, second, third) = tokio::join!(
+            state.write_with(Syncing::Deferred { charged: 0 }, insert(1)),
+            state.write(insert(2)),
+            state.write_with(Syncing::Deferred { charged: 0 }, insert(3)),
+        );
+        first.unwrap();
+        second.unwrap();
+        third.unwrap();
+        vfs.syncs() - before
+    });
+
+    assert_eq!(added, syncs);
+}
+
+/// A deferred write that charges a Limit defers only once a synced commit
+/// declared how much a power cut may take (ADR 0138's note of #1926): the
+/// first one syncs and declares [`DEFERRED_CHARGES`], the next ones commit
+/// unsynced until what they charged since the last sync would pass it.
+///
+/// Covers: story:3-25
+#[test]
+fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
+    let half = DEFERRED_CHARGES / 2;
+    let (added, bound) = with_counted_writer(Durability::Full, async |state, vfs| {
+        let mut added = Vec::new();
+        for charged in [1, half, half, 1] {
+            let before = vfs.syncs();
+            state
+                .write_with(Syncing::Deferred { charged }, |_| Ok(()))
+                .await
+                .unwrap();
+            added.push(vfs.syncs() - before);
+        }
+        (added, state.read(declared).await.unwrap())
+    });
+
+    // The first declares; the two halves fill the bound; the last would
+    // pass it, so its group syncs.
+    assert_eq!(
+        (added, bound),
+        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
+    );
 }

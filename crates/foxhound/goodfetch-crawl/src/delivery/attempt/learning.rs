@@ -69,7 +69,12 @@ pub(super) async fn learn(
     }
     let learned = run
         .state()
-        .write(move |connection| learning.teach(connection))
+        // Its answer promises nothing outside (ADR 0138's note of #1926):
+        // the handler reads what it taught, and the outcome's sync covers it.
+        .write_with(
+            goodfetch_engine::run_state::Syncing::Deferred { charged: 0 },
+            move |connection| learning.teach(connection),
+        )
         .await;
     Taught {
         merged: learned.unwrap_or_else(|error| {

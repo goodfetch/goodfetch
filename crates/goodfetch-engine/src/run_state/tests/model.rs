@@ -8,10 +8,15 @@
 //! threshold of two pages, so it runs beside nearly every commit, and a
 //! group may run a `PASSIVE` checkpoint of its own connection while the
 //! writer holds the group's transaction: the checkpoint is never refused as
-//! busy, and the writer commits every write of the group (ADR 0138). After every step the writer's view, and
+//! busy, and the writer commits every write of the group (ADR 0138). A
+//! write may be deferred, as an attempt's claim is (ADR 0138's note of
+//! #1926): at `full` its commit syncs only with a later write that needs a
+//! sync, so a power cut may take it until then, and never a write that
+//! needed one. After every step the writer's view, and
 //! after every crash the reopened file, holds nothing that was never
 //! written, nothing twice, and every acknowledged commit, except those a
-//! power cut may take in `fast` mode; and the run file, and the install
+//! power cut may take in `fast` mode and the deferred ones no synced
+//! commit covered yet at `full`; and the run file, and the install
 //! database in its layout, pass `PRAGMA integrity_check`. 16 cases in the
 //! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
 
@@ -24,7 +29,7 @@ use tokio::runtime::Runtime;
 
 use super::{ITEMS, insert, items};
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
-use crate::run_state::{Durability, RunState, RunStateOptions};
+use crate::run_state::{Durability, RunState, RunStateOptions, Syncing};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// What the reference model knows: each value acknowledged, and each one
@@ -35,6 +40,9 @@ struct Reference {
     durability: Durability,
     next: i64,
     acknowledged: Vec<i64>,
+    /// The acknowledged values of deferred writes no synced commit covers
+    /// yet, which a power cut may take at `full`.
+    unsynced: Vec<i64>,
     uncertain: Vec<i64>,
 }
 
@@ -51,11 +59,12 @@ enum Layout {
 enum Transition {
     /// `count` writes queued together, the one at `failing` failing, the
     /// first running a checkpoint on a connection of its own when
-    /// `checkpoint`.
+    /// `checkpoint`, each deferred whose bit `deferred` sets.
     Commit {
         count: usize,
         failing: Option<usize>,
         checkpoint: bool,
+        deferred: u8,
     },
     /// One write queued, then a crash before the writer commits it.
     CrashDuringCommit(CrashKind),
@@ -81,6 +90,7 @@ impl ReferenceStateMachine for Reference {
                 durability,
                 next: 0,
                 acknowledged: Vec::new(),
+                unsynced: Vec::new(),
                 uncertain: Vec::new(),
             })
             .boxed()
@@ -88,13 +98,18 @@ impl ReferenceStateMachine for Reference {
 
     fn transitions(_: &Self) -> BoxedStrategy<Transition> {
         prop_oneof![
-            4 => (1_usize..5, proptest::option::of(0_usize..5), any::<bool>()).prop_map(
-                |(count, failing, checkpoint)| Transition::Commit {
+            4 => (
+                1_usize..5,
+                proptest::option::of(0_usize..5),
+                any::<bool>(),
+                any::<u8>()
+            )
+                .prop_map(|(count, failing, checkpoint, deferred)| Transition::Commit {
                     count,
                     failing: failing.filter(|failing| *failing < count),
                     checkpoint,
-                }
-            ),
+                    deferred,
+                }),
             1 => crash_kind().prop_map(Transition::CrashDuringCommit),
             1 => crash_kind().prop_map(Transition::Crash),
         ]
@@ -103,11 +118,30 @@ impl ReferenceStateMachine for Reference {
 
     fn apply(mut state: Self, transition: &Transition) -> Self {
         match transition {
-            Transition::Commit { count, failing, .. } => {
+            Transition::Commit {
+                count,
+                failing,
+                deferred,
+                ..
+            } => {
+                // The writer takes the writes in order, in one group or
+                // more: a deferred write queued before one that needs a
+                // sync commits in its group or an earlier one, which that
+                // sync covers; one queued after the last such write may
+                // commit unsynced.
+                let synced = (0..*count)
+                    .rev()
+                    .find(|index| !is_deferred(*deferred, *index));
+                if synced.is_some() {
+                    state.unsynced.clear();
+                }
                 for index in 0..*count {
                     let value = state.next + i64::try_from(index).unwrap();
                     if Some(index) != *failing {
                         state.acknowledged.push(value);
+                        if synced.is_none_or(|synced| index > synced) {
+                            state.unsynced.push(value);
+                        }
                     }
                 }
                 state.next += i64::try_from(*count).unwrap();
@@ -123,12 +157,26 @@ impl ReferenceStateMachine for Reference {
     }
 }
 
+/// Whether the write at `index` of a group is deferred.
+fn is_deferred(deferred: u8, index: usize) -> bool {
+    deferred & (1 << index) != 0
+}
+
 impl Reference {
-    /// A power cut in `fast` mode may take acknowledged commits.
+    /// A power cut in `fast` mode may take acknowledged commits, and at
+    /// `full` the deferred ones no synced commit covered.
     fn crash(&mut self, kind: CrashKind) {
-        if kind == CrashKind::PowerCut && self.durability == Durability::Fast {
-            self.uncertain.append(&mut self.acknowledged);
+        if kind == CrashKind::PowerCut {
+            match self.durability {
+                Durability::Fast => self.uncertain.append(&mut self.acknowledged),
+                Durability::Full => {
+                    let unsynced = std::mem::take(&mut self.unsynced);
+                    self.acknowledged.retain(|value| !unsynced.contains(value));
+                    self.uncertain.extend(unsynced);
+                }
+            }
         }
+        self.unsynced.clear();
     }
 }
 
@@ -340,6 +388,7 @@ impl StateMachineTest for Subject {
                 count,
                 failing,
                 checkpoint,
+                deferred,
             } => {
                 let first = reference.next - i64::try_from(count).unwrap();
                 let state = subject.state().clone();
@@ -350,10 +399,15 @@ impl StateMachineTest for Subject {
                         let value = first + i64::try_from(index).unwrap();
                         let fails = Some(index) == failing;
                         let checkpoints = checkpoint && index == 0;
+                        let syncing = if is_deferred(deferred, index) {
+                            Syncing::Deferred { charged: 0 }
+                        } else {
+                            Syncing::Required
+                        };
                         let (path, vfs) = (path.clone(), vfs.clone());
                         async move {
                             state
-                                .write(move |connection| {
+                                .write_with(syncing, move |connection| {
                                     insert(value)(connection)?;
                                     let busy = if checkpoints {
                                         passive_checkpoint(&path, &vfs)

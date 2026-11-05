@@ -836,8 +836,9 @@ test-affected suite *change:
 # commits for secrets, which take seconds, then the checks the change's own
 # gate runs at merge (ci/quick.sh): for a change of documents alone
 # (`xtask affected`'s `gate=docs`) the checks that read documents, else
-# lints and in-process tests of what changed (`all`: every lint and the
-# whole workspace). The pre-push hook runs it.
+# lints and in-process tests of what changed against the change's base
+# (`all`: every lint and the whole workspace). The pre-push hook runs it,
+# and skips a tree it already passed on.
 quick *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
@@ -1386,7 +1387,8 @@ floor-guard base="origin/main" head="HEAD":
 proofs:
     ci/proofs/run.sh
 
-# Opts in to the git hooks: pre-commit checks formatting, pre-push runs `just quick`.
+# Opts in to the git hooks: pre-commit checks formatting, pre-push runs `just quick`
+# unless it already passed on the pushed tree (TESTING.md, Checks by role).
 hooks:
     git config core.hooksPath .githooks
 

@@ -218,8 +218,9 @@ impl UseSignals {
     }
 
     /// These signals with the `Link` header's license resolved against
-    /// `url`.
-    fn with_header_license(mut self, url: &Url) -> Self {
+    /// `url`: all a document whose markup names no signal
+    /// ([`names_signals`]) carries.
+    pub(crate) fn with_header_license(mut self, url: &Url) -> Self {
         self.license = self
             .license_header
             .as_deref()
@@ -467,7 +468,7 @@ impl SignalFiles {
 }
 
 /// Whether `html` names either markup signal, in any case.
-fn names_signals(html: &str) -> bool {
+pub(crate) fn names_signals(html: &str) -> bool {
     let names = |needle: &str| {
         html.as_bytes()
             .windows(needle.len())

@@ -17,8 +17,18 @@
 //! A redirect hop's document is read in turn: the chain reads its refresh
 //! directive on its tree, and only the document the chain ends on is read
 //! whole (the `chain` module's [`crate::chain::Reading`]).
+//!
+//! When no reader the Run asks for needs the tree (no Page signature, so
+//! `frontier.learning: false`, no `XPath` field, and every selector one
+//! lol-html reads), the readers read a document in one streaming pass
+//! instead ([`UntouchedReaders::stream`], `goodfetch_extractor::Streaming`):
+//! the same `<base>`, refresh directive, links with their trap-link
+//! judgement, fields, Page check and robots `meta`, with no tree. A
+//! document whose markup names an AI-use signal, or whose tree the pass
+//! cannot vouch for, is parsed as before.
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use goodfetch_extractor::{Query, StreamSelector, Streamed, Streaming};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use url::Url;
@@ -29,7 +39,7 @@ use crate::document::{
 };
 use crate::expected_page::{self, Verdict};
 use crate::refresh::{self, Refresh};
-use crate::use_signals::{SignalReaders, UseSignals};
+use crate::use_signals::{self, SignalReaders, UseSignals};
 
 /// What a Run asks of its crawl requests' own documents, beyond what every
 /// document's readers read.
@@ -61,6 +71,115 @@ pub struct UntouchedReaders {
     fields: Option<(Vec<FieldLocator>, Located)>,
     page_check: Option<(PageCheck, CheckMatchers)>,
     signs: bool,
+    /// The streaming path's selectors, when it serves every reader.
+    stream: Option<StreamReaders>,
+}
+
+/// The selectors the streaming path reads the readers' elements with,
+/// parsed once per Run, each beside its reader's tree matcher.
+#[derive(Debug)]
+struct StreamReaders {
+    streaming: Streaming,
+    base: StreamSelector,
+    refresh: StreamSelector,
+    controls: StreamSelector,
+    robots: StreamSelector,
+    /// For each of the readers' links, its selector, none for one the
+    /// engine does not read.
+    links: Vec<Option<StreamSelector>>,
+    /// For each field's CSS selector, its selector; none when a locator
+    /// is invalid.
+    fields: Option<Vec<StreamSelector>>,
+    /// For each selector the Page check names, its selector, none for one
+    /// the engine does not read.
+    page_check: Vec<Option<StreamSelector>>,
+}
+
+impl StreamReaders {
+    /// The streaming path's selectors of `readers`, none when it cannot
+    /// serve one of them: the Page signature, an `XPath` field, or a
+    /// selector lol-html does not read.
+    fn of(readers: &UntouchedReaders, work: &CountedWork) -> Option<Self> {
+        if readers.signs {
+            return None;
+        }
+        let literal = |selector| StreamSelector::of(selector, work);
+        // A selector the engine refuses reads nothing on either path.
+        let each = |selector: &str, read: bool| -> Option<Option<StreamSelector>> {
+            if read {
+                StreamSelector::of(selector, work).map(Some)
+            } else {
+                Some(None)
+            }
+        };
+        let links = readers
+            .links
+            .iter()
+            .map(|(selector, matcher)| each(selector, matcher.is_ok()))
+            .collect::<Option<_>>()?;
+        let fields = match &readers.fields {
+            Some((locators, Ok(_))) => Some(
+                locators
+                    .iter()
+                    .map(|locator| match locator {
+                        FieldLocator::Css { selector } => StreamSelector::of(selector, work),
+                        FieldLocator::Xpath { .. } => None,
+                    })
+                    .collect::<Option<_>>()?,
+            ),
+            Some((_, Err(_))) | None => None,
+        };
+        let page_check = readers
+            .page_check
+            .iter()
+            .flat_map(|(_, matchers)| matchers)
+            .map(|(selector, matcher)| each(selector, matcher.is_some()))
+            .collect::<Option<_>>()?;
+        Some(Self {
+            streaming: Streaming::new(work),
+            base: literal(BASE)?,
+            refresh: literal(refresh::META)?,
+            controls: literal(CONTROLS)?,
+            robots: literal(expected_page::ROBOTS)?,
+            links,
+            fields,
+            page_check,
+        })
+    }
+}
+
+/// What the readers of the untouched page read of a document in one
+/// streaming pass, before the read of a crawl request's own document.
+#[derive(Debug)]
+pub(crate) struct StreamRead {
+    base: Vec<Streamed>,
+    refresh: Vec<Streamed>,
+    controls: Vec<Streamed>,
+    robots: Vec<Streamed>,
+    links: Vec<Vec<Streamed>>,
+    fields: Vec<Vec<Streamed>>,
+    page_check: Vec<Vec<Streamed>>,
+}
+
+impl StreamRead {
+    /// The refresh directive the document at `url` holds in its markup.
+    pub(crate) fn refresh(&self, url: &Url) -> Option<Refresh> {
+        refresh::first_of(
+            url,
+            self.refresh.iter().filter_map(|meta| {
+                let own = meta.held.first()?;
+                Some((own.attr("http-equiv"), own.attr("content")))
+            }),
+        )
+    }
+
+    /// The `href` of its first `<base>` with one, as written.
+    pub(crate) fn base_href(&self) -> Option<String> {
+        self.base
+            .first()
+            .and_then(|base| base.held.first()?.attr("href"))
+            .map(str::to_owned)
+    }
 }
 
 impl UntouchedReaders {
@@ -79,7 +198,7 @@ impl UntouchedReaders {
                 .collect();
             (check, selectors)
         });
-        Self {
+        let mut readers = Self {
             base: literal(BASE),
             refresh: literal(refresh::META),
             canonical: literal(canonical::LINK),
@@ -103,6 +222,138 @@ impl UntouchedReaders {
             }),
             page_check,
             signs,
+            stream: None,
+        };
+        readers.stream = StreamReaders::of(&readers, work);
+        readers
+    }
+
+    /// What the readers read of `html`, the untouched HTML document, in
+    /// one streaming pass; none when the pass cannot serve them all, its
+    /// caller then parsing the document: when a reader the Run asks for
+    /// needs a tree, its markup names an AI-use signal, or the pass cannot
+    /// vouch for its tree.
+    pub(crate) fn stream(&self, html: &str) -> Option<StreamRead> {
+        let stream = self.stream.as_ref()?;
+        if use_signals::names_signals(html) {
+            return None;
+        }
+        let all = |selector| Query {
+            selector,
+            first: false,
+        };
+        let first = |selector| Query {
+            selector,
+            first: true,
+        };
+        let mut queries = vec![
+            first(&stream.base),
+            all(&stream.refresh),
+            all(&stream.controls),
+            all(&stream.robots),
+        ];
+        queries.extend(stream.links.iter().flatten().map(all));
+        let links_end = queries.len();
+        queries.extend(stream.fields.iter().flatten().map(first));
+        let fields_end = queries.len();
+        queries.extend(stream.page_check.iter().flatten().map(first));
+        let mut read = stream.streaming.read(html, &queries)?.into_iter();
+        let mut next = |count: usize| read.by_ref().take(count).collect::<Vec<_>>();
+        let mut fixed = next(FIXED).into_iter();
+        let (base, refresh, controls, robots) = (
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+        );
+        let links = next(links_end - FIXED);
+        let fields = next(fields_end - links_end);
+        let page_check = next(usize::MAX);
+        Some(StreamRead {
+            base,
+            refresh,
+            controls,
+            robots,
+            links,
+            fields,
+            page_check,
+        })
+    }
+
+    /// `signals` with those the markup of a document the streaming path
+    /// read, fetched at `url`, carries: none, since a document whose markup
+    /// names one is not streamed.
+    pub(crate) fn streamed_use_signals(signals: UseSignals, url: &Url) -> UseSignals {
+        signals.with_header_license(url)
+    }
+
+    /// [`UntouchedReaders::read`] of a crawl request's own document, which
+    /// the streaming path read as `streamed`: the document fetched at
+    /// `url`. It holds no Page signature and no `rel=canonical`, which
+    /// only a Run that learns reads, on the tree.
+    pub(crate) fn read_streamed(&self, streamed: StreamRead, url: &str) -> Read {
+        let StreamRead {
+            controls,
+            robots,
+            links: mut streamed_links,
+            fields: streamed_fields,
+            page_check: checked,
+            ..
+        } = streamed;
+        let mut streamed_links = streamed_links.drain(..);
+        let links = self
+            .links
+            .iter()
+            .map(|(selector, matcher)| {
+                let matched = matcher.as_ref().map_err(Clone::clone).map(|_| {
+                    document::matched_streamed(streamed_links.next().unwrap_or_default(), &controls)
+                });
+                (selector.clone(), matched)
+            })
+            .collect();
+        let fields = self.fields.as_ref().map(|(locators, locating)| {
+            let found = locating.as_ref().map_err(Clone::clone).map(|_| {
+                streamed_fields
+                    .into_iter()
+                    .map(|mut found| found.drain(..).next().and_then(document::field_streamed))
+                    .collect()
+            });
+            (locators.clone(), found)
+        });
+        let page_check = self.page_check.as_ref().map(|(check, matchers)| {
+            let mut checked = checked.into_iter();
+            let found: Vec<(&str, Option<bool>)> = matchers
+                .iter()
+                .map(|(selector, matcher)| {
+                    let found = matcher
+                        .as_ref()
+                        .map(|_| !checked.next().unwrap_or_default().is_empty());
+                    (selector.as_str(), found)
+                })
+                .collect();
+            let verdict = expected_page::judge_with(check, url, |selector| {
+                found
+                    .iter()
+                    .find(|(named, _)| *named == selector)
+                    .and_then(|(_, found)| *found)
+            });
+            let robots = robots
+                .iter()
+                .filter_map(|meta| meta.held.first())
+                .filter(|meta| {
+                    meta.attr("name")
+                        .is_some_and(|name| name.eq_ignore_ascii_case("robots"))
+                })
+                .map(|meta| meta.attr("content").unwrap_or_default().to_owned())
+                .collect();
+            (check.clone(), verdict, robots)
+        });
+        Read {
+            links,
+            fields,
+            page_check,
+            canonical: None,
+            signature: None,
         }
     }
 
@@ -198,6 +449,10 @@ type Found = Result<Vec<Option<FieldElement>>, LocatorInvalid>;
 
 /// What a document's `<base>` is found by.
 const BASE: &str = "base[href]";
+
+/// How many of the streaming path's queries every pass reads: the
+/// `<base>`, refresh, `aria-controls` and robots `meta` elements.
+const FIXED: usize = 4;
 
 /// What the readers of the untouched page read of a crawl request's own
 /// document, for the steps after them.

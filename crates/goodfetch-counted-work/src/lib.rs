@@ -737,6 +737,16 @@ impl CountedWork {
         dom_query::Matcher::new(selector).ok()
     }
 
+    /// `selector` parsed for lol-html's streaming pass, counted on `row`,
+    /// none when lol-html reads no such selector: the one function a
+    /// streaming pass's selector is parsed through (ADR 0140), parsed once
+    /// and lent to each pass (ADR 0138).
+    #[must_use]
+    pub fn compile_stream_selector(&self, row: Row, selector: &str) -> Option<lol_html::Selector> {
+        self.count(row);
+        selector.parse().ok()
+    }
+
     /// [`Self::compile_selector`] of a selector written in the code.
     ///
     /// # Panics

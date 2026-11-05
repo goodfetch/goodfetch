@@ -81,25 +81,35 @@ pub(crate) fn in_tree(
     document: &ParsedHtml,
     meta: &dom_query::Matcher,
 ) -> Option<Refresh> {
-    document
-        .select_matcher(meta)
-        .nodes()
-        .iter()
-        .filter(|meta| {
-            meta.attr("http-equiv")
-                .is_some_and(|equiv| equiv.trim().eq_ignore_ascii_case("refresh"))
+    let metas = document.select_matcher(meta);
+    let metas = metas.nodes().iter().filter(|meta| {
+        !meta.ancestors(None).iter().any(|ancestor| {
+            ancestor
+                .node_name()
+                .is_some_and(|name| &*name == "noscript")
         })
-        .filter(|meta| {
-            !meta.ancestors(None).iter().any(|ancestor| {
-                ancestor
-                    .node_name()
-                    .is_some_and(|name| &*name == "noscript")
-            })
+    });
+    first_of(
+        url,
+        metas.map(|meta| (meta.attr("http-equiv"), meta.attr("content"))),
+    )
+}
+
+/// The first refresh directive that parses among `metas`, each
+/// `<meta>`'s `http-equiv` and `content`, in document order, of the HTML
+/// document at `url`.
+pub(crate) fn first_of<T: AsRef<str>>(
+    url: &Url,
+    metas: impl IntoIterator<Item = (Option<T>, Option<T>)>,
+) -> Option<Refresh> {
+    metas
+        .into_iter()
+        .filter(|(equiv, _)| {
+            equiv
+                .as_ref()
+                .is_some_and(|equiv| equiv.as_ref().trim().eq_ignore_ascii_case("refresh"))
         })
-        .find_map(|meta| {
-            meta.attr("content")
-                .and_then(|content| parse(&content, url))
-        })
+        .find_map(|(_, content)| content.and_then(|content| parse(content.as_ref(), url)))
 }
 
 /// HTML's ASCII whitespace.

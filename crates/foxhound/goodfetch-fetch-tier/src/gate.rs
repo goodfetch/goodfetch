@@ -346,6 +346,10 @@ impl NavigationGate for Admitted {
     fn judge_document<'a>(&'a self, _response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
         Box::pin(std::future::ready(Ok(())))
     }
+
+    fn reads_document_body(&self) -> bool {
+        false
+    }
 }
 
 /// The lease check of the pages one attempt handed over: the attempt's.
@@ -440,6 +444,11 @@ impl NavigationGate for Gate {
                 None => Ok(()),
             }
         })
+    }
+
+    /// Only while the Run honours AI-use signals, whose `<meta>` it reads.
+    fn reads_document_body(&self) -> bool {
+        self.0.use_signals.is_some()
     }
 }
 

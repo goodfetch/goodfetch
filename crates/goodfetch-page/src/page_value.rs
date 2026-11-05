@@ -347,7 +347,9 @@ pub struct DocumentResponse<'a> {
     pub status: u16,
     /// Its headers, as the browser gives them.
     pub headers: &'a [(String, String)],
-    /// Its body, after any content coding, for a signal a `<meta>` carries.
+    /// Its body, after any content coding, for a signal a `<meta>` carries;
+    /// empty for a gate that reads none
+    /// ([`NavigationGate::reads_document_body`]).
     pub body: &'a [u8],
 }
 
@@ -390,6 +392,11 @@ pub trait NavigationGate: Debug + Send + Sync {
     ///
     /// The refusal.
     fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a>;
+
+    /// Whether [`NavigationGate::judge_document`] reads the document's
+    /// body: a gate that does not is handed an empty one, and the page
+    /// takes no body from the browser for it.
+    fn reads_document_body(&self) -> bool;
 }
 
 /// What a page carries for Foxhound (ADR 0087): its navigation gate and its

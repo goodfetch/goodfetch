@@ -50,6 +50,8 @@ struct Rules {
     lease_ended: Option<LeaseEnded>,
     /// What the observer keeps, once a test registered it.
     kept: Option<Kept>,
+    /// Whether it reads the bodies of the documents it judges.
+    reads_bodies: bool,
 }
 
 #[derive(Debug, Default)]
@@ -58,6 +60,8 @@ struct Records {
     sent: Vec<String>,
     released: Vec<String>,
     judged: Vec<String>,
+    /// The length of each body it was handed to judge, in order.
+    judged_bodies: Vec<usize>,
     lease_checks: u64,
     waits: Vec<Wait>,
     observed: Vec<Observed>,
@@ -174,6 +178,18 @@ impl RecordingGate {
         lock(&self.shared.records).judged.clone()
     }
 
+    /// Has it read the body of each document it judges, as a gate reading
+    /// a signal in its markup does; it reads none until then.
+    pub fn read_bodies(&self) {
+        lock(&self.shared.rules).reads_bodies = true;
+    }
+
+    /// The length of the body of each document it judged, in order: 0 for
+    /// one it was handed none of.
+    pub fn judged_bodies(&self) -> Vec<usize> {
+        lock(&self.shared.records).judged_bodies.clone()
+    }
+
     /// How many times the lease was checked.
     pub fn lease_checks(&self) -> u64 {
         lock(&self.shared.records).lease_checks
@@ -223,9 +239,11 @@ impl NavigationGate for RecordingGate {
     }
 
     fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
-        lock(&self.shared.records)
-            .judged
-            .push(response.url.to_owned());
+        {
+            let mut records = lock(&self.shared.records);
+            records.judged.push(response.url.to_owned());
+            records.judged_bodies.push(response.body.len());
+        }
         let judged = match first_match(&lock(&self.shared.rules).refused_documents, response.url) {
             Some(reason) => Err(Refusal {
                 reason,
@@ -237,6 +255,10 @@ impl NavigationGate for RecordingGate {
             None => Ok(()),
         };
         Box::pin(std::future::ready(judged))
+    }
+
+    fn reads_document_body(&self) -> bool {
+        lock(&self.shared.rules).reads_bodies
     }
 }
 

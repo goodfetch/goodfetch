@@ -19,6 +19,7 @@ use dom_query::{NodeData as PageData, NodeRef};
 use htmd::element_handler::{HandlerResult, Handlers};
 use htmd::options::{BulletListMarker, Options};
 use htmd::{Element, HtmlToMarkdown};
+use markup5ever_htmd::tendril::StrTendril;
 use markup5ever_htmd::{Attribute, QualName, local_name, ns};
 use markup5ever_rcdom::{Node, NodeData};
 
@@ -91,7 +92,8 @@ fn append(parent: &Rc<Node>, child: Rc<Node>) {
 /// rather than by recursion, as a page's tree can be deeper than a thread's
 /// stack allows one. Text beside text is one text node, as a parse makes
 /// it; a comment is kept, and what htmd never reads (a doctype, a template's
-/// contents, which are no child of it) is not.
+/// contents, which are no child of it) is not. Texts and attribute values
+/// are copied, as the page's tendrils are atomic and rcdom's are not.
 fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
     let mut next = vec![(node, Rc::clone(parent))];
     while let Some((node, parent)) = next.pop() {
@@ -101,16 +103,16 @@ fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
                 if let Some(NodeData::Text { contents: last }) =
                     children.last().map(|last| &last.data)
                 {
-                    last.borrow_mut().push_tendril(contents);
+                    last.borrow_mut().push_slice(contents);
                     return None;
                 }
                 drop(children);
                 Some(Node::new(NodeData::Text {
-                    contents: contents.clone().into(),
+                    contents: StrTendril::from_slice(contents).into(),
                 }))
             }
             PageData::Comment { contents } => Some(Node::new(NodeData::Comment {
-                contents: contents.clone(),
+                contents: StrTendril::from_slice(contents),
             })),
             PageData::Element(page_element) => Some(element(
                 QualName::new(
@@ -127,7 +129,7 @@ fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
                             attribute.name.ns.clone(),
                             attribute.name.local.clone(),
                         ),
-                        value: attribute.value.clone(),
+                        value: StrTendril::from_slice(&attribute.value),
                     })
                     .collect(),
             )),

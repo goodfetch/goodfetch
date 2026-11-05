@@ -17,12 +17,13 @@ members = [
   "proving-ground",
   "xtask",
 ]
-# Goodfetch's forks of `wreq`, `wreq-util`, `rs-trafilatura` and the two
-# crates rs-trafilatura reads trees with, which `[patch.crates-io]` below
-# carries: crates of their own, not members. The Kennel's workspace,
-# `kennel/`, has its own lockfile and toolchain (ADR 0141).
+# Goodfetch's forks of `wreq`, `wreq-util`, `dom_smoothie`, `rs-trafilatura`
+# and the two crates rs-trafilatura reads trees with, which
+# `[patch.crates-io]` below carries: crates of their own, not members. The
+# Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
 exclude = [
   "kennel",
+  "vendor/dom_smoothie",
   "vendor/html-cleaning",
   "vendor/quick_html2md",
   "vendor/rs-trafilatura",
@@ -91,9 +92,12 @@ expectrl = { version = "0.9.0", default-features = false }
 # (ADR 0007): dom-smoothie finds a document's main content and htmd writes
 # it as Markdown, from the html5ever tree markup5ever_rcdom holds, which
 # goodfetch-extractor's own htmd handlers read.
+# Carried as Goodfetch's fork (the `[patch.crates-io]` below).
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
-dom_query = { version = "0.28.0", default-features = false }
+# `atomic`: its tendrils are atomic, so a page's tree is `Send` and can live
+# on one owner task (#1918; #2109).
+dom_query = { version = "0.28.0", default-features = false, features = ["atomic"] }
 # Its CSS tokenizer, on which the fetch tiers find the selector extensions
 # dom_query reads and a browser refuses; the version dom_query links.
 cssparser = { version = "0.37.0", default-features = false }
@@ -478,7 +482,19 @@ undocumented_unsafe_blocks = "deny"
 # an rs-trafilatura release takes a tree and links this workspace's
 # `dom_query`, and move the `rs-trafilatura` pin to that release. The fuzz
 # crates that link goodfetch-extractor carry these patches too.
+#
+# And of `dom_smoothie` 0.18.2, carried in `vendor/dom_smoothie` as version
+# `0.18.2+goodfetch.1`: upstream's commit
+# 51c7f93e0218e406057d5a49a0935c2bb6f62726 (its `.cargo_vcs_info.json`) with
+# one line of `src/helpers.rs` changed, `get_node_matching_string`'s
+# `push_tendril` of an attribute's value to `push_slice`, so it builds under
+# `dom_query`'s `atomic` feature (#2109; 0.19.0 has the same line); its tests
+# are left out. Drop this patch, the folder and its `exclude` above when a
+# `dom_smoothie` release builds under `atomic`, and move the `dom_smoothie`
+# pin to that release. The fuzz crates that link goodfetch-extractor carry
+# this patch too.
 [patch.crates-io]
+dom_smoothie = { path = "vendor/dom_smoothie" }
 html-cleaning = { path = "vendor/html-cleaning" }
 quick_html2md = { path = "vendor/quick_html2md" }
 rs-trafilatura = { path = "vendor/rs-trafilatura" }

@@ -1781,7 +1781,8 @@ export interface RecordProvenance {
   request_id: string;
   /**
    * `ignored` when its page was fetched while
-   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * `site_preferences.respect_robots_txt` was off and
+   * `site_preferences.mark_robots_txt_ignored` on, from a URL its
    * origin's robots.txt disallows, so a result taken against a site's
    * stated preferences can be found and removed; none otherwise.
    */
@@ -2307,7 +2308,8 @@ export interface RecordProvenance1 {
   request_id: string;
   /**
    * `ignored` when its page was fetched while
-   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * `site_preferences.respect_robots_txt` was off and
+   * `site_preferences.mark_robots_txt_ignored` on, from a URL its
    * origin's robots.txt disallows, so a result taken against a site's
    * stated preferences can be found and removed; none otherwise.
    */

@@ -46,6 +46,10 @@
 //! robots.txt cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
 //! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! While it is off, robots.txt is read only while
+//! `site_preferences.mark_robots_txt_ignored` marks the Records taken
+//! against it or the AI-use signals are honoured; otherwise it is neither
+//! fetched, read nor stored (ADR 0138).
 //! The Crawl-delay the robots.txt asks for is recorded for the request's
 //! domain key, where every sharing run's admission folds it into the
 //! delay between starts; after a robots.txt fetched here the document
@@ -74,9 +78,9 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles, Stop,
-    TierChoice, infer_plan, tier_serves,
+    AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
+    Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
+    Stop, TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -118,8 +122,9 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
-    share_robots_txt, use_signals_declared, use_signals_refusal,
+    escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
+    robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
+    use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -265,6 +270,9 @@ pub(super) struct Gating {
     /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
     /// file and RSL licenses, each once for all its requests.
     pub(super) signal_files: SignalFiles,
+    /// The attempt's HTTP admission, given back once its document is
+    /// fetched, else once it ends.
+    pub(super) fetch_admission: FetchAdmission,
 }
 
 impl Gating {
@@ -325,6 +333,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            fetch_admission: self.fetch_admission.clone(),
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
@@ -1081,7 +1090,11 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
+                let read = if reads_robots_txt(run) {
+                    read_robots_txt(run, http, leased, &*hand_over.lease).await
+                } else {
+                    None
+                };
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }

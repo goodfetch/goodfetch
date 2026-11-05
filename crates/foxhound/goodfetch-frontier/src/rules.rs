@@ -1217,7 +1217,7 @@ fn is_hexadecimal(segment: &str) -> bool {
 ///
 /// When the run file cannot be read.
 pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRule>> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT id, kind, host, path, parameter, form, evidence, contradiction
          FROM learned_rules ORDER BY id",
     )?;
@@ -1235,8 +1235,8 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut merges =
-        connection.prepare("SELECT url FROM learned_merges WHERE rule = ?1 ORDER BY rowid")?;
+    let mut merges = connection
+        .prepare_cached("SELECT url FROM learned_merges WHERE rule = ?1 ORDER BY rowid")?;
     let mut learned = Vec::with_capacity(rules.len());
     for (id, kind, host, path, parameter, form, evidence, contradiction) in rules {
         let kind = match kind.as_str() {
@@ -1270,19 +1270,15 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
 ///
 /// When the run file cannot be read.
 pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
-    let refused: i64 = connection.query_row(
-        "SELECT count(*) FROM learned_merges JOIN learned_rules ON learned_rules.id = learned_merges.rule
-         WHERE learned_rules.kind = ?1",
-        [TRAP_PATH],
-        |row| row.get(0),
-    )?;
-    let offset_only: i64 = connection.query_row(
-        "SELECT count(*) FROM rules_offsets AS offsets WHERE paged = 1 AND NOT EXISTS
+    let refused: i64 = connection.prepare_cached("SELECT count(*) FROM learned_merges JOIN learned_rules ON learned_rules.id = learned_merges.rule
+         WHERE learned_rules.kind = ?1").and_then(|mut cached| cached.query_row([TRAP_PATH], |row| row.get(0)))?;
+    let offset_only: i64 = connection
+        .prepare_cached(
+            "SELECT count(*) FROM rules_offsets AS offsets WHERE paged = 1 AND NOT EXISTS
              (SELECT 1 FROM learned_rules WHERE kind = ?1 AND host = offsets.host
                  AND path = offsets.path AND parameter = offsets.parameter)",
-        [CURSOR_PAGINATION],
-        |row| row.get(0),
-    )?;
+        )
+        .and_then(|mut cached| cached.query_row([CURSOR_PAGINATION], |row| row.get(0)))?;
     let mut reasons = Vec::new();
     if refused > 0 {
         let urls = if refused == 1 { "URL" } else { "URLs" };

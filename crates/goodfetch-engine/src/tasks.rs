@@ -15,9 +15,11 @@
 
 use std::future::Future;
 use std::io;
+use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -44,18 +46,30 @@ pub struct TaskOwner {
     /// closes its mailbox, handles what it still holds and ends.
     closing: CancellationToken,
     policy: BlockingPolicy,
+    /// The CPU pool's permits, one per core, which every owner of the
+    /// tree shares: each Page analysis on a blocking thread holds one.
+    analyses: Arc<Semaphore>,
 }
 
 impl TaskOwner {
     /// The root of a tree, such as the engine process's, whose blocking
-    /// work runs under `policy`.
+    /// work runs under `policy`, with a CPU pool sized to the machine's
+    /// cores (one when the OS cannot tell).
     pub fn root(policy: BlockingPolicy) -> Self {
+        let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+        Self::root_on_cores(policy, cores)
+    }
+
+    /// The root of a tree whose blocking work runs under `policy`, with a
+    /// CPU pool of `cores` permits.
+    pub fn root_on_cores(policy: BlockingPolicy, cores: NonZeroUsize) -> Self {
         Self {
             token: CancellationToken::new(),
             tracker: TaskTracker::new(),
             actors: TaskTracker::new(),
             closing: CancellationToken::new(),
             policy,
+            analyses: Arc::new(Semaphore::new(cores.get())),
         }
     }
 
@@ -70,6 +84,7 @@ impl TaskOwner {
             actors: TaskTracker::new(),
             closing: CancellationToken::new(),
             policy: self.policy,
+            analyses: Arc::clone(&self.analyses),
         }
     }
 
@@ -113,6 +128,39 @@ impl TaskOwner {
                     Err(error) => panic!("invariant: a blocking task is never cancelled: {error}"),
                 },
             },
+        }
+    }
+
+    /// Runs `work`, a Page analysis's parsing or reading of a page, on the
+    /// CPU pool, and answers what it returns: on a blocking thread once
+    /// one of the pool's permits is free, held until `work` returns, so no
+    /// more analyses run at once than the machine has cores, whatever the
+    /// requests in flight (ADR 0138); inline under
+    /// [`BlockingPolicy::Inline`]. A panic in `work` resumes in the caller.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future while it waits for a permit runs nothing;
+    /// once `work` started, as [`TaskOwner::blocking`].
+    pub async fn analysis<T, F>(&self, work: F) -> T
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        match self.policy {
+            BlockingPolicy::Inline => work(),
+            BlockingPolicy::Threads => {
+                let permit = Arc::clone(&self.analyses)
+                    .acquire_owned()
+                    .await
+                    .expect("invariant: the CPU pool's permits are never closed");
+                self.blocking(move || {
+                    let answer = work();
+                    drop(permit);
+                    answer
+                })
+                .await
+            }
         }
     }
 

@@ -97,13 +97,13 @@ pub(crate) struct Stored {
 /// Reads the pools of a run file whose tables exist.
 pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
     let opened = connection
-        .prepare("SELECT pool, max(position) FROM pool_sessions GROUP BY pool")?
+        .prepare_cached("SELECT pool, max(position) FROM pool_sessions GROUP BY pool")?
         .query_map([], |row| {
             Ok((pool(row.get::<_, String>(0)?), unsigned(row.get(1)?)))
         })?
         .collect::<rusqlite::Result<_>>()?;
     let open = connection
-        .prepare(
+        .prepare_cached(
             "SELECT pool, position, proxy_tier, opened_at, uses, error_score, address_ordinal
              FROM pool_sessions
              WHERE retired_because IS NULL ORDER BY pool, position",
@@ -123,7 +123,7 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     let tiers = connection
-        .prepare("SELECT domain_key, proxy_tier, browser FROM pool_tiers")?
+        .prepare_cached("SELECT domain_key, proxy_tier, browser FROM pool_tiers")?
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -134,14 +134,12 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let next_ordinal = connection.query_row(
-        "SELECT max(address_ordinal) + 1 FROM pool_sessions",
-        [],
-        |row| row.get::<_, Option<i64>>(0),
-    )?;
+    let next_ordinal = connection
+        .prepare_cached("SELECT max(address_ordinal) + 1 FROM pool_sessions")
+        .and_then(|mut cached| cached.query_row([], |row| row.get::<_, Option<i64>>(0)))?;
     let mut blocked: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut blocks =
-        connection.prepare("SELECT domain_key, block FROM pool_blocked_address_blocks")?;
+        connection.prepare_cached("SELECT domain_key, block FROM pool_blocked_address_blocks")?;
     for row in blocks.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })? {
@@ -179,7 +177,7 @@ impl Changes {
     ///
     /// When the run file cannot be written.
     pub fn write(&self, connection: &Connection) -> rusqlite::Result<()> {
-        let mut session = connection.prepare(
+        let mut session = connection.prepare_cached(
             "INSERT INTO pool_sessions
                 (pool, position, proxy_tier, opened_at, uses, error_score, retired_because,
                  address_ordinal)
@@ -206,7 +204,7 @@ impl Changes {
                 stored.address_ordinal.map(integer),
             ))?;
         }
-        let mut tier = connection.prepare(
+        let mut tier = connection.prepare_cached(
             "INSERT INTO pool_tiers (domain_key, proxy_tier, browser) VALUES (?1, ?2, ?3)
              ON CONFLICT (domain_key) DO UPDATE SET
                 proxy_tier = excluded.proxy_tier,
@@ -215,7 +213,7 @@ impl Changes {
         for (domain_key, stored) in &self.tiers {
             tier.execute((domain_key, stored.proxy_tier.as_str(), stored.browser))?;
         }
-        let mut block = connection.prepare(
+        let mut block = connection.prepare_cached(
             "INSERT OR IGNORE INTO pool_blocked_address_blocks (domain_key, block) VALUES (?1, ?2)",
         )?;
         for (domain_key, blocked) in &self.blocked {

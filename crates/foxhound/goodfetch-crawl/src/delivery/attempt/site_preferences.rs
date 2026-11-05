@@ -1,6 +1,8 @@
 //! What a site's preferences say of an attempt's request (ADRs 0086 and
 //! 0093): its origin's robots.txt, read from the copy the user's runs
-//! share and its Crawl-delay recorded and waited; the refusal of a request
+//! share, only while the crawl obeys it, marks the Records taken against it
+//! or honours the AI-use signals it declares (ADR 0138), and its
+//! Crawl-delay recorded and waited while the crawl obeys it; the refusal of a request
 //! that robots.txt disallows or whose Crawl-delay exceeds the crawl's
 //! bound; the AI-use signals its host declares before it is sent and those
 //! its document's response and markup carry; and a handler's escaped
@@ -13,7 +15,7 @@ use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     FetchTiers, HttpTier, Purpose, SignalFiles, TDMREP_FILE, content_signals_refusing,
     rsl_refusing, tdmrep_file_refusing,
@@ -21,7 +23,8 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED,
+    SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
     SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
 use goodfetch_protocol::page::{PageId, SITE_PREFERENCES_REFUSED, SitePreference};
@@ -53,10 +56,42 @@ pub(super) async fn share_robots_txt(run: &Run) -> Option<Politeness> {
     }
 }
 
+/// Whether a crawl under `run`'s settings obeys robots.txt:
+/// `site_preferences.respect_robots_txt`, on unless set off (ADR 0086).
+pub(super) fn respects_robots_txt(run: &Run) -> bool {
+    run.settings()
+        .map(RunSettings::resolved)
+        .is_none_or(respects)
+}
+
+fn respects(settings: &Resolved) -> bool {
+    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+}
+
+fn marks_ignored(settings: &Resolved) -> bool {
+    settings.boolean(SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED.name) == Some(true)
+}
+
+/// Whether the attempt of a crawl request under `run`'s settings reads its
+/// origin's robots.txt before its document is fetched: while the crawl
+/// obeys it, while it marks the Records taken against it
+/// (`site_preferences.mark_robots_txt_ignored`), or while it honours the
+/// AI-use signals, whose `Content-Signal` lines robots.txt declares.
+/// Otherwise robots.txt is neither fetched, read nor stored (ADRs 0086 and
+/// 0138).
+pub(super) fn reads_robots_txt(run: &Run) -> bool {
+    run.settings()
+        .map(RunSettings::resolved)
+        .is_none_or(|settings| {
+            respects(settings) || marks_ignored(settings) || honoured_purpose(settings).is_some()
+        })
+}
+
 /// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
 /// from the copy its user's runs share, fetched on `http` only when the
-/// copy has none to use. The Crawl-delay it asks for is recorded for the
-/// request's domain key, for every run sharing the domain. A robots.txt
+/// copy has none to use. While the crawl obeys robots.txt, the Crawl-delay
+/// it asks for is recorded for the request's domain key, for every run
+/// sharing the domain. A robots.txt
 /// fetch is a request of the domain: while the one the attempt made, or
 /// the one whose copy it read, is less than the delay before, the document
 /// starts `politeness.domain.delay` after that fetch's response arrived,
@@ -89,8 +124,12 @@ pub(super) async fn read_robots_txt(
     let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
         return Some(read);
     };
-    let asked = crawl_delay_asked(&settings, &read);
-    if let Some(politeness) = &politeness
+    let respected = respects(&settings);
+    let asked = respected
+        .then(|| crawl_delay_asked(&settings, &read))
+        .flatten();
+    if respected
+        && let Some(politeness) = &politeness
         && let Err(error) = goodfetch_frontier::crawl_delay_read(
             politeness,
             &leased.waiting.key,
@@ -145,7 +184,7 @@ fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
 /// while `site_preferences.respect_robots_txt` is on, up to
 /// `site_preferences.max_crawl_delay` (ADR 0086).
 fn waits_out(settings: &Resolved, asked: Duration) -> bool {
-    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+    respects(settings)
         && settings
             .duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)
             .is_some_and(|max| asked <= max)
@@ -237,7 +276,7 @@ pub(super) fn robots_txt_refusal(
     read: Option<&Fetched>,
 ) -> Option<Answer> {
     let settings = run.settings()?.resolved();
-    if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) == Some(false) {
+    if !respects(settings) {
         return None;
     }
     let read = read?;
@@ -259,17 +298,15 @@ pub(super) fn robots_txt_refusal(
 }
 
 /// Whether `leased`'s request is one the robots.txt `read` disallows,
-/// fetched anyway since `site_preferences.respect_robots_txt` is off: the
-/// Provenance of each Record it commits then marks it `ignored` (ADR
-/// 0086). A robots.txt that could not be read disallows nothing here.
+/// fetched anyway since `site_preferences.respect_robots_txt` is off, while
+/// `site_preferences.mark_robots_txt_ignored` is on: the Provenance of each
+/// Record it commits then marks it `ignored` (ADRs 0086 and 0138). A
+/// robots.txt that could not be read disallows nothing here.
 pub(super) fn robots_txt_ignored(run: &Run, leased: &Leased, read: Option<&Fetched>) -> bool {
-    let Some(settings) = run
-        .settings()
-        .map(goodfetch_engine::settings::RunSettings::resolved)
-    else {
+    let Some(settings) = run.settings().map(RunSettings::resolved) else {
         return false;
     };
-    if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false) {
+    if respects(settings) || !marks_ignored(settings) {
         return false;
     }
     let (Some(read), Ok(url)) = (

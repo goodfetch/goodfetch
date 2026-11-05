@@ -108,7 +108,7 @@ impl PayloadRules {
     /// When the run file cannot be written.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
         record_cap(connection, self.max_size)?;
-        let mut insert = connection.prepare(
+        let mut insert = connection.prepare_cached(
             "INSERT INTO payload_labels (label, schema, hash) VALUES (?1, ?2, ?3)
              ON CONFLICT (label) DO UPDATE SET schema = excluded.schema, hash = excluded.hash",
         )?;
@@ -129,15 +129,14 @@ impl PayloadRules {
     /// When the run file cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let max_size = connection
-            .query_row("SELECT max_size FROM payload_cap WHERE id = 1", [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .prepare_cached("SELECT max_size FROM payload_cap WHERE id = 1")
+            .and_then(|mut cached| cached.query_row([], |row| row.get::<_, i64>(0)))
             .optional()?
             .map_or_else(built_in_max_size, |max_size| {
                 u64::try_from(max_size).unwrap_or(0)
             });
         let labels = connection
-            .prepare("SELECT label, schema FROM payload_labels")?
+            .prepare_cached("SELECT label, schema FROM payload_labels")?
             .query_map([], |row| {
                 let schema: Option<String> = row.get(1)?;
                 Ok((
@@ -220,7 +219,7 @@ impl PayloadRules {
         mut pending: impl FnMut(&str) -> rusqlite::Result<Vec<String>>,
     ) -> rusqlite::Result<Option<PayloadSchemaChangedDetails>> {
         let mut recorded =
-            connection.prepare("SELECT hash FROM payload_labels WHERE label = ?1")?;
+            connection.prepare_cached("SELECT hash FROM payload_labels WHERE label = ?1")?;
         for (label, schema) in &self.labels {
             let Some(schema) = schema else {
                 continue;
@@ -268,11 +267,12 @@ pub fn record_max_size(connection: &Connection, settings: &Resolved) -> rusqlite
 }
 
 fn record_cap(connection: &Connection, max_size: u64) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO payload_cap (id, max_size) VALUES (1, ?1)
+    connection
+        .prepare_cached(
+            "INSERT INTO payload_cap (id, max_size) VALUES (1, ?1)
          ON CONFLICT (id) DO UPDATE SET max_size = excluded.max_size",
-        [i64::try_from(max_size).unwrap_or(i64::MAX)],
-    )?;
+        )
+        .and_then(|mut cached| cached.execute([i64::try_from(max_size).unwrap_or(i64::MAX)]))?;
     Ok(())
 }
 
@@ -301,10 +301,9 @@ pub fn store(
 ) -> rusqlite::Result<()> {
     if let Some(payload) = payload {
         work.count(Row::PayloadSerializations);
-        connection.execute(
-            "INSERT INTO payloads (request, payload) VALUES (?1, ?2)",
-            (request, payload.to_string()),
-        )?;
+        connection
+            .prepare_cached("INSERT INTO payloads (request, payload) VALUES (?1, ?2)")
+            .and_then(|mut cached| cached.execute((request, payload.to_string())))?;
     }
     Ok(())
 }

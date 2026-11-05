@@ -6,9 +6,11 @@
 //! its built-in default and the layer that set it, and is listed in the Run
 //! report's `weakened`; the built-in default or a gentler value records
 //! nothing. A Record fetched while `site_preferences.respect_robots_txt` is
-//! off, from a URL its origin's robots.txt disallows, carries
-//! `robots_txt: "ignored"` in its Provenance; one from an allowed URL
-//! carries no mark, and with it on the disallowed URL is never fetched.
+//! off and `site_preferences.mark_robots_txt_ignored` on, from a URL its
+//! origin's robots.txt disallows, carries `robots_txt: "ignored"` in its
+//! Provenance; one from an allowed URL carries no mark, nor does any while
+//! the mark is off, and with robots.txt respected the disallowed URL is
+//! never fetched.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -302,12 +304,14 @@ fn pages_received(proving_ground: &ProvingGround) -> Vec<String> {
     received
 }
 
-/// With `site_preferences.respect_robots_txt` off, the Record of a URL its
+/// With `site_preferences.respect_robots_txt` off and
+/// `site_preferences.mark_robots_txt_ignored` on, the Record of a URL its
 /// origin's robots.txt disallows carries `robots_txt: "ignored"` in its
-/// Provenance, and the Record of an allowed URL no mark; with it on, the
+/// Provenance, and the Record of an allowed URL no mark; with the mark off,
+/// its default, neither Record carries one; with robots.txt respected, the
 /// disallowed URL is never fetched and gives no Record.
 ///
-/// Covers: story:4-118, setting:site_preferences.respect_robots_txt, operation:run.records
+/// Covers: story:4-118, setting:site_preferences.respect_robots_txt, setting:site_preferences.mark_robots_txt_ignored, operation:run.records
 #[test]
 fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
     let env = TestEnv::new();
@@ -318,11 +322,25 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
     crawl(
         &mut engine,
         &proving_ground,
-        "ignoring",
+        "unmarked",
         &paths,
         &settings(
             &proving_ground,
             &json!({ "site_preferences": { "respect_robots_txt": false } }),
+        ),
+    );
+    let unmarked = records(&mut engine, "unmarked");
+    crawl(
+        &mut engine,
+        &proving_ground,
+        "ignoring",
+        &paths,
+        &settings(
+            &proving_ground,
+            &json!({ "site_preferences": {
+                "respect_robots_txt": false,
+                "mark_robots_txt_ignored": true,
+            } }),
         ),
     );
     let ignoring = records(&mut engine, "ignoring");
@@ -340,6 +358,7 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
 
     assert_eq!(
         (
+            marks(&unmarked),
             marks(&ignoring),
             received_ignoring,
             marks(&respecting),
@@ -348,13 +367,24 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
         (
             vec![
                 ("/catalog/1".to_owned(), Value::Null),
+                ("/private/catalog/1".to_owned(), Value::Null),
+            ],
+            vec![
+                ("/catalog/1".to_owned(), Value::Null),
                 ("/private/catalog/1".to_owned(), json!("ignored")),
             ],
-            vec!["/catalog/1".to_owned(), "/private/catalog/1".to_owned()],
+            vec![
+                "/catalog/1".to_owned(),
+                "/catalog/1".to_owned(),
+                "/private/catalog/1".to_owned(),
+                "/private/catalog/1".to_owned(),
+            ],
             vec![("/catalog/1".to_owned(), Value::Null)],
             vec![
                 "/catalog/1".to_owned(),
                 "/catalog/1".to_owned(),
+                "/catalog/1".to_owned(),
+                "/private/catalog/1".to_owned(),
                 "/private/catalog/1".to_owned(),
             ],
         )

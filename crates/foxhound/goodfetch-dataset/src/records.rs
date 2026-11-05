@@ -98,11 +98,9 @@ pub fn commit(
     committing: Committing<'_>,
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
-    let mut insert = connection.prepare(
-        "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
+    let mut insert = connection.prepare_cached("INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
          VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5,
-             (SELECT schema_hash FROM datasets WHERE name = ?1), ?6)",
-    )?;
+             (SELECT schema_hash FROM datasets WHERE name = ?1), ?6)")?;
     let provenance = masked(
         committing.masks,
         serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
@@ -191,11 +189,13 @@ pub struct CommittedText {
 ///
 /// The run file's, when it cannot be read.
 pub fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u64> {
-    connection.query_row(
-        "SELECT coalesce(max(number), 0) FROM records WHERE dataset = ?1",
-        [dataset],
-        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
-    )
+    connection
+        .prepare_cached("SELECT coalesce(max(number), 0) FROM records WHERE dataset = ?1")
+        .and_then(|mut cached| {
+            cached.query_row([dataset], |row| {
+                Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default())
+            })
+        })
 }
 
 /// The committed Records `query` takes, at most `most`, in number order,
@@ -237,7 +237,7 @@ fn selected<T>(
 ) -> rusqlite::Result<Vec<T>> {
     let number = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
     connection
-        .prepare(&format!(
+        .prepare_cached(&format!(
             "SELECT {columns} FROM records
              WHERE dataset = ?1 AND number > ?2 AND number <= ?3
                AND (?5 IS NULL OR (json_extract(provenance, '$.wall') IS NOT NULL) = ?5)

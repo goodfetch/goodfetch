@@ -616,12 +616,15 @@ impl Gate for DomainQueues {
         Some(Box::new(move |connection: &Connection| {
             for (key, row) in rows {
                 match row {
-                    Some((ready_at, backoffs)) => connection.execute(
-                        "INSERT INTO domains (key, ready_at, backoffs) VALUES (?1, ?2, ?3)
+                    Some((ready_at, backoffs)) => connection
+                        .prepare_cached(
+                            "INSERT INTO domains (key, ready_at, backoffs) VALUES (?1, ?2, ?3)
                          ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoffs = ?3",
-                        (&key, ready_at, backoffs),
-                    )?,
-                    None => connection.execute("DELETE FROM domains WHERE key = ?1", [&key])?,
+                        )
+                        .and_then(|mut cached| cached.execute((&key, ready_at, backoffs)))?,
+                    None => connection
+                        .prepare_cached("DELETE FROM domains WHERE key = ?1")
+                        .and_then(|mut cached| cached.execute([&key]))?,
                 };
             }
             Ok(())
@@ -658,7 +661,7 @@ impl Gates for DomainGates {
         queues.update(settings);
         queues.anchor = Some((wall, now));
         let wall = milliseconds(wall);
-        let mut rows = journal.prepare("SELECT key, ready_at, backoffs FROM domains")?;
+        let mut rows = journal.prepare_cached("SELECT key, ready_at, backoffs FROM domains")?;
         let rows = rows.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,

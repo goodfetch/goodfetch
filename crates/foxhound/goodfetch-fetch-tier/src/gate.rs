@@ -75,6 +75,7 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::egress::{Policy, Refused};
+use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
@@ -156,6 +157,9 @@ pub struct HandOver {
     pub signal_files: SignalFiles,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
+    /// The HTTP admission the Resource governor gave the attempt, given
+    /// back once its crawl request's own document is fetched.
+    pub fetch_admission: FetchAdmission,
     /// The Run's domain policy, which judges each redirect hop.
     pub egress: Arc<Policy>,
     /// The address check of the Run's HTTP tier, which judges each
@@ -184,6 +188,38 @@ pub struct HandOver {
     /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
     /// any other run.
     pub capture: Option<Capture>,
+}
+
+/// The HTTP admission the Resource governor gave an attempt (ADR 0040),
+/// which its crawl request's own document is fetched under and which is
+/// given back once that fetch ended, so a page being analysed holds no
+/// place among the requests in flight (ADRs 0004 and 0138). Its clones
+/// share it: the first [`FetchAdmission::give_back`] gives it back, and
+/// the attempt's ending gives back one its fetch never reached.
+#[derive(Clone, Debug, Default)]
+pub struct FetchAdmission(Arc<AdmissionCell>);
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "the admission is taken out in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+type AdmissionCell = std::sync::Mutex<Option<HttpAdmission>>;
+
+impl FetchAdmission {
+    /// One holding `admission` until it is given back.
+    pub fn holding(admission: HttpAdmission) -> Self {
+        Self(Arc::new(AdmissionCell::new(Some(admission))))
+    }
+
+    /// Gives the admission back, if no clone did yet.
+    pub fn give_back(&self) {
+        let admission = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        drop(admission);
+    }
 }
 
 impl HandOver {
@@ -388,7 +424,7 @@ impl NavigationGate for Gate {
                     self.0
                         .run
                         .owner()
-                        .blocking(move || signals.with_markup(&html, &url))
+                        .analysis(move || signals.with_markup(&html, &url))
                         .await
                 }
                 Err(_) => signals,

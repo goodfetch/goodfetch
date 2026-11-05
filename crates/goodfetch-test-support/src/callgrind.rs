@@ -121,9 +121,30 @@ pub fn calls_beneath(
     program: &Path,
     arguments: &[&str],
 ) -> Result<Calls, CallgrindError> {
+    let mut each = calls_beneath_each(symbol, depth, &[(beneath, except)], program, arguments)?;
+    Ok(each.remove(0))
+}
+
+/// As [`calls_beneath`], for each of `owners` (the text a caller's name
+/// holds, and the texts left out) from one run of `program`: what several
+/// owners' code prepares, each apart, for the cost of one run.
+///
+/// # Errors
+///
+/// As [`calls`].
+pub fn calls_beneath_each(
+    symbol: &str,
+    depth: u32,
+    owners: &[(&str, &[&str])],
+    program: &Path,
+    arguments: &[&str],
+) -> Result<Vec<Calls>, CallgrindError> {
     let separate = format!("--separate-callers{depth}={symbol}");
     let text = output(&[&separate], program, arguments)?;
-    Ok(calls_beneath_in(&text, symbol, beneath, except))
+    Ok(owners
+        .iter()
+        .map(|(beneath, except)| calls_beneath_in(&text, symbol, beneath, except))
+        .collect())
 }
 
 /// What `program`, run with `arguments` under Callgrind and its `options`,

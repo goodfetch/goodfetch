@@ -352,12 +352,24 @@ pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
 /// `site_preferences.respect_robots_txt` (ADRs 0016 and 0086).
 pub const SITE_PREFERENCES_RESPECT_ROBOTS_TXT: Setting = Setting {
     name: "site_preferences.respect_robots_txt",
-    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `site_preferences.mark_robots_txt_ignored` (ADRs 0086 and 0138).
+pub const SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED: Setting = Setting {
+    name: "site_preferences.mark_robots_txt_ignored",
+    description: "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -400,6 +412,7 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_RETRY_AFTER_MAX,
         SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
         SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+        SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED,
         SITE_PREFERENCES_MAX_CRAWL_DELAY,
     ],
     hook_stages: &[],

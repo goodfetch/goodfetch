@@ -285,6 +285,23 @@ fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
         .counting_on(run.metrics().counted_work().clone())
 }
 
+/// Takes `resolved` into `admission` at an admission point: once its
+/// rule paces its keys, it shares the Run's Politeness, whose wakes
+/// `wakes` then receives (ADR 0138).
+async fn update_admission(
+    run: &Run,
+    admission: &mut Admission,
+    resolved: &Resolved,
+    wakes: &mut Option<Wakes>,
+) {
+    if let Err(error) = run.update_admission(admission, resolved).await {
+        tracing::warn!(%error, run_id = %run.id(), "the Politeness the crawl's settings now pace by could not open; its gate backs its domains off alone");
+    }
+    if wakes.is_none() {
+        *wakes = admission.wakes();
+    }
+}
+
 /// The delivery's loop, which returns once the Run ended or stopped.
 async fn deliver(
     run: &Run,
@@ -303,12 +320,7 @@ async fn deliver(
     loop {
         let resolved = settings.at_admission().await;
         let policy = CrawlPolicy::of(&resolved);
-        if let Err(error) = run.update_admission(&mut admission, &resolved).await {
-            tracing::warn!(%error, run_id = %run.id(), "the Politeness the crawl's settings now pace by could not open; its gate backs its domains off alone");
-        }
-        if wakes.is_none() {
-            wakes = admission.wakes();
-        }
+        update_admission(run, &mut admission, &resolved, &mut wakes).await;
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,

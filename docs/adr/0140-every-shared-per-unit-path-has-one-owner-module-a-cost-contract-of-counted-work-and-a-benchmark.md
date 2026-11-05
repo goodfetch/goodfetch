@@ -296,6 +296,9 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **Each entry is written to the held file at once,** in one `write` with no sync and no buffer: every flush point of "Interface changes" (a Call's return, a group's commit, the Run's end) then finds nothing held back, and a killed process loses no entry already written. The 64 KiB buffer that flushes at those points comes with the one Run-trace writer (#1890), which also takes the request log's per-entry opens and every entry's spawn (Exception X2).
 > - **An entry is taken by value and masked in place:** the deep copy and the path rebuilt per entry (#1882's E5-2) are gone. The entry stays the `serde_json::Value` its callers build, encoded once after the Mask walks it, so it is not encoded twice.
 
+> Note (agent decision of the B3 ledger fix, pending owner review), 2026-11-05, on #1854's covered-charge cross-check:
+> - **B3 holds Callgrind's preparations over the covered charges to 0,** not to `E3.statements`' count. Since #1907 the ledger's Limit read, a covered charge's one counted statement, is kept prepared on the connection a Slice opened, so it prepares nothing and the old equality failed (0 against 36). An uncached statement added beside the read still prepares in each covered charge's window and fails B3, as the note of #1854 asked. `E3.statements` keeps its limit, its plant and B3's test that counts one statement per covered charge.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

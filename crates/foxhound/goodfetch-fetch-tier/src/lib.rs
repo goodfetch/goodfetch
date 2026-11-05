@@ -58,7 +58,9 @@ pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check
 pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
-pub use gate::{HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing};
+pub use gate::{
+    FetchAdmission, HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing,
+};
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;

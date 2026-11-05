@@ -806,7 +806,11 @@ impl FetchTiers {
                 }
             }
         })
-        .await?;
+        .await;
+        // The document's fetch ended: the page being analysed holds no
+        // place among the requests in flight (ADR 0138).
+        hand_over.fetch_admission.give_back();
+        let fetched = fetched?;
         if let Some(refused) = &fetched.unaccepted {
             return Err(Stop::Skipped(Skip {
                 reason: SkipReason::ContentType,
@@ -834,7 +838,7 @@ impl FetchTiers {
     /// # Cancel safety
     ///
     /// Dropping the future opens no page; the document's read, on the
-    /// blocking pool, runs to its end.
+    /// CPU pool, runs to its end once it started.
     async fn open_served(
         &self,
         tier: &HttpTier,
@@ -850,12 +854,12 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        // The document is decoded and parsed on the blocking pool, never on
-        // an async worker (STYLE.md).
+        // The document is decoded and parsed on the CPU pool, never on an
+        // async worker (STYLE.md; ADR 0138).
         let opened = {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
             run.owner()
-                .blocking(move || Opened::of(&reading, fetched, (forced, extractor)))
+                .analysis(move || Opened::of(&reading, fetched, (forced, extractor)))
                 .await
         };
         // A document only a guess could read is never served: under a
@@ -1081,7 +1085,7 @@ impl FetchTiers {
         let work = run.metrics().counted_work().clone();
         let signed = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 let signature = goodfetch_extractor::page_signature(
                     &goodfetch_extractor::Document {
                         html: &served.html,
@@ -1144,7 +1148,7 @@ impl FetchTiers {
         let work = run.metrics().counted_work().clone();
         let read = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 matched(&served.html, &selector, &work).map(|elements| ServedLinks {
                     url: served.url.clone(),
                     base_url: served.base_url.clone(),
@@ -1190,7 +1194,7 @@ impl FetchTiers {
         let work = run.metrics().counted_work().clone();
         let read = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 document::first_elements(&served.html, &locators, &work).map(|elements| {
                     FieldElements {
                         base_url: served.base_url.clone(),
@@ -1314,7 +1318,7 @@ impl FetchTiers {
         let work = run.metrics().counted_work().clone();
         let (verdict, noindex) = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 let verdict = expected_page::judge(&check, &document.url, &document.html, &work);
                 let noindex = verdict == Verdict::NotExpected
                     && expected_page::noindex(&headers, &document.html);
@@ -1359,7 +1363,7 @@ impl FetchTiers {
     /// The Block cause of `document`, which `response` answered for
     /// `run`, as the Product's Block classification tells it (ADR 0035),
     /// with the `blocked` its crawl request ends with when nothing moves
-    /// it, read on the blocking pool. `None` for a document no rule
+    /// it, read on the CPU pool. `None` for a document no rule
     /// classifies, or before the engine's pages were handed over.
     async fn classified(
         &self,
@@ -1371,7 +1375,7 @@ impl FetchTiers {
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })

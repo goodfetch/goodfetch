@@ -1502,7 +1502,7 @@ impl Pages {
             let (formats, read) = served
                 .run
                 .owner()
-                .blocking(move || {
+                .analysis(move || {
                     clean_up::read(
                         &document,
                         Serialization::Served,
@@ -1535,7 +1535,7 @@ impl Pages {
         let (formats, read) = page
             .run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 clean_up::read(
                     &document,
                     Serialization::Dom,

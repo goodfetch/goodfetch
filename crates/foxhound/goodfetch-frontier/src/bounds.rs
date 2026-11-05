@@ -147,32 +147,34 @@ impl Bounds {
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
         self.check()
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-        connection.execute(
-            "INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats)
+        connection.prepare_cached("INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats)
              VALUES (1, ?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (id) DO UPDATE SET max_depth = excluded.max_depth,
                  max_requests = excluded.max_requests, max_url_length = excluded.max_url_length,
                  max_path_segments = excluded.max_path_segments,
-                 max_segment_repeats = excluded.max_segment_repeats",
-            (
+                 max_segment_repeats = excluded.max_segment_repeats").and_then(|mut cached| cached.execute((
                 self.max_depth.map(sql),
                 self.max_requests.map(sql),
                 self.max_url_length.map(sql),
                 self.max_path_segments.map(sql),
                 self.max_segment_repeats.map(sql),
-            ),
-        )?;
-        connection.execute("DELETE FROM bounds_path_budgets", [])?;
+            )))?;
+        connection
+            .prepare_cached("DELETE FROM bounds_path_budgets")
+            .and_then(|mut cached| cached.execute([]))?;
         for (position, budget) in self.path_budgets.iter().enumerate() {
-            connection.execute(
-                "INSERT INTO bounds_path_budgets (position, pattern, max_requests)
+            connection
+                .prepare_cached(
+                    "INSERT INTO bounds_path_budgets (position, pattern, max_requests)
                  VALUES (?1, ?2, ?3)",
-                (
-                    sql(u64::try_from(position).unwrap_or(u64::MAX)),
-                    &budget.pattern,
-                    sql(budget.max_requests),
-                ),
-            )?;
+                )
+                .and_then(|mut cached| {
+                    cached.execute((
+                        sql(u64::try_from(position).unwrap_or(u64::MAX)),
+                        &budget.pattern,
+                        sql(budget.max_requests),
+                    ))
+                })?;
         }
         Ok(())
     }
@@ -385,7 +387,7 @@ pub(crate) fn count_refused(
 /// When the run file cannot be read.
 pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
     let mut statement =
-        connection.prepare("SELECT setting, count FROM bounds_refusals ORDER BY setting")?;
+        connection.prepare_cached("SELECT setting, count FROM bounds_refusals ORDER BY setting")?;
     let rows = statement.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, count(row.get::<_, i64>(1)?)))
     })?;
@@ -412,7 +414,7 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
 /// in the order of the entries, one no longer set last: a reason naming its
 /// pattern, its count and how many it refused, making the Run `incomplete`.
 fn budget_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT counts.pattern, counts.refused, budgets.max_requests
          FROM bounds_path_counts AS counts
          LEFT JOIN (SELECT pattern, max_requests, MIN(position) AS position

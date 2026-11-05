@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -157,4 +159,95 @@ fn stopping_an_owner_ends_its_actor_after_its_tasks_though_a_sender_remains(
     });
 
     assert_eq!((stopped, handled, refused), (true, vec![1, 2], true));
+}
+
+/// What an analysis on the CPU pool told the test.
+#[derive(Debug)]
+enum Analysed {
+    Started(usize),
+    Ended(usize),
+}
+
+/// On the paused runtime, a CPU pool of two permits runs two of three
+/// analyses at once: the third waits for a permit, and starts only once
+/// one of the first two returned.
+#[test]
+fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
+    let (waiting, most) = goodfetch_test_support::runtime().block_on(async {
+        let owner = Arc::new(TaskOwner::root_on_cores(
+            BlockingPolicy::Threads,
+            NonZeroUsize::new(2).unwrap(),
+        ));
+        let (told, mut events) = mpsc::unbounded_channel();
+        let mut releases = Vec::new();
+        for analysis in 0..3 {
+            let (release, go_on) = oneshot::channel::<()>();
+            releases.push(Some(release));
+            let (on, told) = (Arc::clone(&owner), told.clone());
+            owner.spawn(async move {
+                on.analysis(move || {
+                    let _ = told.send(Analysed::Started(analysis));
+                    let _ = go_on.blocking_recv();
+                    let _ = told.send(Analysed::Ended(analysis));
+                })
+                .await;
+            });
+        }
+        drop(told);
+        let (mut running, mut most) = (Vec::new(), 0);
+        while running.len() < 2 {
+            if let Some(Analysed::Started(analysis)) = events.recv().await {
+                running.push(analysis);
+            }
+        }
+        // A third analysis that a pool let through starts within this
+        // short real wait; one the pool holds never does.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the analyses run on blocking threads, which this real wait gives the time to start one the pool should hold"
+        )]
+        std::thread::sleep(Duration::from_millis(100));
+        let mut waiting = true;
+        while let Ok(event) = events.try_recv() {
+            if let Analysed::Started(analysis) = event {
+                waiting = false;
+                running.push(analysis);
+            }
+        }
+        most = most.max(running.len());
+        for analysis in running.clone() {
+            if let Some(release) = releases[analysis].take() {
+                let _ = release.send(());
+            }
+        }
+        while let Some(event) = events.recv().await {
+            match event {
+                Analysed::Started(analysis) => {
+                    running.push(analysis);
+                    most = most.max(running.len());
+                    if let Some(release) = releases[analysis].take() {
+                        let _ = release.send(());
+                    }
+                }
+                Analysed::Ended(analysis) => running.retain(|other| *other != analysis),
+            }
+        }
+        owner.stop().await;
+        (waiting, most)
+    });
+
+    assert_eq!((waiting, most), (true, 2));
+}
+
+#[test]
+fn an_analysis_runs_inline_under_the_inline_policy() {
+    let answer = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let caller = std::thread::current().id();
+        owner
+            .analysis(move || std::thread::current().id() == caller)
+            .await
+    });
+
+    assert!(answer);
 }

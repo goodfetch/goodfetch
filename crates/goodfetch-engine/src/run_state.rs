@@ -44,6 +44,14 @@ const MAILBOX: usize = 1024;
 /// connection holds the file.
 const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// The statements the writer's connection keeps prepared: more than every
+/// statement a crawl runs on its run file, the engine's and each
+/// contribution's (about 200 in all: the Frontier's admission and
+/// `rules::learn`, the Lease, the outcome, the charge), so its cache never
+/// evicts one a later page runs again (ADR 0138). rusqlite's default, 16,
+/// holds fewer than one enqueue with a parent and `learn` run.
+const STATEMENTS: usize = 256;
+
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
@@ -367,7 +375,6 @@ impl RunState {
             .await?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
-        let mut connection = connection;
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
         let work = options.work.clone();
@@ -382,7 +389,7 @@ impl RunState {
                 let last = group.iter().position(|queued| queued.last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
                 let group = group.into_iter().map(|queued| queued.write).collect();
-                commit_group(&mut connection, &actor_path, epoch, group, &signals);
+                commit_group(&connection, &actor_path, epoch, group, &signals);
                 for queued in refused {
                     (queued.write)(None).0(Err(RunStateError::Closed));
                 }
@@ -632,6 +639,7 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
+    connection.set_prepared_statement_cache_capacity(STATEMENTS);
     // Beneath every owner, so a commit beside the writer's jobs counts too
     // (ADR 0140).
     let work = options.work.clone();
@@ -722,14 +730,16 @@ fn run_in_savepoint<T>(
     work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
 ) -> Result<T, Failed> {
     let ended = |error| Failed { error, ended: true };
-    connection.execute_batch("SAVEPOINT write").map_err(ended)?;
+    run_cached(connection, "SAVEPOINT write").map_err(ended)?;
     match work(connection) {
         Ok(answer) => {
-            connection.execute_batch("RELEASE write").map_err(ended)?;
+            run_cached(connection, "RELEASE write").map_err(ended)?;
             Ok(answer)
         }
         Err(error) if is_storage(&error) || connection.is_autocommit() => Err(ended(error)),
-        Err(error) => match connection.execute_batch("ROLLBACK TO write; RELEASE write") {
+        Err(error) => match run_cached(connection, "ROLLBACK TO write")
+            .and_then(|()| run_cached(connection, "RELEASE write"))
+        {
             Ok(()) => Err(Failed {
                 error,
                 ended: false,
@@ -754,7 +764,7 @@ struct Signals<'a> {
 /// and each other job of its group counts here: a transaction is one job,
 /// whatever group it commits in (ADR 0138's note).
 fn commit_group(
-    connection: &mut Connection,
+    connection: &Connection,
     path: &Path,
     epoch: u64,
     group: Vec<QueuedWrite>,
@@ -787,7 +797,7 @@ fn commit_group(
 }
 
 fn commit_writes(
-    connection: &mut Connection,
+    connection: &Connection,
     path: &Path,
     epoch: u64,
     group: Vec<QueuedWrite>,
@@ -796,20 +806,25 @@ fn commit_writes(
         let completions = group.into_iter().map(|job| job(None).0).collect();
         (completions, error)
     };
-    let transaction = match connection.transaction_with_behavior(TransactionBehavior::Immediate) {
-        Ok(transaction) => transaction,
-        Err(error) => return Err(refuse(group, commit_error(path, &error))),
-    };
+    if let Err(error) = run_cached(connection, "BEGIN IMMEDIATE") {
+        return Err(refuse(group, commit_error(path, &error)));
+    }
+    let transaction = connection;
     let found = transaction
-        .query_row("SELECT epoch FROM run", [], |row| row.get::<_, i64>(0))
+        .prepare_cached("SELECT epoch FROM run")
+        .and_then(|mut epoch| epoch.query_row([], |row| row.get::<_, i64>(0)))
         .map(Some)
         .or_else(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             error => Err(error),
         });
     match found {
-        Err(error) => return Err(refuse(group, commit_error(path, &error))),
+        Err(error) => {
+            let _ = run_cached(transaction, "ROLLBACK");
+            return Err(refuse(group, commit_error(path, &error)));
+        }
         Ok(Some(found)) if i64::try_from(epoch).ok() != Some(found) => {
+            let _ = run_cached(transaction, "ROLLBACK");
             let found = u64::try_from(found).unwrap_or_default();
             return Err(refuse(group, RunStateError::Fenced { held: epoch, found }));
         }
@@ -819,7 +834,7 @@ fn commit_writes(
     let mut jobs = group.into_iter();
     let mut ended = None;
     for job in jobs.by_ref() {
-        let (completion, ends_group) = job(Some((&transaction, path)));
+        let (completion, ends_group) = job(Some((transaction, path)));
         completions.push(completion);
         if ends_group.is_some() {
             ended = ends_group;
@@ -833,23 +848,37 @@ fn commit_writes(
             completions.extend(jobs.map(|job| job(None).0));
             Some(error)
         }
-        None => transaction
-            .execute("UPDATE run SET journal_position = journal_position + 1", [])
-            .err()
-            .map(|error| commit_error(path, &error)),
+        None => run_cached(
+            transaction,
+            "UPDATE run SET journal_position = journal_position + 1",
+        )
+        .err()
+        .map(|error| commit_error(path, &error)),
     };
     if let Some(error) = failed {
         // SQLite may have rolled the transaction back already after a full
         // disk or an I/O error; `ROLLBACK` makes the state the same either
         // way (ADR 0122).
-        let _ = transaction.rollback();
+        let _ = run_cached(transaction, "ROLLBACK");
         return Err((completions, error));
     }
-    // A commit that fails is rolled back as its transaction drops.
-    match transaction.commit() {
+    match run_cached(transaction, "COMMIT") {
         Ok(()) => Ok(completions),
-        Err(error) => Err((completions, commit_error(path, &error))),
+        Err(error) => {
+            // A commit that fails leaves the transaction open: it is rolled
+            // back, as SQLite advises (ADR 0122).
+            let _ = run_cached(transaction, "ROLLBACK");
+            Err((completions, commit_error(path, &error)))
+        }
     }
+}
+
+/// Runs `statement`, which binds nothing, through `connection`'s statement
+/// cache: the writer's transactions and savepoints prepare once per
+/// connection, not once per group or job, as rusqlite's own transactions
+/// do (ADR 0138).
+pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
+    connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
 #[cfg(test)]

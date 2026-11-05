@@ -462,9 +462,14 @@ impl Staging {
             Some(entry) => Arc::clone(&entry.staged),
         };
         let mut positions = Positions::staging(connection, earlier)?;
-        connection.execute_batch("SAVEPOINT staging")?;
+        connection
+            .prepare_cached("SAVEPOINT staging")?
+            .execute([])?;
         let answered = admission(connection, &mut positions);
-        connection.execute_batch("ROLLBACK TO staging; RELEASE staging")?;
+        connection
+            .prepare_cached("ROLLBACK TO staging")?
+            .execute([])?;
+        connection.prepare_cached("RELEASE staging")?.execute([])?;
         let answered = answered?;
         if !matches!(answered, Some(Ok(_))) {
             return Ok(answered);

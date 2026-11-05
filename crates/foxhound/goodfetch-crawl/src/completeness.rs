@@ -99,7 +99,9 @@ pub(crate) struct StoppedParts;
 
 impl ReportPart for StoppedParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        let kind: String = connection.query_row("SELECT kind FROM run", [], |row| row.get(0))?;
+        let kind: String = connection
+            .prepare_cached("SELECT kind FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         if kind != RunKind::Crawl.as_str() || report.lifecycle != Lifecycle::Stopped {
             return Ok(());
         }

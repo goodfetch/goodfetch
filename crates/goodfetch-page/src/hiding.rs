@@ -151,7 +151,7 @@ impl Hiding {
         let cosmetic = clean_up.cosmetic.clone().filter(|_| mode != Mode::Off);
         trace::provenance(
             run,
-            &json!({
+            json!({
                 "action": "live_hiding",
                 "page_id": page_id,
                 "session_id": session_id,
@@ -372,7 +372,7 @@ impl PageHiding {
         {
             trace::provenance(
                 &self.run,
-                &json!({
+                json!({
                     "action": "live_hiding_lifted",
                     "page_id": self.page_id,
                     "session_id": self.session_id,
@@ -453,7 +453,7 @@ impl Hidden<'_> {
             for rule in &runner {
                 trace::provenance(
                     self.run,
-                    &json!({
+                    json!({
                         "action": "live_hiding_lifted",
                         "page_id": self.page_id,
                         "session_id": self.session_id,

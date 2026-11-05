@@ -1513,7 +1513,7 @@ impl Pages {
                     )
                 })
                 .await;
-            trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
+            trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
             return Ok(formats);
         }
         let page = self.open(&params.page_id).await?;
@@ -1546,7 +1546,7 @@ impl Pages {
                 )
             })
             .await;
-        trace::provenance(&page.run, &read.entry(&params.page_id, Some(&page.session))).await;
+        trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
         Ok(formats)
     }
 }

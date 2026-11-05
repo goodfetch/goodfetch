@@ -22,7 +22,8 @@ const COUNTS: [&str; 6] = [
 
 /// A folder of stand-ins: Valgrind and gungraun-runner, which the script
 /// only looks for, and a Cargo whose `run … -- <xtask arguments>` appends
-/// those arguments to `calls`. The first counted row waits, up to 10 s, until
+/// those arguments to `calls`, and its niceness and them to `niceness`. The
+/// first counted row waits, up to 10 s, until
 /// the build has started, and the build until a counted row has, so each
 /// fails when they run one after the other; a call that `failing` names
 /// fails with status 3.
@@ -34,6 +35,7 @@ fn stand_ins(workspace: &Workspace) -> PathBuf {
 while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 shift
 echo "$*" >>"{folder}/calls"
+echo "$(nice) $*" >>"{folder}/niceness"
 await() {{
   waited=0
   until [ -e "{folder}/$1" ]; do
@@ -67,6 +69,8 @@ exit 0
 struct Run {
     code: Option<i32>,
     calls: Vec<String>,
+    /// Each call's niceness, beside its xtask arguments.
+    niceness: Vec<(i32, String)>,
     stderr: String,
 }
 
@@ -98,6 +102,14 @@ fn perf(workspace: &Workspace, stand_ins: &Path) -> Run {
             .lines()
             .map(str::to_owned)
             .collect(),
+        niceness: std::fs::read_to_string(stand_ins.join("niceness"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let (niceness, call) = line.split_once(' ').unwrap();
+                (niceness.parse().unwrap(), call.to_owned())
+            })
+            .collect(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     }
 }
@@ -123,6 +135,33 @@ fn the_counted_rows_run_beside_the_bench_build_then_perf_measures() {
         "{:?}",
         run.calls
     );
+}
+
+/// The counted rows yield the CPU to the build and to other work on the host
+/// (TESTING.md's `nice -n 10` for load beside other work), and the build and
+/// measurement keep the script's own priority.
+#[test]
+fn the_counted_rows_run_at_low_priority_beside_the_build() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_ins = stand_ins(&workspace);
+
+    let run = perf(&workspace, &stand_ins);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let own = run
+        .niceness
+        .iter()
+        .find(|(_, call)| call.starts_with("perf build"))
+        .map(|(niceness, _)| *niceness)
+        .unwrap();
+    for (niceness, call) in &run.niceness {
+        let expected = if call.starts_with("counts") {
+            (own + 10).min(19)
+        } else {
+            own
+        };
+        assert_eq!(*niceness, expected, "{call}: {:?}", run.niceness);
+    }
 }
 
 #[test]

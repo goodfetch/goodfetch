@@ -21,6 +21,7 @@ mod references;
 mod shadow;
 mod signature;
 mod social;
+mod stream;
 mod structured_data;
 mod tables;
 
@@ -32,3 +33,4 @@ pub use formats::{
 pub use plan::{Demand, Plan, Product, Reader};
 pub use signature::{page_signature, page_signature_of};
 pub use social::SOCIAL_NETWORKS_VERSION;
+pub use stream::{Held, Query, StreamSelector, Streamed, Streaming};

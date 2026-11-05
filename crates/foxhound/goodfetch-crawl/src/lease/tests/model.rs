@@ -313,6 +313,13 @@ impl StateMachineTest for Subject {
                 })
             })
             .collect();
+        let datasets = goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
+            name: "pages".to_owned(),
+            schema: None,
+            key: Vec::new(),
+        }])
+        .unwrap();
+        let declared = datasets.clone();
         let (state, leases) = runtime.block_on(async {
             let state = RunState::open(
                 path.clone(),
@@ -339,13 +346,7 @@ impl StateMachineTest for Subject {
             .unwrap();
             state
                 .write(move |connection| {
-                    goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
-                        name: "pages".to_owned(),
-                        schema: None,
-                        key: Vec::new(),
-                    }])
-                    .unwrap()
-                    .record(connection)?;
+                    datasets.record(connection)?;
                     work_items::admit_seeds(
                         connection,
                         &mut work_items::Positions::of(connection)?,
@@ -359,7 +360,7 @@ impl StateMachineTest for Subject {
                 .unwrap();
             (
                 state,
-                Leases::new(Clock::paused(env.start_time()), "model", 1),
+                Leases::new(Clock::paused(env.start_time()), "model", 1).checking_against(declared),
             )
         });
         Self {

@@ -95,6 +95,7 @@ pub(crate) struct Leases {
     run_epoch: u64,
     staging: Staging,
     work: CountedWork,
+    datasets: Datasets,
 }
 
 impl Leases {
@@ -108,6 +109,7 @@ impl Leases {
             run_epoch,
             staging: Staging::default(),
             work: CountedWork::default(),
+            datasets: Datasets::default(),
         }
     }
 
@@ -124,6 +126,14 @@ impl Leases {
     #[must_use]
     pub(crate) fn staging_in(mut self, staging: Staging) -> Self {
         self.staging = staging;
+        self
+    }
+
+    /// The same, each commit checking its Records against `datasets`, the
+    /// crawl's, built once as it opened (ADR 0138).
+    #[must_use]
+    pub(crate) fn checking_against(mut self, datasets: Datasets) -> Self {
+        self.datasets = datasets;
         self
     }
 
@@ -401,6 +411,7 @@ impl WorkItemLease {
         let epoch = lease.epoch();
         let staging = self.0.leases.staging.clone();
         let counted_work = self.0.leases.work.clone();
+        let declared = self.0.leases.datasets.clone();
         let masks = masks.clone();
         let folder = state
             .path()
@@ -413,7 +424,6 @@ impl WorkItemLease {
                 if work_items::attempt(connection, &work_item, epoch)?.is_none() {
                     return Ok(None);
                 }
-                let declared = Datasets::read_for_records(connection, &counted_work)?;
                 let answered = match declared.check(records, &counted_work) {
                     Ok(answered) => answered,
                     Err(refused) => return Ok(Some(Err(refused))),

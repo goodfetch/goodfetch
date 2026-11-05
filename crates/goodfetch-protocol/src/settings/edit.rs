@@ -195,7 +195,7 @@ pub const CONFIG_POLICY_READ: Operation = Operation {
 /// `config.policy_write`.
 pub const CONFIG_POLICY_WRITE: Operation = Operation {
     name: "config.policy_write",
-    description: "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+    description: "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: offered only in the Console and the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,

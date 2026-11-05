@@ -228,7 +228,7 @@ status = "active"
 
 [[story]]
 id = 98
-title = "As a user, I want a tightened cap to reach running runs at their next admission point and other changes to apply to new runs, each run report naming its policy version, so that a change has a known reach (ADR 0031)."
+title = "As a user, I want every change to the Operator policy, a tightened cap included, to apply to new runs, each run report naming its policy version, so that a change has a known reach (ADRs 0031 and 0138)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

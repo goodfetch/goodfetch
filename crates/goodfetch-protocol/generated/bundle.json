@@ -17074,7 +17074,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -17176,7 +17176,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -17263,7 +17263,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -17874,7 +17874,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -18139,7 +18139,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -18261,7 +18261,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -20507,7 +20507,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -20772,7 +20772,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -20894,7 +20894,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -23156,7 +23156,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -23421,7 +23421,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -23543,7 +23543,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }

@@ -137,6 +137,7 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
+use crate::run_trace;
 use crate::secrets::{
     Carried, Keychain, ProviderFactory, Purpose, RunSecrets, SecretError, Secrets, is_engine_key,
 };
@@ -1239,6 +1240,8 @@ struct Shared {
     /// Where its crawl's attempts stage the writes made through a
     /// handler's `ctx.run`, once its crawl registered it.
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
+    /// Its Run trace's Provenance log, which holds its file (ADR 0140's E5).
+    provenance: run_trace::Provenance,
 }
 
 impl Shared {
@@ -1837,6 +1840,30 @@ impl Run {
     /// Its owner, whose tasks and blocking work stop with the Run.
     pub fn owner(&self) -> &TaskOwner {
         &self.owner
+    }
+
+    /// Records `entry`, one Provenance entry of the Run, such as of one of
+    /// its pages or of a request a fetch tier sent for it, as a line of its
+    /// Run trace's Provenance log (ADR 0047), masked by its `Mask` and
+    /// written through its blocking policy to the file the Run holds.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be opened or written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it began.
+    pub async fn provenance(&self, entry: serde_json::Value) -> std::io::Result<()> {
+        self.shared
+            .provenance
+            .record(
+                &self.owner,
+                self.secrets().mask(),
+                self.metrics().counted_work(),
+                entry,
+            )
+            .await
     }
 
     /// Starts `future` as one of the Run's tasks, in its span.
@@ -5111,6 +5138,7 @@ impl Registry {
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
+                provenance: run_trace::Provenance::new(folder),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

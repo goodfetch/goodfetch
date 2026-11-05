@@ -1532,7 +1532,7 @@ async fn mark_egress(open: &Session, session: &SessionId) {
                     "gap": "dns_rebinding",
                 }),
             };
-            trace::provenance(&open.run, &entry).await;
+            trace::provenance(&open.run, entry).await;
         })
         .await;
 }

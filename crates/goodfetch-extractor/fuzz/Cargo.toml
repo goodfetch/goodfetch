@@ -25,7 +25,11 @@ test = false
 doc = false
 bench = false
 
-# Goodfetch's fork of `dom_smoothie`, as the workspace's `[patch.crates-io]`
-# carries it.
+# Goodfetch's forks of `dom_smoothie`, `rs-trafilatura` and the two crates
+# rs-trafilatura reads trees with, as the workspace's `[patch.crates-io]`
+# carries them.
 [patch.crates-io]
 dom_smoothie = { path = "../../../vendor/dom_smoothie" }
+html-cleaning = { path = "../../../vendor/html-cleaning" }
+quick_html2md = { path = "../../../vendor/quick_html2md" }
+rs-trafilatura = { path = "../../../vendor/rs-trafilatura" }

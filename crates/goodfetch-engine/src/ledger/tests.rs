@@ -292,6 +292,7 @@ fn an_engine_that_opens_the_ledger_reclaims_the_slices_of_dead_runs(
     ledger
         .reclaim(&|_| match found {
             Found::Journaled(used) => Probed::Gone {
+                beyond: 0,
                 used: charged
                     .used
                     .iter()

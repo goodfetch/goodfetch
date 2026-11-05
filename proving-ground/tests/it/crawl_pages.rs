@@ -39,13 +39,18 @@ proptest! {
     ) {
         let first = ProvingGround::start(seed);
         let second = ProvingGround::start(seed);
+        // A page that links by absolute URL names the origin it was asked on,
+        // and each `serve` binds its own port: the bytes are compared with
+        // that origin set aside.
         let page = |proving_ground: &ProvingGround| {
-            proving_ground.get(&format!("http://{host}:{}{path}", proving_ground.port()))
+            let origin = format!("http://{host}:{}", proving_ground.port());
+            let answer = proving_ground.get(&format!("{origin}{path}"));
+            (answer.status, answer.body.replace(&origin, "http://{origin}"))
         };
 
-        let (one, other) = (page(&first), page(&second));
+        let ((status, one), (_, other)) = (page(&first), page(&second));
 
-        prop_assert_eq!(one.status, 200, "{}{}", host, path);
-        prop_assert_eq!(one.body, other.body);
+        prop_assert_eq!(status, 200, "{}{}", host, path);
+        prop_assert_eq!(one, other);
     }
 }

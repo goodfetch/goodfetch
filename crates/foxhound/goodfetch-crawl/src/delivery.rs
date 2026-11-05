@@ -69,6 +69,7 @@ use std::time::SystemTime;
 
 use futures_util::future::join_all;
 use goodfetch_counted_work::Row;
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -96,8 +97,9 @@ use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
     SampleRefresh,
 };
+use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::report::LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK;
+use goodfetch_protocol::foxhound::report::{LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
@@ -246,8 +248,26 @@ pub(crate) async fn drive(
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
+    if settings.resolved().boolean(FRONTIER_LEARNING.name) == Some(false) {
+        warn_learning_off(&run).await;
+    }
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
+}
+
+/// Hands the Run's report, once, the warning that its Frontier learns no
+/// rule, `frontier.learning` being off (ADR 0138), so an empty
+/// `learned_rules` is not read as a site that taught nothing.
+async fn warn_learning_off(run: &Run) {
+    let warning = RunWarning {
+        code: LEARNING_OFF.to_owned(),
+        message: "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.".to_owned(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning that the crawl learns no rule was not kept");
+    }
 }
 
 /// How the Run samples its tier choices: `fetch.sample.count` and
@@ -282,6 +302,7 @@ fn wall_ms(run: &Run) -> u64 {
 fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
+        .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())
 }
 
@@ -300,16 +321,17 @@ async fn deliver(
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
+    // Resolved once, as the Run opened: no turn reads the settings again
+    // (ADR 0138).
+    let resolved = settings.resolved();
+    let policy = CrawlPolicy::of(resolved);
     loop {
-        let resolved = settings.at_admission().await;
-        let policy = CrawlPolicy::of(&resolved);
-        admission.update(&resolved);
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,
                 &run_leases,
                 policy,
-                Pooled::of(&mut pool, &resolved, fetching),
+                Pooled::of(&mut pool, resolved, fetching),
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -338,7 +360,7 @@ async fn deliver(
                 Ok(Idle::Admit) if !starved => continue,
                 Ok(Idle::Admit | Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    match drained(run, &resolved, &mut admission, servers, arrivals).await {
+                    match drained(run, resolved, &mut admission, servers, arrivals).await {
                         Waited::Ended => return,
                         Waited::Stop(reason) => stop = Some(reason),
                         Waited::Again => {}
@@ -360,7 +382,7 @@ async fn deliver(
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         let room = [stop.is_some(), free, starved];
-        show(run, (&mut admission, &mut queued), &resolved, servers, room);
+        show(run, (&mut admission, &mut queued), resolved, servers, room);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -479,7 +501,7 @@ pub(crate) async fn resume(
     crawls: Crawls,
     tiers: FetchTiers,
 ) {
-    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let policy = CrawlPolicy::of(settings.resolved());
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
     let resolved = settings.resolved().clone();
@@ -496,18 +518,18 @@ pub(crate) async fn resume(
                 labels::read(connection)?,
                 labels::Fragments::read(connection)?,
                 tier_choice::read(connection)?,
-                code_free::read(connection)?,
+                (code_free::read(connection)?, Datasets::read(connection)?),
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices, extraction)| {
+    let left = left.map(|(left, declared, fragments, choices, declarations)| {
         let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::default()
         });
-        (left, (labels, choices, extraction))
+        (left, (labels, choices, declarations))
     });
-    let (labels, choices, extraction) = match left {
+    let (labels, choices, (extraction, datasets)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -522,7 +544,7 @@ pub(crate) async fn resume(
         Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
-    let opened = crawls.open(&run, egress).await;
+    let opened = crawls.open(&run, egress, datasets).await;
     let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
     drive(
         run,
@@ -924,8 +946,8 @@ enum Waited {
 }
 
 /// Finishes a crawl with no work item left, with what its bounds and caps
-/// cut as its Completeness reasons, unless `crawl.keep_alive`,
-/// read at each admission point as its policy is, holds it until
+/// cut as its Completeness reasons, unless `crawl.keep_alive`, one of the
+/// settings the Run resolved as it opened, holds it until
 /// `run.finish` lets it finish: until then it waits for new work, as the
 /// Run's own timeout and a stop still end it (RT-12). Before it finishes,
 /// it closes its intake in a job of the Run state's writer that looks once
@@ -1036,7 +1058,7 @@ struct Settling {
 }
 
 /// Settles the attempts that ended, `ended`, in the order they ended,
-/// under the Run's policy now: takes each out of the requests in flight
+/// under the Run's policy: takes each out of the requests in flight
 /// its progress shows, frees its place on its Connection and scores its
 /// Session, writing the pool's changes once; commits or ends them all
 /// together, so the run state's writer takes their writes in one group
@@ -1051,9 +1073,8 @@ async fn settled(
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) {
-    let resolved = settings.at_admission().await;
-    let (attempts, settlings) =
-        scored(run, &resolved, (&mut *pool, fetching), servers, ended).await;
+    let resolved = settings.resolved();
+    let (attempts, settlings) = scored(run, resolved, (&mut *pool, fetching), servers, ended).await;
     let changes = pool.changes();
     if !changes.is_empty()
         && let Err(error) = run
@@ -1068,24 +1089,18 @@ async fn settled(
             .retire(run, pool, &servers[attempt.server].context)
             .await;
     }
-    let policy = CrawlPolicy::of(&resolved);
-    let retried = join_all(
-        attempts
-            .into_iter()
-            .zip(&settlings)
-            .map(|(attempt, settling)| {
-                let resolved = &resolved;
-                async move {
-                    match attempt.answer {
-                        Answer::SitemapRead(_) => {
-                            read_sitemap(run, resolved, attempt).await;
-                            false
-                        }
-                        _ => settle(run, policy, settling.held.is_some(), attempt).await,
-                    }
+    let policy = CrawlPolicy::of(resolved);
+    let retried = join_all(attempts.into_iter().zip(&settlings).map(
+        |(attempt, settling)| async move {
+            match attempt.answer {
+                Answer::SitemapRead(_) => {
+                    read_sitemap(run, resolved, attempt).await;
+                    false
                 }
-            }),
-    )
+                _ => settle(run, policy, settling.held.is_some(), attempt).await,
+            }
+        },
+    ))
     .await;
     returned(run, admission, settlings.into_iter().zip(retried)).await;
     if let Err(error) = key_new(run, admission).await {
@@ -1215,9 +1230,9 @@ async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Session
 /// keys the work items not keyed yet and fills each domain's queue; and
 /// opens its Session pool from its run state, on an `Entropy` of its own.
 async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPool), String> {
-    let resolved = settings.at_admission().await;
+    let resolved = settings.resolved();
     let mut admission = run
-        .admission(&resolved)
+        .admission(resolved)
         .await
         .map_err(|error| error.to_string())?
         .ok_or("the composition passes in no gate in admission")?;
@@ -1233,10 +1248,10 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
         .read(move |connection| SessionPool::open(connection, entropy))
         .await
         .map_err(|error| error.to_string())?;
-    let pool = match Rotation::of(&resolved) {
+    let pool = match Rotation::of(resolved) {
         Some(rotation) => pool.with_local_addresses(LocalAddressing::new(
             rotation,
-            BlockSizes::of(&resolved),
+            BlockSizes::of(resolved),
             std::sync::Arc::new(System),
             // No Session's every request leaves through the Run's proxy
             // yet: the HTTP tiers send direct from its addresses, so a block

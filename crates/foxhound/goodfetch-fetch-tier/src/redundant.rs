@@ -390,7 +390,7 @@ async fn hedged(
     requester.second_copies.give_back(copy).await;
     goodfetch_page::provenance(
         run,
-        &json!({
+        json!({
             "action": HEDGED,
             "session_id": requester.session,
             "crawl_request_id": requester.request_id,
@@ -410,7 +410,7 @@ async fn hedged(
 async fn record_shared(run: &Run, hop: &Hop, requester: &Requester<'_>, shared_from: &str) {
     goodfetch_page::provenance(
         run,
-        &json!({
+        json!({
             "action": RESPONSE_SHARED,
             "session_id": requester.session,
             "crawl_request_id": requester.request_id,

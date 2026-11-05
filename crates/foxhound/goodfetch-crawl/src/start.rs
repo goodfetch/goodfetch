@@ -202,6 +202,7 @@ async fn start(
     let inputs = seed_inputs(&seeds);
     let declared = params.labels;
     let redeclaring = (datasets.clone(), params.extraction.clone());
+    let opening = datasets.clone();
     let admitted = code_free::admitted(params.extraction.as_ref(), &seeds);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
     let started = context
@@ -252,7 +253,7 @@ async fn start(
             run.spawn(delivery::drive(
                 run.clone(),
                 context.clone(),
-                crawls.open(&run, egress).await,
+                crawls.open(&run, egress, opening).await,
                 crawls,
                 settings,
                 (tiers, labels, TierChoices::default(), code_free),

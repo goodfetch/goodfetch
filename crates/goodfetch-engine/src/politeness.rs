@@ -196,6 +196,14 @@ pub trait PermitRule: Send + Sync {
         ending: Ending,
         now: SystemTime,
     ) -> rusqlite::Result<Option<SystemTime>>;
+
+    /// Whether it may hold a request back on its own settings: `false`
+    /// for a rule that neither caps, spaces nor rates its keys, under
+    /// which a Run consults no Politeness store and never opens one for
+    /// its admission, its gate backing its keys off itself (ADR 0138).
+    fn paces(&self) -> bool {
+        true
+    }
 }
 
 /// The Run that holds a Permit, under its run epoch.

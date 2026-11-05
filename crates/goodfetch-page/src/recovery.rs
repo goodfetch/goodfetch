@@ -236,7 +236,7 @@ async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(
     trace::counted_provenance(
         judging.run,
         Row::NavigationProvenanceEntries,
-        &json!({
+        json!({
             "action": WEAKLY_CHECKED,
             "page_id": judging.page_id,
             "session_id": judging.session,

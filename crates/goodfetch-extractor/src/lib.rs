@@ -16,6 +16,7 @@ mod formats;
 mod light;
 mod main_content;
 mod markdown;
+mod plan;
 mod references;
 mod shadow;
 mod signature;
@@ -28,5 +29,6 @@ pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
     main_content_length, measured_formats,
 };
+pub use plan::{Demand, Plan, Product, Reader};
 pub use signature::page_signature;
 pub use social::SOCIAL_NETWORKS_VERSION;

@@ -42,7 +42,7 @@ fn reading_synchronous() -> Contribution {
             let run = context.runs().live(run_id).await.unwrap();
             let synchronous: i64 = run
                 .state()
-                .read(|connection| {
+                .write(|connection| {
                     connection.pragma_query_value(None, "synchronous", |row| row.get(0))
                 })
                 .await

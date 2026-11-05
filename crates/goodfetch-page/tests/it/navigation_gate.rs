@@ -892,3 +892,33 @@ fn a_popup_takes_its_openers_gate_and_lease_check() {
         );
     });
 }
+
+/// The gate is handed the body of the document it judges only when it
+/// reads one: for a gate that reads none, the page takes no body from the
+/// browser (the audit #1884's C5-4).
+/// Covers: operation:page.goto
+#[rstest::rstest]
+fn a_document_is_judged_with_its_body_only_by_a_gate_that_reads_it(
+    #[values(false, true)] reads: bool,
+) {
+    let gate = RecordingGate::new();
+    if reads {
+        gate.read_bodies();
+    }
+    with_handler_page(&gate, Map::new(), async |program| {
+        let document = program.proving_ground.url(FETCH_EDGE, "/target");
+        let went = program
+            .on_page("page.goto", json!({ "url": document }))
+            .await;
+        assert!(went.get("result").is_some(), "{went}");
+    });
+
+    let judged: Vec<(bool, bool)> = gate
+        .judged()
+        .iter()
+        .zip(gate.judged_bodies())
+        .filter(|(url, _)| url.ends_with("/target"))
+        .map(|(_, length)| (reads, length > 0))
+        .collect();
+    assert_eq!(judged, vec![(reads, reads)]);
+}

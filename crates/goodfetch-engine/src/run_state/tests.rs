@@ -99,7 +99,7 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     let pragmas = with_writer(&env, 1, async |state| {
         (
             state.read(pragma("journal_mode")).await.unwrap(),
-            state.read(pragma("synchronous")).await.unwrap(),
+            state.write(pragma("synchronous")).await.unwrap(),
         )
     });
 
@@ -151,7 +151,7 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     let pragmas = with_writer_options(&env, &options, async |state| {
         (
             state.read(pragma("journal_mode")).await.unwrap(),
-            state.read(pragma("synchronous")).await.unwrap(),
+            state.write(pragma("synchronous")).await.unwrap(),
         )
     });
 
@@ -166,10 +166,111 @@ fn a_run_file_bounds_its_page_cache() {
     let env = TestEnv::new();
 
     let cache_size = with_writer(&env, 1, async |state| {
-        state.read(pragma("cache_size")).await.unwrap()
+        state.write(pragma("cache_size")).await.unwrap()
     });
 
     assert_eq!(cache_size, format!("-{PAGE_CACHE_KIB}"));
+}
+
+/// ADR 0138: a savepoint's statement journal stays in memory, so none
+/// spills to `$TMPDIR`.
+#[test]
+fn a_run_file_keeps_its_savepoint_journals_in_memory() {
+    let env = TestEnv::new();
+
+    let temp_store = with_writer(&env, 1, async |state| {
+        state.write(pragma("temp_store")).await.unwrap()
+    });
+
+    assert_eq!(temp_store, "2");
+}
+
+/// The size of the file `name` in the test's folder, 0 when there is none.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a file's size between its writer's steps, on its own runtime with nothing else to run"
+)]
+fn size_of(env: &TestEnv, name: &str) -> u64 {
+    std::fs::metadata(env.folder().join(name)).map_or(0, |metadata| metadata.len())
+}
+
+/// ADR 0138: the writer runs no checkpoint of its own, so a WAL under the
+/// checkpointer's threshold stays in the WAL, though it is past SQLite's
+/// 1,000-page automatic checkpoint.
+#[test]
+fn the_writer_leaves_a_wal_under_the_threshold_uncheckpointed() {
+    let env = TestEnv::new();
+
+    let (before, after, wal) = with_writer(&env, 1, async |state| {
+        let before = size_of(&env, "run.sqlite");
+        state.write(blob(5)).await.unwrap();
+        (
+            before,
+            size_of(&env, "run.sqlite"),
+            size_of(&env, "run.sqlite-wal"),
+        )
+    });
+
+    assert_eq!(after, before);
+    assert!(wal >= 5 * 1_048_576, "{wal}");
+}
+
+/// ADR 0138: past its threshold of WAL, the checkpointer copies the WAL into
+/// the file on its own connection, while the writer goes on.
+#[test]
+fn the_checkpointer_copies_a_wal_past_its_threshold_into_the_file() {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        wal_checkpoint_after: 1_048_576,
+        ..RunStateOptions::default()
+    };
+
+    let copied = with_writer_options(&env, &options, async |state| {
+        state.write(blob(2)).await.unwrap();
+        for _ in 0..1_000 {
+            if size_of(&env, "run.sqlite") >= 2 * 1_048_576 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        state.write(insert(1)).await.unwrap();
+        size_of(&env, "run.sqlite")
+    });
+
+    assert!(copied >= 2 * 1_048_576, "{copied}");
+}
+
+/// ADR 0138: a clean stop, the writer's last write, truncates the WAL, though
+/// a reader still holds the file open, so its close copies nothing.
+#[test]
+fn a_clean_stop_truncates_the_wal() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let reader = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            path.clone(),
+            &RunStateOptions::default(),
+            vec![ITEMS],
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        let reader = open_reader(&path, None).unwrap();
+        items(&reader).unwrap();
+        state.write(blob(1)).await.unwrap();
+        state.write_last(insert(1)).await.unwrap();
+        drop(state);
+        owner.wait().await;
+        reader
+    });
+
+    assert_eq!(
+        (size_of(&env, "run.sqlite-wal"), items(&reader).unwrap()),
+        (0, vec![1])
+    );
 }
 
 /// Covers: story:3-26
@@ -180,8 +281,8 @@ fn a_run_file_syncs_with_fullfsync_on_macos() {
 
     let fullfsync = with_writer(&env, 1, async |state| {
         (
-            state.read(pragma("fullfsync")).await.unwrap(),
-            state.read(pragma("checkpoint_fullfsync")).await.unwrap(),
+            state.write(pragma("fullfsync")).await.unwrap(),
+            state.write(pragma("checkpoint_fullfsync")).await.unwrap(),
         )
     });
 
@@ -255,8 +356,7 @@ fn committed_through(env: &TestEnv, vfs: &CrashVfs) -> (Vec<i64>, String) {
 
 /// A full disk met at a statement in the middle of a group, where a write
 /// spills past the writer's page cache, ends the group's transaction in
-/// SQLite: no write of the group commits, though a small one still fits in
-/// the room an earlier checkpoint left in the WAL, each is answered with the
+/// SQLite: no write of the group commits, each is answered with the
 /// storage failure, and the writer reports it to whoever watches its storage
 /// failures, which stop its Run (ADR 0122).
 ///
@@ -272,8 +372,8 @@ fn a_full_disk_at_a_statement_fails_its_whole_group_as_a_storage_failure() {
 
     let (answers, reported) = with_writer_options(&env, &options, async |state| {
         state.write(insert(0)).await.unwrap();
-        // Past SQLite's 1,000-page automatic checkpoint, whose WAL the next
-        // commit writes again from its start.
+        // A WAL past SQLite's 1,000-page automatic checkpoint, which the
+        // writer never runs (ADR 0138).
         state.write(blob(5)).await.unwrap();
         vfs.fail_at(vfs.operations(), IoFault::Full);
         let first = state.reserve().await.unwrap().write(blob(8));
@@ -525,14 +625,108 @@ fn a_writers_transactions_count_its_jobs_whatever_group_they_commit_in() {
     assert_eq!((apart.0, grouped.0), (3, 3));
 }
 
-/// A read through the writer counts as a read, and as the job it is.
+/// A read leaves the writer (ADR 0138): it runs no job of the writer's, so
+/// it counts no transaction and no read through the writer.
 #[test]
-fn a_read_through_the_writer_counts_one_read_and_one_transaction() {
+fn a_read_counts_no_transaction_and_no_read_through_the_writer() {
     let counts = counted(async |state| {
-        state.read(|_| Ok(())).await.unwrap();
+        state.read(items).await.unwrap();
     });
 
-    assert_eq!(counts, (1, 1));
+    assert_eq!(counts, (0, 0));
+}
+
+/// A read runs beside the writer: one made while a commit is under way
+/// answers before that commit ends, with what was committed before it.
+#[test]
+fn a_read_during_a_commit_does_not_wait_for_it() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let read = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Threads);
+        let state = RunState::open(path, &RunStateOptions::default(), vec![ITEMS], 1, &owner)
+            .await
+            .unwrap();
+        state.write(insert(1)).await.unwrap();
+        let (started, starts) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let committing = state.write(move |connection| {
+            insert(2)(connection)?;
+            let _ = started.send(());
+            let _ = released.recv();
+            Ok(())
+        });
+        let reading = async {
+            starts.await.unwrap();
+            let read = tokio::time::timeout(Duration::from_secs(30), state.read(items)).await;
+            release.send(()).unwrap();
+            read
+        };
+        let (committed, read) = tokio::join!(committing, reading);
+        committed.unwrap();
+        drop(state);
+        owner.wait().await;
+        read.map(Result::unwrap)
+    });
+
+    assert_eq!(read, Ok(vec![1]));
+}
+
+/// A run file's reads keep their connections: a read after another runs on
+/// the connection that one left, which a setting of its own shows.
+#[test]
+fn reads_keep_their_connection_from_one_read_to_the_next() {
+    let env = TestEnv::new();
+
+    let kept = with_writer(&env, 1, async |state| {
+        state
+            .read(|connection| connection.pragma_update(None, "cache_size", -7))
+            .await
+            .unwrap();
+        state.read(pragma("cache_size")).await.unwrap()
+    });
+
+    assert_eq!(kept, "-7");
+}
+
+/// A writer that stops closes its readers first, so it is the file's last
+/// connection and folds the WAL into the file: a Run that ended leaves one
+/// self-contained file, whatever was read beside its writer.
+#[test]
+fn a_stopped_writer_leaves_its_file_whole_with_no_wal_beside_it() {
+    let env = TestEnv::new();
+
+    with_writer(&env, 1, async |state| {
+        state.write(insert(1)).await.unwrap();
+        state.read(items).await.unwrap();
+    });
+
+    let path = env.folder().join("run.sqlite");
+    let wal = env.folder().join("run.sqlite-wal").exists();
+    let whole: Vec<i64> = Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .and_then(|connection| items(&connection))
+    .unwrap();
+    assert_eq!((wal, whole), (false, vec![1]));
+}
+
+/// A read commits nothing, so the writer's acknowledged commits do not move
+/// for it, and it sees every write acknowledged before it.
+#[test]
+fn a_read_moves_no_acknowledged_commit() {
+    let env = TestEnv::new();
+
+    let (before, seen, after) = with_writer(&env, 1, async |state| {
+        state.write(insert(1)).await.unwrap();
+        let before = *state.commits().borrow();
+        let seen = state.read(items).await.unwrap();
+        (before, seen, *state.commits().borrow())
+    });
+
+    assert_eq!((seen, after), (vec![1], before));
 }
 
 /// A group that does not commit counts no transaction.

@@ -40,6 +40,7 @@ mod url;
 use std::sync::Arc;
 
 use goodfetch_engine::Contribution;
+use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
 
 pub use admit::{Candidate, admit, admit_in};
@@ -51,8 +52,8 @@ pub use identity::{
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
-    Pace, crawl_delay_read, last_start, latency_measured, longest_wait, refuse_second_copies,
-    start_after, start_after_robots_txt, started_again, started_at_send,
+    Pace, crawl_delay_read, last_start, latency_measured, longest_wait, paces,
+    refuse_second_copies, start_after, start_after_robots_txt, started_again, started_at_send,
 };
 pub use queues::DomainQueues;
 pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
@@ -76,7 +77,9 @@ pub use ::encoding_rs::Encoding;
 /// domain's wait, the table of the per-user Politeness file the rule
 /// keeps each domain's shared state in, and the Politeness and
 /// Site-preferences values that press a site harder, each recorded once
-/// per Run as `politeness_weakened` (ADR 0086).
+/// per Run as `politeness_weakened` (ADR 0086), and `frontier.learning`
+/// switched off, recorded once per Run as `learning_switched_off` (ADR
+/// 0138).
 pub fn contribution() -> Contribution {
     let contribution = Contribution::new("goodfetch-frontier")
         .with_handler(seeds::handler())
@@ -91,7 +94,12 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(payload::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_politeness_tables(robots_txt::TABLES)
-        .with_admission_gates(Arc::new(queues::DomainGates));
+        .with_admission_gates(Arc::new(queues::DomainGates))
+        .with_recorded_weakening(
+            &FRONTIER_LEARNING,
+            &LEARNING_SWITCHED_OFF,
+            FRONTIER_LEARNING.default,
+        );
     PRESSING_HARDER
         .into_iter()
         .fold(contribution, |contribution, key| {

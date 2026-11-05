@@ -35,7 +35,7 @@ use goodfetch_protocol::settings::{
 };
 use tokio::sync::mpsc;
 
-use crate::declaration::Datasets;
+use crate::declaration::Declarations;
 use crate::encoding::{
     Columns, Compressor, ExportEncoder, ExportOptions, Exported, Nested, ParquetCodec,
     csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
@@ -111,7 +111,7 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         .await
         .map_err(failed)?;
     reader
-        .read(Datasets::read)
+        .read(Declarations::read)
         .await
         .map_err(failed)?
         .readable(&params.dataset)?;
@@ -400,7 +400,7 @@ async fn kept_export(
         .reader(run_id.clone())
         .await
         .map_err(failed)?;
-    reader.read(Datasets::read).await.map_err(failed)?;
+    reader.read(Declarations::read).await.map_err(failed)?;
     let folder = context
         .runs()
         .folder(RunId::clone(&run_id))

@@ -208,6 +208,15 @@ const CALLERS: u32 = 32;
 const OFF_WORK: &str = "E6.off_work";
 const OFF_CELL: &str = "politeness_and_robots_txt_off";
 
+/// The rows a cell with robots.txt off, and so pacing nothing under the
+/// fixture's delay of 0, counts fewer of: no robots.txt read or parsed
+/// (#1919), and no Politeness store consulted (#1920).
+const OFF_REMOVES: &[Row] = &[
+    Row::PolitenessTransactions,
+    Row::RobotsParses,
+    Row::RobotsReads,
+];
+
 /// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
 /// is its work.
 const POLITENESS_ROWS: [Row; 5] = [
@@ -326,7 +335,25 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-fn cells() -> [Cell; 10] {
+/// The cell with no format asked and `frontier.learning` off: the crawl
+/// runs neither the clean-up nor the main-content step (ADR 0138).
+fn learning_off() -> Cell {
+    Cell {
+        name: "learning_off",
+        settings: scoped(json!({ "frontier": { "learning": false } })),
+        frontier: FRONTIER,
+        removes: &[
+            Row::PageParses,
+            Row::PageSelectorCompilations,
+            Row::PageReadabilityRuns,
+        ],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+fn cells() -> [Cell; 11] {
     [
         Cell {
             name: "default",
@@ -343,11 +370,14 @@ fn cells() -> [Cell; 10] {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } })),
             frontier: FRONTIER,
-            removes: &[Row::PageParses, Row::PageSelectorCompilations],
+            // The crawl asks for no format, so it runs no clean-up with the
+            // Filter lists on either (ADR 0138's demand plan).
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,
         },
+        learning_off(),
         Cell {
             name: "document_tier_handler",
             settings: json!({}),
@@ -407,14 +437,15 @@ fn cells() -> [Cell; 10] {
             handler: false,
             limit: false,
         },
-        // robots.txt off reads and parses no robots.txt (#1919). Politeness
-        // off takes none of E6's other work away yet: ADR 0138's "cost
-        // nothing" is the Shared paths spec's, and X19 waives it meanwhile.
+        // robots.txt off reads and parses no robots.txt (#1919), and with
+        // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
+        // paces its domains: admission consults no Politeness store and
+        // takes no Permit (#1920).
         Cell {
             name: "robots_txt_off",
             settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
             frontier: None,
-            removes: &[Row::RobotsParses, Row::RobotsReads],
+            removes: OFF_REMOVES,
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -426,7 +457,7 @@ fn cells() -> [Cell; 10] {
                 "site_preferences": { "respect_robots_txt": false },
             }),
             frontier: None,
-            removes: &[Row::RobotsParses, Row::RobotsReads],
+            removes: OFF_REMOVES,
             removes_syncs: false,
             handler: false,
             limit: false,

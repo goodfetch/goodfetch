@@ -17074,7 +17074,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -17176,7 +17176,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -17263,7 +17263,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -17874,7 +17874,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -18139,7 +18139,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -18261,7 +18261,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -18707,6 +18707,16 @@
                   },
                   "trackers": {
                     "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "frontier": {
+                "additionalProperties": false,
+                "properties": {
+                  "learning": {
+                    "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
                   }
                 },
@@ -20507,7 +20517,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -20772,7 +20782,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -20894,7 +20904,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -21340,6 +21350,16 @@
                   },
                   "trackers": {
                     "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "frontier": {
+                "additionalProperties": false,
+                "properties": {
+                  "learning": {
+                    "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
                   }
                 },
@@ -23156,7 +23176,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                    "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
                   }
                 },
                 "type": "object"
@@ -23421,7 +23441,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "concurrency": {
-                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                        "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -23543,7 +23563,7 @@
                         "type": "boolean"
                       },
                       "max": {
-                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                        "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                         "minimum": 0,
                         "type": "integer"
                       }
@@ -23989,6 +24009,16 @@
                   },
                   "trackers": {
                     "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "frontier": {
+                "additionalProperties": false,
+                "properties": {
+                  "learning": {
+                    "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
                     "type": "boolean"
                   }
                 },

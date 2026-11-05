@@ -700,6 +700,12 @@ number = 6
 kind = "setting"
 prefix = "crawl.keep_url_fragment"
 
+# The Frontier's learning from the crawl's pages, switchable (ADR 0138).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "frontier.learning"
+
 # The redirects and refresh stubs a crawl request's fetch follows (spec
 # #579, #762, ADR 0118).
 [[area]]

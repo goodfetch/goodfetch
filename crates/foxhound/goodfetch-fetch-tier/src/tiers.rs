@@ -2053,7 +2053,7 @@ pub async fn record_tier(
             entry["encoding_source"] = serde_json::json!(EncodingSource::Detected);
         }
     }
-    goodfetch_page::provenance(run, &entry).await;
+    goodfetch_page::provenance(run, entry).await;
     encoding
 }
 
@@ -2117,7 +2117,7 @@ pub async fn record_race(run: &Run, race: &Race<'_>) {
     };
     goodfetch_page::provenance(
         run,
-        &serde_json::json!({
+        serde_json::json!({
             "action": TIER_RACE_ACTION,
             "crawl_request_id": race.request_id,
             "label": race.label,

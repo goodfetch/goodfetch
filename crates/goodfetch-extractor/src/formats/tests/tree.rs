@@ -9,7 +9,8 @@ use serde_json::json;
 
 use super::URL;
 use crate::{
-    CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats, page_signature,
+    BuiltIn, CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats,
+    page_signature,
 };
 
 /// A page with a main content.
@@ -56,19 +57,22 @@ fn counted(work: &CountedWork) -> (u64, u64, u64) {
 /// once, for the clean-up, whose tree the step then reads, and copies it
 /// once, for the fallback that removes the landmarks: one run of the step
 /// (`F1.readability_runs` ≤ 1, `F1.tree_copies` ≤ 1).
+///
+/// rs-trafilatura reads that tree as dom-smoothie does (#1916).
 #[rstest]
 #[case::markdown(json!({ "markdown": true }))]
 #[case::text(json!({ "text": true }))]
 #[case::main_html(json!({ "html": true }))]
 fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
     #[case] request: serde_json::Value,
+    #[values(BuiltIn::DomSmoothie, BuiltIn::Trafilatura)] built_in: BuiltIn,
 ) {
     let request: FormatsRequest = serde_json::from_value(request).unwrap();
     let work = CountedWork::default();
     let context = Context {
         clean_up: Some(&Keeps),
+        extractor: built_in.extractor(),
         work: work.clone(),
-        ..Context::default()
     };
 
     let measured = measured_formats(&document(PAGE), &request, &context);

@@ -343,7 +343,9 @@ fn cells() -> [Cell; 10] {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } })),
             frontier: FRONTIER,
-            removes: &[Row::PageParses, Row::PageSelectorCompilations],
+            // The crawl asks for no format, so it runs no clean-up with the
+            // Filter lists on either (ADR 0138's demand plan).
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,

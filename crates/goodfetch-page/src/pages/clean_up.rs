@@ -14,7 +14,7 @@ use goodfetch_clean_up_rules::removal::{self, Removed, Share};
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_extractor::{
-    BuiltIn, CleanUp, Context, Document, Extractor, Measured, Serialization,
+    BuiltIn, CleanUp, Context, Demand, Document, Extractor, Measured, Plan, Reader, Serialization,
 };
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, FormatsRequest, PageFormats, PageId, SessionId};
 use serde_json::{Value, json};
@@ -122,7 +122,9 @@ pub(super) fn extractor(
 /// The formats `request` names, read from `document`, serialized as
 /// `serialization` says, its main content found by `extractor`, the
 /// cosmetic rules `cosmetic` holds and the runner's rules of the selectors
-/// `hidden` applied before its main content, and what they did.
+/// `hidden` applied before its main content, and what they did; none when
+/// the request reads nothing of the cleaned page, so that no rule ran and
+/// Provenance has no line of it (ADR 0138).
 pub(super) fn read(
     document: &SerializedDocument,
     serialization: Serialization,
@@ -130,7 +132,7 @@ pub(super) fn read(
     extractor: &dyn Extractor,
     (cosmetic, hidden): (Option<&Cosmetic>, &[String]),
     work: &CountedWork,
-) -> (PageFormats, FormatsRead) {
+) -> (PageFormats, Option<FormatsRead>) {
     let of = |html| Document {
         html,
         url: &document.url,
@@ -167,16 +169,19 @@ pub(super) fn read(
         }
         Some(_) | None => (Vec::new(), 0, None),
     };
-    (
-        formats,
-        FormatsRead {
-            url: document.url.clone(),
-            version: cosmetic.map(|cosmetic| cosmetic.version.clone()),
-            removed,
-            removed_text,
-            share,
-        },
-    )
+    let cleaned_up = Plan::of(&Demand {
+        formats: &request,
+        learning: false,
+    })
+    .runs(Reader::CleanUp);
+    let read = cleaned_up.then(|| FormatsRead {
+        url: document.url.clone(),
+        version: cosmetic.map(|cosmetic| cosmetic.version.clone()),
+        removed,
+        removed_text,
+        share,
+    });
+    (formats, read)
 }
 
 #[cfg(test)]

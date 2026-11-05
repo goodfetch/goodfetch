@@ -31,8 +31,9 @@ impl Extractor for Counted {
 }
 
 /// The main-content step's runs and the Provenance entry of one call
-/// asking `request` of [`ARTICLE`], its ad hidden.
-fn read_with_the_ad_hidden(request: Value) -> (usize, Value) {
+/// asking `request` of [`ARTICLE`], its ad hidden; none when the call ran
+/// no rule.
+fn read_with_the_ad_hidden(request: Value) -> (usize, Option<Value>) {
     let (runs, reported) = mpsc::channel();
     let counted = Counted { runs };
     let document = SerializedDocument {
@@ -54,7 +55,7 @@ fn read_with_the_ad_hidden(request: Value) -> (usize, Value) {
 
     (
         reported.try_iter().count(),
-        done.entry(&PageId("page-1".to_owned()), None),
+        done.map(|done| done.entry(&PageId("page-1".to_owned()), None)),
     )
 }
 
@@ -64,6 +65,7 @@ fn read_with_the_ad_hidden(request: Value) -> (usize, Value) {
 #[test]
 fn a_call_whose_rules_removed_an_element_reads_each_documents_main_content_once() {
     let (runs, entry) = read_with_the_ad_hidden(json!({ "markdown": true }));
+    let entry = entry.unwrap();
 
     assert_eq!(runs, 2);
     assert!(
@@ -77,7 +79,8 @@ fn a_call_whose_rules_removed_an_element_reads_each_documents_main_content_once(
 /// Covers: story:6-10
 #[test]
 fn a_call_with_no_format_of_the_main_content_reads_no_main_content_for_its_share() {
-    let (runs, entry) = read_with_the_ad_hidden(json!({ "links": true }));
+    let (runs, entry) = read_with_the_ad_hidden(json!({ "html": { "kind": "cleaned" } }));
+    let entry = entry.unwrap();
 
     assert_eq!(
         (
@@ -87,4 +90,14 @@ fn a_call_with_no_format_of_the_main_content_reads_no_main_content_for_its_share
         ),
         (0, &Value::Null, Some(1))
     );
+}
+
+/// A call that reads nothing of the cleaned page, its links alone, runs
+/// no rule and leaves Provenance no line of it (ADR 0138's demand plan).
+/// Covers: story:6-10
+#[test]
+fn a_call_reading_nothing_of_the_cleaned_page_runs_no_rule_and_records_none() {
+    let (runs, entry) = read_with_the_ad_hidden(json!({ "links": true }));
+
+    assert_eq!((runs, entry), (0, None));
 }

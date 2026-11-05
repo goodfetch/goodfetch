@@ -39,7 +39,7 @@ use crate::document::{
 };
 use crate::expected_page::{self, Verdict};
 use crate::refresh::{self, Refresh};
-use crate::use_signals::{self, SignalReaders, UseSignals};
+use crate::use_signals::{self, MarkupRead, SignalReaders, UseSignals, names_license, reserving};
 
 /// What a Run asks of its crawl requests' own documents, beyond what every
 /// document's readers read.
@@ -73,6 +73,63 @@ pub struct UntouchedReaders {
     signs: bool,
     /// The streaming path's selectors, when it serves every reader.
     stream: Option<StreamReaders>,
+    /// The streaming pass's selectors of the AI-use signals' markup, which
+    /// the documents a handler's pages navigate to are read with.
+    signal_stream: Option<SignalStream>,
+}
+
+/// The selectors one streaming pass reads a document's AI-use signals'
+/// markup with, parsed once per Run, each beside its tree matcher of
+/// [`SignalReaders`].
+#[derive(Debug)]
+struct SignalStream {
+    streaming: Streaming,
+    meta: StreamSelector,
+    base: StreamSelector,
+    link: StreamSelector,
+}
+
+impl SignalStream {
+    fn of(work: &CountedWork) -> Option<Self> {
+        Some(Self {
+            streaming: Streaming::new(work),
+            meta: StreamSelector::of(SignalReaders::META, work)?,
+            base: StreamSelector::of(SignalReaders::BASE, work)?,
+            link: StreamSelector::of(SignalReaders::LINK, work)?,
+        })
+    }
+
+    /// What the markup `html` holds of its AI-use signals, in one pass;
+    /// none when the pass cannot vouch for its tree.
+    fn read(&self, html: &str) -> Option<MarkupRead> {
+        let query = |selector, first| Query { selector, first };
+        let read = self.streaming.read(
+            html,
+            &[
+                query(&self.meta, false),
+                query(&self.base, true),
+                query(&self.link, false),
+            ],
+        )?;
+        let [metas, bases, links] = <[Vec<Streamed>; 3]>::try_from(read)
+            .expect("invariant: a pass answers each of its queries");
+        let own = |streamed: &Streamed| streamed.held.first().cloned();
+        Some(MarkupRead {
+            reserves: metas
+                .iter()
+                .filter_map(own)
+                .any(|meta| reserving(meta.attr("name"), meta.attr("content"))),
+            base_href: bases
+                .iter()
+                .filter_map(own)
+                .find_map(|base| base.attr("href").map(str::to_owned)),
+            license_href: links
+                .iter()
+                .filter_map(own)
+                .find(|link| names_license(link.attr("rel"), link.attr("type")))
+                .and_then(|link| link.attr("href").map(str::to_owned)),
+        })
+    }
 }
 
 /// The selectors the streaming path reads the readers' elements with,
@@ -229,6 +286,7 @@ impl UntouchedReaders {
             page_check,
             signs,
             stream: None,
+            signal_stream: SignalStream::of(work),
         };
         readers.stream = StreamReaders::of(&readers, work);
         readers
@@ -375,6 +433,31 @@ impl UntouchedReaders {
             .select_matcher(&self.base)
             .attr("href")
             .map(|href| href.to_string())
+    }
+
+    /// `signals` with those the markup `html` of a document a handler's
+    /// page navigated to, fetched at `url`, carries: read in one streaming
+    /// pass when it names one, its tree parsed on `work` only when the pass
+    /// cannot vouch for it (ADR 0138).
+    pub(crate) fn markup_use_signals(
+        &self,
+        signals: UseSignals,
+        html: &str,
+        url: &Url,
+        work: &CountedWork,
+    ) -> UseSignals {
+        if !use_signals::names_signals(html) {
+            return signals.with_header_license(url);
+        }
+        if let Some(read) = self
+            .signal_stream
+            .as_ref()
+            .and_then(|stream| stream.read(html))
+        {
+            return signals.with_markup_read(&read, url);
+        }
+        let document = work.parse_html(Row::PageParses, html);
+        signals.with_tree(html, &document, url, &self.signals)
     }
 
     /// `signals` with those the markup `html`, whose untouched tree is

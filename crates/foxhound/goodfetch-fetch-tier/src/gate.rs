@@ -428,10 +428,12 @@ impl NavigationGate for Gate {
                     // The markup's signals are ASCII: a document in another
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
+                    let readers = Arc::clone(&self.0.untouched);
+                    let work = self.0.run.metrics().counted_work().clone();
                     self.0
                         .run
                         .owner()
-                        .analysis(move || signals.with_markup(&html, &url))
+                        .analysis(move || readers.markup_use_signals(signals, &html, &url, &work))
                         .await
                 }
                 Err(_) => signals,

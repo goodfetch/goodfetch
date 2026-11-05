@@ -77,6 +77,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_fetch_tier::{
     AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
     Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
@@ -286,46 +287,43 @@ impl Gating {
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
     ) -> Arc<HandOver> {
-        let settings = run.settings().map(|settings| settings.resolved().clone());
+        let settings = run.settings().map(RunSettings::resolved);
         // A crawl whose Politeness paces nothing records no start, send or
         // latency in it (ADR 0138).
-        let politeness = if settings.as_ref().is_none_or(goodfetch_frontier::paces) {
+        let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
             share_robots_txt(run).await
         } else {
             None
         };
         let domain_delay = settings
-            .as_ref()
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();
         Arc::new(HandOver {
             run: run.clone(),
             domain_key: leased.waiting.key.clone(),
-            keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
+            keys: settings.map(DomainKeys::of).unwrap_or_default(),
             second_copies: self.second_copies.clone(),
             politeness,
             robots: self.robots.clone(),
-            operator_token: settings.as_ref().and_then(|settings| {
+            operator_token: settings.and_then(|settings| {
                 settings
                     .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
                     .as_str()
                     .map(str::to_owned)
             }),
             domain_delay,
-            adaptive_delay: settings.as_ref().is_some_and(|settings| {
+            adaptive_delay: settings.is_some_and(|settings| {
                 settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
             }),
             pace: settings
-                .as_ref()
                 .map(goodfetch_frontier::Pace::of)
                 .unwrap_or_default(),
-            respect_robots_txt: settings.as_ref().is_none_or(|settings| {
+            respect_robots_txt: settings.is_none_or(|settings| {
                 settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
             }),
             max_crawl_delay: settings
-                .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
-            use_signals: settings.as_ref().and_then(honoured_purpose),
+            use_signals: settings.and_then(honoured_purpose),
             signal_files: self.signal_files.clone(),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),

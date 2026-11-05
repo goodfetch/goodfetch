@@ -18,7 +18,7 @@ use goodfetch_protocol::foxhound::dataset::{
     RECORD, RUN_RECORDS, RecordRead, RecordsRead, RunRecordsParams,
 };
 
-use crate::declaration::Datasets;
+use crate::declaration::Declarations;
 use crate::records::{self, Query};
 
 /// The most Records one read of the run file takes.
@@ -40,7 +40,7 @@ async fn read_records(
         .await
         .map_err(failed)?;
     reader
-        .read(Datasets::read)
+        .read(Declarations::read)
         .await
         .map_err(failed)?
         .readable(&params.dataset)?;

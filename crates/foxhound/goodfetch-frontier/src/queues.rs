@@ -486,10 +486,6 @@ impl Gate for DomainQueues {
         )))
     }
 
-    fn update(&mut self, settings: &Resolved) {
-        self.waiting_for = politeness::Waits::of(settings);
-    }
-
     fn admit(&mut self, now: Instant) -> Option<Admitted> {
         let turn = self.turns.iter().position(|key| {
             self.domains
@@ -658,7 +654,7 @@ impl Gates for DomainGates {
         entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>> {
         let mut queues = DomainQueues::new(DomainKeys::of(settings), BOUND, entropy);
-        queues.update(settings);
+        queues.waiting_for = politeness::Waits::of(settings);
         queues.anchor = Some((wall, now));
         let wall = milliseconds(wall);
         let mut rows = journal.prepare_cached("SELECT key, ready_at, backoffs FROM domains")?;

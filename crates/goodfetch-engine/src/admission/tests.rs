@@ -81,24 +81,6 @@ fn a_cap_of_zero_admits_nothing() {
     assert_eq!((cap.admit(start), cap.ready_at(start)), (Err(None), None));
 }
 
-/// Covers: story:3-51
-#[test]
-fn a_tightened_cap_spaces_the_next_admission_by_its_own_interval() {
-    let start = Instant::now();
-    let mut cap = RateCap::per_minute(60);
-    cap.admit(start).unwrap();
-
-    let mut tightened = cap.set_to(6);
-
-    assert_eq!(
-        (
-            tightened.admit(start + Duration::from_secs(1)).is_ok(),
-            tightened.admit(start + Duration::from_secs(10)).is_ok(),
-        ),
-        (true, false)
-    );
-}
-
 proptest! {
     /// However requests arrive, no minute admits more than the cap, and a
     /// request offered once the cap is ready is admitted.
@@ -405,8 +387,8 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
             run_folder: "crawl".into(),
         };
         let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
-        let mut admission = Admission::new(Box::new(gate), &settings);
-        admission.share(politeness, holder, clock, &settings);
+        let mut admission =
+            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
         let now = Instant::now();
         let admitted = admission.admit(now).await;
         let held: Vec<(Duration, Held)> = holds
@@ -536,8 +518,8 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
             run_folder: "crawl".into(),
         };
         let clock = Clock::paused(start);
-        let mut admission = Admission::new(Box::new(gate), &settings);
-        admission.share(politeness, holder, clock, &settings);
+        let mut admission =
+            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
         let now = Instant::now();
         let first = admission.admit(now).await.unwrap();
         let mut admitted = vec![(first.id.clone(), first.refused_until)];

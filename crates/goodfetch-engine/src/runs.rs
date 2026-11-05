@@ -1670,47 +1670,15 @@ impl Run {
             .state
             .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
             .await?;
-        let mut admission = Admission::new(gate, settings);
-        self.share_politeness(&mut admission, settings).await?;
-        Ok(Some(admission))
-    }
-
-    /// Takes `settings` into `admission` at an admission point
-    /// ([`Admission::update`]); when its gate's rule paces its keys now and
-    /// did not before, such as under a tightened Operator policy, it starts
-    /// sharing the Run's Politeness from here on.
-    ///
-    /// # Errors
-    ///
-    /// When the Politeness file cannot be opened: the admission goes on
-    /// sharing none.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future leaves `admission` updated, sharing none yet.
-    pub async fn update_admission(
-        &self,
-        admission: &mut Admission,
-        settings: &Resolved,
-    ) -> Result<(), PolitenessError> {
-        admission.update(settings);
-        self.share_politeness(admission, settings).await
-    }
-
-    /// Has `admission` share the Run's Politeness, its proxies' limits
-    /// included, when its gate's rule paces its keys under `settings` and
-    /// it shares none yet.
-    async fn share_politeness(
-        &self,
-        admission: &mut Admission,
-        settings: &Resolved,
-    ) -> Result<(), PolitenessError> {
-        if !admission.must_share(settings) {
-            return Ok(());
+        let admission = Admission::new(gate, settings);
+        if !admission.shares(settings) {
+            return Ok(Some(admission));
         }
+        // The one Politeness the Run shares, its proxies' limits included.
         let (politeness, holder) = self.politeness(settings).await?;
-        admission.share(politeness, holder, self.clock, settings);
-        Ok(())
+        Ok(Some(
+            admission.sharing(politeness, holder, self.clock, settings),
+        ))
     }
 
     /// The Politeness its own code shares for keys outside admission, such

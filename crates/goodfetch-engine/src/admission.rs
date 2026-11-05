@@ -5,8 +5,7 @@
 //! gate. Beside it, the Run's rate cap, `admission.max_requests_per_minute`,
 //! bounds every request it admits by the Generic Cell Rate Algorithm with
 //! no burst, so admissions are spaced at least a minute's share apart. A
-//! Run going on takes its settings again at each admission point, so a
-//! tightened Operator policy cap reaches it there.
+//! Run's admission takes its settings once, as it opens (ADR 0138).
 //!
 //! When the gate names a rule for its keys that paces them, such as
 //! Foxhound's per-domain Politeness, each request the gate would admit also
@@ -20,8 +19,7 @@
 //! Run waits (ADR 0118), comes with each of its requests refused until
 //! then, unsent, whatever the Politeness says meanwhile. A rule that
 //! paces nothing ([`PermitRule::paces`]) has the Run consult no Politeness
-//! store at all: its gate backs its keys off itself (ADR 0138), until a
-//! tightened setting has the rule pace, and the Run then shares it.
+//! store at all: its gate backs its keys off itself (ADR 0138).
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
@@ -207,13 +205,6 @@ pub trait Gate: Send {
         None
     }
 
-    /// Takes `settings`, as its Run takes them at each admission point,
-    /// such as the backoff it backs its keys off with itself while its Run
-    /// shares no Politeness. Nothing by default.
-    fn update(&mut self, settings: &Resolved) {
-        let _ = settings;
-    }
-
     /// A request of `key` it admitted ended at `now`, as `ended` says.
     fn ended(&mut self, key: &str, now: Instant, ended: Ended);
 
@@ -332,16 +323,16 @@ impl Admission {
         }
     }
 
-    /// Shares `politeness` as `holder` under the rule its gate names for
-    /// `settings`, reading the wall time from `clock`; unchanged when the
-    /// gate names none, or one that paces nothing.
-    pub(crate) fn share(
-        &mut self,
+    /// The same, sharing `politeness` as `holder` under the rule its gate
+    /// names for `settings`, reading the wall time from `clock`; unchanged
+    /// when the gate names none, or one that paces nothing.
+    pub(crate) fn sharing(
+        mut self,
         politeness: Politeness,
         holder: Holder,
         clock: Clock,
         settings: &Resolved,
-    ) {
+    ) -> Self {
         if let Some(rule) = self.gate.rule(settings).filter(|rule| rule.paces()) {
             let wakes = Some(politeness.wakes());
             self.shared = Some(Shared {
@@ -354,32 +345,13 @@ impl Admission {
                 wakes,
             });
         }
+        self
     }
 
-    /// Whether it must share Politeness under `settings` and does not yet:
-    /// its gate names a rule that paces its keys (ADR 0138).
-    pub(crate) fn must_share(&self, settings: &Resolved) -> bool {
-        self.shared.is_none() && self.gate.rule(settings).is_some_and(|rule| rule.paces())
-    }
-
-    /// Takes the rate cap of `settings`, and the rule of its shared
-    /// Politeness, as a Run does at each admission point, keeping when it
-    /// last admitted.
-    pub fn update(&mut self, settings: &Resolved) {
-        self.gate.update(settings);
-        {
-            let mut rate = lock(&self.rate);
-            *rate = match (*rate, rate_cap_of(settings)) {
-                (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
-                (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
-                (_, None) => None,
-            };
-        }
-        if let Some(shared) = &mut self.shared
-            && let Some(rule) = self.gate.rule(settings)
-        {
-            shared.rule = rule;
-        }
+    /// Whether its gate names a rule of shared Politeness under
+    /// `settings` that paces its keys (ADR 0138).
+    pub(crate) fn shares(&self, settings: &Resolved) -> bool {
+        self.gate.rule(settings).is_some_and(|rule| rule.paces())
     }
 
     /// The wakes of the keys its shared Politeness holds, once: `None` when
@@ -794,15 +766,6 @@ impl RateCap {
         Self {
             interval: interval(per_minute),
             next: None,
-        }
-    }
-
-    /// The same cap set to `per_minute`, keeping when it last admitted.
-    #[must_use]
-    pub fn set_to(self, per_minute: u64) -> Self {
-        Self {
-            interval: interval(per_minute),
-            ..self
         }
     }
 

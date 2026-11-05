@@ -8,11 +8,14 @@
 //! crawl's Run through it too, and a seed added wakes its delivery, while
 //! its intake is open: a crawl about to end closes it ([`Intake`]). Each
 //! live crawl's attempts stage their outputs in its staging, which its Run
-//! also takes the Key-value store writes made through an attempt in.
+//! also takes the Key-value store writes made through an attempt in, and
+//! check each Record they push or commit against its Datasets, read and
+//! built once as it opened (ADR 0138).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
@@ -42,6 +45,7 @@ struct Live {
     seeded: Arc<Notify>,
     staging: Staging,
     intake: Intake,
+    datasets: Datasets,
 }
 
 /// What a seed added to a live crawl, or a handler's enqueue, reaches:
@@ -59,6 +63,9 @@ pub(crate) struct LiveCrawl {
     /// Whether it still takes new work, which a write giving it work
     /// checks in its own job.
     pub(crate) intake: Intake,
+    /// The Datasets it declares, which each pushed Record is checked
+    /// against.
+    pub(crate) datasets: Datasets,
 }
 
 /// A crawl opened to Connections that join it and to seeds added to it.
@@ -74,6 +81,9 @@ pub(crate) struct Opened {
     /// Whether it still takes new work, which its delivery closes before
     /// it ends the Run.
     pub(crate) intake: Intake,
+    /// The Datasets it declares, which each committed Record is checked
+    /// against.
+    pub(crate) datasets: Datasets,
 }
 
 /// How many joining Connections wait for a crawl's delivery to take them:
@@ -85,10 +95,10 @@ const JOINING: usize = 16;
 pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
 
 impl Crawls {
-    /// Opens the crawl `run`, under its domain policy `egress`, to
-    /// Connections that join it and to seeds added to it, and answers where
-    /// each arrives.
-    pub(crate) async fn open(&self, run: &Run, egress: Policy) -> Opened {
+    /// Opens the crawl `run`, under its domain policy `egress` and with the
+    /// Datasets it declares, to Connections that join it and to seeds added
+    /// to it, and answers where each arrives.
+    pub(crate) async fn open(&self, run: &Run, egress: Policy, datasets: Datasets) -> Opened {
         let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
         let staging = run
@@ -107,6 +117,7 @@ impl Crawls {
                 seeded: Arc::clone(&seeded),
                 staging: staging.clone(),
                 intake: intake.clone(),
+                datasets: datasets.clone(),
             },
         );
         Opened {
@@ -115,6 +126,7 @@ impl Crawls {
             staging,
             egress,
             intake,
+            datasets,
         }
     }
 
@@ -126,6 +138,7 @@ impl Crawls {
             seeded: Arc::clone(&live.seeded),
             staging: live.staging.clone(),
             intake: live.intake.clone(),
+            datasets: live.datasets.clone(),
         })
     }
 

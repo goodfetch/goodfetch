@@ -12529,6 +12529,11 @@
           "type": "string"
         },
         {
+          "const": "kennel",
+          "description": "The Kennel, a person surface that observes the Daemon: its Runs\noutlive its Connection, which holds the Daemon neither awake nor\nback from a handover unless its `hello` sets `keep_daemon_alive`\n(ADR 0141).",
+          "type": "string"
+        },
+        {
           "const": "cloud",
           "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
           "type": "string"
@@ -14465,7 +14470,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Only a person gives this answer, in the Console or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console, or run the command in a terminal.",
+      "description": "Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,

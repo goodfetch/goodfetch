@@ -120,7 +120,10 @@ timing-sensitive = { max-threads = 4 }
 # 300 pages on one Daemon, whose own work keeps two to three cores busy for
 # about two minutes: 100 to 142 s alone on the M1 server and 138 to 148 s in a
 # Pre-merge run (#1765), against the five-minute kill; beside the rest of a
-# Pre-merge run it took 354 to 578 s before #1765 (#1740).
+# Pre-merge run it took 354 to 578 s before #1765 (#1740). Its time is CPU
+# and follows the host's load: 231 to 265 s at a load of 30 to 65, and, since
+# its per-page dependencies build optimized, 76 to 97 s alone at a mean load
+# of 15 to 25 (#2050).
 # It takes every test thread of the run, so nextest starts it once the
 # threads are free and starts nothing beside it until it ends: the run's
 # own load no longer decides whether it ends within its cap, which stays

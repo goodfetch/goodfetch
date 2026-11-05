@@ -381,10 +381,16 @@ fn ends_without_a_prompt() {
     print_and_exit("nothing to ask", 0);
 }
 
+/// The variable an executable built for coverage sets in its own
+/// environment as its profile runtime starts (`just coverage`, ADR 0072): no
+/// parent passes it, so the probe leaves it out of the environment it shows.
+const PROFILE_RUNTIME_VARIABLE: &str = "__LLVM_PROFILE_RT_INIT_ONCE";
+
 #[test]
 #[ignore = "run as a child by cli::a_locale_case_sets_lang_and_tz_only_for_the_child_it_runs"]
 fn prints_its_environment() {
     let lines: Vec<String> = std::env::vars()
+        .filter(|(name, _)| name != PROFILE_RUNTIME_VARIABLE)
         .map(|(name, value)| format!("env:{name}={value}"))
         .collect();
 

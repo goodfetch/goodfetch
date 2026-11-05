@@ -56,6 +56,7 @@ impl Engine {
                 .context("xtask's version is a Product version")?,
             log_level: None,
             client_surface: None,
+            keep_daemon_alive: false,
         })?;
         engine.call("hello", HELLO, &hello)?;
         Ok(engine)

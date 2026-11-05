@@ -1,0 +1,8 @@
+# Which of goodfetch-kennel-app's top-level modules may import which (ADR
+# 0126), checked by `xtask modules --workspace kennel` in `just kennel-check`.
+[modules]
+ask = []
+details = ["ask", "fonts"]
+fonts = []
+notices = []
+tray = []

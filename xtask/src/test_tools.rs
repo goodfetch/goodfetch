@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ExitCode, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -96,7 +96,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     }
     let mut manifest = BTreeMap::new();
     if !binaries.is_empty() {
-        let mut command = Command::new(cargo);
+        let mut command = crate::child_cargo::command(cargo);
         command
             .args(["build", "--message-format", "json-render-diagnostics"])
             .args(["--profile", &arguments.cargo_profile])

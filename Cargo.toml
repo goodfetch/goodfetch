@@ -19,8 +19,10 @@ members = [
 ]
 # Goodfetch's forks of `wreq`, `wreq-util`, `rs-trafilatura` and the two
 # crates rs-trafilatura reads trees with, which `[patch.crates-io]` below
-# carries: crates of their own, not members.
+# carries: crates of their own, not members. The Kennel's workspace,
+# `kennel/`, has its own lockfile and toolchain (ADR 0141).
 exclude = [
+  "kennel",
   "vendor/html-cleaning",
   "vendor/quick_html2md",
   "vendor/rs-trafilatura",
@@ -490,6 +492,19 @@ wreq-util = { path = "vendor/wreq-util" }
 [profile.dev.package.sha2]
 opt-level = 3
 
+# Build scripts, proc-macros and the crates they use get line tables, as the
+# workspace's other crates get them in `ci-test` and in the gate host's
+# local builds (`CARGO_PROFILE_DEV_DEBUG`); Cargo's default gives them none.
+# Cargo builds a crate that both the build and the code use once when the
+# two settings match, and once for each when they differ, so with the
+# default whether it was shared, and with it every crate above it, hung on
+# what else a command built: `cargo run --bin xtask` and the test tools'
+# build compiled the engine, Page and Collie apart, and the test tools' and
+# the Quick suite's builds DuckDB apart. With them matching, those builds
+# share them.
+[profile.dev.build-override]
+debug = "line-tables-only"
+
 # And for literal search: the reset gate searches every file of a Goodfetch
 # home for each Secret canary in a dozen encodings, the Browser cache's
 # 400 MB build included, which unoptimized takes some 26 s a search and
@@ -516,6 +531,57 @@ opt-level = 3
 # subscriber's alone (STYLE.md; #788). The other profiles have them off.
 [profile.dev.package.rs-trafilatura]
 debug-assertions = false
+
+# And for the work a crawl does on each page: HTML parsing and its DOM,
+# clean-up's selector matching and Filter-list engine, readability, JSON and
+# JSON Schema validation, and the C sources `cc` builds at the profile's
+# opt-level, the allocator's, SQLite's and zstd's. Unoptimized, they took
+# most of the Foxhound Daemon soak's CPU, about 33 ms a page, so its time
+# followed the host's load up to its five-minute kill (#2050). Like those
+# above, they reach `dev` and the profiles that inherit it (`test`,
+# `ci-test`), never `release`, `ci` or `bench`, which every counted and
+# compared figure builds with (ADR 0061's note of 2026-11-04).
+[profile.dev.package.dom_query]
+opt-level = 3
+
+[profile.dev.package.selectors]
+opt-level = 3
+
+[profile.dev.package.cssparser]
+opt-level = 3
+
+[profile.dev.package.html5ever]
+opt-level = 3
+
+[profile.dev.package.markup5ever]
+opt-level = 3
+
+[profile.dev.package.tendril]
+opt-level = 3
+
+[profile.dev.package.string_cache]
+opt-level = 3
+
+[profile.dev.package.adblock]
+opt-level = 3
+
+[profile.dev.package.dom_smoothie]
+opt-level = 3
+
+[profile.dev.package.serde_json]
+opt-level = 3
+
+[profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.libmimalloc-sys]
+opt-level = 3
+
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+
+[profile.dev.package.zstd-sys]
+opt-level = 3
 
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information

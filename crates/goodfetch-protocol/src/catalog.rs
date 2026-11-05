@@ -215,10 +215,10 @@ pub enum Reach {
     /// handler is the program's own code (ADR 0085). No CLI command, MCP
     /// tool, skill, Code mode global or Framework adapter offers it.
     SdkOnly,
-    /// A person's answer, given in the Console or an interactive CLI prompt
-    /// only (ADR 0011's list, such as a certificate's acceptance or a Limit
-    /// raise): no agent surface offers it, and the CLI offers it as a
-    /// prompt, never as a generated command.
+    /// A person's answer, given in the Console, the Kennel or an interactive
+    /// CLI prompt only (ADR 0011's list, such as a certificate's acceptance
+    /// or a Limit raise; ADR 0141): no agent surface offers it, and the CLI
+    /// offers it as a prompt, never as a generated command.
     PersonOnly,
 }
 

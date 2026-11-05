@@ -514,6 +514,7 @@ impl Machine<'_> {
             product_version: self.identity.product_version.clone(),
             log_level: None,
             client_surface: None,
+            keep_daemon_alive: false,
         };
         match opened.call(0, "hello", &hello).await {
             Ok(_) => Ok(opened),

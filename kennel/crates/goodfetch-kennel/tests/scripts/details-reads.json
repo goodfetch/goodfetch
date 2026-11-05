@@ -1,0 +1,171 @@
+{
+  "description": "The details window's reads: the Run index's rows of its filter; a Run's Usage; and the chosen Run's report, a live Run's read cancelled once it is no longer wanted, an ended Run's answered at once, one with no live writer refused with run_interrupted. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.list",
+        "params": {
+          "text": "shop"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "runs": [
+            {
+              "run_id": "shop-crawl",
+              "location": "runs/shop-crawl",
+              "kind": "crawl",
+              "needs": "foxhound",
+              "tags": ["goodfetch.recipe:shop"],
+              "lifecycle": "running",
+              "verdict": null,
+              "completeness": null,
+              "started_at": "2026-11-03T09:00:00Z",
+              "ended_at": null,
+              "owner": null,
+              "presence": "present",
+              "progress_message": "Crawling",
+              "stop_reason": null,
+              "replayed": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.usage",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "model": {
+            "calls": 3,
+            "tokens": 1200
+          },
+          "browser_time": 65000,
+          "proxy_bytes": 2048,
+          "requests": 12
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.report",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 5
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.report",
+        "params": {
+          "run_id": "old-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "old-crawl",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-11-03T08:00:00Z",
+          "ended_at": "2026-11-03T08:30:00Z",
+          "usage": {
+            "model": {
+              "calls": 3,
+              "tokens": 1200
+            },
+            "browser_time": 65000,
+            "proxy_bytes": 2048,
+            "requests": 12
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.report",
+        "params": {
+          "run_id": "gone-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The Run has no live writer and has not ended.",
+          "data": {
+            "code": "run_interrupted",
+            "retryable": false,
+            "run_id": "gone-crawl",
+            "fix": "Start it again with its Run ID."
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

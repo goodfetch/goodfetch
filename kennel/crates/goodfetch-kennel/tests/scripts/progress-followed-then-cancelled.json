@@ -1,0 +1,100 @@
+{
+  "description": "The Kennel reads a Run's progress at once, then follows it with after the position it read, and cancels that read once the view no longer wants it. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.progress",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "shop-crawl",
+          "position": 5,
+          "at": "2026-11-03T10:00:00Z",
+          "lifecycle": "running",
+          "writer": "live",
+          "epoch": 1,
+          "pauses": [],
+          "message": "Crawling",
+          "last": false,
+          "requests": {
+            "pending": 45,
+            "fetching": 2,
+            "handling": 1,
+            "in_human_pause": 0,
+            "succeeded": 120,
+            "failed": 3,
+            "skipped": 4,
+            "blocked": 0
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.progress",
+        "params": {
+          "run_id": "shop-crawl",
+          "after": 5
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 4
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

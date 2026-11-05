@@ -13,7 +13,8 @@ use anyhow::{Context as _, Result, bail};
 
 use super::RepoPath;
 
-/// The branch whose merge base the local mode diffs against (ADR 0061).
+/// The branch whose merge base the local mode diffs against (ADR 0061),
+/// unless `--since` names another.
 const LOCAL_BASE: &str = "origin/main";
 
 /// The changed paths of a diff, NUL-separated, renames split in two.
@@ -24,8 +25,9 @@ pub(crate) enum Range {
     /// CI's mode: what `head` changed since its merge base with `base`.
     Commits { base: String, head: String },
     /// The local mode: the working tree, uncommitted and untracked files
-    /// included, against the merge base of `HEAD` with `origin/main`.
-    WorkingTree,
+    /// included, against the merge base of `HEAD` with `since`, else with
+    /// `origin/main`.
+    WorkingTree { since: Option<String> },
 }
 
 pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>> {
@@ -35,8 +37,9 @@ pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>>
             let commits = format!("{base}...{head}");
             paths.extend(entries(&run(root, &DIFF_NAMES, &[&commits])?));
         }
-        Range::WorkingTree => {
-            let merge_base = run(root, &["merge-base", LOCAL_BASE, "HEAD"], &[])?;
+        Range::WorkingTree { since } => {
+            let since = since.as_deref().unwrap_or(LOCAL_BASE);
+            let merge_base = run(root, &["merge-base"], &[since, "HEAD"])?;
             paths.extend(entries(&run(root, &DIFF_NAMES, &[merge_base.trim()])?));
             let untracked = ["ls-files", "--others", "--exclude-standard", "-z"];
             paths.extend(entries(&run(root, &untracked, &[])?));

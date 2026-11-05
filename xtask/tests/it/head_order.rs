@@ -115,6 +115,12 @@ impl Fixture {
 
     /// Runs the real `just test <args>` with the stand-ins first on PATH.
     pub(crate) fn test(&self, args: &[&str]) -> Run {
+        self.test_with_env(args, &[])
+    }
+
+    /// Runs the real `just test <args>` as [`Fixture::test`] does, with
+    /// these variables added.
+    pub(crate) fn test_with_env(&self, args: &[&str], variables: &[(&str, &str)]) -> Run {
         let _ = std::fs::remove_file(self.stand_ins.join("calls"));
         let path = format!(
             "{}:{}",
@@ -128,6 +134,7 @@ impl Fixture {
             .args(args)
             .env("PATH", path)
             .env("HOME", self.workspace.path())
+            .envs(variables.iter().copied())
             .output()
             .unwrap();
         Run {

@@ -1,0 +1,86 @@
+{
+  "description": "The person's calls reach the Daemon on the Kennel's Connection: a pause it answers, then an abort it refuses. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.pause",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "shop-crawl",
+          "lifecycle": "stopped"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "Another engine holds the Run's writer lock.",
+          "data": {
+            "code": "run_busy",
+            "retryable": true
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

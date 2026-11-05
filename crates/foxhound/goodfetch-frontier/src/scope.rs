@@ -310,7 +310,9 @@ impl Scope {
         };
         let port = i64::from(measures.port);
         let reached = |query: &str, params: &[&dyn rusqlite::ToSql]| {
-            connection.query_row(query, params, |row| row.get::<_, bool>(0))
+            connection
+                .prepare_cached(query)
+                .and_then(|mut cached| cached.query_row(params, |row| row.get::<_, bool>(0)))
         };
         match self.strategy {
             Strategy::All => Ok(true),
@@ -364,16 +366,19 @@ impl Scope {
     ///
     /// When the run file cannot be written.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
-        connection.execute(
-            "INSERT INTO scope (id, strategy, include, exclude) VALUES (1, ?1, ?2, ?3)",
-            (
-                self.strategy.name(),
-                serde_json::to_string(&self.include.globs)
-                    .expect("invariant: globs encode as JSON"),
-                serde_json::to_string(&self.exclude.globs)
-                    .expect("invariant: globs encode as JSON"),
-            ),
-        )?;
+        connection
+            .prepare_cached(
+                "INSERT INTO scope (id, strategy, include, exclude) VALUES (1, ?1, ?2, ?3)",
+            )
+            .and_then(|mut cached| {
+                cached.execute((
+                    self.strategy.name(),
+                    serde_json::to_string(&self.include.globs)
+                        .expect("invariant: globs encode as JSON"),
+                    serde_json::to_string(&self.exclude.globs)
+                        .expect("invariant: globs encode as JSON"),
+                ))
+            })?;
         Ok(())
     }
 
@@ -409,17 +414,16 @@ impl Scope {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, error)
         };
         let row = connection
-            .query_row(
-                "SELECT strategy, include, exclude FROM scope WHERE id = 1",
-                [],
-                |row| {
+            .prepare_cached("SELECT strategy, include, exclude FROM scope WHERE id = 1")
+            .and_then(|mut cached| {
+                cached.query_row([], |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
                     ))
-                },
-            )
+                })
+            })
             .optional()?;
         let Some((strategy, include, exclude)) = row else {
             return Ok(Self::default());

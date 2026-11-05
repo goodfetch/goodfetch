@@ -55,10 +55,8 @@ pub(crate) fn write(
     if rejections.is_empty() {
         return Ok(());
     }
-    let mut insert = connection.prepare(
-        "INSERT INTO rejected_records (dataset, number, work_item, data, rejection)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM rejected_records WHERE dataset = ?1), ?2, ?3, ?4)",
-    )?;
+    let mut insert = connection.prepare_cached("INSERT INTO rejected_records (dataset, number, work_item, data, rejection)
+         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM rejected_records WHERE dataset = ?1), ?2, ?3, ?4)")?;
     for rejection in rejections {
         let why = serde_json::to_value(&rejection.why).expect("invariant: a rejection encodes");
         insert.execute((
@@ -101,7 +99,7 @@ pub(crate) struct Page {
 pub(crate) fn page(connection: &Connection, dataset: &str, after: u64) -> rusqlite::Result<Page> {
     let transaction = connection.unchecked_transaction()?;
     let records = transaction
-        .prepare(
+        .prepare_cached(
             "SELECT rejected.number, rejected.data, rejected.rejection, rejected.work_item,
                     coalesce(work_items.url, '')
              FROM rejected_records AS rejected
@@ -146,11 +144,9 @@ pub(crate) fn page(connection: &Connection, dataset: &str, after: u64) -> rusqli
             })
         })
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let last: i64 = transaction.query_row(
-        "SELECT coalesce(max(number), 0) FROM rejected_records WHERE dataset = ?1",
-        [dataset],
-        |row| row.get(0),
-    )?;
+    let last: i64 = transaction
+        .prepare_cached("SELECT coalesce(max(number), 0) FROM rejected_records WHERE dataset = ?1")
+        .and_then(|mut cached| cached.query_row([dataset], |row| row.get(0)))?;
     transaction.finish()?;
     let next = match records.last() {
         Some(entry) if records.len() == REJECTED_RECORDS_PAGE => entry.number,

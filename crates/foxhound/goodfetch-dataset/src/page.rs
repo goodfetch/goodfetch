@@ -199,7 +199,7 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
     write!(sql, " ORDER BY {order} LIMIT ?{}", bound.len())
         .expect("invariant: a String takes any text");
     connection
-        .prepare(&sql)?
+        .prepare_cached(&sql)?
         .query_map(rusqlite::params_from_iter(bound), dataset_record)?
         .collect()
 }

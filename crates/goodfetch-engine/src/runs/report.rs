@@ -230,11 +230,13 @@ pub(super) fn usage(
 ) -> rusqlite::Result<RunUsage> {
     let mut usage = RunUsage {
         limits,
-        uncapped: connection.query_row("SELECT uncapped FROM run", [], |row| row.get(0))?,
+        uncapped: connection
+            .prepare_cached("SELECT uncapped FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?,
         proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
         ..RunUsage::default()
     };
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT usage_kind, currency, amount FROM usage_totals ORDER BY usage_kind, currency",
     )?;
     let counted = statement.query_map([], |row| {
@@ -274,7 +276,7 @@ pub(super) fn usage(
 /// first, then any kind this engine does not name.
 fn proxy_bytes_by_kind(connection: &Connection) -> rusqlite::Result<Vec<ProxyKindBytes>> {
     let mut statement =
-        connection.prepare("SELECT part, amount FROM usage_parts WHERE usage_kind = ?1")?;
+        connection.prepare_cached("SELECT part, amount FROM usage_parts WHERE usage_kind = ?1")?;
     let mut kinds = statement
         .query_map([PROXY_BYTES], |row| {
             let amount: i64 = row.get(1)?;
@@ -310,11 +312,12 @@ pub(super) fn count_part(
     part: &str,
     delta: i64,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO usage_parts (usage_kind, part, amount) VALUES (?1, ?2, MAX(?3, 0))
+    connection
+        .prepare_cached(
+            "INSERT INTO usage_parts (usage_kind, part, amount) VALUES (?1, ?2, MAX(?3, 0))
          ON CONFLICT (usage_kind, part) DO UPDATE SET amount = MAX(amount + ?3, 0)",
-        (usage_kind, part, delta),
-    )?;
+        )
+        .and_then(|mut cached| cached.execute((usage_kind, part, delta)))?;
     Ok(())
 }
 
@@ -329,11 +332,12 @@ pub(super) fn count(
     currency: Option<&str>,
     delta: i64,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO usage_totals (usage_kind, currency, amount) VALUES (?1, ?2, MAX(?3, 0))
+    connection
+        .prepare_cached(
+            "INSERT INTO usage_totals (usage_kind, currency, amount) VALUES (?1, ?2, MAX(?3, 0))
          ON CONFLICT (usage_kind, currency) DO UPDATE SET amount = MAX(amount + ?3, 0)",
-        (usage_kind, currency.unwrap_or_default(), delta),
-    )?;
+        )
+        .and_then(|mut cached| cached.execute((usage_kind, currency.unwrap_or_default(), delta)))?;
     Ok(())
 }
 
@@ -367,10 +371,13 @@ pub(super) fn masked(report: RunReport, masks: &Masks) -> RunReport {
 pub(super) fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::Result<()> {
     let sessions =
         serde_json::to_string(&warning.sessions).expect("invariant: Session names encode");
-    connection.execute(
-        "INSERT INTO warnings (code, message, sessions, folder) VALUES (?1, ?2, ?3, ?4)",
-        (&warning.code, &warning.message, sessions, &warning.folder),
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO warnings (code, message, sessions, folder) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .and_then(|mut cached| {
+            cached.execute((&warning.code, &warning.message, sessions, &warning.folder))
+        })?;
     Ok(())
 }
 
@@ -381,17 +388,15 @@ pub(super) fn warned(
     code: &str,
     folder: Option<&str>,
 ) -> rusqlite::Result<bool> {
-    connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1 AND folder IS ?2)",
-        (code, folder),
-        |row| row.get(0),
-    )
+    connection
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1 AND folder IS ?2)")
+        .and_then(|mut cached| cached.query_row((code, folder), |row| row.get(0)))
 }
 
 /// The Run's warnings, in the order handed over.
 fn warnings(connection: &Connection) -> rusqlite::Result<Vec<RunWarning>> {
     let mut statement = connection
-        .prepare("SELECT code, message, sessions, folder FROM warnings ORDER BY position")?;
+        .prepare_cached("SELECT code, message, sessions, folder FROM warnings ORDER BY position")?;
     let warnings = statement.query_map([], |row| {
         let sessions: String = row.get(2)?;
         Ok(RunWarning {
@@ -415,13 +420,16 @@ pub(super) fn record_nothing_done(
     nothing_done: &NothingDone,
 ) -> rusqlite::Result<()> {
     let text = serde_json::to_string(nothing_done).expect("invariant: `nothingDone` encodes");
-    connection.execute("UPDATE run SET nothing_done = ?1", [text])?;
+    connection
+        .prepare_cached("UPDATE run SET nothing_done = ?1")
+        .and_then(|mut cached| cached.execute([text]))?;
     Ok(())
 }
 
 fn nothing_done(connection: &Connection) -> rusqlite::Result<Option<NothingDone>> {
     let text: Option<String> = connection
-        .query_row("SELECT nothing_done FROM run", [], |row| row.get(0))
+        .prepare_cached("SELECT nothing_done FROM run")
+        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
         .optional()?
         .flatten();
     text.map(|text| {

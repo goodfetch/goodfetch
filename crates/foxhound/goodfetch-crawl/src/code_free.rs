@@ -92,10 +92,11 @@ pub(crate) fn record(
     };
     let extraction =
         serde_json::to_string(extraction).expect("invariant: an extraction encodes as JSON");
-    connection.execute(
-        "INSERT OR REPLACE INTO code_free_extraction (id, extraction) VALUES (1, ?1)",
-        params![extraction],
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT OR REPLACE INTO code_free_extraction (id, extraction) VALUES (1, ?1)",
+        )
+        .and_then(|mut cached| cached.execute(params![extraction]))?;
     Ok(())
 }
 
@@ -110,7 +111,9 @@ pub(crate) fn record_again(
     connection: &Connection,
     extraction: Option<&CrawlExtraction>,
 ) -> rusqlite::Result<()> {
-    connection.execute("DELETE FROM code_free_extraction", [])?;
+    connection
+        .prepare_cached("DELETE FROM code_free_extraction")
+        .and_then(|mut cached| cached.execute([]))?;
     record(connection, extraction)
 }
 
@@ -122,11 +125,8 @@ pub(crate) fn record_again(
 /// The run file's, when the row cannot be read.
 pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Option<CrawlExtraction>> {
     let kept: Option<String> = connection
-        .query_row(
-            "SELECT extraction FROM code_free_extraction WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT extraction FROM code_free_extraction WHERE id = 1")
+        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
         .optional()?;
     Ok(kept.and_then(|kept| match serde_json::from_str(&kept) {
         Ok(extraction) => Some(extraction),

@@ -76,11 +76,10 @@ async fn rejected_records(
 /// none, and declares no Dataset.
 fn has_rejection_table(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row(
+        .prepare_cached(
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'rejected_records'",
-            [],
-            |_| Ok(()),
         )
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some())
 }

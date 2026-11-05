@@ -160,7 +160,7 @@ impl Datasets {
     ///
     /// The run file's, when a row cannot be written.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
-        let mut insert = connection.prepare(
+        let mut insert = connection.prepare_cached(
             "INSERT INTO datasets (name, position, schema, schema_hash, key)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (name) DO UPDATE SET position = excluded.position,
@@ -320,8 +320,8 @@ impl Declarations {
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        let mut select =
-            connection.prepare("SELECT name, schema, key FROM datasets ORDER BY position")?;
+        let mut select = connection
+            .prepare_cached("SELECT name, schema, key FROM datasets ORDER BY position")?;
         let rows = select.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,

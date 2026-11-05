@@ -84,11 +84,12 @@ struct Page {
     paragraphs: usize,
 }
 
-/// The page at `path`, `None` for a path the site does not serve.
-fn page(path: &str) -> Option<Page> {
+/// The page at `path` of a site linking the first `linked` of [`PAGES`],
+/// `None` for a path the site does not serve.
+fn page(path: &str, linked: usize) -> Option<Page> {
     if path == "/" {
         let mut links = String::new();
-        for number in 0..PAGES.len() {
+        for number in 0..linked {
             let _ = write!(
                 links,
                 "<li><a href=\"/page-{number}\">Page {number}</a></li>"
@@ -100,8 +101,8 @@ fn page(path: &str) -> Option<Page> {
         });
     }
     let number: usize = path.strip_prefix("/page-")?.parse().ok()?;
-    let paragraphs = *PAGES.get(number)?;
-    let next = (number + 1) % PAGES.len();
+    let paragraphs = *PAGES[..linked].get(number)?;
+    let next = (number + 1) % linked;
     let links = format!(
         "<li><a href=\"/\">Index</a></li><li><a href=\"/page-{next}\">Page {next}</a></li>"
     );
@@ -129,7 +130,7 @@ impl Page {
 pub(crate) fn body_bytes() -> u64 {
     std::iter::once("/".to_owned())
         .chain((0..PAGES.len()).map(|number| format!("/page-{number}")))
-        .filter_map(|path| page(&path))
+        .filter_map(|path| page(&path, PAGES.len()))
         .map(|page| u64::try_from(page.len()).unwrap_or(u64::MAX))
         .sum()
 }
@@ -153,6 +154,8 @@ struct Site {
     robots_txt: bool,
     /// Every request it was sent, each under a Politeness permit.
     requests: Arc<AtomicU64>,
+    /// How many of [`PAGES`] it links and serves.
+    linked: usize,
 }
 
 /// The seed that redirects, to [`MOVED_TO`].
@@ -234,7 +237,7 @@ impl Transport for Site {
             return Box::pin(std::future::ready(Ok(plain(200, headers, body))));
         }
         // [`body_bytes`] holds the site's own pages, not [`Frontier`]'s.
-        let page = page(path);
+        let page = page(path, self.linked);
         let sent = if page.is_some() {
             Arc::clone(&self.sent)
         } else {
@@ -472,6 +475,10 @@ pub(crate) struct Options {
     /// apart from the crawl's: a counting one counts the fixture's syncs, which
     /// are no row's, so `xtask counts --strace` sees each sync counted.
     pub(crate) setup_vfs: Option<String>,
+    /// How many of [`PAGES`] the site links and serves, all of them when
+    /// `None`: a shorter crawl of the same pages, whose difference from the
+    /// whole one is what each page more costs (ADR 0140's `F2.prepares`).
+    pub(crate) linked_pages: Option<usize>,
 }
 
 /// How the crawl meets the Frontier's outcomes beyond a links batch.
@@ -539,7 +546,9 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         limit,
         robots_txt,
         setup_vfs,
+        linked_pages,
     } = options;
+    let linked = linked_pages.unwrap_or(PAGES.len());
     if let Some(amount) = limit {
         set_limit(home, start, amount, setup_vfs);
     }
@@ -558,6 +567,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         largest: largest_page,
         robots_txt,
         requests: Arc::clone(&requests),
+        linked,
     }));
     let engine = foxhound(tiers, metrics);
     let (records, handled) = goodfetch_test_support::runtime().block_on(async {
@@ -572,7 +582,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             send(&mut writer, HELLO).await;
             send(
                 &mut writer,
-                &crawl_start(settings, fields, handler, frontier).to_string(),
+                &crawl_start(settings, fields, handler, frontier, linked).to_string(),
             )
             .await;
             let mut records = Vec::new();
@@ -672,6 +682,7 @@ fn crawl_start(
     mut fields: serde_json::Map<String, Value>,
     handler: bool,
     frontier: Option<Frontier>,
+    linked: usize,
 ) -> Value {
     let mut settings = serde_json::Map::from_iter([
         ("fetch".to_owned(), json!({ "tier": "http" })),
@@ -712,7 +723,7 @@ fn crawl_start(
             json!({ "handler": { "concurrency": 1 } }),
         );
         let pages: Vec<Value> = std::iter::once("/".to_owned())
-            .chain((0..PAGES.len()).map(|number| format!("/page-{number}")))
+            .chain((0..linked).map(|number| format!("/page-{number}")))
             .map(|path| json!({ "url": format!("http://{HOST}{path}"), "label": "page" }))
             .collect();
         seeds.splice(0..0, pages);

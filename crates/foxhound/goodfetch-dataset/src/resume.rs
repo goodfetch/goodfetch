@@ -40,7 +40,7 @@ impl Began {
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        let mut select = connection.prepare(
+        let mut select = connection.prepare_cached(
             "SELECT name, key,
                  EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)
                  OR EXISTS (SELECT 1 FROM rejected_records
@@ -122,13 +122,14 @@ impl Datasets {
     ///
     /// The run file's, when a row cannot be written.
     pub fn record_again(&self, connection: &Connection) -> rusqlite::Result<()> {
-        connection.execute(
-            "DELETE FROM datasets
+        connection
+            .prepare_cached(
+                "DELETE FROM datasets
              WHERE NOT EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)
                AND NOT EXISTS (SELECT 1 FROM rejected_records
                    WHERE rejected_records.dataset = datasets.name)",
-            [],
-        )?;
+            )
+            .and_then(|mut cached| cached.execute([]))?;
         self.record(connection)
     }
 }

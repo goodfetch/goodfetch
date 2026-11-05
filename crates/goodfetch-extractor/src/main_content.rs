@@ -15,7 +15,7 @@
 use dom_query::{Matcher, NodeRef};
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
-use crate::extractor::{Extractor, Found};
+use crate::extractor::{Article, Extractor, Found};
 
 /// What holds no main content: navigation landmarks, and what no person
 /// reads.
@@ -45,7 +45,7 @@ pub fn compile_selectors(work: &CountedWork) {
 }
 
 /// The main content `extractor` finds in `tree`, the page at `url`, which
-/// it consumes, as HTML, and the length of its text, as
+/// it consumes, as the tree it is read from, and the length of its text, as
 /// [`main_text_length`] counts it; none when the document has no text a
 /// person reads it for. A step that finds no text where the document holds
 /// some answers what is left of its body outside those landmarks, read
@@ -56,7 +56,7 @@ pub(crate) fn main_content(
     url: &str,
     extractor: &dyn Extractor,
     work: &CountedWork,
-) -> Option<(String, usize)> {
+) -> Option<(Article, usize)> {
     let remaining = text_outside_landmarks(&tree, work);
     if length(&remaining) == 0 {
         return None;
@@ -64,9 +64,9 @@ pub(crate) fn main_content(
     let copy = work.copy_tree(Row::PageTreeCopies, &tree);
     work.count(Row::PageReadabilityRuns);
     match extractor.main_content(tree, url) {
-        Some(Found { html, text }) if length(&text) > 0 => {
+        Some(Found { article, text }) if length(&text) > 0 => {
             let found = length(&text);
-            Some((html, found))
+            Some((article, found))
         }
         Some(_) | None => Some((outside_landmarks(copy, work), length(&remaining))),
     }
@@ -169,13 +169,9 @@ fn is_landmark(
                 .any(|ancestor| ancestor.is_match(sectioning)))
 }
 
-/// The HTML of `document`'s body without its navigation landmarks and what
-/// no person reads, which it removes from the tree it consumes.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the step removes the landmarks from the tree: taking it leaves no reader after it (ADR 0138)"
-)]
-fn outside_landmarks(document: ParsedHtml, work: &CountedWork) -> String {
+/// `document`'s body without its navigation landmarks and what no person
+/// reads, which it removes from the tree it takes.
+fn outside_landmarks(document: ParsedHtml, work: &CountedWork) -> Article {
     document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
         .remove();
@@ -191,8 +187,10 @@ fn outside_landmarks(document: ParsedHtml, work: &CountedWork) -> String {
             landmark.remove_from_parent();
         }
     }
-    document
+    let body = document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"))
-        .inner_html()
-        .to_string()
+        .nodes()
+        .first()
+        .map_or_else(|| document.root().id, |body| body.id);
+    Article::children_of(document, body)
 }

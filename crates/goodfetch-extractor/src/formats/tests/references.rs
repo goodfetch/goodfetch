@@ -7,6 +7,7 @@
     reason = "ADR 0140: a test's own parse, on no Shared path"
 )]
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::page::{Image, Link, Media, MediaKind, PageFormats};
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -445,14 +446,42 @@ proptest! {
     #[test]
     fn character_references_decode_as_html5ever_decodes_them(href in references(), text in references()) {
         let html = format!("<a href=\"{}\">{text}</a>", href.replace('"', "&quot;"));
-        let tree = scraper::Html::parse_fragment(&html);
-        let selector = scraper::Selector::parse("a").unwrap();
-        let expected = tree.select(&selector).next().unwrap();
+        let work = CountedWork::default();
+        let tree = work.parse_html(Row::PageParses, &html);
+        let anchors = tree.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "a"));
+        let expected = anchors.nodes()[0];
 
         let links = links(&html, URL);
 
         prop_assert_eq!(links.len(), 1);
-        prop_assert_eq!(Some(links[0].href.as_str()), expected.attr("href"));
-        prop_assert_eq!(&links[0].text, &collapsed(&expected.text().collect::<String>()));
+        prop_assert_eq!(Some(links[0].href.clone()), expected.attr("href").map(|href| href.to_string()));
+        prop_assert_eq!(&links[0].text, &collapsed(&expected.text()));
+    }
+
+    /// The images and media of a page the Clean-up rules changed, read
+    /// from its tree, are those the streaming pass reads from its
+    /// serialization, whatever character references their `src`, `alt`
+    /// and `type` hold, a `<template>`'s in its place.
+    /// Covers: story:6-4
+    #[test]
+    fn images_and_media_read_from_the_tree_are_those_the_streaming_pass_reads(
+        src in references(),
+        alt in references(),
+        kind in references(),
+    ) {
+        let quoted = |value: &str| value.replace('"', "&quot;");
+        let (src, alt, kind) = (quoted(&src), quoted(&alt), quoted(&kind));
+        let html = format!(
+            "<body><img src=\"{src}\" alt=\"{alt}\"><video src=\"{src}\"><source src=\"{src}\" \
+             type=\"{kind}\"></video><template><audio><source src=\"{src}\"></audio></template>\
+             <img src=\"{src}\"></body>"
+        );
+        let streamed = crate::references::references(&html, URL);
+        let tree = CountedWork::default().parse_html(Row::PageParses, &html);
+
+        let (images, media) = crate::references::assets(&tree, URL);
+
+        prop_assert_eq!(images, streamed.images);
+        prop_assert_eq!(media, streamed.media);
     }
 }

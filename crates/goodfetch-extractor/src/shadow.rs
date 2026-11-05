@@ -1,54 +1,43 @@
 //! A document's composed tree (ADR 0121): a browser serializes each shadow
 //! root, open or closed, as a `<template shadowrootmode>` inside its host,
 //! which a parser keeps apart as the template's contents, so no text of it
-//! would reach the main-content step. [`composed`] puts each shadow root's
+//! would reach the main-content step. [`compose_in_place`] puts each shadow root's
 //! content in its host's place, as a person sees the page: each `<slot>`
 //! takes the host's children assigned to it (by their `slot` attribute, the
 //! default slot those with none), else keeps its own fallback content, and
 //! a host's child no slot takes is not shown.
 
-use std::borrow::Cow;
-
 use dom_query::{Matcher, NodeRef, Selection};
-use goodfetch_counted_work::ParsedHtml;
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
 /// The selector of a shadow root's template.
 const SHADOW_ROOT: &str = "template[shadowrootmode]";
 
-/// `html` with every shadow root's content in its host's place; `html`
-/// itself when it holds no shadow root.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-pub(crate) fn composed(html: &str) -> Cow<'_, str> {
-    if !html.contains("shadowrootmode") {
-        return Cow::Borrowed(html);
-    }
-    let document = dom_query::Document::from(html);
-    let templates = templates(&document);
+/// Puts every shadow root's content of `document` in its host's place, in
+/// its tree (ADR 0138); whether it held any.
+pub(crate) fn compose_in_place(document: &ParsedHtml, work: &CountedWork) -> bool {
+    let templates = templates(
+        document,
+        &work.literal_selector(Row::PageSelectorCompilations, SHADOW_ROOT),
+    );
     if templates.is_empty() {
-        return Cow::Borrowed(html);
+        return false;
     }
+    let slot = work.literal_selector(Row::PageSelectorCompilations, "slot");
     // The last found first: a shadow root inside another's content, and a
     // host among another host's children, is composed before the host that
     // holds it, so each host's children and content are composed already.
     for template in templates.iter().rev() {
-        compose(&document, template);
+        compose(document, template, &slot);
     }
-    Cow::Owned(document.html().to_string())
+    true
 }
 
 /// Every shadow root's template: those of the document in document order,
 /// then those of each shadow root's content, breadth first.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn templates(document: &ParsedHtml) -> Vec<NodeRef<'_>> {
-    let matcher = Matcher::new(SHADOW_ROOT).expect("invariant: the shadow root selector is CSS");
+fn templates<'a>(document: &'a ParsedHtml, matcher: &Matcher) -> Vec<NodeRef<'a>> {
     let mut found: Vec<NodeRef<'_>> = Selection::from(document.root())
-        .select_matcher(&matcher)
+        .select_matcher(matcher)
         .nodes()
         .to_vec();
     let mut next = 0;
@@ -56,7 +45,7 @@ fn templates(document: &ParsedHtml) -> Vec<NodeRef<'_>> {
         if let Some(contents) = contents(document, &found[next]) {
             found.extend(
                 Selection::from(contents)
-                    .select_matcher(&matcher)
+                    .select_matcher(matcher)
                     .nodes()
                     .iter()
                     .copied(),
@@ -80,11 +69,7 @@ fn contents<'a>(document: &'a ParsedHtml, template: &NodeRef<'a>) -> Option<Node
 
 /// Puts the content of the shadow root `template` holds in its host's
 /// place, its slots filled with the host's children.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn compose(document: &ParsedHtml, template: &NodeRef<'_>) {
+fn compose(document: &ParsedHtml, template: &NodeRef<'_>, slot: &Matcher) {
     let (Some(host), Some(contents)) = (template.parent(), contents(document, template)) else {
         return;
     };
@@ -93,8 +78,7 @@ fn compose(document: &ParsedHtml, template: &NodeRef<'_>) {
         .into_iter()
         .filter(|child| child.id != template.id)
         .collect();
-    let slot = Matcher::new("slot").expect("invariant: `slot` is CSS");
-    for found in Selection::from(contents).select_matcher(&slot).nodes() {
+    for found in Selection::from(contents).select_matcher(slot).nodes() {
         let name = found.attr("name").map(|name| name.to_string());
         let assigned: Vec<&NodeRef<'_>> = children
             .iter()

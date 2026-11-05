@@ -1,5 +1,5 @@
-//! A document's structured data, read from scraper's html5ever tree
-//! (ADR 0007): each JSON-LD block that parses, as JSON, and its microdata
+//! A document's structured data, read from the page's tree (ADRs 0007 and
+//! 0138): each JSON-LD block that parses, as JSON, and its microdata
 //! items as the HTML Standard's microdata and their JSON conversion read
 //! them, `itemref` included and an item that would hold itself written
 //! `"ERROR"` where it loops, as the conversion writes it. One call's
@@ -8,28 +8,25 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ego_tree::NodeId;
+use dom_query::{NodeId, NodeRef};
+use goodfetch_counted_work::ParsedHtml;
 use goodfetch_protocol::page::{MicrodataItem, MicrodataValue};
-use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
 use url::Url;
 
 /// Every `<script type="application/ld+json">` block of `tree` that
 /// parses, in document order, its text as written.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-pub(crate) fn json_ld(tree: &Html) -> Vec<Value> {
-    let selector = Selector::parse("script[type]").expect("invariant: the selector is CSS");
-    tree.select(&selector)
+pub(crate) fn json_ld(tree: &ParsedHtml) -> Vec<Value> {
+    tree.root()
+        .descendants_it()
+        .filter(|script| script.has_name("script"))
         .filter(|script| {
-            script.value().attr("type").is_some_and(|kind| {
+            script.attr("type").is_some_and(|kind| {
                 kind.trim_matches(|character: char| character.is_ascii_whitespace())
                     .eq_ignore_ascii_case("application/ld+json")
             })
         })
-        .filter_map(|script| serde_json::from_str(&script.text().collect::<String>()).ok())
+        .filter_map(|script| serde_json::from_str(&script.text()).ok())
         .collect()
 }
 
@@ -37,16 +34,13 @@ pub(crate) fn json_ld(tree: &Html) -> Vec<Value> {
 /// with `itemscope` and no `itemprop`, their URLs resolved against
 /// `base_url`. Past the budget of the whole call, each value not read yet
 /// is `"ERROR"`, and an item not reached yet has no properties.
-pub(crate) fn microdata(tree: &Html, base_url: &str) -> Vec<MicrodataItem> {
+pub(crate) fn microdata(tree: &ParsedHtml, base_url: &str) -> Vec<MicrodataItem> {
     let document = Document::of(tree, base_url);
-    let elements: Vec<ElementRef<'_>> = tree
-        .tree
+    let elements: Vec<NodeRef<'_>> = tree
         .root()
-        .descendants()
-        .filter_map(ElementRef::wrap)
+        .descendants_it()
         .filter(|element| {
-            element.value().attr("itemscope").is_some()
-                && element.value().attr("itemprop").is_none()
+            element.is_element() && element.has_attr("itemscope") && !element.has_attr("itemprop")
         })
         .collect();
     let mut reading = Reading {
@@ -115,19 +109,19 @@ struct Document<'a> {
     /// Each element's place in tree order.
     order: HashMap<NodeId, usize>,
     /// The first element of each ID.
-    ids: HashMap<&'a str, ElementRef<'a>>,
+    ids: HashMap<String, NodeRef<'a>>,
 }
 
 impl<'a> Document<'a> {
-    fn of(tree: &'a Html, base_url: &str) -> Self {
+    fn of(tree: &'a ParsedHtml, base_url: &str) -> Self {
         let mut order = HashMap::new();
         let mut ids = HashMap::new();
-        for (place, node) in tree.tree.root().descendants().enumerate() {
-            order.insert(node.id(), place);
-            if let Some(element) = ElementRef::wrap(node)
-                && let Some(id) = element.value().attr("id")
+        for (place, node) in tree.root().descendants_it().enumerate() {
+            order.insert(node.id, place);
+            if node.is_element()
+                && let Some(id) = node.attr("id")
             {
-                ids.entry(id).or_insert(element);
+                ids.entry(id.to_string()).or_insert(node);
             }
         }
         Self {
@@ -138,13 +132,13 @@ impl<'a> Document<'a> {
     }
 
     /// The item `element` is.
-    fn item(&self, element: ElementRef<'a>, reading: &mut Reading) -> MicrodataItem {
-        reading.memory.push(element.id());
-        let attribute = |name| element.value().attr(name);
+    fn item(&self, element: NodeRef<'a>, reading: &mut Reading) -> MicrodataItem {
+        reading.memory.push(element.id);
+        let attribute = |name| element.attr(name);
         let mut properties: BTreeMap<String, Vec<MicrodataValue>> = BTreeMap::new();
         for property in self.properties(element, &mut reading.left) {
             let mut value = self.property_value(property, reading);
-            let names = tokens(property.value().attr("itemprop"));
+            let names = tokens(property.attr("itemprop").as_deref());
             let last = names.len().saturating_sub(1);
             for (place, name) in names.into_iter().enumerate() {
                 // Each name past the first holds a copy of the value, which
@@ -173,8 +167,8 @@ impl<'a> Document<'a> {
         }
         reading.memory.pop();
         MicrodataItem {
-            types: tokens(attribute("itemtype")),
-            id: attribute("itemid").and_then(|id| self.resolve(id)),
+            types: tokens(attribute("itemtype").as_deref()),
+            id: attribute("itemid").and_then(|id| self.resolve(&id)),
             properties,
         }
     }
@@ -182,18 +176,18 @@ impl<'a> Document<'a> {
     /// The value of the property `property`; none past the budget.
     fn property_value(
         &self,
-        property: ElementRef<'a>,
+        property: NodeRef<'a>,
         reading: &mut Reading,
     ) -> Option<MicrodataValue> {
         if reading.left.spent() {
             return None;
         }
-        if property.value().attr("itemscope").is_none() {
+        if !property.has_attr("itemscope") {
             return self
                 .value(property, &mut reading.left)
                 .map(MicrodataValue::Text);
         }
-        if reading.memory.len() >= MAX_DEPTH || reading.memory.contains(&property.id()) {
+        if reading.memory.len() >= MAX_DEPTH || reading.memory.contains(&property.id) {
             return Some(error());
         }
         reading
@@ -205,59 +199,60 @@ impl<'a> Document<'a> {
     /// The properties of the item `root` is, in tree order: the HTML
     /// Standard's crawl over its children and the elements its `itemref`
     /// names, which stops at each item it meets, and at the budget's end.
-    fn properties(&self, root: ElementRef<'a>, left: &mut Budget) -> Vec<ElementRef<'a>> {
+    fn properties(&self, root: NodeRef<'a>, left: &mut Budget) -> Vec<NodeRef<'a>> {
         if left.spent() {
             return Vec::new();
         }
-        let mut pending: Vec<ElementRef<'a>> = root.child_elements().collect();
+        let mut pending: Vec<NodeRef<'a>> = root.element_children();
         pending.extend(
-            tokens(root.value().attr("itemref"))
+            tokens(root.attr("itemref").as_deref())
                 .iter()
                 .filter_map(|id| self.ids.get(id.as_str()).copied()),
         );
-        let mut seen = HashSet::from([root.id()]);
+        let mut seen = HashSet::from([root.id]);
         let mut results = Vec::new();
         while let Some(current) = pending.pop() {
-            if !seen.insert(current.id()) {
+            if !seen.insert(current.id) {
                 continue;
             }
             if !left.take(1, 0) {
                 break;
             }
-            if current.value().attr("itemscope").is_none() {
-                pending.extend(current.child_elements());
+            if !current.has_attr("itemscope") {
+                pending.extend(current.element_children());
             }
             if current
-                .value()
                 .attr("itemprop")
                 .is_some_and(|names| names.split_ascii_whitespace().next().is_some())
             {
                 results.push(current);
             }
         }
-        results.sort_by_key(|element| self.order.get(&element.id()).copied());
+        results.sort_by_key(|element| self.order.get(&element.id).copied());
         results
     }
 
     /// The value of the property `element` is, as the HTML Standard reads
     /// each element; none past the budget.
-    fn value(&self, element: ElementRef<'a>, left: &mut Budget) -> Option<String> {
-        let attribute = |name| element.value().attr(name);
+    fn value(&self, element: NodeRef<'a>, left: &mut Budget) -> Option<String> {
+        let attribute = |name| element.attr(name).map(|value| value.to_string());
         let url = |name| {
             attribute(name)
-                .and_then(|value| self.resolve(value))
+                .and_then(|value| self.resolve(&value))
                 .unwrap_or_default()
         };
-        let value = match element.value().name() {
-            "meta" => attribute("content").unwrap_or_default().to_owned(),
+        let name = element
+            .node_name()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        let value = match name.as_str() {
+            "meta" => attribute("content").unwrap_or_default(),
             "audio" | "embed" | "iframe" | "img" | "source" | "track" | "video" => url("src"),
             "a" | "area" | "link" => url("href"),
             "object" => url("data"),
-            "data" | "meter" => attribute("value").unwrap_or_default().to_owned(),
-            "time" if attribute("datetime").is_some() => {
-                attribute("datetime").unwrap_or_default().to_owned()
-            }
-            _ => return text(element, left),
+            "data" | "meter" => attribute("value").unwrap_or_default(),
+            "time" if attribute("datetime").is_some() => attribute("datetime").unwrap_or_default(),
+            _ => return text(&element, left),
         };
         left.take(1, value.len()).then_some(value)
     }
@@ -272,16 +267,20 @@ impl<'a> Document<'a> {
     }
 }
 
-/// The text of `element`, each node it is read from a step of the budget;
-/// none past it.
-fn text(element: ElementRef<'_>, left: &mut Budget) -> Option<String> {
+/// The text of `element`, each node it is read from, itself first, a step
+/// of the budget; none past it.
+fn text(element: &NodeRef<'_>, left: &mut Budget) -> Option<String> {
     let mut text = String::new();
-    for node in element.descendants() {
-        let piece = node.value().as_text().map_or("", |piece| &**piece);
+    for node in std::iter::once(*element).chain(element.descendants_it()) {
+        let piece = if node.is_text() {
+            node.text().to_string()
+        } else {
+            String::new()
+        };
         if !left.take(1, piece.len()) {
             return None;
         }
-        text.push_str(piece);
+        text.push_str(&piece);
     }
     Some(text)
 }

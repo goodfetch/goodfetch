@@ -246,6 +246,11 @@ pub enum Row {
     /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
     /// sends, held per document and frame read.
     PageReadDocumentWorlds,
+    /// `C2.serialization_commands`: a CDP command a page's serialization
+    /// for its formats sends (`DOM.getDocument`, `DOM.getOuterHTML`), held
+    /// per serialization: its own outcome, as no engine read in a frame
+    /// makes it.
+    PageSerializationCommands,
     /// `E4.configuration_reads`: a settings file read for a governor sample.
     GovernorConfigurationReads,
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
@@ -283,7 +288,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 100] = [
+    pub const ALL: [Self; 101] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -371,6 +376,7 @@ impl Row {
         Self::PageReadCommands,
         Self::PageReadWorldCreations,
         Self::PageReadDocumentWorlds,
+        Self::PageSerializationCommands,
         Self::GovernorConfigurationReads,
         Self::GovernorMeminfoOpens,
         Self::GovernorStaticOpens,
@@ -470,7 +476,8 @@ impl Row {
             | Self::RobotsReads => "politeness_permit",
             Self::PageReadCommands
             | Self::PageReadWorldCreations
-            | Self::PageReadDocumentWorlds => "page_read",
+            | Self::PageReadDocumentWorlds
+            | Self::PageSerializationCommands => "page_read",
             Self::GovernorConfigurationReads
             | Self::GovernorMeminfoOpens
             | Self::GovernorStaticOpens
@@ -575,6 +582,7 @@ impl Row {
             Self::PageReadCommands => "commands",
             Self::PageReadWorldCreations => "world_creations",
             Self::PageReadDocumentWorlds => "document_worlds",
+            Self::PageSerializationCommands => "serialization_commands",
             Self::GovernorMeminfoOpens => "meminfo_opens",
             Self::GovernorStaticOpens => "static_opens",
             Self::GovernorCpuStatOpens => "cpu_stat_opens",
@@ -680,6 +688,7 @@ impl Row {
             Self::PageReadCommands => "C2.commands",
             Self::PageReadWorldCreations => "C2.world_creations",
             Self::PageReadDocumentWorlds => "C2.document_worlds",
+            Self::PageSerializationCommands => "C2.serialization_commands",
             Self::GovernorConfigurationReads => "E4.configuration_reads",
             Self::GovernorMeminfoOpens => "E4.meminfo_opens",
             Self::GovernorStaticOpens => "E4.static_opens",

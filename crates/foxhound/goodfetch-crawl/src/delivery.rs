@@ -64,7 +64,7 @@
 //! drives, kept whole so every work item's way from pending to its ending
 //! passes through one loop.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::SystemTime;
 
 use futures_util::future::join_all;
@@ -85,7 +85,7 @@ use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
-    RobotsTxtFetch, SetTier, SignalFiles, TierChoice,
+    RobotsTxtFetch, SetTier, SignalFiles, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -107,6 +107,7 @@ use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
@@ -245,6 +246,7 @@ pub(crate) async fn drive(
         light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
+        untouched: Untouched::of(&run, &labels, code_free.as_ref()),
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
@@ -595,6 +597,47 @@ struct Fetching<'a> {
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
+    /// The readers of the untouched page of each Label, built once.
+    untouched: Untouched,
+}
+
+/// The readers of the untouched page a Run's documents are read by (ADR
+/// 0138), built once as its crawl starts: those of the Labels that declare
+/// a Page check of their own, and the Run's, for every other Label.
+struct Untouched {
+    run: std::sync::Arc<UntouchedReaders>,
+    labels: BTreeMap<String, std::sync::Arc<UntouchedReaders>>,
+}
+
+impl Untouched {
+    /// `run`'s readers, of its Labels `labels`: a code-free crawl's
+    /// `code_free` links and fields, each Label's Page check, else the
+    /// Run's, and the Page signature while the Run learns.
+    fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
+        let work = run.metrics().counted_work();
+        let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
+        let demand = |page_check: Option<PageCheck>| UntouchedDemand {
+            links: links.clone(),
+            fields: fields.clone(),
+            page_check,
+            signs: attempt::learns(run),
+        };
+        let readers =
+            |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));
+        Self {
+            run: readers(attempt::run_page_check(run)),
+            labels: labels
+                .settings
+                .page_checks()
+                .map(|(label, check)| (label.to_owned(), readers(Some(check.clone()))))
+                .collect(),
+        }
+    }
+
+    /// The readers of a request of `label`.
+    fn of_label(&self, label: &str) -> &std::sync::Arc<UntouchedReaders> {
+        self.labels.get(label).unwrap_or(&self.run)
+    }
 }
 
 impl Fetching<'_> {
@@ -625,6 +668,7 @@ impl Fetching<'_> {
             code_free: self.code_free.clone(),
             signal_files: self.signal_files.clone(),
             fetch_admission,
+            untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
         }
     }
 

@@ -188,6 +188,9 @@ pub struct HandOver {
     /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
     /// any other run.
     pub capture: Option<Capture>,
+    /// The readers of the untouched page its crawl request's Label reads
+    /// each document it is served with, built once per Run (ADR 0138).
+    pub untouched: Arc<crate::untouched::UntouchedReaders>,
 }
 
 /// The HTTP admission the Resource governor gave an attempt (ADR 0040),

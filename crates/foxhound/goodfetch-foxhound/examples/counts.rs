@@ -336,17 +336,15 @@ fn scoped(mut settings: Value) -> Value {
 }
 
 /// The cell with no format asked and `frontier.learning` off: the crawl
-/// runs neither the clean-up nor the main-content step (ADR 0138).
+/// runs neither the clean-up nor the main-content step (ADR 0138). Its page
+/// is still parsed once, for the readers of its untouched page (its links
+/// and fields), as the default cell's is.
 fn learning_off() -> Cell {
     Cell {
         name: "learning_off",
         settings: scoped(json!({ "frontier": { "learning": false } })),
         frontier: FRONTIER,
-        removes: &[
-            Row::PageParses,
-            Row::PageSelectorCompilations,
-            Row::PageReadabilityRuns,
-        ],
+        removes: &[Row::PageSelectorCompilations, Row::PageReadabilityRuns],
         removes_syncs: false,
         handler: false,
         limit: false,

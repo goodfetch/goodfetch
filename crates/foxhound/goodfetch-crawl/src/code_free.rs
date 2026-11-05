@@ -313,6 +313,24 @@ impl CodeFree {
         })
     }
 
+    /// What the readers of each page's untouched tree read for it, once:
+    /// under `follow: scope`, the links [`LINKS`] matches, and its fields'
+    /// locators, in order (ADR 0138).
+    pub(crate) fn untouched(&self) -> (Vec<String>, Vec<FieldLocator>) {
+        let links = if self.extraction.follow == ExtractionFollow::Scope {
+            vec![LINKS.to_owned()]
+        } else {
+            Vec::new()
+        };
+        let locators = self
+            .extraction
+            .fields
+            .values()
+            .map(|field| field.locator.clone())
+            .collect();
+        (links, locators)
+    }
+
     /// Handles the attempt `params` gives, as a handler would: reads its
     /// page's formats and fields, under `follow: scope` admits every link
     /// of its page, staged with the attempt, then answers its page's

@@ -5,18 +5,39 @@
 //! part, so two URLs of one page whose links carry their own parameters
 //! still match.
 
-use goodfetch_counted_work::CountedWork;
+use goodfetch_counted_work::{CountedWork, ParsedHtml};
 use sha2::{Digest as _, Sha256};
 
 use crate::formats::Document;
-use crate::main_content::title_and_main_text;
+use crate::main_content::{title_and_main_text, title_and_main_text_of};
 
 /// The page signature of `document`: the SHA-256 of its title, a NUL and
 /// the text of its main content, which neither holds, so text moved from
 /// one to the other makes another signature. A document with no main
 /// content is signed by its title alone.
 pub fn page_signature(document: &Document<'_>, work: &CountedWork) -> [u8; 32] {
-    let (title, text) = title_and_main_text(document.html, document.url, work);
+    signed(title_and_main_text(document.html, document.url, work))
+}
+
+/// [`page_signature`] of `document`, whose untouched tree `tree` its caller
+/// parsed once and the readers of the page as it was served read first:
+/// the main-content step consumes it, so the page is parsed no more
+/// (ADR 0138).
+pub fn page_signature_of(
+    tree: ParsedHtml,
+    document: &Document<'_>,
+    work: &CountedWork,
+) -> [u8; 32] {
+    signed(title_and_main_text_of(
+        tree,
+        document.html,
+        document.url,
+        work,
+    ))
+}
+
+/// The SHA-256 of `title`, a NUL and `text`.
+fn signed((title, text): (String, String)) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(title.as_bytes());
     digest.update([0]);

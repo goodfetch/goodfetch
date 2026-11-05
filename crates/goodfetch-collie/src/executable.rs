@@ -72,6 +72,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use identity::{Refused, identity, refuse};
 
+mod allocator;
 mod audit;
 mod audit_events;
 mod browsers;
@@ -367,6 +368,7 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
+    allocator::purge_at_once();
     let (binary, parsed, colour) = match parse(start) {
         Ok(parsed) => parsed,
         Err(exit) => return exit,

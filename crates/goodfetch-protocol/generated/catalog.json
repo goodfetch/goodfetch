@@ -1833,6 +1833,7 @@
             "commands",
             "world_creations",
             "document_worlds",
+            "serialization_commands",
             "meminfo_opens",
             "static_opens",
             "cpu_stat_opens",

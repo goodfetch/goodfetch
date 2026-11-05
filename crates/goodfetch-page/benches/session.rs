@@ -25,7 +25,11 @@
 //! C2's reads are locator waits the browser answers as ready at once, each one
 //! engine read, done once the Session's work after each navigation ended: the
 //! rows of [`READ_ROWS`] are what those reads counted, never the reads a
-//! navigation judges its document with, which are C4's outcome.
+//! navigation judges its document with, which are C4's outcome. After them the
+//! program reads each document's formats once, a serialization of the page
+//! (`DOM.getDocument`, `DOM.getOuterHTML`), its own outcome: the browser counts
+//! each `DOM.getOuterHTML` and the commands sent meanwhile, and
+//! [`SERIALIZATION_ROWS`] are what that read counted.
 //!
 //! Every request a page sends passes the interception (C5): the browser
 //! pauses each navigation's document as it leaves and again at its
@@ -138,6 +142,10 @@ pub(crate) const READ_ROWS: [Row; 3] = [
     Row::PageReadDocumentWorlds,
 ];
 
+/// The rows a page's serialization for its formats counts, read over those
+/// reads alone.
+pub(crate) const SERIALIZATION_ROWS: [Row; 1] = [Row::PageSerializationCommands];
+
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
@@ -191,6 +199,11 @@ pub(crate) struct Counted {
     pub(crate) documents: u64,
     /// The commands the browser read while the program read.
     pub(crate) read_commands: u64,
+    /// The serializations of the page the browser answered while the
+    /// program read its formats, each one `DOM.getOuterHTML`.
+    pub(crate) serializations: u64,
+    /// The commands the browser read while the program read its formats.
+    pub(crate) serialization_commands: u64,
     /// The pages the browser opened (`Target.createTarget`), each once.
     pub(crate) pages_opened: u64,
     /// The requests the browser paused, each once.
@@ -202,13 +215,15 @@ pub(crate) struct Counted {
     pub(crate) refused: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
-    /// What [`READ_ROWS`] and [`ACTION_ROWS`] counted while the program read.
+    /// What [`READ_ROWS`], [`SERIALIZATION_ROWS`] and [`ACTION_ROWS`]
+    /// counted while the program read.
     during_reads: BTreeMap<&'static str, u64>,
 }
 
 impl Counted {
     /// What `row` counted over the outcome it is held per: over the program's
-    /// reads for [`READ_ROWS`], over the whole Session but its reads for
+    /// reads for [`READ_ROWS`], over its formats reads for
+    /// [`SERIALIZATION_ROWS`], over the whole Session but its reads for
     /// [`ACTION_ROWS`], over the whole Session for every other row.
     pub(crate) fn count(&self, row: Row) -> u64 {
         let during = self.during_reads.get(row.name()).copied();
@@ -230,6 +245,12 @@ struct Reading {
     commands: AtomicU64,
     /// The document and frame of each world a call ran in.
     documents: Mutex<BTreeSet<(String, String)>>,
+    /// Whether the program reads a page's formats now.
+    serializing: AtomicBool,
+    /// The serializations answered while it read formats.
+    serializations: AtomicU64,
+    /// The commands read while it read formats, each once.
+    serialization_commands: AtomicU64,
 }
 
 /// The browser's one page: its frame's document, by its loader, and each
@@ -239,6 +260,10 @@ struct Page {
     loader: String,
     worlds: BTreeMap<u64, (String, String)>,
 }
+
+/// The document the browser serializes each page as: the program reads its
+/// links.
+const SERIALIZED: &str = r#"<!doctype html><html><head><title>Page</title></head><body><main><a href="/next">Next</a></main></body></html>"#;
 
 /// The states a locator wait waits for, as its check's argument names them.
 const WAITED: [&str; 4] = ["attached", "detached", "visible", "hidden"];
@@ -485,6 +510,20 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
             url.clone_into(&mut page.loader);
             (json!({ "frameId": FRAME, "loaderId": url }), Vec::new())
         }
+        "DOM.getDocument" => (
+            json!({ "root": {
+                "nodeId": 1,
+                "backendNodeId": 1,
+                "nodeType": 9,
+                "nodeName": "#document",
+                "localName": "",
+                "nodeValue": "",
+                "documentURL": page.loader,
+                "baseURL": page.loader,
+            } }),
+            Vec::new(),
+        ),
+        "DOM.getOuterHTML" => (json!({ "outerHTML": SERIALIZED }), Vec::new()),
         _ => (json!({}), Vec::new()),
     })
 }
@@ -726,6 +765,14 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
             {
                 counts.checks.fetch_add(1, Ordering::Relaxed);
             }
+            if reading.serializing.load(Ordering::Relaxed) {
+                reading
+                    .serialization_commands
+                    .fetch_add(1, Ordering::Relaxed);
+                if method == "DOM.getOuterHTML" {
+                    reading.serializations.fetch_add(1, Ordering::Relaxed);
+                }
+            }
             if reading.now.load(Ordering::Relaxed) {
                 reading.commands.fetch_add(1, Ordering::Relaxed);
                 if method == "Runtime.callFunctionOn" {
@@ -816,7 +863,8 @@ impl Client {
 /// What a program does on a Session: opens a page and navigates it to each of
 /// [`PAGES`], so a navigation sits in the middle, reads each document
 /// [`READS`] times once the navigation's own work ended, adding what
-/// [`READ_ROWS`] counted meanwhile to `during_reads`, then on each page but
+/// [`READ_ROWS`] counted meanwhile to `during_reads`, then its formats once,
+/// adding what [`SERIALIZATION_ROWS`] counted, then on each page but
 /// the Consent prompt's clicks, fills and presses: the prompt's page is C4's,
 /// and its runner's work no action's.
 /// Answers once the browser heard all of it, with the actions the engine
@@ -876,6 +924,21 @@ async fn program(
         heard.reading.now.store(false, Ordering::Relaxed);
         let read_rows = READ_ROWS.into_iter().zip(before);
         for (row, before) in read_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
+            *during_reads.entry(row.name()).or_default() += work.read(row) - before;
+        }
+        let before = SERIALIZATION_ROWS.map(|row| work.read(row));
+        let actions_before = ACTION_ROWS.map(|row| work.read(row));
+        heard.reading.serializing.store(true, Ordering::Relaxed);
+        client
+            .call(
+                "page.formats",
+                &json!({ "page_id": opened["page_id"], "formats": { "links": true } }),
+            )
+            .await;
+        quiet(&heard.units, work).await;
+        heard.reading.serializing.store(false, Ordering::Relaxed);
+        let serialization_rows = SERIALIZATION_ROWS.into_iter().zip(before);
+        for (row, before) in serialization_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
             *during_reads.entry(row.name()).or_default() += work.read(row) - before;
         }
         if url == CONSENT_PAGE {
@@ -1027,6 +1090,8 @@ pub(crate) fn counted(
         reads: reading.calls.load(Ordering::Relaxed),
         documents: u64::try_from(documents).expect("invariant: a few documents"),
         read_commands: reading.commands.load(Ordering::Relaxed),
+        serializations: reading.serializations.load(Ordering::Relaxed),
+        serialization_commands: reading.serialization_commands.load(Ordering::Relaxed),
         pages_opened: heard.pages.load(Ordering::Relaxed),
         requests,
         paused,

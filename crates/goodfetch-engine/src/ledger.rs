@@ -149,10 +149,15 @@ pub enum Probed {
     Live,
     /// Its writer lock is free, or held at a later run epoch: the engine
     /// that took the Slice is gone. `used` is the Usage the run journaled
-    /// under the Slice's epoch, by Slice.
+    /// under the Slice's epoch, by Slice, and `beyond` what writes a power
+    /// cut may have taken could have charged of each Slice past it (ADR
+    /// 0138's note of #1926): the requests in flight at `full`, the whole
+    /// Slice at a lower Durability level.
     Gone {
         /// What it used of each Slice.
         used: BTreeMap<SliceId, u64>,
+        /// What it may have charged of each Slice past `used`.
+        beyond: u64,
     },
     /// Its run state cannot be read.
     Unreadable,
@@ -790,7 +795,9 @@ impl Ledger {
     }
 
     /// Reclaims every held Slice whose run `probe` finds gone: charges what
-    /// the run journaled under the Slice's epoch, at most the Slice, or the
+    /// the run journaled under the Slice's epoch and what it may have
+    /// charged beyond it in writes a power cut took, at most the Slice, so
+    /// a Limit is over-charged rather than under-charged, or the
     /// whole Slice, marked for review, when its run state cannot be read.
     /// A ledger no engine created yet holds no Slice, and stays uncreated.
     ///
@@ -807,11 +814,12 @@ impl Ledger {
             let probed = probe(&holder);
             let charges: Vec<(SliceId, u64, &'static str)> = match &probed {
                 Probed::Live => continue,
-                Probed::Gone { used } => slices
+                Probed::Gone { used, beyond } => slices
                     .iter()
                     .map(|slice| {
                         let used = used.get(&slice.id).copied().unwrap_or(0);
-                        (slice.id, used.min(slice.size), "reclaimed")
+                        let charged = used.saturating_add(*beyond).min(slice.size);
+                        (slice.id, charged, "reclaimed")
                     })
                     .collect(),
                 Probed::Unreadable => slices

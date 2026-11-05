@@ -138,7 +138,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     live.charge("requests", 5, start)?;
     let used: BTreeMap<i64, u64> = journaled.used.into_iter().collect();
     ledger.reclaim(&|holder| match holder.run_id.as_str() {
-        "dead-run" => Probed::Gone { used: used.clone() },
+        "dead-run" => Probed::Gone {
+            used: used.clone(),
+            beyond: 0,
+        },
         "unreadable-run" => Probed::Unreadable,
         _ => Probed::Live,
     })?;

@@ -246,6 +246,7 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "commands",
         "world_creations",
         "document_worlds",
+        "serialization_commands",
         "meminfo_opens",
         "static_opens",
         "cpu_stat_opens",

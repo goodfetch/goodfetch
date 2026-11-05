@@ -138,7 +138,7 @@ use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
+    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
 use crate::run_trace;
 use crate::secrets::{
@@ -588,6 +588,43 @@ pub(crate) fn critical_among(
 
 /// The `storage_low` warning of a Run whose worst filesystem is `storage`
 /// (ADR 0122): its folder, its free space and what the Run sheds there.
+/// The code of the warning a Run resumed after an unclean end hands over
+/// when its reclaimed Slices may have been charged past what it used (ADR
+/// 0138's note of #1926).
+pub(crate) const LIMIT_MAY_BE_OVER_CHARGED: &str = "limit_may_be_over_charged";
+
+/// Hands over [`LIMIT_MAY_BE_OVER_CHARGED`] once for `run`, resumed after an
+/// unclean end, when an earlier run epoch charged a Limit in writes a power
+/// cut could have taken: the reclaim then charged their Slices past its
+/// journal, so a Limit may be over-charged, never under-charged.
+async fn warn_over_charged(run: &Run) {
+    let epoch = run.state.epoch();
+    let beyond = run
+        .state
+        .read(move |connection| slices::reclaimed_beyond(connection, epoch))
+        .await;
+    let message = match beyond {
+        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly at a Durability level that syncs no commit, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
+        Ok(Some(slices::OverCharge::UpTo(requests))) => format!(
+            "the Run ended uncleanly, so the Usage ledger charged its earlier Slices up to {requests} past what its journal held, for the requests that may have been in flight: its Limits may be over-charged by as much"
+        ),
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "whether the Run's Limits may be over-charged could not be read");
+            return;
+        }
+    };
+    let warning = RunWarning {
+        code: LIMIT_MAY_BE_OVER_CHARGED.to_owned(),
+        message,
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the Run's possible over-charge could not be handed over");
+    }
+}
+
 fn storage_low(storage: &RunStorage) -> RunWarning {
     RunWarning {
         code: goodfetch_protocol::run::warning::STORAGE_LOW.to_owned(),
@@ -2190,7 +2227,12 @@ impl Run {
     /// under its charging's lock as the write takes its place in the queue,
     /// so journals reach the run state in the order of the changes. A Run
     /// whose charging ended journals nothing. Answers what `work` returned
-    /// once the write's commit is acknowledged.
+    /// once the write's commit is acknowledged, before a sync of its own:
+    /// it is an attempt's claim, which a power cut may take, and the
+    /// writer bounds what such writes charge by [`DEFERRED_CHARGES`] (ADR
+    /// 0138's note of #1926).
+    ///
+    /// [`DEFERRED_CHARGES`]: crate::run_state::DEFERRED_CHARGES
     ///
     /// # Errors
     ///
@@ -2216,6 +2258,11 @@ impl Run {
             .owner
             .blocking(move || {
                 let held = shared.charging();
+                let at_most = charges
+                    .counted
+                    .iter()
+                    .map(|counted| u64::try_from(counted.delta).unwrap_or(0))
+                    .fold(0_u64, u64::saturating_add);
                 let journaled = held.as_ref().map(|charging| {
                     let UnjournaledCharges { slices, counted } = charges;
                     (
@@ -2226,7 +2273,7 @@ impl Run {
                         charging.uncapped(),
                     )
                 });
-                place.write(move |connection| {
+                place.write_with(Syncing::Deferred { charged: at_most }, move |connection| {
                     if let Some((journaled, uncapped)) = journaled
                         && (!journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped)
                     {
@@ -5707,6 +5754,9 @@ impl Registry {
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
+        if held.lifecycle == Lifecycle::Running {
+            warn_over_charged(&run).await;
+        }
         run.shared
             .progress
             .resumed(lifecycle, progress_message.clone());

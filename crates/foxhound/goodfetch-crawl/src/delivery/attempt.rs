@@ -1244,10 +1244,10 @@ impl On<'_> {
         {
             owned.capture = Some(capture.clone());
         }
-        let handed_over = self.gating.tiers.hand_over(hand_over);
+        let handed_over = self.gating.tiers.hand_over(Arc::clone(&hand_over));
         let opened = tokio::select! {
             biased;
-            opened = tiers.browser(run.id(), self.in_browser, &leased.crawl_request.url, self.context) => {
+            opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request.url, self.context) => {
                 opened.map_err(|error| failed(&error))
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),

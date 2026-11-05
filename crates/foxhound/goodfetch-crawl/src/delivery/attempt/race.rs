@@ -13,7 +13,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HttpTier, Judged, PooledSession, Race, RaceEnd, TierChoice, record_race,
+    Chosen, FetchTiers, HandOver, HttpTier, Judged, PooledSession, Race, RaceEnd, TierChoice,
+    record_race,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -71,6 +72,7 @@ impl On<'_> {
                 Navigation {
                     run: run.clone(),
                     tiers: tiers.clone(),
+                    hand_over: Arc::clone(&hand_over),
                     pooled: self.in_browser.clone(),
                     url: leased.crawl_request.url.clone(),
                     context: self.context.clone(),
@@ -349,6 +351,8 @@ const FULL_RETRY: Duration = Duration::from_millis(250);
 struct Navigation {
     run: Run,
     tiers: FetchTiers,
+    /// The attempt's hand-over, whose value its page takes.
+    hand_over: Arc<HandOver>,
     pooled: PooledSession,
     url: String,
     context: CallContext,
@@ -401,7 +405,7 @@ impl Navigation {
             biased;
             // Dropped, the navigation's page closes, its load with it.
             _ = &mut cancelled => None,
-            opened = self.tiers.browser(self.run.id(), &self.pooled, &self.url, &self.context) => Some(opened),
+            opened = self.tiers.browser(&self.hand_over, &self.pooled, &self.url, &self.context) => Some(opened),
         };
         self.second_copies.give_back(copy).await;
         let Some(opened) = opened else {

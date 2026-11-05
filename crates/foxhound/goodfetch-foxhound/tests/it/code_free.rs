@@ -79,7 +79,7 @@ fn crawl_read(
     more: &Value,
 ) -> (Value, Vec<Value>) {
     let mut more = more.clone();
-    more["politeness"] = json!({ "domain": { "delay": 0 } });
+    more["politeness"]["domain"]["delay"] = json!(0);
     let started = engine.call(
         "start",
         "crawl.start",
@@ -467,6 +467,57 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
         ),
         (value_record(&origin), read_on, Value::Null)
     );
+}
+
+/// Each attempt's browser page carries that attempt's own lease, however
+/// many attempts run at once: of 16 seeds on the `browser` tier at a
+/// concurrency of 16, one page answers 3 s late and 15 at once, and each
+/// attempt keeps its page's commands going after the others ended and
+/// gave their leases back, so every page commits a Record from its first
+/// and only request (#2083: each page took the lease of the attempt that
+/// handed its Run's pages over last, and its commands were withheld once
+/// that attempt ended).
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[test]
+fn concurrent_browser_attempts_each_keep_their_own_lease() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let mut pages = vec!["/products/1?hold=3000".to_owned()];
+    pages.extend((2..=16).map(|number| format!("/products/{number}")));
+    let seeds: Vec<Value> = pages
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("tiers.test", path), "label": "page" }))
+        .collect();
+
+    let (started, records) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("concurrent", &seeds),
+        &json!({ "formats": { "markdown": true }, "follow": "none" }),
+        &json!({
+            "fetch": { "tier": "browser" },
+            "politeness": { "sharing": "run", "domain": { "concurrency": 16 } },
+            "crawl": { "handler": { "concurrency": 16 } },
+        }),
+    );
+    assert!(engine.finish());
+
+    let observations = proving_ground.observations().unwrap();
+    let mut received: Vec<String> = ReceivedRequests::of(&observations)
+        .every()
+        .filter_map(|request| request["target"].as_str())
+        .filter(|target| target.starts_with("/products/"))
+        .map(str::to_owned)
+        .collect();
+    received.sort();
+    pages.sort();
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!((paths(&records), received), (pages.clone(), pages));
 }
 
 /// An `XPath` field the engine does not read to nodes fails the start

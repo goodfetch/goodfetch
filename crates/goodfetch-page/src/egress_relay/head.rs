@@ -218,10 +218,11 @@ fn host_of(url: &url::Url) -> Result<String, Unread> {
 impl Head {
     /// The head sent on for a plain request: to the site in origin form,
     /// or to an upstream HTTP proxy in absolute form with `authorization`,
-    /// its credentials; the hop-by-hop fields left out, and the connection
-    /// closed after one answer, since the relay judges each request's host
-    /// once, at the connection's start.
-    pub(crate) fn forwarded(&self, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
+    /// its credentials; the hop-by-hop fields left out and nothing added,
+    /// so the site answers it as it answers the browser's own request: the
+    /// egress relay closes the browser's connection after one answer
+    /// instead ([`closing`]).
+    pub(crate) fn as_sent(&self, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
         let target = match (&self.target, to_proxy) {
             (Target::Absolute { url, .. }, true) => url.as_str(),
             _ => self.path.as_str(),
@@ -238,9 +239,97 @@ impl Head {
             head.extend_from_slice(authorization.as_bytes());
             head.extend_from_slice(b"\r\n");
         }
-        head.extend_from_slice(b"Connection: close\r\n\r\n");
+        head.extend_from_slice(b"\r\n");
         head
     }
+}
+
+/// The fields of an answer's head that concern only its connection, which
+/// the relay's own `Connection: close` replaces.
+const CONNECTION_FIELDS: [&str; 3] = ["connection", "keep-alive", "proxy-connection"];
+
+/// Reads a site's answer head to a plain request from `stream`, within
+/// [`HEAD_LIMIT`]: the head the browser gets for it, its fields as sent
+/// but those of its connection, and `Connection: close`, so the browser
+/// sends no other request on a connection whose host the relay judged
+/// once; and the bytes that came after it. An interim answer (`1xx`) goes
+/// to the browser as it came, ahead of the final one, and a protocol
+/// switch (`101`) is the last head read.
+///
+/// # Errors
+///
+/// [`Unread`] when no whole head came, or one the relay does not read.
+///
+/// # Cancel safety
+///
+/// Not cancel safe: dropping the future loses the bytes read.
+pub(crate) async fn closing(
+    stream: &mut (impl AsyncRead + Unpin),
+) -> Result<(Vec<u8>, Vec<u8>), Unread> {
+    let mut buffer = Vec::with_capacity(1024);
+    let mut chunk = [0; 2048];
+    let mut to_browser = Vec::new();
+    loop {
+        while let Some((status, length)) = answer_head(&buffer)? {
+            let rest = buffer.split_off(length);
+            if (100..200).contains(&status) && status != 101 {
+                to_browser.extend_from_slice(&buffer);
+            } else {
+                to_browser.extend_from_slice(&marked_closing(&buffer));
+                return Ok((to_browser, rest));
+            }
+            buffer = rest;
+        }
+        if buffer.len() >= HEAD_LIMIT {
+            return Err(Unread::Malformed);
+        }
+        let read = stream.read(&mut chunk).await.map_err(|_| Unread::Closed)?;
+        if read == 0 {
+            return Err(Unread::Closed);
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+    }
+}
+
+/// The status and length of the answer head `buffer` starts with, if whole.
+fn answer_head(buffer: &[u8]) -> Result<Option<(u16, usize)>, Unread> {
+    let mut fields = [httparse::EMPTY_HEADER; FIELD_LIMIT];
+    let mut response = httparse::Response::new(&mut fields);
+    match response.parse(buffer) {
+        Ok(httparse::Status::Complete(length)) if length <= HEAD_LIMIT => {
+            Ok(Some((response.code.ok_or(Unread::Malformed)?, length)))
+        }
+        Ok(httparse::Status::Complete(_)) | Err(_) => Err(Unread::Malformed),
+        Ok(httparse::Status::Partial) => Ok(None),
+    }
+}
+
+/// `head`, a whole answer head, its connection's fields left out and
+/// `Connection: close` added; its other lines kept byte for byte.
+fn marked_closing(head: &[u8]) -> Vec<u8> {
+    let mut marked = Vec::with_capacity(head.len() + 19);
+    let mut lines = head.split_inclusive(|byte| *byte == b'\n');
+    if let Some(status) = lines.next() {
+        marked.extend_from_slice(status);
+    }
+    for line in lines {
+        if line == b"\r\n" || line == b"\n" {
+            break;
+        }
+        let name = line
+            .split(|byte| *byte == b':')
+            .next()
+            .unwrap_or_default()
+            .trim_ascii();
+        if !CONNECTION_FIELDS
+            .iter()
+            .any(|field| name.eq_ignore_ascii_case(field.as_bytes()))
+        {
+            marked.extend_from_slice(line);
+        }
+    }
+    marked.extend_from_slice(b"Connection: close\r\n\r\n");
+    marked
 }
 
 /// An answer head an upstream proxy sent to a `CONNECT`, read within the

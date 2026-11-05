@@ -699,9 +699,12 @@ fn a_host_the_domain_policy_refuses_is_refused_at_the_relay_too() {
     );
 }
 
-/// A plain request goes to the site in origin form, the relay's
-/// credentials left out and the connection closed after its answer; one
-/// to a private address is refused with no answer made up.
+/// A plain request goes to the site in origin form as the browser sent
+/// it, the relay's credentials left out and no `Connection: close` added,
+/// so the site answers it as it answers a browser's own; the browser's
+/// connection closes after that answer, which the relay marks
+/// `Connection: close` for it. One to a private address is refused with no
+/// answer made up.
 ///
 /// Covers: story:4-10, error:egress_refused
 #[test]
@@ -732,15 +735,60 @@ fn a_plain_request_reaches_the_site_in_origin_form_and_a_private_one_reaches_not
         &told,
     ));
 
-    assert!(answer.ends_with("ok"), "{answer}");
+    assert_eq!(
+        answer,
+        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nConnection: close\r\n\r\nok"
+    );
     assert_eq!(
         network.heads(),
-        vec!["GET /page?x=1 HTTP/1.1\r\nHost: 192.31.196.1\r\nAccept: */*\r\nConnection: close\r\n\r\n".to_owned()]
+        vec!["GET /page?x=1 HTTP/1.1\r\nHost: 192.31.196.1\r\nAccept: */*\r\n\r\n".to_owned()]
     );
     assert_eq!((refused.as_str(), served), ("", Served::Refused));
     assert_eq!(
         network.connections(),
         vec![Some(SocketAddr::new(PUBLIC, 80))]
+    );
+}
+
+/// Through an upstream HTTP proxy, a plain request goes on in absolute form
+/// with the Session's credentials for the proxy and no `Connection: close`
+/// added, and the browser's connection closes after the proxy's answer,
+/// which the relay marks `Connection: close` for it.
+///
+/// Covers: story:4-10
+#[test]
+fn through_an_upstream_proxy_a_plain_request_goes_as_sent_and_its_answer_closes_the_connection() {
+    let network = Scripted::new(
+        None,
+        Far::Proxy {
+            answer: "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n",
+        },
+    );
+    let told = Told::default();
+    let upstream_credentials = format!("Basic {}", BASE64.encode(b"user:pass"));
+    let relaying = relaying(
+        every_host(),
+        Upstream::Http {
+            authorization: Some(upstream_credentials.clone()),
+        },
+    );
+    let request = format!(
+        "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {}\r\nProxy-Connection: keep-alive\r\n\r\n",
+        authorization()
+    );
+
+    let (answer, _) = goodfetch_test_support::runtime()
+        .block_on(through(&request, b"", &relaying, &network, &told));
+
+    assert_eq!(
+        answer,
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    assert_eq!(
+        network.heads(),
+        vec![format!(
+            "GET http://192.31.196.1/page HTTP/1.1\r\nHost: 192.31.196.1\r\nProxy-Authorization: {upstream_credentials}\r\n\r\n"
+        )]
     );
 }
 

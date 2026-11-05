@@ -7,7 +7,9 @@
 //! of a dead engine's Run reclaimed by the next engine that opens the Usage
 //! ledger, from what the Run journaled, open reservations at their worst
 //! case. A test's own operation, `test.charge`, starts a Run that charges
-//! `requests` one at a time, as a crawl does before each request; another,
+//! `requests` one at a time, as a crawl does before each request, first
+//! any it journals only in one write once they are all charged, as a
+//! crawl's claim does; another,
 //! `test.reserve`, one that reserves a paid solve's worst case and settles
 //! it, as area 8's solvers will.
 
@@ -30,11 +32,12 @@ use super::run::call;
 use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::ledger::Ledger;
-use crate::runs::{ChargeError, EndedBy, Start, Started};
+use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
 use crate::transport::{self, Network};
 
-/// Starts a Run of its own and charges `amount` requests, one at a time,
-/// until one is refused.
+/// Starts a Run of its own and charges `unjournaled` requests, one at a
+/// time, journaled in one write only once `amount` more are charged, each
+/// journaled as it is, until one is refused.
 const CHARGE: Operation = Operation {
     name: "test.charge",
     description: "Starts a Run that charges requests one at a time.",
@@ -112,6 +115,13 @@ pub(super) fn charging() -> Contribution {
                 let run = started(&params, &context).await?;
                 let mut charged = 0;
                 let mut refused = false;
+                let mut unjournaled = UnjournaledCharges::default();
+                for _ in 0..params["unjournaled"].as_u64().unwrap_or(0) {
+                    run.charge_unjournaled(&mut unjournaled, "requests", 1)
+                        .await
+                        .unwrap();
+                    charged += 1;
+                }
                 for _ in 0..params["amount"].as_u64().unwrap() {
                     if params["newer_limit_after"].as_u64() == Some(charged) {
                         Ledger::at(context.runs().home().usage_ledger(), None)
@@ -126,6 +136,9 @@ pub(super) fn charging() -> Contribution {
                         }
                         Err(error) => panic!("the charge failed: {error}"),
                     }
+                }
+                if !unjournaled.is_empty() {
+                    run.write_charged(unjournaled, |_| Ok(())).await.unwrap();
                 }
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
@@ -440,14 +453,21 @@ fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
 }
 
 /// Covers: story:3-72
-#[test]
-fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run_journaled() {
+#[rstest]
+#[case::each_charge_journaled(json!({ "run_id": "orphan", "amount": 4 }))]
+#[case::charges_journaled_in_one_write(json!({ "run_id": "orphan", "unjournaled": 4, "amount": 0 }))]
+// The write journals each Slice as it is when queued, so it never
+// overwrites a later charge's journal with an older figure.
+#[case::a_charge_journaled_before_that_write(json!({ "run_id": "orphan", "unjournaled": 2, "amount": 2 }))]
+fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run_journaled(
+    #[case] charge: Value,
+) {
     let env = TestEnv::new();
     killed_after(
         &env,
         &[
             ("usage.set", monthly_install_limit(1_000)),
-            ("test.charge", json!({ "run_id": "orphan", "amount": 4 })),
+            ("test.charge", charge),
         ],
     );
 

@@ -306,6 +306,9 @@ max_delay = 30000
 [settings.fetch.kept_responses]
 urls = ["example"]
 
+[settings.frontier]
+learning = true
+
 [settings.export.csv]
 bom = true
 delimiter = "example"
@@ -648,6 +651,9 @@ max_delay = 30000
 
 [lock.fetch.kept_responses]
 urls = ["example"]
+
+[lock.frontier]
+learning = true
 
 [lock.export.csv]
 bom = true

@@ -28,6 +28,10 @@
 //! leaves a gap among the IDs. An attempt stages at most
 //! `crawl.max_staged_enqueues` admissions: one more fails with
 //! `staging_full`.
+//! An admission an attempt leaves to its commit ([`Staging::defer`]), as
+//! a code-free attempt's links, is answered to nobody: it reserves no
+//! position, and runs the first time at the commit, which keys each work
+//! item it adds as the crawl's gate does (ADR 0138).
 //!
 //! While a declared Effect's body runs in an attempt, a call that would
 //! stage an output with it fails with `effect_staging_refused` (ADR 0106).
@@ -41,6 +45,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use goodfetch_dataset::Checked;
 use goodfetch_engine::CallError;
+use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
 use goodfetch_protocol::foxhound::crawl::{
@@ -55,8 +60,12 @@ use serde_json::{Map, Value, json};
 use crate::work_items::{Fetched, FieldsRead, Positions};
 
 /// An admission through the Frontier that an attempt staged, run again at
-/// its commit.
-type Admission = Arc<dyn Fn(&Connection, &mut Positions) -> rusqlite::Result<()> + Send + Sync>;
+/// its commit, which answers the requests it added there through a link
+/// suspected a trap, each with its URL, when it was deferred to the commit
+/// ([`Staging::defer`]); one answered when staged answers none there.
+type Admission = Arc<
+    dyn Fn(&Connection, &mut Positions) -> rusqlite::Result<Vec<(String, String)>> + Send + Sync,
+>;
 
 /// What a staged call answers inside its write: `None` once its attempt
 /// ended, else its answer or the call's own refusal.
@@ -164,11 +173,13 @@ pub(crate) struct Staged {
 }
 
 /// What a commit admitted of what its attempt staged: the Key-value store
-/// writes to apply in the same transaction, in order, and each request
-/// its staging answered `added` that the commit did not add.
+/// writes to apply in the same transaction, in order, each request its
+/// staging answered `added` that the commit did not add, and each work
+/// item it added keyed, in order, when it was given the gate's keys.
 pub(crate) struct Replayed<'a> {
     pub(crate) writes: &'a [StagedWrite],
     pub(crate) not_added: Vec<NotAddedAtCommit>,
+    pub(crate) keyed: Vec<Waiting>,
 }
 
 impl Staged {
@@ -176,17 +187,29 @@ impl Staged {
     /// transaction, each at the position its staging answered, and answers
     /// the Key-value store writes, in order, to apply in it too, with each
     /// request it did not add.
-    pub(crate) fn admit(&self, connection: &Connection) -> rusqlite::Result<Replayed<'_>> {
-        let mut positions = Positions::committing(connection)?;
+    ///
+    /// Each work item it adds is keyed under `keys`, when given, as it is
+    /// added (ADR 0138). An admission deferred to the commit
+    /// ([`Staging::defer`]) adds its requests here for the first time,
+    /// and those it adds through a link suspected a trap join the
+    /// attempt's.
+    pub(crate) fn admit(
+        &mut self,
+        connection: &Connection,
+        keys: Option<Keys>,
+    ) -> rusqlite::Result<Replayed<'_>> {
+        let mut positions = Positions::committing(connection, keys)?;
         let mut not_added = Vec::new();
         for staged in &self.admitted {
             positions.keeping(staged.positions.clone());
-            (staged.admission)(connection, &mut positions)?;
+            let suspected = (staged.admission)(connection, &mut positions)?;
+            self.suspected.extend(suspected);
             not_added.extend(positions.not_added());
         }
         Ok(Replayed {
             writes: &self.writes,
             not_added,
+            keyed: positions.keyed(),
         })
     }
 
@@ -478,7 +501,7 @@ impl Staging {
         let admission = Arc::new(admission);
         let admitted = Admitted {
             admission: Arc::new(move |connection: &Connection, positions: &mut Positions| {
-                admission(connection, positions).map(drop)
+                admission(connection, positions).map(|_| Vec::new())
             }),
             positions: positions.taken(),
         };
@@ -492,6 +515,40 @@ impl Staging {
             None => return Ok(None),
         }
         Ok(answered)
+    }
+}
+
+impl Staging {
+    /// Stages `admission` with the attempt of `work_item` under
+    /// `lease_epoch` unrun, for its commit to run, the first time, in the
+    /// same write: a code-free attempt's links, which nothing reads before
+    /// its outcome, cost no write of their own (ADR 0138). `admission`
+    /// answers there the requests it added through a link suspected a
+    /// trap, each with its URL. `None` once the attempt ended; refused as
+    /// [`Staging::admit`] refuses one during a declared Effect or past
+    /// `crawl.max_staged_enqueues`.
+    pub(crate) fn defer(
+        &self,
+        work_item: &str,
+        lease_epoch: u64,
+        admission: impl Fn(&Connection, &mut Positions) -> rusqlite::Result<Vec<(String, String)>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Option<Result<(), CallError>> {
+        let mut entries = self.entries();
+        let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
+        if entry.effects > 0 {
+            return Some(Err(refused_in_effect(work_item, lease_epoch)));
+        }
+        if u64::try_from(entry.admitted.len()).unwrap_or(u64::MAX) >= self.max {
+            return Some(Err(full(work_item, lease_epoch, self.max)));
+        }
+        entry.admitted.push(Admitted {
+            admission: Arc::new(admission),
+            positions: BTreeMap::new(),
+        });
+        Some(Ok(()))
     }
 }
 

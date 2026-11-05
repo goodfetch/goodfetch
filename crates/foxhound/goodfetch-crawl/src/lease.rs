@@ -23,6 +23,7 @@ use std::time::Duration;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
+use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
@@ -96,6 +97,9 @@ pub(crate) struct Leases {
     staging: Staging,
     work: CountedWork,
     datasets: Datasets,
+    /// How each work item a commit adds is keyed, as the crawl's gate
+    /// keys it; `None` leaves them for the delivery to key.
+    keys: Option<Keys>,
 }
 
 impl Leases {
@@ -110,7 +114,16 @@ impl Leases {
             staging: Staging::default(),
             work: CountedWork::default(),
             datasets: Datasets::default(),
+            keys: None,
         }
+    }
+
+    /// The same, each commit keying the work items it adds under `keys`,
+    /// the crawl's gate's, as it adds them (ADR 0138).
+    #[must_use]
+    pub(crate) fn keyed_by(mut self, keys: Keys) -> Self {
+        self.keys = Some(keys);
+        self
     }
 
     /// The same, each commit's Records counting their work on `work`
@@ -203,6 +216,96 @@ pub(crate) struct Committed {
     /// kept marked, each with its URL and mark, whose `trap_link_suspected`
     /// Provenance entries the caller writes (ADR 0035).
     pub(crate) suspected: Vec<crate::staging::Marked>,
+    /// Each work item it added, keyed as it was added, in order, for the
+    /// delivery to offer its domain's queue (ADR 0138).
+    pub(crate) keyed: Vec<Waiting>,
+}
+
+/// What an attempt's commit writes, taken from its lease while it held
+/// ([`WorkItemLease::committing`]), for one write of run state to run.
+pub(crate) struct Commit {
+    work_item: String,
+    epoch: u64,
+    staging: Staging,
+    counted_work: CountedWork,
+    declared: Datasets,
+    keys: Option<Keys>,
+    masks: Masks,
+    folder: std::path::PathBuf,
+    records: Vec<PushedRecord>,
+    ended_at: PointInTime,
+}
+
+impl Commit {
+    /// Its attempt's work item and lease epoch.
+    pub(crate) fn attempt(&self) -> (&str, u64) {
+        (&self.work_item, self.epoch)
+    }
+
+    /// When its work item's outcome ends.
+    pub(crate) fn ended_at(&self) -> &PointInTime {
+        &self.ended_at
+    }
+
+    /// Writes it in `connection`'s transaction: `None` when the run file no
+    /// longer holds its lease, the refusal of a Record that does not hold
+    /// for its Dataset, nothing written then, or what it committed.
+    ///
+    /// # Errors
+    ///
+    /// The run state's.
+    pub(crate) fn write(
+        self,
+        connection: &rusqlite::Connection,
+    ) -> rusqlite::Result<Option<Result<Committed, CallError>>> {
+        let Self {
+            work_item,
+            epoch,
+            staging,
+            counted_work,
+            declared,
+            keys,
+            masks,
+            folder,
+            records,
+            ended_at,
+        } = self;
+        let mut staged = staging.take(&work_item, epoch);
+        if work_items::attempt(connection, &work_item, epoch)?.is_none() {
+            return Ok(None);
+        }
+        let answered = match declared.check(records, &counted_work) {
+            Ok(answered) => answered,
+            Err(refused) => return Ok(Some(Err(refused))),
+        };
+        let replayed = staged.admit(connection, keys)?;
+        let (writes, not_added, keyed) = (replayed.writes, replayed.not_added, replayed.keyed);
+        let files = goodfetch_engine::key_value_store::apply(connection, &folder, writes)?;
+        let suspected = staged.suspected(connection)?;
+        let fetched = staged.fetched().clone();
+        let fields = staged.fields().clone();
+        let mut records = staged.records();
+        records.append(answered);
+        let committed = work_items::Committed {
+            records: &records,
+            fetched: &fetched,
+            fields: &fields,
+            masks: &masks,
+            ended_at: &ended_at,
+            not_added: &not_added,
+            work: &counted_work,
+            keeps_records: declared.keeps_records(),
+        };
+        Ok(
+            work_items::commit(connection, &work_item, epoch, committed)?.then_some(Ok(
+                Committed {
+                    files,
+                    suspected,
+                    keyed,
+                },
+            )),
+        )
+    }
 }
 
 /// Why an attempt's commit did not count.
@@ -380,10 +483,13 @@ impl WorkItemLease {
     /// outcome ended at `ended_at`, when it still holds, the run file
     /// holds it too and each of `records` holds for the Dataset it names,
     /// each Record naming its Provenance and keeping every value `masks`
-    /// holds as its `%name%`; answers what it committed: the kept files of the Run's folder the staged Key-value
-    /// store writes took out, which the caller forgets, and the requests
-    /// it added through a link suspected a trap and kept marked, whose
-    /// Provenance the caller writes (ADR 0035).
+    /// holds as its `%name%`; answers what it committed: the kept files of
+    /// the Run's folder the staged Key-value store writes took out, which
+    /// the caller forgets, the requests it added through a link suspected a
+    /// trap and kept marked, whose Provenance the caller writes (ADR 0035),
+    /// and the work items it added keyed. A job of its own: an attempt's
+    /// outcome writes [`WorkItemLease::committing`]'s [`Commit`] in its one
+    /// job instead (ADR 0138).
     ///
     /// # Errors
     ///
@@ -402,58 +508,63 @@ impl WorkItemLease {
         records: Vec<PushedRecord>,
         ended_at: PointInTime,
     ) -> Result<Committed, CommitError> {
+        let commit = self.committing(state, masks, records, ended_at)?;
+        let written = state
+            .write(move |connection| commit.write(connection))
+            .await;
+        self.committed(written)
+    }
+
+    /// What committing `records` writes, as [`WorkItemLease::commit`]
+    /// says, for a write of `state` to run with [`Commit::write`], whose
+    /// answer [`WorkItemLease::committed`] then reads.
+    ///
+    /// # Errors
+    ///
+    /// `LeaseLost` when it ended first: nothing is to be committed.
+    pub(crate) fn committing(
+        &self,
+        state: &RunState,
+        masks: &Masks,
+        records: Vec<PushedRecord>,
+        ended_at: PointInTime,
+    ) -> Result<Commit, CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {
             self.trace("refuse_commit", &lease, Some("lease_lost"));
             return Err(CommitError::LeaseLost);
         }
-        let work_item = self.0.work_item.to_string();
-        let epoch = lease.epoch();
-        let staging = self.0.leases.staging.clone();
-        let counted_work = self.0.leases.work.clone();
-        let declared = self.0.leases.datasets.clone();
-        let masks = masks.clone();
-        let folder = state
-            .path()
-            .parent()
-            .expect("invariant: a run file lies in its Run's folder")
-            .to_owned();
-        match state
-            .write(move |connection| {
-                let staged = staging.take(&work_item, epoch);
-                if work_items::attempt(connection, &work_item, epoch)?.is_none() {
-                    return Ok(None);
-                }
-                let answered = match declared.check(records, &counted_work) {
-                    Ok(answered) => answered,
-                    Err(refused) => return Ok(Some(Err(refused))),
-                };
-                let replayed = staged.admit(connection)?;
-                let suspected = staged.suspected(connection)?;
-                let files =
-                    goodfetch_engine::key_value_store::apply(connection, &folder, replayed.writes)?;
-                let not_added = replayed.not_added;
-                let fetched = staged.fetched().clone();
-                let fields = staged.fields().clone();
-                let mut records = staged.records();
-                records.append(answered);
-                let committed = work_items::Committed {
-                    records: &records,
-                    fetched: &fetched,
-                    fields: &fields,
-                    masks: &masks,
-                    ended_at: &ended_at,
-                    not_added: &not_added,
-                    work: &counted_work,
-                    keeps_records: declared.keeps_records(),
-                };
-                Ok(
-                    work_items::commit(connection, &work_item, epoch, committed)?
-                        .then_some(Ok(Committed { files, suspected })),
-                )
-            })
-            .await
-        {
+        let leases = &self.0.leases;
+        Ok(Commit {
+            work_item: self.0.work_item.to_string(),
+            epoch: lease.epoch(),
+            staging: leases.staging.clone(),
+            counted_work: leases.work.clone(),
+            declared: leases.datasets.clone(),
+            keys: leases.keys.clone(),
+            masks: masks.clone(),
+            folder: state
+                .path()
+                .parent()
+                .expect("invariant: a run file lies in its Run's folder")
+                .to_owned(),
+            records,
+            ended_at,
+        })
+    }
+
+    /// What the write of a [`Commit`] of it answered, `written`, as
+    /// [`WorkItemLease::commit`] answers it, each transition traced.
+    ///
+    /// # Errors
+    ///
+    /// As [`WorkItemLease::commit`]'s.
+    pub(crate) fn committed(
+        &self,
+        written: Result<Option<Result<Committed, CallError>>, RunStateError>,
+    ) -> Result<Committed, CommitError> {
+        let lease = self.0.state.borrow().lease;
+        match written {
             Ok(Some(Ok(committed))) => {
                 self.trace("commit", &lease, None);
                 Ok(committed)

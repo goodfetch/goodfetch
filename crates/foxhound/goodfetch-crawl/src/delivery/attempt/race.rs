@@ -23,8 +23,8 @@ use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Served, Tiering, failed, judged, learn,
-    reached_through_trap, read_by_browser, record_tier, refused_type,
+    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Served, Taught, Tiering, failed,
+    judged, learn, reached_through_trap, read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -49,7 +49,7 @@ impl On<'_> {
         tiering: &Tiering,
         http: &HttpTier,
         raced: &Raced,
-    ) -> (Answer, Vec<(String, String)>, Option<Duration>) {
+    ) -> (Answer, Taught, Option<Duration>) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let started = run.clock().now();
@@ -137,14 +137,10 @@ impl On<'_> {
 
     /// The attempt once its race ended as `ended` says: the winner's page
     /// handed to the handler, recorded as the race's, or how it ended.
-    async fn after_race(
-        &self,
-        tiers: &FetchTiers,
-        ended: RaceEnded,
-    ) -> (Answer, Vec<(String, String)>) {
+    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded) -> (Answer, Taught) {
         let (run, leased) = (self.run, self.leased);
         match ended.won {
-            Won::Ended(answer) => (answer, Vec::new()),
+            Won::Ended(answer) => (answer, Taught::default()),
             Won::Neither => {
                 let answer = match ended.navigation_lost {
                     Some(Lost::Failed(answer) | Lost::Decoy(answer)) => Some(answer),
@@ -152,11 +148,18 @@ impl On<'_> {
                 };
                 (
                     answer.expect("invariant: a race neither run won ended with a failure"),
-                    Vec::new(),
+                    Taught::default(),
                 )
             }
             Won::BrowserFetch(page_id) => {
-                let merged = learn(run, tiers, &page_id, leased).await;
+                let merged = learn(
+                    run,
+                    tiers,
+                    &page_id,
+                    leased,
+                    self.gating.code_free.is_some(),
+                )
+                .await;
                 let encoding = tiers.encoding(&page_id);
                 let certificate_exception = tiers.certificate_exception(&page_id);
                 record_tier(
@@ -193,7 +196,7 @@ impl On<'_> {
             }
             Won::Navigation(page_id, response) => {
                 if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
-                    return (refused, Vec::new());
+                    return (refused, Taught::default());
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
                 let certificate_exception = match &response {
@@ -212,7 +215,7 @@ impl On<'_> {
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
-                (answer, Vec::new())
+                (answer, Taught::default())
             }
         }
     }

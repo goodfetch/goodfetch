@@ -186,6 +186,88 @@ pub(crate) async fn enqueue_links(
         crawl_request_id: &params.crawl_request_id,
         lease_epoch: params.lease_epoch,
     };
+    let (run, staging, batch) = prepared(&params, &crawls, &tiers).await?;
+    let answered = run
+        .state()
+        .write(move |connection| {
+            let (crawl_request_id, lease_epoch) = (
+                batch.request.crawl_request_id.clone(),
+                batch.request.lease_epoch,
+            );
+            let answered = staging.admit(
+                connection,
+                &crawl_request_id,
+                lease_epoch,
+                move |connection, positions| batch.add(connection, positions),
+            )?;
+            note_suspected(
+                &staging,
+                (&crawl_request_id, lease_epoch),
+                answered.as_ref(),
+            );
+            Ok(answered)
+        })
+        .await;
+    match answered {
+        Ok(Some(Ok(admitted))) => Ok(admitted.links),
+        Ok(Some(Err(refused))) => Err(refused),
+        Ok(None) => Err(attempt.ended()),
+        Err(error) => Err(attempt.unavailable(error)),
+    }
+}
+
+/// Stages the links `params` names with its attempt as
+/// [`enqueue_links`] does, unanswered and unrun: its attempt's commit
+/// admits them, the first time, in its outcome's one job (ADR 0138), so a
+/// code-free attempt, which reads no answer, writes nothing for them
+/// before. A link added through a link suspected a trap is marked in
+/// Provenance once that commit kept it.
+///
+/// # Errors
+///
+/// As [`enqueue_links`]'s before its write, `attempt_ended` once the
+/// attempt ended, and [`Staging::defer`]'s refusals.
+pub(crate) async fn defer_links(
+    params: &CrawlRequestEnqueueLinksParams,
+    crawls: &Crawls,
+    tiers: &FetchTiers,
+) -> Result<(), CallError> {
+    let attempt = Attempt {
+        run_id: &params.run_id,
+        crawl_request_id: &params.crawl_request_id,
+        lease_epoch: params.lease_epoch,
+    };
+    let (_, staging, batch) = prepared(params, crawls, tiers).await?;
+    let deferred = staging.defer(
+        &params.crawl_request_id,
+        params.lease_epoch,
+        move |connection, positions| {
+            Ok(match batch.add(connection, positions)? {
+                Some(Ok(admitted)) => admitted.suspected,
+                Some(Err(_)) | None => Vec::new(),
+            })
+        },
+    );
+    match deferred {
+        Some(deferred) => deferred,
+        None => Err(attempt.ended()),
+    }
+}
+
+/// The live crawl of `params`'s Run, its staging, and the batch of links
+/// its locator matches on the served page, owned for a write to admit,
+/// its Payloads fitted and its patterns compiled; one batch's
+/// transaction counted.
+async fn prepared(
+    params: &CrawlRequestEnqueueLinksParams,
+    crawls: &Crawls,
+    tiers: &FetchTiers,
+) -> Result<(Run, Staging, OwnedBatch), CallError> {
+    let attempt = Attempt {
+        run_id: &params.run_id,
+        crawl_request_id: &params.crawl_request_id,
+        lease_epoch: params.lease_epoch,
+    };
     if params.payload.is_some() && params.payloads.is_some() {
         return Err(CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -207,8 +289,8 @@ pub(crate) async fn enqueue_links(
     for _ in params.include.iter().chain(&params.exclude) {
         work.count(Row::BatchCompilations);
     }
-    let (served, base) = served(&tiers, &params.locator, &work).await?;
-    payloads_fit(&params, served.elements.len())?;
+    let (served, base) = served(tiers, &params.locator, &work).await?;
+    payloads_fit(params, served.elements.len())?;
     let links: Vec<Link> = served
         .elements
         .into_iter()
@@ -225,50 +307,52 @@ pub(crate) async fn enqueue_links(
             },
         })
         .collect();
-    let request = params.clone();
-    let encoding = served.encoding;
     work.count(Row::BatchTransactions);
-    let answered = run
-        .state()
-        .write(move |connection| {
-            let (crawl_request_id, lease_epoch) =
-                (request.crawl_request_id.clone(), request.lease_epoch);
-            let answered = staging.admit(
-                connection,
-                &crawl_request_id,
-                lease_epoch,
-                move |connection, positions| {
-                    add(
-                        connection,
-                        positions,
-                        &egress,
-                        &request,
-                        &Batch {
-                            links: &links,
-                            base: &base,
-                            encoding,
-                            narrowing: Narrowing {
-                                include: &include,
-                                exclude: &exclude,
-                            },
-                            work: &work,
-                        },
-                    )
+    let batch = OwnedBatch {
+        request: params.clone(),
+        egress,
+        links,
+        base,
+        encoding: served.encoding,
+        include,
+        exclude,
+        work,
+    };
+    Ok((run, staging, batch))
+}
+
+/// A batch of links and all it admits against, owned by the write that
+/// admits it, which may run it again at the commit.
+struct OwnedBatch {
+    request: CrawlRequestEnqueueLinksParams,
+    egress: std::sync::Arc<Policy>,
+    links: Vec<Link>,
+    base: Url,
+    encoding: &'static goodfetch_frontier::Encoding,
+    include: Patterns,
+    exclude: Patterns,
+    work: CountedWork,
+}
+
+impl OwnedBatch {
+    /// Admits it at `positions`, as [`add`] does.
+    fn add(&self, connection: &Connection, positions: &mut Positions) -> Answered<Admitted> {
+        add(
+            connection,
+            positions,
+            &self.egress,
+            &self.request,
+            &Batch {
+                links: &self.links,
+                base: &self.base,
+                encoding: self.encoding,
+                narrowing: Narrowing {
+                    include: &self.include,
+                    exclude: &self.exclude,
                 },
-            )?;
-            note_suspected(
-                &staging,
-                (&crawl_request_id, lease_epoch),
-                answered.as_ref(),
-            );
-            Ok(answered)
-        })
-        .await;
-    match answered {
-        Ok(Some(Ok(admitted))) => Ok(admitted.links),
-        Ok(Some(Err(refused))) => Err(refused),
-        Ok(None) => Err(attempt.ended()),
-        Err(error) => Err(attempt.unavailable(error)),
+                work: &self.work,
+            },
+        )
     }
 }
 

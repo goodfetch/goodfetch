@@ -122,7 +122,7 @@ mod site_preferences;
 mod sitemap_fetch;
 
 use learning::learn;
-pub(super) use learning::learns;
+pub(super) use learning::{Taught, learns};
 use site_preferences::{
     escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
     robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
@@ -412,10 +412,8 @@ pub(super) struct Attempt {
     pub(super) session: ServingSession,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
-    /// The pending requests a rule its page taught merged, which it ended
-    /// `skipped` with `duplicate`, by ID with their domain key: they leave
-    /// their queues.
-    pub(super) merged: Vec<(String, String)>,
+    /// What its page taught the Frontier, or teaches it with its outcome.
+    pub(super) taught: Taught,
     /// The sample it was, with how its two runs weighed, once both
     /// answered.
     pub(super) sampled: Option<(Sampled, Weighed)>,
@@ -471,7 +469,7 @@ pub(super) async fn attempt(
         gating: &gating,
         in_flight: &in_flight,
     };
-    let mut merged = Vec::new();
+    let mut merged = Taught::default();
     let mut sampled = None;
     let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
@@ -547,7 +545,7 @@ pub(super) async fn attempt(
         session,
         lease,
         answer,
-        merged,
+        taught: merged,
         sampled,
         raced,
     }
@@ -708,7 +706,7 @@ impl On<'_> {
         http: &HttpTier,
         choice: &TierChoice,
         plan: Option<&ReplayPlan>,
-    ) -> (Answer, Vec<(String, String)>) {
+    ) -> (Answer, Taught) {
         let (run, merged) = match self
             .on_http(tiering, http, (choice, plan), Chosen::AsChosen)
             .await
@@ -752,7 +750,7 @@ impl On<'_> {
         &self,
         tiering: &Tiering,
         http: &HttpTier,
-    ) -> (Answer, Vec<(String, String)>, Option<Weighed>) {
+    ) -> (Answer, Taught, Option<Weighed>) {
         let (run, merged) = match self
             .on_http(tiering, http, (&SAMPLED, None), Chosen::Sample(None))
             .await
@@ -902,7 +900,7 @@ impl On<'_> {
         http: &HttpTier,
         (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
-    ) -> Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)> {
+    ) -> Result<(HttpRun, Taught), (Answer, Taught)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self
@@ -923,7 +921,7 @@ impl On<'_> {
         let page_id = self
             .document(tiering, http, choice, &hand_over)
             .await
-            .map_err(|answer| (answer, Vec::new()))?
+            .map_err(|answer| (answer, Taught::default()))?
             .keep();
         *self.document.lock().await = tiers.response(&page_id);
         // A `discovered_api` page replays its Label's calls (ADR 0020).
@@ -940,7 +938,7 @@ impl On<'_> {
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((
                 escalated_unhandled(ATTEMPT_ENDED.name, message, call),
-                Vec::new(),
+                Taught::default(),
             ));
         }
         if let Some(challenged) = self.challenged(tiers, &page_id, choice, how).await {
@@ -962,7 +960,7 @@ impl On<'_> {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
                 tiers.close(&page_id);
-                return Err((failed(&error), Vec::new()));
+                return Err((failed(&error), Taught::default()));
             }
             Some(Judged::Escalated) => {
                 tiers.close(&page_id);
@@ -971,7 +969,7 @@ impl On<'_> {
                 let message = "The page failed its expected page on a tier short of the browser.";
                 return Ok((
                     escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    Vec::new(),
+                    Taught::default(),
                 ));
             }
         }
@@ -1017,16 +1015,18 @@ impl On<'_> {
     /// teaches: a sample's runs on a cheaper tier are discarded for the
     /// browser's, whatever they find, so they teach nothing (ADR 0020's
     /// #768 note).
-    async fn taught(
-        &self,
-        tiers: &FetchTiers,
-        page_id: &PageId,
-        how: Chosen,
-    ) -> Vec<(String, String)> {
+    async fn taught(&self, tiers: &FetchTiers, page_id: &PageId, how: Chosen) -> Taught {
         if matches!(how, Chosen::Sample(_)) {
-            return Vec::new();
+            return Taught::default();
         }
-        learn(self.run, tiers, page_id, self.leased).await
+        learn(
+            self.run,
+            tiers,
+            page_id,
+            self.leased,
+            self.gating.code_free.is_some(),
+        )
+        .await
     }
 
     /// How the run on `choice`, its page `page_id` served, ends when the
@@ -1041,7 +1041,7 @@ impl On<'_> {
         page_id: &PageId,
         choice: &TierChoice,
         how: Chosen,
-    ) -> Option<Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)>> {
+    ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (block, error) = tiers
             .block(page_id)
             .await
@@ -1055,9 +1055,9 @@ impl On<'_> {
                     "A Challenge met on a tier short of the browser moved the request there.",
                     BLOCKED,
                 ),
-                Vec::new(),
+                Taught::default(),
             )),
-            Action::Blocked => Err((failed(&error), Vec::new())),
+            Action::Blocked => Err((failed(&error), Taught::default())),
         })
     }
 
@@ -1524,7 +1524,7 @@ async fn handled(
     if let Some(code_free) = code_free {
         return tokio::select! {
             biased;
-            handled = code_free.handled(params, context, run.point_in_time()) => match handled {
+            handled = code_free.handled(params, run.point_in_time()) => match handled {
                 Ok((handled, fields)) => {
                     lease.fields_read(fields);
                     Answer::Handled(handled)
@@ -1588,11 +1588,17 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
         biased;
         () = run.cancellation().cancelled() => {}
         answer = sent.answer() => {
-            if let Ok(handled) = answer
-                && let Err(CommitError::LeaseLost) =
-                    lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await
-            {
-                run.record_outcome(LEASE_LOST.name);
+            if let Ok(handled) = answer {
+                match lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await {
+                    Err(CommitError::LeaseLost) => run.record_outcome(LEASE_LOST.name),
+                    Err(CommitError::Refused(refused)) => {
+                        tracing::debug!(code = refused.code(), run_id = %run.id(), "a late answer's Records were refused");
+                    }
+                    Err(CommitError::RunState(error)) => {
+                        tracing::debug!(%error, run_id = %run.id(), "a late answer was not written");
+                    }
+                    Ok(_) => {}
+                }
             }
         }
     }

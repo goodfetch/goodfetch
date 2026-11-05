@@ -107,6 +107,9 @@ hiding = "auto"
 [settings.content]
 extractor = "dom_smoothie"
 
+[settings.extraction]
+removal_share = "estimate"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"

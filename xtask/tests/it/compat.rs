@@ -154,6 +154,29 @@ fn check_fails(#[case] change: fn(&Workspace), #[case] expected: Vec<Finding>) {
     assert_eq!(outcome.code, 1);
 }
 
+/// A writer that fails stops the check with its error, whatever the other
+/// writers, which run beside it, produce.
+#[test]
+fn a_failing_writer_fails_the_check_with_its_error() {
+    let workspace = Workspace::from_fixture("compat");
+    workspace.edit(
+        "crates/goodfetch-sample-formats/examples/compat-sample-store.rs",
+        "std::fs::write(folder.join(\"store.sql\"), DUMP).expect(\"writing store.sql\");",
+        "let _ = (folder, DUMP);\n    eprintln!(\"the scenario broke\");\n    std::process::exit(3);",
+    );
+
+    let outcome = workspace.xtask(&["compat", "check"]);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains("compat-sample-store failed: the scenario broke"),
+        "{}",
+        outcome.stderr
+    );
+}
+
 const SETTINGS_NAME_TYPE: &str =
     "\"description\": \"The settings' name.\",\n          \"type\": \"string\"";
 

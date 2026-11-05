@@ -3,7 +3,11 @@
 //! then the checks the change's own gate would run at merge. A change of
 //! documents alone (`xtask affected`'s `gate=docs`) takes the docs gate's
 //! checks, as `just merge` does (ADR 0135); any other change, and `all`,
-//! takes every lint and the Quick suite. The steps run through a stand-in
+//! takes every lint and the Quick suite. What changed is read against the
+//! base the hook gives, else the branch's upstream off `main`, else
+//! `origin/main`. A green run on a clean checkout records its tree, and the
+//! hook skips a push of a recorded tree, so `just quick` never runs twice on
+//! one tree (`TESTING.md`, Checks by role). The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
 //! `cargo`. The Quick suite's Cargo targets come from `ci/quick-targets.sh`,
 //! run here on a fixture workspace, and it runs its selected members' tests
@@ -71,11 +75,22 @@ struct Run {
 /// Runs the repository's `ci/quick.sh` in the workspace, with the stand-ins
 /// first on `PATH`.
 fn quick(workspace: &Workspace, stand_in: &Path, args: &[&str]) -> Run {
+    quick_with_env(workspace, stand_in, args, &[])
+}
+
+/// Runs `ci/quick.sh` as `quick` does, with these variables added.
+fn quick_with_env(
+    workspace: &Workspace,
+    stand_in: &Path,
+    args: &[&str],
+    variables: &[(&str, &str)],
+) -> Run {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/quick.sh");
     let output = workspace
         .command(script)
         .args(args)
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .envs(variables.iter().copied())
         .output()
         .unwrap();
     let read = |file: &str| -> Vec<String> {
@@ -138,10 +153,256 @@ fn any_other_change_runs_every_lint_and_the_quick_suite_over_what_changed(#[case
             "floor-guard",
             "commit-leaks",
             "lint",
-            "_suite quick ",
+            "test-affected quick --local",
             "_skips-report"
         ]
     );
+}
+
+#[test]
+fn the_change_is_read_against_the_base_the_pre_push_hook_gives() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "quick");
+
+    let run = quick_with_env(
+        &workspace,
+        &stand_in,
+        &[],
+        &[("GOODFETCH_QUICK_BASE", "4b825dc6")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.cargo_calls, [format!("{AFFECTED} --since 4b825dc6")]);
+    assert_eq!(
+        run.calls,
+        [
+            "floor-guard",
+            "commit-leaks",
+            "lint",
+            "test-affected quick --local --since 4b825dc6",
+            "_skips-report"
+        ]
+    );
+}
+
+/// A repository on `branch`, which tracks `origin/spec`.
+fn repository_on(workspace: &Workspace, branch: &str) {
+    workspace.git(&["init", "--quiet", &format!("--initial-branch={branch}")]);
+    workspace.commit_all();
+    workspace.git(&["remote", "add", "origin", "/nonexistent"]);
+    workspace.git(&["update-ref", "refs/remotes/origin/spec", "HEAD"]);
+    workspace.git(&["branch", "--quiet", "--set-upstream-to=origin/spec"]);
+}
+
+/// Off `main`, a branch's upstream is the integration branch its change goes
+/// into; `main`'s change is read against `origin/main`, as before.
+#[rstest]
+#[case::a_ticket_branch("ticket", Some("origin/spec"))]
+#[case::main("main", None)]
+fn without_a_base_the_change_is_read_against_the_upstream_off_main(
+    #[case] branch: &str,
+    #[case] since: Option<&str>,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    repository_on(&workspace, branch);
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "docs");
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let expected = match since {
+        Some(since) => format!("{AFFECTED} --since {since}"),
+        None => AFFECTED.to_owned(),
+    };
+    assert_eq!(run.cargo_calls, [expected]);
+}
+
+/// The file in the repository's common folder where a green run records its
+/// tree, one a line.
+fn recorded_trees(workspace: &Workspace) -> Option<String> {
+    let common = workspace.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    std::fs::read_to_string(Path::new(common.trim()).join("goodfetch-quick-green")).ok()
+}
+
+#[rstest]
+#[case::the_docs_gate("docs")]
+#[case::the_quick_suite("quick")]
+fn a_green_run_on_a_clean_checkout_records_its_tree(#[case] gate: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    repository_on(&workspace, "ticket");
+    selection(&stand_in, gate);
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+    assert_eq!(recorded_trees(&workspace).as_deref(), Some(tree.as_str()));
+}
+
+#[rstest]
+#[case::a_red_step(Some("lint"), false)]
+#[case::uncommitted_changes(None, true)]
+fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
+    #[case] failing: Option<&str>,
+    #[case] dirty: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    repository_on(&workspace, "ticket");
+    selection(&stand_in, "quick");
+    if let Some(failing) = failing {
+        std::fs::write(stand_in.join("failing"), failing).unwrap();
+    }
+    if dirty {
+        workspace.write("new.txt", b"not committed\n");
+    }
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(
+        run.code,
+        Some(if failing.is_some() { 3 } else { 0 }),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(recorded_trees(&workspace), None);
+}
+
+/// A stand-in `just` for the pre-push hook: records its arguments and the
+/// base the hook gives `just quick`.
+fn hook_stand_in(workspace: &Workspace) -> PathBuf {
+    let folder = workspace.path().join("stand-in");
+    std::fs::create_dir_all(&folder).unwrap();
+    let just = format!(
+        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\n",
+        folder.join("calls").display()
+    );
+    let path = folder.join("just");
+    std::fs::write(&path, just).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    folder
+}
+
+/// Runs `.githooks/pre-push` in the workspace with git's lines for the
+/// refs a push updates on its standard input.
+fn pre_push(workspace: &Workspace, stand_in: &Path, refs: &str) -> Run {
+    use std::io::Write as _;
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.githooks/pre-push");
+    let mut child = workspace
+        .command(script)
+        .args(["origin", "/nonexistent"])
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(refs.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    Run {
+        code: output.status.code(),
+        calls: std::fs::read_to_string(stand_in.join("calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+        cargo_calls: Vec::new(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+const NO_COMMIT: &str = "0000000000000000000000000000000000000000";
+
+/// A repository with two commits on `ticket`: the first, the commit the
+/// remote ref holds, and the head. Returns both.
+fn two_commits(workspace: &Workspace) -> (String, String) {
+    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    repository_on(workspace, "ticket");
+    let first = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.write("change.txt", b"changed\n");
+    let head = workspace.commit_all();
+    (first, head)
+}
+
+#[test]
+fn a_push_of_a_tree_a_green_run_recorded_runs_no_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+    let common = workspace.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+    std::fs::write(Path::new(common.trim()).join("goodfetch-quick-green"), tree).unwrap();
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(run.stdout.contains("already passed"), "{}", run.stdout);
+}
+
+#[test]
+fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls, [format!("quick base={first}")]);
+}
+
+/// A new remote branch holds no commit, so `just quick` takes the branch's
+/// own base: its upstream off `main`, else `origin/main`.
+#[test]
+fn a_push_of_a_new_branch_runs_quick_against_its_own_base() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (_, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {NO_COMMIT}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.calls, ["quick base="]);
+}
+
+#[test]
+fn a_push_that_only_deletes_a_branch_runs_no_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, _) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("(delete) {NO_COMMIT} refs/heads/old {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
 }
 
 #[test]

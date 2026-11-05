@@ -22,7 +22,7 @@ Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` f
 
 ## Code style
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The checks each role runs, implementer, merger or pull request, are its [Checks by role](TESTING.md#checks-by-role); an orchestrator's brief points there and lists none.
 
 The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner.
 
@@ -64,7 +64,7 @@ Rust has no Rust-specific skill: its section of `STYLE.md` and the references it
 
 ## Agent skills
 
-Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133).
+Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133). Where a skill asks for more checks or more implementers at once than `TESTING.md`'s [Checks by role](TESTING.md#checks-by-role) allows, such as `/implement`'s full test suite at the end or `/implement-spec`'s maximum concurrency, Checks by role wins.
 
 ### Issue tracker
 

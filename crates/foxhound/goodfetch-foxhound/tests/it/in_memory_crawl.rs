@@ -167,9 +167,9 @@ fn each_run_trace_entry_of_the_crawl_spawns_its_write_and_its_run_opens_the_file
 }
 
 /// The fixture does what the Page analysis rows count: a crawl runs readability,
-/// compiles selectors, and opens its trace's files, the Filter lists' selectors
-/// go with the Filter lists, and a field's Value transform builds its forms once,
-/// however many pages it reads.
+/// compiles selectors, and opens its trace's files, the Filter lists compile no
+/// selector of their own in a crawl that asks for no format, and a field's Value
+/// transform builds its forms once, however many pages it reads.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -209,11 +209,12 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     });
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // The Clean-up rules compile their 613 selectors once a Run, kept in
-    // their cache, and a page's own 10 compile on every page; with the Filter
-    // lists off only the page's own are left. The Run holds its Provenance
-    // log's file, so no page opens one. #1577 lowers the rest, and writes
-    // its figures here.
+    // The crawl asks for no format, so the demand plan runs no Clean-up and
+    // its rules compile none of their 613 selectors, with the Filter lists on
+    // or off (ADR 0138's demand plan, #1909). The untouched page's readers
+    // compile their 10 once a Run, and 4 still compile on every page (#1910).
+    // The Run holds its Provenance log's file, so no page opens one. #1577
+    // lowers the rest, and writes its figures here.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
@@ -223,7 +224,7 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (pages, 613 + 10 * pages, 10 * pages, 0, 0, 1)
+        (pages, 10 + 4 * pages, 10 + 4 * pages, 0, 0, 1)
     );
 }
 
@@ -247,15 +248,16 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // Two parses and four compilations of a page's seven and eleven are its
-    // waits': #1577 lowers the rest, and writes its figures here.
+    // Two parses and four compilations of a page's three and eight are its
+    // waits', and the untouched page's readers compile 8 once a Run (#1910):
+    // #1577 lowers the rest, and writes its figures here.
     assert_eq!(
         (
             crawled.handled,
             work.read(Row::PageParses),
             work.read(Row::PageSelectorCompilations),
         ),
-        (pages, 7 * pages, 11 * pages)
+        (pages, 3 * pages, 8 + 8 * pages)
     );
 }
 
@@ -323,14 +325,15 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
 
 /// B1's counts cell (ADR 0140): the crawl's parses are counted from the
 /// parse, a planted one per page adds exactly its pages' worth, and turning
-/// the Filter lists off takes the clean-up's parse away. `xtask counts` holds
+/// the Filter lists off changes nothing in a crawl that asks for no format,
+/// which runs no clean-up either way (ADR 0138's demand plan). `xtask counts` holds
 /// the figure to the register, and `--prove` runs the plant through it.
 #[test]
 #[expect(
     clippy::disallowed_methods,
     reason = "three crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
 )]
-fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes_its_own() {
+fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_the_filter_lists_off_change_nothing() {
     let lists_off = json!({ "filter_lists": {
         "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
     } });
@@ -348,8 +351,8 @@ fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
     assert!(default > 0, "the crawl counted no parse");
     assert_eq!(planted - default, pages);
-    assert!(
-        off < default,
+    assert_eq!(
+        off, default,
         "{off} parses with the lists off, {default} on"
     );
 }

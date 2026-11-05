@@ -1,14 +1,16 @@
 //! What a fetched page teaches the Frontier before its handler runs
 //! (ADRs 0005 and 0120): its page signature and `rel=canonical`, and the
 //! pending requests a rule it taught merges, ended `skipped` with
-//! `duplicate`.
+//! `duplicate`; nothing under `frontier.learning: false`, which signs no
+//! page (ADR 0138).
 
 use std::collections::BTreeSet;
 
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::{EndMerged, PageSeen};
-use goodfetch_protocol::foxhound::frontier::HttpBody;
+use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, HttpBody};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::PointInTime;
 
@@ -21,13 +23,17 @@ use crate::work_items::{self, Leased};
 /// pending request a rule it taught merges ends `skipped` with
 /// `duplicate`. Answers those requests, by ID with the domain key they
 /// wait under, which leave their queues. A run file that cannot take it
-/// loses only what the page would have taught.
+/// loses only what the page would have taught. A Run that does not learn
+/// ([`learns`]) reads no signature and teaches nothing.
 pub(super) async fn learn(
     run: &Run,
     tiers: &FetchTiers,
     page_id: &PageId,
     leased: &Leased,
 ) -> Vec<(String, String)> {
+    if !learns(run) {
+        return Vec::new();
+    }
     let Some(signed) = tiers.signature(page_id).await else {
         return Vec::new();
     };
@@ -62,6 +68,14 @@ pub(super) async fn learn(
         tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
         Vec::new()
     })
+}
+
+/// Whether a crawl under `run`'s settings learns from its pages:
+/// `frontier.learning`, on unless set off (ADR 0138).
+fn learns(run: &Run) -> bool {
+    run.settings()
+        .map(RunSettings::resolved)
+        .is_none_or(|settings| settings.boolean(FRONTIER_LEARNING.name) != Some(false))
 }
 
 /// The crawl's side of a rule learned later: the pending requests it

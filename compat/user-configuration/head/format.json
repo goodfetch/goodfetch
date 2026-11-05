@@ -873,6 +873,16 @@
             },
             "type": "object"
           },
+          "frontier": {
+            "additionalProperties": false,
+            "properties": {
+              "learning": {
+                "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "governor": {
             "additionalProperties": false,
             "properties": {

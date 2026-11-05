@@ -5928,6 +5928,22 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": true,
+      "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
+      "name": "frontier.learning",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 8,
       "description": "How many of a Run's Sessions share one browser process, each in a browser context of its own: 8. The Run's next Session past it gets a process of its own; Sessions of different Runs never share one.",
       "name": "governor.browser.contexts_per_process",
@@ -8964,6 +8980,20 @@
       "name": "ip_block",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.",
+      "name": "learning_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.",
+      "name": "learning_switched_off",
+      "product": "foxhound",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

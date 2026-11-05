@@ -645,9 +645,14 @@ impl PageContext {
                             .and_then(|status| u16::try_from(status).ok())
                             .unwrap_or_default();
                         // A document the gate judges is read whole, as the
-                        // gate reads it, and goes on as it came.
+                        // gate reads it, and goes on as it came; one whose
+                        // gate reads no body is read as the route reads it.
                         let judged = held.navigation
-                            && self.driver.value().gate().is_some()
+                            && self
+                                .driver
+                                .value()
+                                .gate()
+                                .is_some_and(|gate| gate.reads_document_body())
                             && !(300..400).contains(&status);
                         let read = if judged {
                             Some(self.body(&paused.request_id).await)
@@ -1544,7 +1549,7 @@ impl PageContext {
     /// refusal raises from the page's navigation call, or else from the
     /// waiters armed for it; the refusal is answered. A redirect, and a page
     /// with no gate, are never judged; `body` is the response's when it was
-    /// read already.
+    /// read already, and is read only for a gate that reads it.
     async fn refused_document(
         &self,
         paused: &fetch::RequestPausedEvent,
@@ -1558,11 +1563,14 @@ impl PageContext {
             .gate()
             .filter(|_| !(300..400).contains(&status))?;
         let read;
-        let body = if let Some(body) = body {
-            body
-        } else {
-            read = self.body(&paused.request_id).await;
-            &read
+        let body = match body {
+            Some(body) => body,
+            // A gate that reads no body costs the browser no read of it.
+            None if !gate.reads_document_body() => &[],
+            None => {
+                read = self.body(&paused.request_id).await;
+                &read
+            }
         };
         let headers: Vec<(String, String)> = paused
             .response_headers

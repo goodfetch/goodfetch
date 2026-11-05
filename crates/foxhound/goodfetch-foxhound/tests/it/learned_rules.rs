@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, TestEnv, cli};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -53,6 +53,17 @@ fn crawl(
     run_id: &str,
     seeds: &[(&str, &str)],
 ) -> Crawled {
+    crawl_under(env, proving_ground, run_id, seeds, json!({}))
+}
+
+/// [`crawl`], with the settings `own` beside its own.
+fn crawl_under(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    seeds: &[(&str, &str)],
+    own: Value,
+) -> Crawled {
     let ip = proving_ground.address().ip().to_string();
     let mut resolve = serde_json::Map::new();
     let seeds: Vec<Value> = seeds
@@ -64,11 +75,14 @@ fn crawl(
         .collect();
     // The `www.` host the `/forms/` pages link.
     resolve.insert("www.learning.test".to_owned(), json!([ip]));
-    let settings = json!({
+    let mut settings = json!({
         "fetch": { "tier": "http" },
         "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
         "network": { "resolve": resolve },
     });
+    if let (Some(settings), Value::Object(own)) = (settings.as_object_mut(), own) {
+        settings.extend(own);
+    }
     let mut engine = Attached::start(env);
 
     let mut answers = BTreeMap::new();
@@ -182,6 +196,66 @@ fn a_parameter_with_no_effect_merges_its_urls_only_on_its_host() {
                 "merged": [on("learning.test", "/shop/3?n=9")],
             }]),
             &json!("complete"),
+        )
+    );
+}
+
+/// With `frontier.learning` off, the pairs that teach `ref` above teach
+/// nothing: item 9 under `ref` is added and fetched again, the report
+/// lists no rule and says why in its warnings and `weakened`, and the
+/// Audit log records the setting once (ADR 0138).
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_no_rule_is_learned_and_the_report_says_so() {
+    let (env, proving_ground) = ground();
+    let crawled = crawl_under(
+        &env,
+        &proving_ground,
+        "unlearned",
+        &[("learning.test", "/shop/3?n=1")],
+        json!({ "frontier": { "learning": false } }),
+    );
+
+    let on = |path: &str| proving_ground.url("learning.test", path);
+    let warnings: Vec<&Value> = crawled.report["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|warning| &warning["code"])
+        .collect();
+    let weakened: Vec<&Value> = crawled.report["weakened"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|weakened| weakened["key"] == "frontier.learning")
+        .map(|weakened| &weakened["value"])
+        .collect();
+    let exported = cli(&env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["audit", "export"])
+        .run()
+        .unwrap();
+    let audited: Vec<Value> = exported
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["kind"] == "learning_switched_off")
+        .map(|entry| entry["details"].clone())
+        .collect();
+    assert_eq!(
+        (
+            crawled.answers.get(&on("/shop/3?n=9")),
+            &crawled.report["learned_rules"],
+            warnings,
+            weakened,
+            audited,
+        ),
+        (
+            Some(&"added".to_owned()),
+            &json!([]),
+            vec![&json!("learning_off")],
+            vec![&json!(false)],
+            vec![json!({ "setting": "frontier.learning", "value": false, "default": true })],
         )
     );
 }

@@ -1,9 +1,9 @@
 //! What a crawl's Run report adds to every Run's (ADR 0102): how its
 //! requests ended, its Records per Dataset, its Sinks, its Frontier's
-//! learned URL rules and its sitemaps; the warning Foxhound adds to the
-//! warning table, `trap_links_off`; and the Completeness reasons a crawl
-//! adds to every Run's (ADRs 0005, 0045, 0048, 0107, 0118 and 0120), each
-//! named by its setting or its cause.
+//! learned URL rules and its sitemaps; the warnings Foxhound adds to the
+//! warning table, such as `trap_links_off` and `learning_off`; and the
+//! Completeness reasons a crawl adds to every Run's (ADRs 0005, 0045,
+//! 0048, 0107, 0118 and 0120), each named by its setting or its cause.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,10 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The warning that a crawl ran with its trap-link detection off.
 pub const TRAP_LINKS_OFF: &str = "trap_links_off";
+
+/// The warning that a crawl ran with `frontier.learning` off, so its
+/// Frontier learned no rule (ADR 0138).
+pub const LEARNING_OFF: &str = "learning_off";
 
 /// The warning that a Session replacing one a block retired found every
 /// block of the Run's local addresses blocked on its domain, so it rotated
@@ -314,6 +318,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::RunWarningCode,
             name: TRAP_LINKS_OFF,
             description: "The crawl ran with its trap-link detection off.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: LEARNING_OFF,
+            description: "The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

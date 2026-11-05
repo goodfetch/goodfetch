@@ -4,7 +4,8 @@
 //! it adds. A composition may register a key as a weakening of its own
 //! instead, which is recorded as the Audit log kind it names, with the
 //! value's built-in default: Foxhound's Politeness and Site-preferences
-//! keys, as `politeness_weakened` (ADR 0086). A Run that starts with one of them switched off, which only a
+//! keys, as `politeness_weakened` (ADR 0086), and `frontier.learning`, as
+//! `learning_switched_off` (ADR 0138). A Run that starts with one of them switched off, which only a
 //! layer the Operator policy or the Recipe did not lock or cap can do, is
 //! reported once, and a resume that switches off one its report does not
 //! list yet reports that one the same way: one chained `security_switch_turned_off` entry per
@@ -188,7 +189,8 @@ impl SwitchedOff {
                     run_id = %run_id,
                     setting = %switched.key,
                     layer = switched.layer.as_str(),
-                    "the Run `{run_id}` presses sites harder than the built-in default: its {} layer sets `{}` to {}, the default being {default}",
+                    "the Run `{run_id}` weakens a built-in default, recorded as `{}`: its {} layer sets `{}` to {}, the default being {default}",
+                    kind.name,
                     switched.layer.as_str(),
                     switched.key,
                     switched.value,

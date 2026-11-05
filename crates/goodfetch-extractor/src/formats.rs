@@ -2,6 +2,7 @@
 //! tier calls with the document it holds, and the composition of the
 //! main-content step and the converters behind it.
 
+use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
 
 use crate::blocks::{body, fit, text};
@@ -10,6 +11,7 @@ use crate::extractor::{BuiltIn, Extractor};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
+use crate::plan::{Demand, Plan, Reader};
 use crate::references::{Head, References, references};
 use crate::shadow::composed;
 use crate::structured_data::{json_ld, microdata};
@@ -131,18 +133,29 @@ pub fn measured_formats(
     request: &FormatsRequest,
     context: &Context<'_>,
 ) -> Measured {
-    // `html.raw`, links and the head read `document.html` as it stands;
-    // every other format reads it once the cosmetic rules took their
-    // elements out, and the Markdown and text then as a person sees it.
+    // The demand plan runs only the readers the request reads from (ADR
+    // 0138): `html.raw`, links and the head read `document.html` as it
+    // stands; every other format reads it once the cosmetic rules took
+    // their elements out, and the Markdown and text then as a person sees
+    // it. A request that reads nothing of the cleaned page runs no rule.
+    let plan = Plan::of(&Demand {
+        formats: request,
+        learning: false,
+    });
     let cleaned = context
         .clean_up
+        .filter(|_| plan.runs(Reader::CleanUp))
         .map(|clean_up| clean_up.remove(document.html, document.url));
     let cleaned = cleaned.as_deref().unwrap_or(document.html);
-    let seen = composed(cleaned);
+    let seen = if plan.runs(Reader::CleanUp) {
+        composed(cleaned)
+    } else {
+        Cow::Borrowed(cleaned)
+    };
     // The main-content step runs only for a format read from its answer
     // (story 8): outside, none read; inside, none found.
-    let read_main = request
-        .reads_main_content()
+    let read_main = plan
+        .runs(Reader::MainContent)
         .then(|| main_content(&seen, document.url, context.extractor, &context.work));
     let main = read_main.as_ref().and_then(Option::as_ref);
     let main_html = main.map(|(html, _)| html.as_str());
@@ -151,8 +164,8 @@ pub fn measured_formats(
     // templates included, for its links and head; images and media are
     // extracted content, read after the Clean-up rules (ADR 0047), by a
     // second pass only when the rules changed the document.
-    let raw_read = request.links.is_some() || request.metadata.is_some();
-    let assets_read = request.images.is_some() || request.media.is_some();
+    let raw_read = plan.runs(Reader::Untouched);
+    let assets_read = plan.runs(Reader::CleanedAssets);
     let untouched = cleaned == document.html;
     let References {
         links,
@@ -170,9 +183,9 @@ pub fn measured_formats(
     }
     // One tree of the document as a person sees it, for the formats a
     // tree reads.
-    let tree =
-        (request.tables.is_some() || request.metadata.is_some() || request.contacts.is_some())
-            .then(|| Html::parse_document(&seen));
+    let tree = plan
+        .runs(Reader::CleanedTree)
+        .then(|| Html::parse_document(&seen));
     let tree = tree.as_ref();
     let formats = PageFormats {
         url: document.url.to_owned(),

@@ -3,6 +3,7 @@
 
 mod contacts;
 mod content_modes;
+mod demand_plan;
 mod envelope;
 mod extractors;
 mod live_document;

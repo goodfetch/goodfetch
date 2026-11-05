@@ -97,8 +97,9 @@ use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
     SampleRefresh,
 };
+use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::report::LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK;
+use goodfetch_protocol::foxhound::report::{LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
@@ -247,8 +248,26 @@ pub(crate) async fn drive(
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
+    if settings.resolved().boolean(FRONTIER_LEARNING.name) == Some(false) {
+        warn_learning_off(&run).await;
+    }
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
+}
+
+/// Hands the Run's report, once, the warning that its Frontier learns no
+/// rule, `frontier.learning` being off (ADR 0138), so an empty
+/// `learned_rules` is not read as a site that taught nothing.
+async fn warn_learning_off(run: &Run) {
+    let warning = RunWarning {
+        code: LEARNING_OFF.to_owned(),
+        message: "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.".to_owned(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning that the crawl learns no rule was not kept");
+    }
 }
 
 /// How the Run samples its tier choices: `fetch.sample.count` and

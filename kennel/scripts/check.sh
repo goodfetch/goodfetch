@@ -42,8 +42,8 @@ skip() {
 
 # Collie's executable embeds its Console build, made first (ADR 0057), and
 # needs its `executable` feature (ADR 0094), as `xtask test-tools` builds it.
-cargo run --quiet --locked -p xtask -- console build
-cargo run --quiet --locked -p xtask -- modules --workspace kennel
+cargo run --quiet --locked --bin xtask -- console build
+cargo run --quiet --locked --bin xtask -- modules --workspace kennel
 built=$(cargo build --quiet --locked --profile "$profile" -p goodfetch-test-support \
   --bin goodfetch-scripted-engine -p goodfetch-collie --bin goodfetch-collie \
   --features executable --message-format json)

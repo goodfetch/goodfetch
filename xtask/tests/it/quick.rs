@@ -6,8 +6,9 @@
 //! takes every lint and the Quick suite. The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
 //! `cargo`. The Quick suite's Cargo targets come from `ci/quick-targets.sh`,
-//! run here on a fixture workspace. The pre-push tier is repository tooling,
-//! so the module declares no Feature.
+//! run here on a fixture workspace, and it runs its selected members' tests
+//! through `ci/quick-nextest.sh`, run here with a stand-in `cargo`. The
+//! pre-push tier is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -96,7 +97,7 @@ fn quick(workspace: &Workspace, stand_in: &Path, args: &[&str]) -> Run {
 /// What `xtask affected` is asked: the working tree's change since the
 /// merge base with `origin/main`, as the Quick suite's own selection reads
 /// it.
-const AFFECTED: &str = "run --quiet --locked -p xtask -- affected --local";
+const AFFECTED: &str = "run --quiet --locked --bin xtask -- affected --local";
 
 #[test]
 fn a_change_of_documents_alone_runs_the_docs_gates_checks_and_no_code_lint_or_suite() {
@@ -189,6 +190,70 @@ fn an_unknown_argument_is_refused_before_any_step() {
 
     assert_eq!(run.code, Some(2), "{}", run.stderr);
     assert!(run.calls.is_empty(), "{:?}", run.calls);
+}
+
+/// The arguments `cargo` gets, one an item, when cargo-insta runs
+/// `ci/quick-nextest.sh run <args>` in place of `cargo nextest` with
+/// `GOODFETCH_QUICK_PACKAGES` set to `packages`.
+fn quick_nextest(packages: &str, args: &[&str]) -> Vec<String> {
+    let workspace = Workspace::from_fixture("empty");
+    let calls = workspace.path().join("cargo-calls");
+    let cargo = workspace.path().join("cargo");
+    std::fs::write(
+        &cargo,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"{}\"\n",
+            calls.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/quick-nextest.sh");
+    let output = workspace
+        .command("bash")
+        .arg(script)
+        .args(args)
+        .env("PATH", "/usr/bin:/bin")
+        .env("CARGO", &cargo)
+        .env("GOODFETCH_QUICK_PACKAGES", packages)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    std::fs::read_to_string(calls)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn the_quick_suite_runs_the_tests_of_the_selected_members_alone() {
+    assert_eq!(
+        quick_nextest(
+            "goodfetch-engine goodfetch-proving-ground",
+            &["run", "--all", "--lib", "--bins", "--", "--skip", "a::test"]
+        ),
+        [
+            "nextest",
+            "run",
+            "-E",
+            "package(=goodfetch-engine) | package(=goodfetch-proving-ground)",
+            "--all",
+            "--lib",
+            "--bins",
+            "--",
+            "--skip",
+            "a::test",
+        ]
+    );
+}
+
+#[test]
+fn the_quick_suite_runs_every_test_when_no_member_is_named() {
+    assert_eq!(
+        quick_nextest("", &["run", "--all", "--lib", "--bins"]),
+        ["nextest", "run", "--all", "--lib", "--bins"]
+    );
 }
 
 /// `ci/quick-targets.sh` on the `affected` fixture, whose engine, conformance

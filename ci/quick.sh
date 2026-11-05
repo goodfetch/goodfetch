@@ -31,7 +31,7 @@ just commit-leaks
 if [[ -z $all ]]; then
   # The working tree's change since the merge base with `origin/main`, as
   # the Quick suite's own selection reads it.
-  gate=$(cargo run --quiet --locked -p xtask -- affected --local | sed -n 's/^gate=//p')
+  gate=$(cargo run --quiet --locked --bin xtask -- affected --local | sed -n 's/^gate=//p')
   if [[ $gate == docs ]]; then
     echo "The change is documents alone (xtask affected's gate=docs), so the pre-push tier runs the docs gate's checks: \`just lint-documents\`; the code lints and the Quick suite do not run, as at the merge (ADR 0135)."
     just lint-documents

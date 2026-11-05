@@ -24,60 +24,58 @@ pub(super) const DESCRIPTION: &str = "format.json";
 
 /// The writers the workspace has, by the example's name.
 pub(super) struct Writers {
-    /// The package of each `compat-<format>` example.
-    packages: BTreeMap<String, String>,
+    /// The workspace's `compat-<format>` examples.
+    examples: BTreeSet<String>,
 }
 
 impl Writers {
     pub(super) fn find(cargo: &OsStr, root: &Path) -> Result<Self> {
-        let mut packages = BTreeMap::new();
+        let mut examples = BTreeSet::new();
         for package in metadata::packages(cargo, root)? {
             for target in package.targets {
                 if target.kind.iter().any(|kind| kind == "example")
                     && target.name.starts_with("compat-")
                 {
-                    packages.insert(target.name, package.name.clone());
+                    examples.insert(target.name);
                 }
             }
         }
-        Ok(Self { packages })
+        Ok(Self { examples })
     }
 
     pub(super) fn has(&self, format: &Format) -> bool {
-        self.packages.contains_key(&example(format))
+        self.examples.contains(&example(format))
     }
 
     /// The `head/` set each of `formats`' writers produces now, with the
     /// format's description added, in `formats`' order.
     ///
-    /// The writers build in one `cargo build` of their packages together,
-    /// with the features those packages resolve together as a workspace
-    /// build does, so the crates they share build once instead of once per
-    /// package and the examples link in parallel; then they all run at once. A failure reports the first failing format
-    /// in order.
+    /// The writers build in one `cargo build` over the workspace, so the
+    /// crates they share build once instead of once per package, with the
+    /// features the Quick suite's build of the workspace gives them, which
+    /// it then reuses, and the examples link in parallel; then they all run
+    /// at once. A failure reports the first failing format in order.
     pub(super) fn write(
         &self,
         cargo: &OsStr,
         root: &Path,
         formats: &[&Format],
     ) -> Result<Vec<Tree>> {
-        let mut packages = BTreeSet::new();
         let mut examples = Vec::new();
         for format in formats {
             let example = example(format);
-            let Some(package) = self.packages.get(&example) else {
+            if !self.examples.contains(&example) {
                 bail!(
                     "`{}` has no writer: add a `{example}` example to the package that owns it",
                     format.name
                 );
-            };
-            packages.insert(package.as_str());
+            }
             examples.push(example);
         }
         if formats.is_empty() {
             return Ok(Vec::new());
         }
-        let executables = build(cargo, root, &packages, &examples)?;
+        let executables = build(cargo, root, &examples)?;
         std::thread::scope(|scope| {
             let runs: Vec<_> = formats
                 .iter()
@@ -113,22 +111,17 @@ struct ArtifactTarget {
     kind: Vec<String>,
 }
 
-/// Builds `examples` of `packages` in one `cargo build`, and gives each
-/// example's executable.
-fn build(
-    cargo: &OsStr,
-    root: &Path,
-    packages: &BTreeSet<&str>,
-    examples: &[String],
-) -> Result<BTreeMap<String, PathBuf>> {
-    let output = Command::new(cargo)
+/// Builds `examples` in one `cargo build` over the workspace, and gives
+/// each example's executable.
+fn build(cargo: &OsStr, root: &Path, examples: &[String]) -> Result<BTreeMap<String, PathBuf>> {
+    let output = crate::child_cargo::command(cargo)
         .args([
             "build",
             "--quiet",
             "--message-format",
             "json-render-diagnostics",
+            "--workspace",
         ])
-        .args(packages.iter().flat_map(|package| ["--package", package]))
         .args(
             examples
                 .iter()

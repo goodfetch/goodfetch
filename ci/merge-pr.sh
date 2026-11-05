@@ -62,7 +62,7 @@ gate_worktree_checkout "$head"
 
 # The head's own `xtask affected` decides, so a head from before `gate=`
 # existed prints no such line and gets the full gate.
-gate=$(cd "$worktree" && cargo run --quiet --locked -p xtask -- affected --base "origin/$base" --head "$head" |
+gate=$(cd "$worktree" && cargo run --quiet --locked --bin xtask -- affected --base "origin/$base" --head "$head" |
   sed -n 's/^gate=//p')
 if [[ $gate == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
@@ -84,7 +84,7 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
     # Until M1's optimization pass it only marks figures accepted in the
     # table: no figure past its threshold fails (ADR 0134, as amended on
     # 2026-10-22).
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
       perf pull-request --number "$number" --save target/perf-pull-request.json
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
@@ -127,7 +127,7 @@ if [[ $gate == quick || $gate == docs ]]; then
   fi
 elif [[ $(git rev-parse "$merged^{tree}") == $(git rev-parse "$head^{tree}") ]] &&
   (cd "$worktree" && rm -rf "$listings" &&
-    cargo run --quiet --locked -p xtask -- stress listings --cargo-profile test --out "$listings" &&
+    cargo run --quiet --locked --bin xtask -- stress listings --cargo-profile test --out "$listings" &&
     mv "$listings/$head" "$listings/$merged"); then
   echo "Saved the stress listings of $merged for the next gate"
 else

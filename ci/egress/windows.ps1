@@ -26,7 +26,7 @@ function Invoke-Xtask {
     param([string[]] $Arguments)
     Push-Location $root
     try {
-        & cargo run --quiet --locked -p xtask -- egress @Arguments
+        & cargo run --quiet --locked --bin xtask -- egress @Arguments
         if ($LASTEXITCODE -ne 0) { throw "xtask egress $($Arguments -join ' ') exited with $LASTEXITCODE" }
     }
     finally { Pop-Location }
@@ -100,7 +100,7 @@ function Invoke-Deny {
 function Invoke-Canary {
     Push-Location $root
     try {
-        & cargo run --quiet --locked --offline -p xtask -- egress canary attempt --outcome target/egress/canary-outcome.txt
+        & cargo run --quiet --locked --offline --bin xtask -- egress canary attempt --outcome target/egress/canary-outcome.txt
         if ($LASTEXITCODE -ne 0) { throw "the canary's attempt exited with $LASTEXITCODE" }
     }
     finally { Pop-Location }

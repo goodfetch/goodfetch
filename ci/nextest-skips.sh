@@ -12,7 +12,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
+exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
 quarantine=$(awk -F'\t' '$1 == "nextest" { print $2 }' <<<"$exclusions")
 [[ -z "$quarantine" ]] || printf '%s\n' "$quarantine"
 

@@ -51,7 +51,7 @@ if [[ "${1:-}" == in-container ]]; then
   # The tests on the test quarantine list are skipped, as in every suite
   # (ADR 0064).
   skips=()
-  exclusions=$(cargo run --quiet --locked -p xtask -- quarantine exclude)
+  exclusions=$(cargo run --quiet --locked --bin xtask -- quarantine exclude)
   while IFS=$'\t' read -r runner argument; do
     case "$runner" in
       nextest) skips+=("$argument") ;;

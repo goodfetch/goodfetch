@@ -15,7 +15,7 @@ set -euo pipefail
 
 where=${1:-host}
 written=target/junit-summary.md
-xtask=(cargo run --quiet --locked -p xtask -- junit-summary --summary "$written")
+xtask=(cargo run --quiet --locked --bin xtask -- junit-summary --summary "$written")
 
 mkdir -p target
 rm -f "$written"

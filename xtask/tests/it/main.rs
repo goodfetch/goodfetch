@@ -73,6 +73,7 @@ mod perf_reference;
 mod perf_run;
 mod pre_merge;
 mod quarantine;
+mod quick;
 mod received_requests;
 mod refusals;
 mod register;

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-# Opt in with `just hooks`: runs the Quick suite before every push (TESTING.md).
+# Opt in with `just hooks`: runs the pre-push tier, `just quick`, before every push;
+# it picks the docs gate's checks for a change of documents alone (TESTING.md).
 set -euo pipefail
 exec just quick

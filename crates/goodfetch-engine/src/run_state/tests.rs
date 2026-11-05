@@ -99,7 +99,7 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     let pragmas = with_writer(&env, 1, async |state| {
         (
             state.read(pragma("journal_mode")).await.unwrap(),
-            state.read(pragma("synchronous")).await.unwrap(),
+            state.write(pragma("synchronous")).await.unwrap(),
         )
     });
 
@@ -151,7 +151,7 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     let pragmas = with_writer_options(&env, &options, async |state| {
         (
             state.read(pragma("journal_mode")).await.unwrap(),
-            state.read(pragma("synchronous")).await.unwrap(),
+            state.write(pragma("synchronous")).await.unwrap(),
         )
     });
 
@@ -166,7 +166,7 @@ fn a_run_file_bounds_its_page_cache() {
     let env = TestEnv::new();
 
     let cache_size = with_writer(&env, 1, async |state| {
-        state.read(pragma("cache_size")).await.unwrap()
+        state.write(pragma("cache_size")).await.unwrap()
     });
 
     assert_eq!(cache_size, format!("-{PAGE_CACHE_KIB}"));
@@ -179,7 +179,7 @@ fn a_run_file_keeps_its_savepoint_journals_in_memory() {
     let env = TestEnv::new();
 
     let temp_store = with_writer(&env, 1, async |state| {
-        state.read(pragma("temp_store")).await.unwrap()
+        state.write(pragma("temp_store")).await.unwrap()
     });
 
     assert_eq!(temp_store, "2");
@@ -281,8 +281,8 @@ fn a_run_file_syncs_with_fullfsync_on_macos() {
 
     let fullfsync = with_writer(&env, 1, async |state| {
         (
-            state.read(pragma("fullfsync")).await.unwrap(),
-            state.read(pragma("checkpoint_fullfsync")).await.unwrap(),
+            state.write(pragma("fullfsync")).await.unwrap(),
+            state.write(pragma("checkpoint_fullfsync")).await.unwrap(),
         )
     });
 
@@ -625,20 +625,92 @@ fn a_writers_transactions_count_its_jobs_whatever_group_they_commit_in() {
     assert_eq!((apart.0, grouped.0), (3, 3));
 }
 
-/// A read through the writer counts as a read and commits nothing, alone or
-/// in a group with a write (ADR 0138).
+/// A read leaves the writer (ADR 0138): it runs no job of the writer's, so
+/// it counts no transaction and no read through the writer.
 #[test]
-fn a_read_through_the_writer_counts_one_read_and_no_transaction() {
-    let alone = counted(async |state| {
-        state.read(|_| Ok(())).await.unwrap();
-    });
-    let beside_a_write = counted(async |state| {
-        let (written, read) = tokio::join!(state.write(|_| Ok(())), state.read(|_| Ok(())));
-        written.unwrap();
-        read.unwrap();
+fn a_read_counts_no_transaction_and_no_read_through_the_writer() {
+    let counts = counted(async |state| {
+        state.read(items).await.unwrap();
     });
 
-    assert_eq!((alone, beside_a_write), ((0, 1), (1, 1)));
+    assert_eq!(counts, (0, 0));
+}
+
+/// A read runs beside the writer: one made while a commit is under way
+/// answers before that commit ends, with what was committed before it.
+#[test]
+fn a_read_during_a_commit_does_not_wait_for_it() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let read = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Threads);
+        let state = RunState::open(path, &RunStateOptions::default(), vec![ITEMS], 1, &owner)
+            .await
+            .unwrap();
+        state.write(insert(1)).await.unwrap();
+        let (started, starts) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let committing = state.write(move |connection| {
+            insert(2)(connection)?;
+            let _ = started.send(());
+            let _ = released.recv();
+            Ok(())
+        });
+        let reading = async {
+            starts.await.unwrap();
+            let read = tokio::time::timeout(Duration::from_secs(30), state.read(items)).await;
+            release.send(()).unwrap();
+            read
+        };
+        let (committed, read) = tokio::join!(committing, reading);
+        committed.unwrap();
+        drop(state);
+        owner.wait().await;
+        read.map(Result::unwrap)
+    });
+
+    assert_eq!(read, Ok(vec![1]));
+}
+
+/// A run file's reads keep their connections: a read after another runs on
+/// the connection that one left, which a setting of its own shows.
+#[test]
+fn reads_keep_their_connection_from_one_read_to_the_next() {
+    let env = TestEnv::new();
+
+    let kept = with_writer(&env, 1, async |state| {
+        state
+            .read(|connection| connection.pragma_update(None, "cache_size", -7))
+            .await
+            .unwrap();
+        state.read(pragma("cache_size")).await.unwrap()
+    });
+
+    assert_eq!(kept, "-7");
+}
+
+/// A writer that stops closes its readers first, so it is the file's last
+/// connection and folds the WAL into the file: a Run that ended leaves one
+/// self-contained file, whatever was read beside its writer.
+#[test]
+fn a_stopped_writer_leaves_its_file_whole_with_no_wal_beside_it() {
+    let env = TestEnv::new();
+
+    with_writer(&env, 1, async |state| {
+        state.write(insert(1)).await.unwrap();
+        state.read(items).await.unwrap();
+    });
+
+    let path = env.folder().join("run.sqlite");
+    let wal = env.folder().join("run.sqlite-wal").exists();
+    let whole: Vec<i64> = Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .and_then(|connection| items(&connection))
+    .unwrap();
+    assert_eq!((wal, whole), (false, vec![1]));
 }
 
 /// A read commits nothing, so the writer's acknowledged commits do not move

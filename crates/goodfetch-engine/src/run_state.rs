@@ -14,8 +14,9 @@
 //! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
-//! committed state waits on for more, never holding the writer back. The
-//! writer stops once every handle on it is gone, or once its last write
+//! committed state waits on for more, never holding the writer back; its
+//! reads run beside the writer, on a bounded group of read-only
+//! connections it keeps ([`readers`], ADR 0138). The writer stops once every handle on it is gone, or once its last write
 //! commits, as a Run's end writes its record: whatever any handle queues
 //! after that is refused (#1763).
 //!
@@ -29,8 +30,7 @@
 //! own, and a checkpointer, an actor of the same owner on a connection of its
 //! own, runs a `PASSIVE` checkpoint once the WAL passes
 //! [`WAL_CHECKPOINT_AFTER_BYTES`], which never takes the writer's lock, and a
-//! `TRUNCATE` one once the writer's last write committed. A read through the
-//! writer commits nothing.
+//! `TRUNCATE` one once the writer's last write committed.
 //!
 //! Size: one concern, the run file's writer on its one connection: how it
 //! opens, queues jobs and commits each group, which read side by side.
@@ -49,7 +49,10 @@ use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 pub mod install;
+mod readers;
 mod wal_checkpointer;
+
+pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
@@ -292,8 +295,6 @@ enum Job {
     Write,
     /// The writer's last write.
     Last,
-    /// A read, which commits nothing.
-    Read,
 }
 
 /// A job in the writer's queue, and what it is.
@@ -302,15 +303,9 @@ struct Queued {
     job: Job,
 }
 
-/// How a job runs its work on the writer's connection.
-type Runner<T, F> = fn(&Connection, F) -> Result<T, Failed>;
-
-/// `work` as a job the writer's actor runs with `run` in its next group,
-/// and the answer it sends once that group ends.
-fn queued<T, F>(
-    work: F,
-    run: Runner<T, F>,
-) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
+/// `work` as a write the writer's actor runs in its next commit, and the
+/// answer it sends once that commit ends.
+fn queued<T, F>(work: F) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
 where
     T: Send + 'static,
     F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
@@ -319,12 +314,14 @@ where
     let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
         let mut ends_group = None;
         let done = match transaction {
-            Some((connection, path)) => run(connection, work).map_err(|Failed { error, ended }| {
-                if ended {
-                    ends_group = Some(commit_error(path, &error));
-                }
-                sqlite_error(path, &error)
-            }),
+            Some((connection, path)) => {
+                run_in_savepoint(connection, work).map_err(|Failed { error, ended }| {
+                    if ended {
+                        ends_group = Some(commit_error(path, &error));
+                    }
+                    sqlite_error(path, &error)
+                })
+            }
             None => Err(RunStateError::Closed),
         };
         let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
@@ -361,7 +358,7 @@ impl ReservedWrite {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let (write, answered) = queued(work, run_in_savepoint);
+        let (write, answered) = queued(work);
         let mailbox = self.0.send(Queued {
             write,
             job: Job::Write,
@@ -386,7 +383,7 @@ pub struct RunState {
     path: PathBuf,
     epoch: u64,
     watched: std::sync::Arc<Watched>,
-    work: CountedWork,
+    readers: std::sync::Arc<RunStateReaders>,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -441,8 +438,16 @@ impl RunState {
         let actor_path = path.clone();
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
-        let work = options.work.clone();
-        let counted = work.clone();
+        let counted = options.work.clone();
+        let readers = std::sync::Arc::new(RunStateReaders::new(
+            path.clone(),
+            options.vfs.clone(),
+            owner.blocking_threads(),
+        ));
+        let connection = WriterConnection {
+            connection,
+            readers: std::sync::Arc::clone(&readers),
+        };
         owner
             .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
                 let signals = Signals {
@@ -452,14 +457,8 @@ impl RunState {
                 };
                 let last = group.iter().position(|queued| queued.job == Job::Last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
-                let writes = group
-                    .iter()
-                    .filter(|queued| queued.job != Job::Read)
-                    .count();
                 let group = group.into_iter().map(|queued| queued.write).collect();
-                if writes == 0 {
-                    read_group(&connection, &actor_path, group, &signals);
-                } else if commit_group(&connection, &actor_path, epoch, group, writes, &signals) {
+                if commit_group(&connection.connection, &actor_path, epoch, group, &signals) {
                     checkpointer.committed(last.is_some());
                 }
                 for queued in refused {
@@ -477,7 +476,7 @@ impl RunState {
             path,
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
-            work,
+            readers,
         })
     }
 
@@ -549,18 +548,14 @@ impl RunState {
         self.queue(work, Job::Last).await
     }
 
-    /// Queues `work` as `job`, and answers what it returned once its group
-    /// ended: committed, for a write.
+    /// Queues `work` as `job`, and answers what it returned once its commit
+    /// is acknowledged.
     async fn queue<T, F>(&self, work: F, job: Job) -> Result<T, RunStateError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let runner: Runner<T, F> = match job {
-            Job::Write | Job::Last => run_in_savepoint,
-            Job::Read => run_read,
-        };
-        let (write, answered) = queued(work, runner);
+        let (write, answered) = queued(work);
         self.mailbox
             .send(Queued { write, job })
             .await
@@ -588,15 +583,14 @@ impl RunState {
             .map_err(|_| RunStateError::Closed)
     }
 
-    /// Runs `work` on the writer's connection, in order with its writes, so
-    /// it sees every acknowledged one. It commits nothing: a group of reads
-    /// alone opens no transaction, and one queued beside writes runs in
-    /// their transaction, in no savepoint, and is answered once it commits.
-    /// `work` writes nothing.
+    /// Runs `work` in one read transaction of the file's committed state,
+    /// on one of its readers' connections, beside the writer: it never
+    /// waits for a commit, and sees every write acknowledged before it
+    /// began, as a write is answered once its commit is in the file.
     ///
     /// # Errors
     ///
-    /// As [`RunState::write`].
+    /// `Sqlite` when `work` failed or the file could not be read.
     ///
     /// # Cancel safety
     ///
@@ -606,8 +600,29 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.work.count(Row::WriterReads);
-        self.queue(work, Job::Read).await
+        self.readers
+            .read(move |connection| readers::in_one_transaction(connection, work))
+            .await
+            .map_err(|error| sqlite_error(&self.path, &error))
+    }
+
+    /// Its readers, which read the file as [`RunState::read`] does, for a
+    /// reader of the Run that must not hold its writer open.
+    pub(crate) fn readers(&self) -> std::sync::Arc<RunStateReaders> {
+        std::sync::Arc::clone(&self.readers)
+    }
+}
+
+/// The writer's connection, which closes its readers' first: the writer is
+/// then the file's last connection, which folds its WAL into it on closing.
+struct WriterConnection {
+    connection: Connection,
+    readers: std::sync::Arc<RunStateReaders>,
+}
+
+impl Drop for WriterConnection {
+    fn drop(&mut self) {
+        self.readers.close();
     }
 }
 
@@ -833,27 +848,6 @@ where
     }
 }
 
-/// Runs the read `work`, in no savepoint: in a group's transaction, which
-/// it ends only on a full disk or an I/O error or once SQLite ended it, or
-/// in none, where only a full disk or an I/O error ends anything.
-fn run_read<T, F>(connection: &Connection, work: F) -> Result<T, Failed>
-where
-    F: FnOnce(&Connection) -> rusqlite::Result<T>,
-{
-    let in_transaction = !connection.is_autocommit();
-    let changes = connection.total_changes();
-    let read = work(connection);
-    debug_assert_eq!(
-        connection.total_changes(),
-        changes,
-        "invariant: a read through the writer writes nothing"
-    );
-    read.map_err(|error| {
-        let ended = is_storage(&error) || (in_transaction && connection.is_autocommit());
-        Failed { error, ended }
-    })
-}
-
 /// Where the writer signals each acknowledged commit and the first storage
 /// failure.
 struct Signals<'a> {
@@ -862,23 +856,21 @@ struct Signals<'a> {
     work: &'a CountedWork,
 }
 
-/// Commits `group`, which holds `writes` writes and its reads, in one
-/// transaction under `epoch`, counts the commit in `commits`, then answers
-/// each job: all of them with the failure when the transaction fails or the
-/// file holds another epoch, and a full disk or an I/O error also goes to
-/// `failures`. The commit hook counts the commit, and each other write of
-/// its group counts here: a transaction is one job, whatever group it
-/// commits in, and a read is none (ADR 0138's note). Answers whether it
+/// Commits `group` in one transaction under `epoch`, counts the commit in
+/// `commits`, then answers each write: all of them with the failure when
+/// the transaction fails or the file holds another epoch, and a full disk or
+/// an I/O error also goes to `failures`. The commit hook counts the commit,
+/// and each other job of its group counts here: a transaction is one job,
+/// whatever group it commits in (ADR 0138's note). Answers whether it
 /// committed.
 fn commit_group(
     connection: &Connection,
     path: &Path,
     epoch: u64,
     group: Vec<QueuedWrite>,
-    writes: usize,
     signals: &Signals<'_>,
 ) -> bool {
-    let grouped = u64::try_from(writes.saturating_sub(1)).unwrap_or(u64::MAX);
+    let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
     let (completions, committed) = match commit_writes(connection, path, epoch, group) {
         Ok(completions) => {
             signals.work.count_many(Row::RunTransactions, grouped);
@@ -898,30 +890,6 @@ fn commit_group(
         completion(committed.clone());
     }
     succeeded
-}
-
-/// Runs `group`, reads alone, outside any transaction, and answers each:
-/// one that met a full disk or an I/O error with it as a storage failure,
-/// which also goes to `failures`.
-fn read_group(
-    connection: &Connection,
-    path: &Path,
-    group: Vec<QueuedWrite>,
-    signals: &Signals<'_>,
-) {
-    for job in group {
-        let (completion, failed) = job(Some((connection, path)));
-        match failed {
-            Some(error) => {
-                if let RunStateError::Storage { message, .. } = &error {
-                    tracing::warn!(path = %path.display(), %message, "a read of run state met a full disk or an I/O error");
-                    signals.storage_failed(message);
-                }
-                completion(Err(error));
-            }
-            None => completion(Ok(())),
-        }
-    }
 }
 
 impl Signals<'_> {

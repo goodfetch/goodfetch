@@ -46,6 +46,10 @@
 //! robots.txt cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
 //! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! While it is off, robots.txt is read only while
+//! `site_preferences.mark_robots_txt_ignored` marks the Records taken
+//! against it or the AI-use signals are honoured; otherwise it is neither
+//! fetched, read nor stored (ADR 0138).
 //! The Crawl-delay the robots.txt asks for is recorded for the request's
 //! domain key, where every sharing run's admission folds it into the
 //! delay between starts; after a robots.txt fetched here the document
@@ -118,8 +122,9 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
-    share_robots_txt, use_signals_declared, use_signals_refusal,
+    escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
+    robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
+    use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -1079,7 +1084,11 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
+                let read = if reads_robots_txt(run) {
+                    read_robots_txt(run, http, leased, &*hand_over.lease).await
+                } else {
+                    None
+                };
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }

@@ -249,6 +249,7 @@ purpose = "search"
 respect_use_signals = true
 robots_txt_user_agent = "example"
 respect_robots_txt = true
+mark_robots_txt_ignored = true
 max_crawl_delay = 30000
 
 [settings.crawl]

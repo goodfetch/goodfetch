@@ -3293,6 +3293,10 @@
           "site_preferences": {
             "additionalProperties": false,
             "properties": {
+              "mark_robots_txt_ignored": {
+                "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+                "type": "boolean"
+              },
               "max_crawl_delay": {
                 "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
                 "minimum": 0,
@@ -3308,7 +3312,7 @@
                 ]
               },
               "respect_robots_txt": {
-                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                 "type": "boolean"
               },
               "respect_use_signals": {
@@ -5922,6 +5926,10 @@
           "site_preferences": {
             "additionalProperties": false,
             "properties": {
+              "mark_robots_txt_ignored": {
+                "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+                "type": "boolean"
+              },
               "max_crawl_delay": {
                 "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
                 "minimum": 0,
@@ -5937,7 +5945,7 @@
                 ]
               },
               "respect_robots_txt": {
-                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                 "type": "boolean"
               },
               "respect_use_signals": {

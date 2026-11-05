@@ -326,7 +326,7 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-fn cells() -> [Cell; 10] {
+fn cells() -> [Cell; 11] {
     [
         Cell {
             name: "default",
@@ -346,6 +346,21 @@ fn cells() -> [Cell; 10] {
             // The crawl asks for no format, so it runs no clean-up with the
             // Filter lists on either (ADR 0138's demand plan).
             removes: &[],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        // No format asked and `frontier.learning` off: the crawl runs
+        // neither the clean-up nor the main-content step (ADR 0138).
+        Cell {
+            name: "learning_off",
+            settings: scoped(json!({ "frontier": { "learning": false } })),
+            frontier: FRONTIER,
+            removes: &[
+                Row::PageParses,
+                Row::PageSelectorCompilations,
+                Row::PageReadabilityRuns,
+            ],
             removes_syncs: false,
             handler: false,
             limit: false,

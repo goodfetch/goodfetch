@@ -66,7 +66,7 @@ jobs:
       - name: Check the month's minutes against the coverage job's threshold
         id: ceiling
         run: >-
-          cargo run --quiet --locked -p xtask -- results ceiling --store test-results
+          cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run coverage --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
           | tee -a "$GITHUB_OUTPUT"
 
@@ -165,5 +165,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- register coverage
+          cargo run --quiet --locked --bin xtask -- register coverage
           --reports target/coverage --repository "$GITHUB_REPOSITORY"

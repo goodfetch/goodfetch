@@ -88,7 +88,7 @@ for report in "${junit[@]}"; do
   if [[ -f "$report" ]]; then cp "$report" "$failures/"; fi
 done
 summary=0
-cargo run --quiet -p xtask -- junit-summary --junit "$failures" --summary "$failures.md" || summary=$?
+cargo run --quiet --bin xtask -- junit-summary --junit "$failures" --summary "$failures.md" || summary=$?
 if [[ -f "$failures.md" ]]; then cat "$failures.md"; fi
 rm -rf "$failures" "$failures.md"
 [[ $status -ne 0 ]] || status=$summary

@@ -285,7 +285,7 @@ fn audit_over_the_tests_that_ran_still_reports_one_that_ran_without_a_record() {
 /// The suites' audit step: the repository's `just features-audit`, with the
 /// verdict its `exercise_audit` switch names, run in the fixture once its
 /// records and JUnit file are where `just test pre-merge` leaves them. A
-/// `cargo` first on the path runs this xtask for `cargo run -p xtask`, and
+/// `cargo` first on the path runs this xtask for `cargo run --bin xtask`, and
 /// answers `cargo metadata` with a target folder outside the workspace, as
 /// CI's VM sets `CARGO_TARGET_DIR`: nextest still writes its JUnit file
 /// under the workspace's own `target/nextest/`.

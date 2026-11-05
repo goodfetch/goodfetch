@@ -19,7 +19,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 xtask() {
-  cargo run --quiet --locked -p xtask -- "$@"
+  cargo run --quiet --locked --bin xtask -- "$@"
 }
 
 case "$part" in

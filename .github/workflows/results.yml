@@ -75,7 +75,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          cargo run --quiet --locked --bin xtask -- results scan --store test-results
           --repository "$GITHUB_REPOSITORY"
 
   daily:
@@ -114,5 +114,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          cargo run --quiet --locked --bin xtask -- results scan --store test-results
           --repository "$GITHUB_REPOSITORY"

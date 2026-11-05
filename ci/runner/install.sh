@@ -12,7 +12,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 lock_parent=/Users/Shared/goodfetch-runner-lock
 
 mkdir -p "$folder"
-cargo run --quiet --manifest-path "$root/Cargo.toml" -p xtask -- self-hosted export >"$folder/allowlist.tsv.partial"
+cargo run --quiet --manifest-path "$root/Cargo.toml" --bin xtask -- self-hosted export >"$folder/allowlist.tsv.partial"
 mv "$folder/allowlist.tsv.partial" "$folder/allowlist.tsv"
 cp "$root/ci/runner/pre-job.sh" "$root/ci/runner/post-job.sh" "$folder/"
 chmod 755 "$folder" "$folder/pre-job.sh" "$folder/post-job.sh"

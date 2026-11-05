@@ -459,6 +459,19 @@ wreq-util = { path = "vendor/wreq-util" }
 [profile.dev.package.sha2]
 opt-level = 3
 
+# Build scripts, proc-macros and the crates they use get line tables, as the
+# workspace's other crates get them in `ci-test` and in the gate host's
+# local builds (`CARGO_PROFILE_DEV_DEBUG`); Cargo's default gives them none.
+# Cargo builds a crate that both the build and the code use once when the
+# two settings match, and once for each when they differ, so with the
+# default whether it was shared, and with it every crate above it, hung on
+# what else a command built: `cargo run --bin xtask` and the test tools'
+# build compiled the engine, Page and Collie apart, and the test tools' and
+# the Quick suite's builds DuckDB apart. With them matching, those builds
+# share them.
+[profile.dev.build-override]
+debug = "line-tables-only"
+
 # And for literal search: the reset gate searches every file of a Goodfetch
 # home for each Secret canary in a dozen encodings, the Browser cache's
 # 400 MB build included, which unoptimized takes some 26 s a search and

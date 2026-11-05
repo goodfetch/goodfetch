@@ -108,7 +108,7 @@ export type CrawlRequestOutcome1 =
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "NothingCommitted".
  */
-export type NothingCommitted = "none_pushed" | "none_kept";
+export type NothingCommitted = "none_pushed" | "none_kept" | "records_off";
 /**
  * Two spellings of one host's URLs a learned `equivalent_form` merges
  * (ADR 0120), each learned on evidence: a redirect from one to the

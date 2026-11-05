@@ -217,13 +217,22 @@ fn extraction(scenario: Scenario) -> Value {
     }
 }
 
+/// Whether Foxhound's crawl in `scenario` keeps Records: in the durable
+/// scenario, whose resume is judged by them, and the extraction scenario,
+/// which writes each page's; scenario 1's maximum-throughput combination
+/// and the headless browser scenario, which asks for its settings, keep
+/// none, as the other tools keep nothing there.
+pub(crate) fn keeps_records(scenario: Scenario) -> bool {
+    matches!(scenario, Scenario::Durable | Scenario::Extraction)
+}
+
 /// A cell's Run settings, its site's hosts resolved to the Proving ground:
 /// in the polite scenario, Foxhound's defaults with ADR 0086's delay and
 /// concurrency per domain, the `http` tier and a scope of every host;
-/// otherwise its own Politeness at the crawl's
-/// concurrency, no delay and robots.txt not obeyed, at `durability`, on the
-/// `browser` tier in the headless browser scenario and the `http` tier
-/// otherwise.
+/// otherwise its own Politeness at the crawl's concurrency, no delay,
+/// robots.txt not obeyed and the maximum-throughput combination's switches
+/// off, at `durability`, on the `browser` tier in the headless browser
+/// scenario and the `http` tier otherwise.
 fn settings(site: &Site<'_>, scenario: Scenario, durability: &str) -> Value {
     let hosts = scenario.site().hosts();
     let resolve: serde_json::Map<String, Value> = hosts
@@ -245,10 +254,18 @@ fn settings(site: &Site<'_>, scenario: Scenario, durability: &str) -> Value {
             "politeness": { "domain": { "delay": 1000, "concurrency": 1 } },
             "crawl": { "scope": { "strategy": "all" } },
         }),
+        // The maximum-throughput combination (ADR 0138,
+        // `docs/throughput.md`): every per-page feature the crawl does not
+        // need switched off, its Records kept only where the scenario
+        // reads them.
         Scenario::Raw | Scenario::Durable | Scenario::Extraction | Scenario::Browser => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
+                "block_classification": false,
             },
+            "frontier": { "learning": false },
+            "provenance": { "log": false },
+            "dataset": { "records": keeps_records(scenario) },
             // Its own Politeness, so no other run on the machine shares its
             // domain's count, at the crawl's concurrency.
             "politeness": {

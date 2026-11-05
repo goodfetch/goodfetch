@@ -234,13 +234,13 @@ pub(crate) const CELLS: [Cell; 21] = [
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
         name: "foxhound",
-        mapping: "code-free crawl on the `http` tier, `run_state.durability: fast`, \
+        mapping: "the maximum-throughput combination (`docs/throughput.md`): code-free crawl on \
+                  the `http` tier, `run_state.durability: fast`, \
                   `site_preferences.respect_robots_txt: false`, `politeness.domain` delay 0 and \
-                  concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
+                  concurrency 16 (`sharing: run`), `crawl.handler.concurrency: 16`, `formats: {}`, \
+                  `frontier.learning: false`, `provenance.log: false`, `dataset.records: false` \
+                  and `fetch.block_classification: false`",
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
         status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
@@ -282,7 +282,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Foxhound,
         name: "foxhound full",
         mapping: "scenario 1's settings with `run_state.durability: full`, its default: every \
-                  outcome synced; killed with SIGKILL once half the site is served, then \
+                  outcome synced, and `dataset.records` on, as its resume is judged by them; killed with SIGKILL once half the site is served, then \
                   `run.resume` in a new process on the same home",
         pending: &[],
         status: Status::Measured(Config::Foxhound { durability: "full" }),
@@ -393,12 +393,10 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Foxhound,
         name: "foxhound",
         mapping: "scenario 1's settings with `formats: { text: true }`, the text of each page's \
-                  main content, and the field `title` (the CSS selector `title`), each page's \
-                  Record committed to the code-free crawl's Dataset `pages` in its run file",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
+                  main content, and the field `title` (the CSS selector `title`), with \
+                  `dataset.records` on, each page's Record committed to the code-free crawl's \
+                  Dataset `pages` in its run file",
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
         status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
@@ -439,11 +437,8 @@ pub(crate) const CELLS: [Cell; 21] = [
         mapping: "scenario 1's settings on the `browser` tier (`fetch.tier: browser`), headless \
                   Chrome for Testing, its pinned build, from a Browser cache laid out beside \
                   the data folder (`GOODFETCH_BROWSERS_PATH`)",
-        pending: &[
-            "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
-            "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
-        ],
-        status: Status::Pending(FOXHOUND_BROWSER_LINKS),
+        pending: &["`run_state.durability: off` (#1927): runs `fast`, the fastest level there is"],
+        status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
         scenario: Scenario::Browser,
@@ -479,16 +474,6 @@ pub(crate) const CELLS: [Cell; 21] = [
         status: Status::Measured(Config::Scrapy),
     },
 ];
-
-/// Why Foxhound's headless browser cell gives no figure yet: what two of its
-/// crawls of the script-rendered site showed, which no same-work check
-/// passes.
-const FOXHOUND_BROWSER_LINKS: &str = "Foxhound's `browser` tier misses the links a page's \
-     script adds on some pages: on 2026-11-03 (#1903), two crawls of the script-rendered site \
-     reached 890 and 990 of its 1,000 pages, each fetching page 9 but none of the 10 pages its \
-     script links (and in the first, none of theirs); the fix is the issue #1903's report asks \
-     for, which also covers the `Connection: close` it sends with each page, 19 bytes more in \
-     each answer than the other tools are served";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.

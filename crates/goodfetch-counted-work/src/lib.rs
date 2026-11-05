@@ -51,6 +51,9 @@ pub enum Row {
     PagePluginSerializations,
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
     PagePluginAnswerParses,
+    /// `F1.block_classifications`: a fetched page's document read by the
+    /// Block classification rules.
+    PageBlockClassifications,
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies,
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
@@ -271,7 +274,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 97] = [
+    pub const ALL: [Self; 98] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -279,6 +282,7 @@ impl Row {
         Self::PageLocaleFormBuilds,
         Self::PagePluginSerializations,
         Self::PagePluginAnswerParses,
+        Self::PageBlockClassifications,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
         Self::HookMessagesNoHook,
@@ -383,7 +387,8 @@ impl Row {
             | Self::PageFileOpens
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
-            | Self::PagePluginAnswerParses => "page_analysis",
+            | Self::PagePluginAnswerParses
+            | Self::PageBlockClassifications => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
@@ -484,6 +489,7 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
+            Self::PageBlockClassifications => "block_classifications",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
@@ -575,6 +581,7 @@ impl Row {
             Self::PageLocaleFormBuilds => "F1.locale_form_builds",
             Self::PagePluginSerializations => "F1.plugin_serializations",
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
+            Self::PageBlockClassifications => "F1.block_classifications",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
             Self::HookMessagesNoHook => "F5.messages_no_hook",

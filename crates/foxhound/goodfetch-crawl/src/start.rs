@@ -40,6 +40,7 @@ use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
+use goodfetch_protocol::foxhound::settings::{FEATURE_SWITCHED_OFF, SWITCHED_OFF_FEATURES};
 use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
     StartInput, StartedAs,
@@ -64,7 +65,8 @@ use crate::work_items;
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
 /// its outcomes, the re-admission of its failures, the work items', Records' and outcomes' tables of every
-/// run file, and the driver a resumed crawl starts again with. Its crawl
+/// run file, the driver a resumed crawl starts again with, and the Audit
+/// record of each per-page feature a Run switches off (ADR 0138). Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages.
 pub fn contribution(tiers: FetchTiers) -> Contribution {
@@ -80,7 +82,14 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
-    Contribution::new("goodfetch-crawl")
+    // A per-page feature switched off is recorded once per Run (ADR 0138).
+    let contribution = SWITCHED_OFF_FEATURES.into_iter().fold(
+        Contribution::new("goodfetch-crawl"),
+        |contribution, setting| {
+            contribution.with_recorded_weakening(setting, &FEATURE_SWITCHED_OFF, setting.default)
+        },
+    );
+    contribution
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(
                 params,
@@ -249,7 +258,7 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
+            let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
             run.spawn(delivery::drive(
                 run.clone(),
                 context.clone(),

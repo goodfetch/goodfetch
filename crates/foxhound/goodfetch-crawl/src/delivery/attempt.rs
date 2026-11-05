@@ -81,7 +81,7 @@ use goodfetch_engine::settings::RunSettings;
 use goodfetch_fetch_tier::{
     AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
     Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
-    Stop, TierChoice, infer_plan, tier_serves,
+    Stop, TierChoice, UntouchedReaders, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -122,6 +122,7 @@ mod site_preferences;
 mod sitemap_fetch;
 
 use learning::learn;
+pub(super) use learning::learns;
 use site_preferences::{
     escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
     robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
@@ -274,6 +275,9 @@ pub(super) struct Gating {
     /// The attempt's HTTP admission, given back once its document is
     /// fetched, else once it ends.
     pub(super) fetch_admission: FetchAdmission,
+    /// The readers of the untouched page of its request's Label, built
+    /// once per Run.
+    pub(super) untouched: Arc<UntouchedReaders>,
 }
 
 impl Gating {
@@ -339,6 +343,7 @@ impl Gating {
             encoding: self.encoding,
             content_types: self.content_types.clone(),
             capture: None,
+            untouched: Arc::clone(&self.untouched),
         })
     }
 }
@@ -1239,10 +1244,10 @@ impl On<'_> {
         {
             owned.capture = Some(capture.clone());
         }
-        let handed_over = self.gating.tiers.hand_over(hand_over);
+        let handed_over = self.gating.tiers.hand_over(Arc::clone(&hand_over));
         let opened = tokio::select! {
             biased;
-            opened = tiers.browser(run.id(), self.in_browser, &leased.crawl_request.url, self.context) => {
+            opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request.url, self.context) => {
                 opened.map_err(|error| failed(&error))
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),
@@ -1409,7 +1414,7 @@ async fn judged(run: &Run, tiering: &Tiering, page_id: &PageId) -> Option<Judged
 
 /// The Run's own `session.page_check`, which judges the pages of a Label
 /// that declares none (ADR 0093).
-fn run_page_check(run: &Run) -> Option<PageCheck> {
+pub(super) fn run_page_check(run: &Run) -> Option<PageCheck> {
     let settings = run.settings()?;
     let value = settings
         .resolved()

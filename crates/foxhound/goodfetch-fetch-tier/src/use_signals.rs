@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use goodfetch_counted_work::ParsedHtml;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use tokio::sync::{Mutex, OnceCell};
@@ -135,7 +136,9 @@ impl UseSignals {
     /// carries: `TDMRep`'s `<meta name="tdm-reservation" content="1">` and
     /// an RSL `<link>`, resolved against the document's base URL; the
     /// `Link` header's license is resolved against `url`. A response that
-    /// holds no document is read with an empty `html`.
+    /// holds no document is read with an empty `html`. `html` is parsed
+    /// for this call alone, when it names either: a crawl request's own
+    /// document is read once, by [`UseSignals::with_tree`].
     #[must_use]
     #[expect(
         clippy::disallowed_types,
@@ -145,23 +148,40 @@ impl UseSignals {
         clippy::disallowed_methods,
         reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
     )]
-    pub fn with_markup(mut self, html: &str, url: &Url) -> Self {
-        self.license = self
-            .license_header
-            .as_deref()
-            .and_then(|target| url.join(target.trim()).ok());
-        // Most documents name neither; they are not parsed again.
-        let names = |needle: &str| {
-            html.as_bytes()
-                .windows(needle.len())
-                .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
-        };
-        if !names("tdm-reservation") && !names(RSL_TYPE) {
-            return self;
+    pub fn with_markup(self, html: &str, url: &Url) -> Self {
+        if !names_signals(html) {
+            return self.with_header_license(url);
         }
         let document = dom_query::Document::from(html);
+        let matcher = |selector: &str| {
+            dom_query::Matcher::new(selector)
+                .expect("invariant: a selector written in the code is CSS")
+        };
+        let readers = SignalReaders {
+            meta: matcher(SignalReaders::META),
+            base: matcher(SignalReaders::BASE),
+            link: matcher(SignalReaders::LINK),
+        };
+        self.with_tree(html, &document, url, &readers)
+    }
+
+    /// [`UseSignals::with_markup`] of `html`, whose untouched tree
+    /// `document` its caller parsed once, read with `readers`.
+    #[must_use]
+    pub(crate) fn with_tree(
+        self,
+        html: &str,
+        document: &ParsedHtml,
+        url: &Url,
+        readers: &SignalReaders,
+    ) -> Self {
+        let mut signals = self.with_header_license(url);
+        // Most documents name neither; their tree is not read for them.
+        if !names_signals(html) {
+            return signals;
+        }
         let reserves = document
-            .select("meta[name][content]")
+            .select_matcher(&readers.meta)
             .nodes()
             .iter()
             .any(|meta| {
@@ -171,19 +191,19 @@ impl UseSignals {
                         .attr("content")
                         .is_some_and(|content| content.trim() == "1")
             });
-        if reserves && self.reserved.is_none() {
-            self.reserved = Some("TDMRep's `<meta name=\"tdm-reservation\">`");
+        if reserves && signals.reserved.is_none() {
+            signals.reserved = Some("TDMRep's `<meta name=\"tdm-reservation\">`");
         }
         let base = document
-            .select("base[href]")
+            .select_matcher(&readers.base)
             .attr("href")
             .and_then(|href| url.join(href.trim()).ok())
             .unwrap_or_else(|| url.clone());
-        if self.license.is_some() {
-            return self;
+        if signals.license.is_some() {
+            return signals;
         }
-        self.license = document
-            .select("link[rel][type][href]")
+        signals.license = document
+            .select_matcher(&readers.link)
             .nodes()
             .iter()
             .find(|link| {
@@ -194,6 +214,16 @@ impl UseSignals {
             })
             .and_then(|link| link.attr("href"))
             .and_then(|href| base.join(href.trim()).ok());
+        signals
+    }
+
+    /// These signals with the `Link` header's license resolved against
+    /// `url`.
+    fn with_header_license(mut self, url: &Url) -> Self {
+        self.license = self
+            .license_header
+            .as_deref()
+            .and_then(|target| url.join(target.trim()).ok());
         self
     }
 
@@ -434,6 +464,33 @@ impl SignalFiles {
             .await
             .clone()
     }
+}
+
+/// Whether `html` names either markup signal, in any case.
+fn names_signals(html: &str) -> bool {
+    let names = |needle: &str| {
+        html.as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+    };
+    names("tdm-reservation") || names(RSL_TYPE)
+}
+
+/// The matchers the markup's AI-use signals are read with.
+#[derive(Debug)]
+pub(crate) struct SignalReaders {
+    pub(crate) meta: dom_query::Matcher,
+    pub(crate) base: dom_query::Matcher,
+    pub(crate) link: dom_query::Matcher,
+}
+
+impl SignalReaders {
+    /// `TDMRep`'s `<meta>`, among others.
+    pub(crate) const META: &str = "meta[name][content]";
+    /// The document's `<base>`.
+    pub(crate) const BASE: &str = "base[href]";
+    /// An RSL `<link>`, among others.
+    pub(crate) const LINK: &str = "link[rel][type][href]";
 }
 
 #[cfg(test)]

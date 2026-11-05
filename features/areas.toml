@@ -706,6 +706,23 @@ number = 6
 kind = "setting"
 prefix = "frontier.learning"
 
+# The per-page features a crawl switches off for throughput (ADR 0138,
+# #1921): its Provenance log, its Records and its Block classification.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "provenance.log"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "dataset.records"
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.block_classification"
+
 # The redirects and refresh stubs a crawl request's fetch follows (spec
 # #579, #762, ADR 0118).
 [[area]]

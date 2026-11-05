@@ -23,8 +23,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Url;
@@ -61,8 +61,12 @@ const EVERY_ENTRY: &str = "**";
 #[derive(Clone)]
 pub(crate) struct CodeFree {
     pub(crate) extraction: CrawlExtraction,
-    /// Each field's reader, in the order of `extraction.fields`.
+    /// Each field's reader, in the order of `extraction.fields`; none when
+    /// the crawl keeps no Record.
     readers: Arc<[fields::Reader]>,
+    /// Whether the crawl keeps Records, its `dataset.records`: off, a page's
+    /// formats and fields are not read for one (ADR 0138).
+    keeps_records: bool,
     pub(crate) crawls: Crawls,
     pub(crate) tiers: FetchTiers,
 }
@@ -291,26 +295,51 @@ pub(crate) fn record_of(
 }
 
 impl CodeFree {
-    /// What a crawl reading `extraction` handles its requests with, on the
-    /// live `crawls` and the pages of `tiers`, each field's `match` pattern
-    /// and locale's forms learned here, once; none for a crawl whose
-    /// program handles them.
+    /// What the crawl `run` reading `extraction` handles its requests with,
+    /// on the live `crawls` and the pages of `tiers`, each field's `match`
+    /// pattern and locale's forms learned here, once, unless the crawl
+    /// keeps no Record; none for a crawl whose program handles them.
     pub(crate) fn of(
         extraction: Option<CrawlExtraction>,
         crawls: &Crawls,
         tiers: &FetchTiers,
-        work: &CountedWork,
+        run: &Run,
     ) -> Option<Self> {
+        let keeps_records = crate::serving::keeps_records(run);
+        let work = run.metrics().counted_work();
         extraction.map(|extraction| Self {
-            readers: extraction
-                .fields
-                .values()
-                .map(|field| fields::Reader::of(field, work))
-                .collect(),
+            readers: if keeps_records {
+                extraction
+                    .fields
+                    .values()
+                    .map(|field| fields::Reader::of(field, work))
+                    .collect()
+            } else {
+                Arc::from([])
+            },
+            keeps_records,
             extraction,
             crawls: crawls.clone(),
             tiers: tiers.clone(),
         })
+    }
+
+    /// What the readers of each page's untouched tree read for it, once:
+    /// under `follow: scope`, the links [`LINKS`] matches, and its fields'
+    /// locators, in order (ADR 0138).
+    pub(crate) fn untouched(&self) -> (Vec<String>, Vec<FieldLocator>) {
+        let links = if self.extraction.follow == ExtractionFollow::Scope {
+            vec![LINKS.to_owned()]
+        } else {
+            Vec::new()
+        };
+        let locators = self
+            .extraction
+            .fields
+            .values()
+            .map(|field| field.locator.clone())
+            .collect();
+        (links, locators)
     }
 
     /// Handles the attempt `params` gives, as a handler would: reads its
@@ -344,21 +373,11 @@ impl CodeFree {
                 &(),
             ));
         };
-        let formats = self
-            .tiers
-            .formats(page_id, self.extraction.formats)
-            .await
-            .ok_or_else(|| {
-                CallError::new(
-                    &CLOSED,
-                    format!(
-                        "No tier serves the page of crawl request `{}`, so its formats were not read.",
-                        params.crawl_request.id
-                    ),
-                    &(),
-                )
-            })??;
-        let (values, read) = self.fields(page_id, &params.crawl_request.id).await?;
+        let read = if self.keeps_records {
+            Some(self.read(page_id, &params.crawl_request.id).await?)
+        } else {
+            None
+        };
         if self.extraction.follow == ExtractionFollow::Scope {
             enqueue_links(
                 CrawlRequestEnqueueLinksParams {
@@ -384,6 +403,15 @@ impl CodeFree {
             .await?;
         }
         let status = params.response.as_ref().map(|response| response.status);
+        let Some((formats, values, read)) = read else {
+            return Ok((
+                CrawlRequestHandled {
+                    records: Vec::new(),
+                    skipped: None,
+                },
+                FieldsRead::default(),
+            ));
+        };
         Ok((
             CrawlRequestHandled {
                 records: vec![PushedRecord {
@@ -394,6 +422,31 @@ impl CodeFree {
             },
             read,
         ))
+    }
+
+    /// The formats and fields of the page `page_id` of the crawl request
+    /// `request_id` that its Record holds, and what its fields' Provenance
+    /// names.
+    async fn read(
+        &self,
+        page_id: &PageId,
+        request_id: &str,
+    ) -> Result<(PageFormats, Map<String, Value>, FieldsRead), CallError> {
+        let formats = self
+            .tiers
+            .formats(page_id, self.extraction.formats)
+            .await
+            .ok_or_else(|| {
+                CallError::new(
+                    &CLOSED,
+                    format!(
+                        "No tier serves the page of crawl request `{request_id}`, so its formats were not read."
+                    ),
+                    &(),
+                )
+            })??;
+        let (values, read) = self.fields(page_id, request_id).await?;
+        Ok((formats, values, read))
     }
 
     /// The values of the extraction's fields on the page `page_id` of the

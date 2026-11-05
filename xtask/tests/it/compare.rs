@@ -19,7 +19,7 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 15] = [
+const CELLS: [(&str, &str, &str); 16] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -32,6 +32,7 @@ const CELLS: [(&str, &str, &str); 15] = [
     ("extraction", "spider", "spider"),
     ("extraction", "crawlee", "crawlee"),
     ("extraction", "scrapy", "scrapy"),
+    ("browser", "foxhound", "foxhound"),
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
     ("browser", "scrapy", "scrapy"),
@@ -401,13 +402,14 @@ fn the_report_writes_each_scenarios_mapping() {
                 .unwrap()
                 .len(),
         ),
-        (&json!("not_supported"), &json!("pending"), 2)
+        (&json!("not_supported"), &json!("pending"), 1)
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "## 1. Raw fetch and follow",
         "## 2. Durable and resumable",
         "`run_state.durability: fast`",
+        "`dataset.records: false`",
         "pending: `run_state.durability: off` (#1927)",
         "- **spider**: none",
         "not supported: Spider keeps no crawl state",
@@ -476,8 +478,7 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
 /// Scenarios 3 to 5 (#1903): the polite crawl of the multi-domain site,
 /// extraction to a dataset and the headless browser each report every
 /// metric for each measured cell, with its mapping; Spider's polite cell
-/// says why Spider cannot be polite to each domain, and Foxhound's browser
-/// cell why it gives no figure yet.
+/// says why Spider cannot be polite to each domain.
 #[test]
 fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell() {
     let workspace = Workspace::from_fixture("empty");
@@ -502,7 +503,7 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
     for (index, cells) in [
         (2, &["foxhound", "crawlee", "scrapy"][..]),
         (3, &["foxhound", "spider", "crawlee", "scrapy"][..]),
-        (4, &["spider", "crawlee", "scrapy"][..]),
+        (4, &["foxhound", "spider", "crawlee", "scrapy"][..]),
     ] {
         for name in cells {
             let cell = cell(&report, index, name);
@@ -514,11 +515,8 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         }
     }
     assert_eq!(
-        (
-            &cell(&report, 2, "spider")["status"],
-            &cell(&report, 4, "foxhound")["status"]
-        ),
-        (&json!("not_supported"), &json!("pending"))
+        &cell(&report, 2, "spider")["status"],
+        &json!("not_supported")
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
@@ -560,7 +558,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 45 timed trials started above a 1-minute load of 4.",
+        "1 of the 48 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

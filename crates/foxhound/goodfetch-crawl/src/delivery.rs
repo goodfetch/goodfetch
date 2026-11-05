@@ -64,7 +64,7 @@
 //! drives, kept whole so every work item's way from pending to its ending
 //! passes through one loop.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::SystemTime;
 
 use futures_util::future::join_all;
@@ -85,7 +85,7 @@ use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
-    RobotsTxtFetch, SetTier, SignalFiles, TierChoice,
+    RobotsTxtFetch, SetTier, SignalFiles, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -99,14 +99,21 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::report::{LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK};
+use goodfetch_protocol::foxhound::report::{
+    BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
+    RECORDS_OFF,
+};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::foxhound::settings::{
+    DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
+};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
@@ -224,6 +231,7 @@ pub(crate) async fn drive(
             None
         }
     };
+    let untouched = Untouched::of(&run, &labels, code_free.as_ref());
     let fetching = Fetching {
         tiers: &tiers,
         http: http.as_ref(),
@@ -245,28 +253,56 @@ pub(crate) async fn drive(
         light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
+        untouched,
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
-    if settings.resolved().boolean(FRONTIER_LEARNING.name) == Some(false) {
-        warn_learning_off(&run).await;
+    for (setting, code, message) in SWITCHED_OFF {
+        if settings.resolved().boolean(setting) == Some(false) {
+            warn_switched_off(&run, code, message).await;
+        }
     }
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
 }
 
-/// Hands the Run's report, once, the warning that its Frontier learns no
-/// rule, `frontier.learning` being off (ADR 0138), so an empty
-/// `learned_rules` is not read as a site that taught nothing.
-async fn warn_learning_off(run: &Run) {
+/// Each per-page feature a crawl switches off with its warning (ADR 0138):
+/// its key, the warning's code and its message, so an empty result is not
+/// misread.
+const SWITCHED_OFF: [(&str, &str, &str); 4] = [
+    (
+        FRONTIER_LEARNING.name,
+        LEARNING_OFF,
+        "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.",
+    ),
+    (
+        PROVENANCE_LOG.name,
+        PROVENANCE_OFF,
+        "`provenance.log` is off: the Run trace holds no Provenance log; each Record still carries its own Provenance.",
+    ),
+    (
+        DATASET_RECORDS.name,
+        RECORDS_OFF,
+        "`dataset.records` is off: the crawl kept no Record, so its Datasets hold none.",
+    ),
+    (
+        FETCH_BLOCK_CLASSIFICATION.name,
+        BLOCK_CLASSIFICATION_OFF,
+        "`fetch.block_classification` is off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the successes.",
+    ),
+];
+
+/// Hands the Run's report, once, the warning `code` with `message`, of a
+/// per-page feature its settings switch off (ADR 0138).
+async fn warn_switched_off(run: &Run, code: &str, message: &str) {
     let warning = RunWarning {
-        code: LEARNING_OFF.to_owned(),
-        message: "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.".to_owned(),
+        code: code.to_owned(),
+        message: message.to_owned(),
         sessions: Vec::new(),
         folder: None,
     };
     if let Err(error) = run.warn_once(warning).await {
-        tracing::warn!(%error, run_id = %run.id(), "the warning that the crawl learns no rule was not kept");
+        tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
     }
 }
 
@@ -547,7 +583,7 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress, datasets).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
     drive(
         run,
         context,
@@ -597,6 +633,47 @@ struct Fetching<'a> {
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
+    /// The readers of the untouched page of each Label, built once.
+    untouched: Untouched,
+}
+
+/// The readers of the untouched page a Run's documents are read by (ADR
+/// 0138), built once as its crawl starts: those of the Labels that declare
+/// a Page check of their own, and the Run's, for every other Label.
+struct Untouched {
+    run: std::sync::Arc<UntouchedReaders>,
+    labels: BTreeMap<String, std::sync::Arc<UntouchedReaders>>,
+}
+
+impl Untouched {
+    /// `run`'s readers, of its Labels `labels`: a code-free crawl's
+    /// `code_free` links and fields, each Label's Page check, else the
+    /// Run's, and the Page signature while the Run learns.
+    fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
+        let work = run.metrics().counted_work();
+        let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
+        let demand = |page_check: Option<PageCheck>| UntouchedDemand {
+            links: links.clone(),
+            fields: fields.clone(),
+            page_check,
+            signs: attempt::learns(run),
+        };
+        let readers =
+            |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));
+        Self {
+            run: readers(attempt::run_page_check(run)),
+            labels: labels
+                .settings
+                .page_checks()
+                .map(|(label, check)| (label.to_owned(), readers(Some(check.clone()))))
+                .collect(),
+        }
+    }
+
+    /// The readers of a request of `label`.
+    fn of_label(&self, label: &str) -> &std::sync::Arc<UntouchedReaders> {
+        self.labels.get(label).unwrap_or(&self.run)
+    }
 }
 
 impl Fetching<'_> {
@@ -627,6 +704,7 @@ impl Fetching<'_> {
             code_free: self.code_free.clone(),
             signal_files: self.signal_files.clone(),
             fetch_admission,
+            untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
         }
     }
 

@@ -1,7 +1,8 @@
 # typos, run by `just lint` on every pull request (STYLE.md). `rnd/` is frozen.
 [files]
 # `vendor/` holds Goodfetch's forks of crates.io releases (`wreq`,
-# `wreq-util`, `rs-trafilatura` and the two crates it reads trees with),
+# `wreq-util`, `dom_smoothie`, `rs-trafilatura` and the two crates it reads
+# trees with),
 # kept as their upstreams wrote them but for the changes each marks.
 # `journeys/tasks/` holds the Proving ground's task lists, which
 # `xtask journeys tasks` writes from seeds (its generated names, such as

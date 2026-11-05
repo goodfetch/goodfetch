@@ -287,8 +287,14 @@ impl Gating {
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
     ) -> Arc<HandOver> {
-        let politeness = share_robots_txt(run).await;
         let settings = run.settings().map(RunSettings::resolved);
+        // A crawl whose Politeness paces nothing records no start, send or
+        // latency in it (ADR 0138).
+        let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
+            share_robots_txt(run).await
+        } else {
+            None
+        };
         let domain_delay = settings
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();

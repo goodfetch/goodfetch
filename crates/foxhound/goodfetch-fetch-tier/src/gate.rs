@@ -123,7 +123,8 @@ pub struct HandOver {
     pub keys: DomainKeys,
     /// Room for requests beside those the Run admitted.
     pub second_copies: SecondCopies,
-    /// The Politeness the Run shares, once it opened.
+    /// The Politeness the Run shares, once it opened; none while the Run's
+    /// Politeness paces nothing, which consults no store (ADR 0138).
     pub politeness: Option<Politeness>,
     /// How robots.txt is fetched when the shared copy has none.
     pub robots: Option<RobotsTxtFetch>,

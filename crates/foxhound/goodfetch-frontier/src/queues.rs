@@ -17,7 +17,11 @@
 //! The waiting requests are the crawl's pending work items, which the run
 //! file keeps; what the queues add is each domain's wait and backoff, which
 //! they journal in their own table and open again from on a resume. The
-//! backoff is the `politeness` module's.
+//! backoff is the `politeness` module's: while the Run shares no Politeness,
+//! its rule pacing nothing (ADR 0138), the queues back each domain off
+//! themselves by that rule over the state they keep of it in memory, as an
+//! ending of its requests says: the backoff under `politeness.backoff.*`, a
+//! `Retry-After`, and a 429's halving of the count in flight.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -28,14 +32,14 @@ use goodfetch_engine::admission::{
     Admitted, Ended, Gate, Gates, Held, Journal, QueuedGroup, Waiting,
 };
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::PermitRule;
+use goodfetch_engine::politeness::{Ending, PermitRule};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
 use rusqlite::Connection;
 use tokio::time::Instant;
 
 use crate::domain_key::DomainKeys;
-use crate::politeness::{DomainRule, SharedEntropy};
+use crate::politeness::{self, DomainRule, Limits, SharedEntropy};
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
@@ -93,6 +97,10 @@ struct Domain {
     held: Option<Held>,
     /// Whether the run file holds a row of it.
     journaled: bool,
+    /// The Politeness rule's state of it, while the Run shares none: its
+    /// backoff, the moment it waits until and the ceiling a 429 left it,
+    /// its moments in milliseconds of wall time.
+    limits: Limits,
     /// The wait it was last counted under, by its place in
     /// [`DomainQueues::waits`], while it has waiting requests, and until
     /// when that wait lasts, if it ends by itself.
@@ -130,33 +138,53 @@ struct Waits {
 
 impl Domain {
     fn is_ready(&self, now: Instant) -> bool {
-        self.ready_at.is_none_or(|ready_at| ready_at <= now)
-            && self.held_until.is_none_or(|held_until| held_until <= now)
+        self.held_until.is_none_or(|held_until| held_until <= now)
+            && self.ready_at.is_none_or(|ready_at| ready_at <= now)
+            && !self.is_full()
     }
 
-    /// The first moment from `now` it is ready.
-    fn ready_from(&self, now: Instant) -> Instant {
-        [self.ready_at, self.held_until]
-            .into_iter()
-            .flatten()
-            .fold(now, Instant::max)
+    /// Whether as many of its requests are in flight as the ceiling a 429
+    /// left it admits.
+    fn is_full(&self) -> bool {
+        self.limits
+            .ceiling
+            .is_some_and(|ceiling| u64::try_from(self.in_flight).unwrap_or(u64::MAX) >= ceiling)
+    }
+
+    /// The first moment from `now` it is ready; `None` while it is full,
+    /// until one of its requests ends.
+    fn ready_from(&self, now: Instant) -> Option<Instant> {
+        if self.is_full() {
+            return None;
+        }
+        Some(
+            [self.ready_at, self.held_until]
+                .into_iter()
+                .flatten()
+                .fold(now, Instant::max),
+        )
     }
 
     /// Whether it holds nothing more at `now`: no request waiting or in
-    /// flight, and no wait.
+    /// flight, no wait, and no backoff or ceiling it keeps itself.
     fn is_drained(&self, now: Instant) -> bool {
-        self.waiting.is_empty() && self.in_flight == 0 && self.is_ready(now)
+        self.waiting.is_empty()
+            && self.in_flight == 0
+            && self.is_ready(now)
+            && self.limits.is_clear()
     }
 
     /// Why its requests wait at `now`, and until when, if that wait ends by
     /// itself: its hold while it lasts, for want of room when no reason
-    /// was given, else its backoff while it lasts, else nothing.
+    /// was given; its backoff while it lasts; for want of room while it is
+    /// full; else nothing.
     fn waits_at(&self, now: Instant) -> (Option<Held>, Option<Instant>) {
         match (self.held_until, self.ready_at) {
             (Some(until), _) if until > now => {
                 (Some(self.held.unwrap_or(Held::Concurrency)), Some(until))
             }
             (_, Some(ready_at)) if ready_at > now => (Some(Held::BackOff), Some(ready_at)),
+            _ if self.is_full() => (Some(Held::Concurrency), None),
             _ => (None, None),
         }
     }
@@ -180,6 +208,12 @@ pub struct DomainQueues {
     ids: BTreeSet<String>,
     changed: BTreeSet<String>,
     entropy: SharedEntropy,
+    /// What the Run waits for under its settings, which the queues back
+    /// each domain off by while it shares no Politeness.
+    waiting_for: politeness::Waits,
+    /// A wall time and the monotonic reading taken with it, which the
+    /// queues read each moment's wall time from: the last their Run gave.
+    anchor: Option<(SystemTime, Instant)>,
     /// The requests waiting in every domain's queue.
     waiting: usize,
     /// The domains counted under each wait of [`WAITS`].
@@ -192,7 +226,8 @@ pub struct DomainQueues {
 
 impl DomainQueues {
     /// Empty queues keyed by `keys`, each holding at most `bound`, whose
-    /// Politeness rule draws its backoffs from `entropy`.
+    /// Politeness rule draws its backoffs from `entropy`, waiting as the
+    /// catalog's defaults say until they take a Run's settings.
     pub fn new(keys: DomainKeys, bound: usize, entropy: Entropy) -> Self {
         Self {
             keys,
@@ -203,10 +238,23 @@ impl DomainQueues {
             ids: BTreeSet::new(),
             changed: BTreeSet::new(),
             entropy: SharedEntropy::new(entropy.into()),
+            waiting_for: politeness::Waits::default(),
+            anchor: None,
             waiting: 0,
             waits: Default::default(),
             recount: BTreeSet::new(),
             expiring: BTreeSet::new(),
+        }
+    }
+
+    /// The wall time of the monotonic reading `at`, from the queues'
+    /// anchor, which the first reading sets when their Run gave none.
+    fn wall(&mut self, at: Instant) -> SystemTime {
+        let (wall, read) = *self.anchor.get_or_insert((UNIX_EPOCH, at));
+        if at >= read {
+            wall + (at - read)
+        } else {
+            wall.checked_sub(read - at).unwrap_or(wall)
         }
     }
 
@@ -357,7 +405,7 @@ impl Gate for DomainQueues {
         self.turns
             .iter()
             .filter_map(|key| self.domains.get(key))
-            .map(|domain| domain.ready_from(now))
+            .filter_map(|domain| domain.ready_from(now))
             .min()
     }
 
@@ -467,27 +515,64 @@ impl Gate for DomainQueues {
     }
 
     fn ended(&mut self, key: &str, now: Instant, ended: Ended) {
+        let wall = self.wall(now);
+        // The moment a shared Politeness named comes as `Until`, its rule
+        // already applied; any other ending has the queues apply that rule
+        // themselves, over the state they keep of the domain, as a Run
+        // sharing no Politeness passes them every ending (ADR 0138).
+        let ending = match ended {
+            Ended::Done => Some(Ending::Done),
+            Ended::BackOff(until) => Some(Ending::BackOff(until.map(|until| self.wall(until)))),
+            Ended::Until(_) => None,
+            Ended::TooManyRequests(until) => {
+                Some(Ending::TooManyRequests(until.map(|until| self.wall(until))))
+            }
+        };
         let domain = self.domains.entry(key.to_owned()).or_default();
         domain.in_flight = domain.in_flight.saturating_sub(1);
         if domain.waiting.is_empty() && domain.in_flight == 0 {
             self.idle.insert(key.to_owned());
         }
         let backed_off = domain.backoffs > 0;
-        let wait_until = match ended {
-            Ended::Done => {
-                domain.backoffs = 0;
-                None
+        let wall_now = milliseconds(wall);
+        let others = u64::try_from(domain.in_flight).unwrap_or(u64::MAX);
+        let wait_until = match ending {
+            None => match ended {
+                Ended::Until(until) => Some(until),
+                _ => None,
+            },
+            Some(ending) => {
+                // A request that ended well changes nothing of a domain
+                // whose state is clear, so most endings draw no lock.
+                if !(matches!(ending, Ending::Done) && domain.limits.is_clear()) {
+                    let mut entropy = self
+                        .entropy
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    domain.limits = domain.limits.ended(
+                        others,
+                        ending,
+                        wall_now,
+                        &self.waiting_for,
+                        &mut entropy,
+                    );
+                }
+                domain
+                    .limits
+                    .ready_at
+                    .and_then(|ready_at| u64::try_from(ready_at - wall_now).ok())
+                    .filter(|wait| *wait > 0)
+                    .map(|wait| now + Duration::from_millis(wait))
             }
-            Ended::BackOff(until) => {
-                domain.backoffs = domain.backoffs.saturating_add(1);
-                let backoff = now + backoff(domain.backoffs);
-                Some(until.map_or(backoff, |until| until.max(backoff)))
+        };
+        domain.backoffs = match ended {
+            Ended::Done => 0,
+            Ended::BackOff(_) | Ended::TooManyRequests(_)
+                if self.waiting_for.backoff().is_some() =>
+            {
+                domain.backoffs.saturating_add(1)
             }
-            Ended::Until(until) => Some(until),
-            Ended::TooManyRequests(until) => {
-                domain.backoffs = domain.backoffs.saturating_add(1);
-                Some(until.unwrap_or(now + backoff(domain.backoffs)))
-            }
+            _ => domain.backoffs,
         };
         if let Some(until) = wait_until {
             domain.ready_at = Some(
@@ -506,6 +591,7 @@ impl Gate for DomainQueues {
     }
 
     fn journal(&mut self, wall: SystemTime, now: Instant) -> Option<Journal> {
+        self.anchor = Some((wall, now));
         if self.changed.is_empty() {
             return None;
         }
@@ -542,24 +628,6 @@ impl Gate for DomainQueues {
     }
 }
 
-/// The first backoff of a domain the queues back off themselves.
-const BACKOFF_INITIAL: Duration = Duration::from_secs(2);
-
-/// The longest backoff of a domain the queues back off themselves.
-const BACKOFF_MAX: Duration = Duration::from_mins(1);
-
-/// How long a domain the queues back off themselves waits after
-/// `backoffs` backoffs in a row: 2 s, then doubling up to 60 s. Only a Run
-/// that shares no Politeness ends requests here with a backoff; a crawl's
-/// Run always shares it, where the backoff is jittered
-/// ([`crate::politeness::Backoff`]).
-fn backoff(backoffs: u32) -> Duration {
-    let doublings = backoffs.saturating_sub(1).min(31);
-    BACKOFF_INITIAL
-        .saturating_mul(1 << doublings)
-        .min(BACKOFF_MAX)
-}
-
 /// A domain's key and its journal row: its wait's end in milliseconds of
 /// wall time and its backoffs in a row, or none once released.
 type JournalRow = (String, Option<(Option<i64>, u32)>);
@@ -586,6 +654,8 @@ impl Gates for DomainGates {
         entropy: Entropy,
     ) -> rusqlite::Result<Box<dyn Gate>> {
         let mut queues = DomainQueues::new(DomainKeys::of(settings), BOUND, entropy);
+        queues.waiting_for = politeness::Waits::of(settings);
+        queues.anchor = Some((wall, now));
         let wall = milliseconds(wall);
         let mut rows = journal.prepare_cached("SELECT key, ready_at, backoffs FROM domains")?;
         let rows = rows.query_map([], |row| {

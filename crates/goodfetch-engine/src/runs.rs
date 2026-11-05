@@ -1646,10 +1646,11 @@ impl Run {
 
     /// Its admission under `settings`: the gate in admission the
     /// composition passes in, opened from what its run file journaled, its
-    /// rate cap, and, when the gate names a rule for its keys, the
+    /// rate cap, and, when the gate names a rule that paces its keys, the
     /// Politeness `politeness.sharing` says it shares: the per-user
     /// Politeness file for `shared` and `per_daemon`, a file of its own in
-    /// memory for `run`. `None` when the composition passes in no gate.
+    /// memory for `run`. A rule that paces nothing opens none (ADR 0138).
+    /// `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///

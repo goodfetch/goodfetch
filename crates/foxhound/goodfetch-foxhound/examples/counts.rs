@@ -336,25 +336,79 @@ fn scoped(mut settings: Value) -> Value {
 }
 
 /// The cell with no format asked and `frontier.learning` off: the crawl
-/// runs neither the clean-up nor the main-content step (ADR 0138). Its page
-/// is still parsed once, for the readers of its untouched page (its links
-/// and fields), as the default cell's is, and compiles no selector, as no
-/// page of the default cell does since the engine keeps its compilations
-/// (#1912).
+/// runs neither the clean-up nor the main-content step (ADR 0138), and no
+/// reader of its untouched page needs a tree, so each page is read in one
+/// streaming pass and parsed none (#1911). It compiles no selector a page,
+/// as no page of the default cell does since the engine keeps its
+/// compilations (#1912).
 fn learning_off() -> Cell {
     Cell {
         name: "learning_off",
         settings: scoped(json!({ "frontier": { "learning": false } })),
         frontier: FRONTIER,
-        removes: &[Row::PageReadabilityRuns],
+        removes: &[Row::PageParses, Row::PageReadabilityRuns],
         removes_syncs: false,
         handler: false,
         limit: false,
     }
 }
 
-fn cells() -> [Cell; 11] {
+/// The cells of the per-page features ADR 0138's inventory switches off,
+/// each against the default cell: the Provenance log, whose Run trace then
+/// holds no entry; the Records, none of which is then validated, serialized
+/// or committed, nor its fields read; and the Block classification, which
+/// then reads no document (#1921).
+fn switched_off() -> [Cell; 3] {
     [
+        Cell {
+            name: "provenance_off",
+            settings: scoped(json!({ "provenance": { "log": false } })),
+            frontier: FRONTIER,
+            removes: &[Row::RunTraceSpawns, Row::RunTraceFileOpens],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: RECORDS_OFF_CELL,
+            settings: scoped(json!({ "dataset": { "records": false } })),
+            frontier: FRONTIER,
+            removes: &[
+                Row::RecordValidations,
+                Row::RecordSerializations,
+                Row::RecordConstantLookups,
+            ],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: "block_classification_off",
+            // The fixture's `fetch` with the switch beside it: a cell's
+            // settings replace each of the fixture's top-level keys.
+            settings: scoped(json!({
+                "fetch": { "tier": "http", "block_classification": false },
+            })),
+            frontier: FRONTIER,
+            removes: &[Row::PageBlockClassifications],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+    ]
+}
+
+/// The cell that keeps no Record, whose crawl's checks of its Records it
+/// skips.
+const RECORDS_OFF_CELL: &str = "records_off";
+
+/// Whether the cell's Run trace holds a Provenance log.
+fn logs_provenance(cell: &Cell) -> bool {
+    cell.settings["provenance"]["log"] != json!(false)
+}
+
+fn cells() -> Vec<Cell> {
+    let mut cells = vec![
         Cell {
             name: "default",
             settings: scoped(json!({})),
@@ -462,7 +516,9 @@ fn cells() -> [Cell; 11] {
             handler: false,
             limit: false,
         },
-    ]
+    ];
+    cells.extend(switched_off());
+    cells
 }
 
 /// What a cell's runs under Callgrind prepared.
@@ -631,7 +687,10 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             setup_syncs,
             entries,
         } = crawl(cell, planted, bypassed, Pages::Whole);
-        assert!(entries > 0, "the crawl wrote no Run-trace entry");
+        assert!(
+            entries > 0 || !logs_provenance(cell),
+            "the crawl wrote no Run-trace entry"
+        );
         assert!(
             !cell.limit
                 || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
@@ -643,7 +702,9 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             "the site sends each body once"
         );
         let pages = pages_of(cell, PAGES.len());
-        if cell.handler {
+        if cell.name == RECORDS_OFF_CELL {
+            assert!(crawled.records.is_empty(), "the crawl kept a Record");
+        } else if cell.handler {
             assert_eq!(
                 crawled.handled,
                 u64::try_from(pages).expect("invariant: a dozen pages"),
@@ -915,6 +976,24 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
     }
 }
 
+/// The shorter site's crawl of `cell`, `ran`, served [`ADDED_PAGES`] pages
+/// fewer than the whole site's, as its Records or its handler count them; a
+/// cell that keeps no Record has none to count.
+fn assert_shorter(cell: &Cell, ran: &Crawl) {
+    let served = if cell.handler {
+        usize::try_from(ran.crawled.handled).unwrap_or(usize::MAX)
+    } else if cell.name == RECORDS_OFF_CELL {
+        return;
+    } else {
+        ran.crawled.records.len()
+    };
+    assert_eq!(
+        served,
+        pages_of(cell, SHORTER),
+        "the shorter site serves {ADDED_PAGES} pages fewer"
+    );
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
@@ -931,16 +1010,7 @@ fn main() {
             .expect("invariant: its parent named a cell");
         let ran = crawl(&cell, planted, None, pages);
         if pages == Pages::CallgrindShorter {
-            let served = if cell.handler {
-                usize::try_from(ran.crawled.handled).unwrap_or(usize::MAX)
-            } else {
-                ran.crawled.records.len()
-            };
-            assert_eq!(
-                served,
-                pages_of(&cell, SHORTER),
-                "the shorter site serves {ADDED_PAGES} pages fewer"
-            );
+            assert_shorter(&cell, &ran);
         }
         return;
     }
@@ -1001,7 +1071,7 @@ fn main() {
         let units = json!({
             "pages": cell.pages,
             "added_pages": ADDED_PAGES,
-            "records": cell.pages,
+            "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,
             "sitemaps": cell.sitemaps,

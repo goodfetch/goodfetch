@@ -402,13 +402,14 @@ fn the_report_writes_each_scenarios_mapping() {
                 .unwrap()
                 .len(),
         ),
-        (&json!("not_supported"), &json!("pending"), 2)
+        (&json!("not_supported"), &json!("pending"), 1)
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "## 1. Raw fetch and follow",
         "## 2. Durable and resumable",
         "`run_state.durability: fast`",
+        "`dataset.records: false`",
         "pending: `run_state.durability: off` (#1927)",
         "- **spider**: none",
         "not supported: Spider keeps no crawl state",

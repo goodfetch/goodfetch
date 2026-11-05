@@ -756,8 +756,12 @@ impl Plan<'_> {
         let usage = usage()?;
         let footprint_bytes = footprint(home.path());
         let records = match self.config {
-            Config::Foxhound { .. } => Some(self.records(home.path(), started_wall)?),
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
+            Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
+                Some(self.records(home.path(), started_wall)?)
+            }
+            Config::Foxhound { .. } | Config::Spider { .. } | Config::Crawlee | Config::Scrapy => {
+                None
+            }
         };
         let observed = self.observe(seconds, records.as_ref())?;
         let milestones: Vec<(u64, f64)> = MILESTONES

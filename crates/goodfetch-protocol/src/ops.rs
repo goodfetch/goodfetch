@@ -204,6 +204,7 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "plugin_answer_parses",
         "tree_copies",
         "share_readability_runs",
+        "block_classifications",
         "transactions",
         "writer_reads",
         "configuration_reads",

@@ -128,3 +128,175 @@ fn what_the_run_did_not_ask_for_is_not_read() {
     assert!(read.judged(&PageCheck::default()).is_none());
     assert_eq!(read.signed(), None);
 }
+
+/// The extractor's corpus, B1's page and this module's pages, each with
+/// whether the streaming path vouches for its tree.
+fn corpus() -> [(&'static str, bool); 12] {
+    [
+        (PAGE, true),
+        (BARE, false),
+        (
+            include_str!("../../../../goodfetch-extractor/src/formats/fixtures/article.html"),
+            true,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/src/formats/fixtures/heading-with-break.html"
+            ),
+            true,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/src/formats/fixtures/navigation-and-related.html"
+            ),
+            true,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/src/formats/fixtures/no-main-content.html"
+            ),
+            true,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/src/formats/fixtures/pre-without-code.html"
+            ),
+            true,
+        ),
+        (
+            include_str!("../../../../goodfetch-extractor/src/formats/fixtures/row-headers.html"),
+            true,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/fuzz/formats/seeds/references-and-tables.html"
+            ),
+            false,
+        ),
+        (
+            include_str!(
+                "../../../../goodfetch-extractor/fuzz/formats/seeds/nested-table-and-fences.html"
+            ),
+            false,
+        ),
+        (B1_PAGE, true),
+        (HIDDEN, true),
+    ]
+}
+
+/// B1's page (`goodfetch-foxhound`'s `benches/scenarios.rs`).
+const B1_PAGE: &str = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Page 3</title></head>\n<body><h1>Page 3</h1>\n<nav><ul><li><a href=\"/\">Index</a></li><li><a href=\"/page-4\">Page 4</a></li></ul></nav>\n<main>\n<p>Paragraph 000: the crawler reads each page once.</p>\n</main></body></html>\n";
+
+/// Links each way markup hides one, and the controls that reveal them,
+/// written after them.
+const HIDDEN: &str = r#"<!doctype html><html><head><base href="/kites/"><meta http-equiv="Refresh" content="0; url=elsewhere"><meta name="ROBOTS" content="nofollow"></head><body>
+<div id="panel" hidden><a href="panel">Panel</a></div>
+<p style="visibility: hidden"><a href="invisible" rel="nofollow">Invisible</a></p>
+<span aria-hidden="true"><a href="aria">Aria</a></span>
+<details><summary>More</summary><a href="details">Details &amp; more</a></details>
+<div style="opacity:0"><a href="faded">Faded</a></div>
+<div popover id="pop"><a href="popover">Popover</a></div>
+<button aria-controls="panel pop">Open</button><a href="plain">Plain</a>
+</body></html>"#;
+
+/// The readers of a Run that needs no tree: no Page signature, CSS fields
+/// and selectors lol-html reads, beside one the engine refuses.
+fn streaming_demand() -> UntouchedDemand {
+    UntouchedDemand {
+        links: vec![
+            "a[href]".to_owned(),
+            "nav a".to_owned(),
+            "[hidden] a, details a".to_owned(),
+            "a >".to_owned(),
+        ],
+        fields: vec![css("h1"), css("title"), css("table")],
+        page_check: Some(PageCheck {
+            login_page: Some(PageMatch::Css {
+                selector: "form#signin".to_owned(),
+            }),
+            expected_page: Some(PageMatch::Css {
+                selector: "h1, p.sku".to_owned(),
+            }),
+        }),
+        signs: false,
+    }
+}
+
+/// On every document of the corpus, the streaming path reads with no
+/// tree the same `<base>`, refresh directive, links and their trap-link
+/// judgement, fields, Page check verdict and robots `meta` as the readers
+/// read on the tree, or leaves the document to the tree.
+#[test]
+fn the_stream_reads_what_the_tree_reads_on_the_corpus() {
+    let demand = streaming_demand();
+    let url = Url::parse(URL).unwrap();
+    for (html, streams) in corpus() {
+        let work = CountedWork::default();
+        let readers = UntouchedReaders::of(demand.clone(), &work);
+        let compiled = work.read(Row::PageSelectorCompilations);
+        let streamed = readers.stream(html);
+        assert_eq!(streamed.is_some(), streams, "{html}");
+        assert_eq!(
+            (
+                work.read(Row::PageParses),
+                work.read(Row::PageSelectorCompilations)
+            ),
+            (0, compiled),
+            "no parse and no selector compiled for the page"
+        );
+        let Some(streamed) = streamed else {
+            continue;
+        };
+        let tree = work.parse_html(Row::PageParses, html);
+        assert_eq!(streamed.base_href(), readers.base_href(&tree), "{html}");
+        assert_eq!(
+            streamed.refresh(&url),
+            readers.refresh(&url, &tree),
+            "{html}"
+        );
+        let on_tree = readers.read(tree, (URL, URL), |_| [0; 32]);
+        let on_stream = readers.read_streamed(streamed, URL);
+        for selector in &demand.links {
+            assert_eq!(
+                on_stream.links(selector),
+                on_tree.links(selector),
+                "{selector} on {html}"
+            );
+        }
+        assert_eq!(
+            on_stream.fields(&demand.fields),
+            on_tree.fields(&demand.fields),
+            "{html}"
+        );
+        let check = demand.page_check.as_ref().unwrap();
+        assert_eq!(on_stream.judged(check), on_tree.judged(check), "{html}");
+        assert_eq!(on_stream.signed(), None);
+    }
+}
+
+/// A Run whose readers need a tree never streams: one that learns, one
+/// reading an `XPath` field or a selector lol-html does not read; nor
+/// does a document whose markup names an AI-use signal.
+#[rstest]
+#[case::learning(UntouchedDemand { signs: true, ..streaming_demand() })]
+#[case::xpath(UntouchedDemand {
+    fields: vec![FieldLocator::Xpath { selector: "//h1".to_owned() }],
+    ..streaming_demand()
+})]
+#[case::sibling(UntouchedDemand { links: vec!["h1 + a".to_owned()], ..streaming_demand() })]
+fn readers_that_need_a_tree_never_stream(#[case] demand: UntouchedDemand) {
+    let readers = UntouchedReaders::of(demand, &CountedWork::default());
+    assert!(readers.stream(B1_PAGE).is_none());
+}
+
+/// A document whose markup names an AI-use signal is read on its tree.
+#[test]
+fn a_document_naming_a_use_signal_is_read_on_its_tree() {
+    let readers = UntouchedReaders::of(streaming_demand(), &CountedWork::default());
+    assert!(readers.stream(B1_PAGE).is_some());
+    let signalled = B1_PAGE.replace(
+        "<title>",
+        "<meta name=\"tdm-reservation\" content=\"1\"><title>",
+    );
+    assert!(readers.stream(&signalled).is_none());
+}

@@ -95,6 +95,7 @@ fn counted(row: Row, options: Options) -> u64 {
 #[case::plugin_answer_parses(Row::PagePluginAnswerParses)]
 #[case::tree_copies(Row::PageTreeCopies)]
 #[case::share_readability_runs(Row::PageShareReadabilityRuns)]
+#[case::block_classifications(Row::PageBlockClassifications)]
 fn a_planted_unit_of_a_page_analysis_row_adds_one_a_page(#[case] row: Row) {
     let default = counted(row, Options::default());
     let metrics = Metrics::none();
@@ -266,6 +267,17 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
             work.read(Row::PageSelectorCompilations),
         ),
         (pages, 3 * pages, 15)
+    );
+}
+
+/// A crawl that needs no tree, asking for no format with learning off,
+/// reads each page's links and fields in one streaming pass: it parses no
+/// page (#1911).
+#[test]
+fn a_crawl_that_needs_no_tree_parses_no_page() {
+    assert_eq!(
+        parses(&json!({ "frontier": { "learning": false } }), false),
+        0
     );
 }
 

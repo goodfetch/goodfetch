@@ -60,6 +60,9 @@ pub enum Row {
     /// `F1.share_readability_runs`: a run of the main-content step on a
     /// fetched page as served, for ADR 0047's exact share.
     PageShareReadabilityRuns,
+    /// `F1.block_classifications`: a fetched page's document read by the
+    /// Block classification rules.
+    PageBlockClassifications,
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies,
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
@@ -280,7 +283,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 99] = [
+    pub const ALL: [Self; 100] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -290,6 +293,7 @@ impl Row {
         Self::PagePluginAnswerParses,
         Self::PageTreeCopies,
         Self::PageShareReadabilityRuns,
+        Self::PageBlockClassifications,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
         Self::HookMessagesNoHook,
@@ -396,7 +400,8 @@ impl Row {
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses
             | Self::PageTreeCopies
-            | Self::PageShareReadabilityRuns => "page_analysis",
+            | Self::PageShareReadabilityRuns
+            | Self::PageBlockClassifications => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
@@ -499,6 +504,7 @@ impl Row {
             Self::PagePluginAnswerParses => "plugin_answer_parses",
             Self::PageTreeCopies => "tree_copies",
             Self::PageShareReadabilityRuns => "share_readability_runs",
+            Self::PageBlockClassifications => "block_classifications",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
@@ -596,6 +602,7 @@ impl Row {
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
             Self::PageTreeCopies => "F1.tree_copies",
             Self::PageShareReadabilityRuns => "F1.share_readability_runs",
+            Self::PageBlockClassifications => "F1.block_classifications",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
             Self::HookMessagesNoHook => "F5.messages_no_hook",
@@ -760,6 +767,16 @@ impl CountedWork {
     pub fn compile_selector(&self, row: Row, selector: &str) -> Option<dom_query::Matcher> {
         self.count(row);
         dom_query::Matcher::new(selector).ok()
+    }
+
+    /// `selector` parsed for lol-html's streaming pass, counted on `row`,
+    /// none when lol-html reads no such selector: the one function a
+    /// streaming pass's selector is parsed through (ADR 0140), parsed once
+    /// and lent to each pass (ADR 0138).
+    #[must_use]
+    pub fn compile_stream_selector(&self, row: Row, selector: &str) -> Option<lol_html::Selector> {
+        self.count(row);
+        selector.parse().ok()
     }
 
     /// The selector `selector`, from the engine's cache, compiled through

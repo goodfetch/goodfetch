@@ -63,6 +63,7 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
@@ -5107,6 +5108,12 @@ impl Registry {
             .as_ref()
             .and_then(|settings| settings.resolved().count(RUN_SHARE.name))
             .unwrap_or(100);
+        // `provenance.log`, Foxhound's (ADR 0138): a Run whose Product holds
+        // no such key logs its Provenance.
+        let logs_provenance = settings
+            .as_ref()
+            .and_then(|settings| settings.resolved().boolean(PROVENANCE_LOG.name))
+            != Some(false);
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -5139,7 +5146,7 @@ impl Registry {
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
-                provenance: run_trace::Provenance::new(folder),
+                provenance: run_trace::Provenance::logging(folder, logs_provenance),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

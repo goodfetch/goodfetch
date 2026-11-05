@@ -354,7 +354,8 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
         | Row::PagePluginSerializations
         | Row::PagePluginAnswerParses
         | Row::PageTreeCopies
-        | Row::PageShareReadabilityRuns => Arc::new(move |_: &str| work.count(row)),
+        | Row::PageShareReadabilityRuns
+        | Row::PageBlockClassifications => Arc::new(move |_: &str| work.count(row)),
         _ => return None,
     };
     Some(plant)

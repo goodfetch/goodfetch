@@ -6433,6 +6433,16 @@
       ]
     },
     {
+      "id": "setting:dataset.records",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:delivery.report_guarantee_class",
       "kind": "setting",
       "area": 6,
@@ -6679,6 +6689,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.block_classification",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -7379,6 +7399,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:provenance.log",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

@@ -1,0 +1,119 @@
+//! The main-content step on the page's one tree (ADR 0138), through the
+//! crate's interface: what a read of the main content and a Page signature
+//! count, and the fallback a step that finds nothing answers.
+
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use goodfetch_protocol::page::FormatsRequest;
+use rstest::rstest;
+use serde_json::json;
+
+use super::URL;
+use crate::{
+    CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats, page_signature,
+};
+
+/// A page with a main content.
+const PAGE: &str = include_str!("../fixtures/article.html");
+
+/// A Clean-up that removes nothing.
+struct Keeps;
+
+impl CleanUp for Keeps {
+    fn remove(&self, _document: &ParsedHtml, _url: &str) -> bool {
+        false
+    }
+}
+
+/// A step that finds no main content in any page.
+struct FindsNothing;
+
+impl Extractor for FindsNothing {
+    fn main_content(&self, _document: ParsedHtml, _url: &str) -> Option<Found> {
+        None
+    }
+}
+
+fn document(html: &str) -> Document<'_> {
+    Document {
+        html,
+        url: URL,
+        base_url: URL,
+        serialization: Serialization::Served,
+    }
+}
+
+/// The page's parses, tree copies and runs of the main-content step on
+/// `work`.
+fn counted(work: &CountedWork) -> (u64, u64, u64) {
+    (
+        work.read(Row::PageParses),
+        work.read(Row::PageTreeCopies),
+        work.read(Row::PageReadabilityRuns),
+    )
+}
+
+/// A read of the main content after the Clean-up rules parses the page
+/// once, for the clean-up, whose tree the step then reads, and copies it
+/// once, for the fallback that removes the landmarks: one run of the step
+/// (`F1.readability_runs` ≤ 1, `F1.tree_copies` ≤ 1).
+#[rstest]
+#[case::markdown(json!({ "markdown": true }))]
+#[case::text(json!({ "text": true }))]
+#[case::main_html(json!({ "html": true }))]
+fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
+    #[case] request: serde_json::Value,
+) {
+    let request: FormatsRequest = serde_json::from_value(request).unwrap();
+    let work = CountedWork::default();
+    let context = Context {
+        clean_up: Some(&Keeps),
+        work: work.clone(),
+        ..Context::default()
+    };
+
+    let measured = measured_formats(&document(PAGE), &request, &context);
+
+    assert!(
+        measured
+            .main_content_length
+            .is_some_and(|length| length > 0)
+    );
+    assert_eq!(counted(&work), (1, 1, 1));
+}
+
+/// A Page signature reads the untouched tree it is given with one run of
+/// the step, and no copy: the fallback's text is read before the step
+/// consumes the tree.
+#[test]
+fn a_page_signature_runs_the_step_once_on_one_parse_and_copies_nothing() {
+    let work = CountedWork::default();
+
+    let _ = page_signature(
+        &document(PAGE),
+        crate::BuiltIn::default().extractor(),
+        &work,
+    );
+
+    assert_eq!(counted(&work), (1, 0, 1));
+}
+
+/// A step that finds no main content in a page holding text outside its
+/// landmarks leaves the formats and the Page signature that text, as the
+/// formats always read it (pitfall D02): two pages of one title whose text
+/// differs sign differently.
+#[test]
+fn a_page_the_step_finds_nothing_in_is_signed_by_its_text_outside_its_landmarks() {
+    let page = |text: &str| {
+        format!(
+            "<html><head><title>Kites</title></head><body><nav><a href=\"/\">Home</a></nav>\
+             <p>{text}</p><footer>Kite club</footer></body></html>"
+        )
+    };
+    let (one, other) = (page("A red kite."), page("A blue kite."));
+    let work = CountedWork::default();
+
+    let signed = |html: &str| page_signature(&document(html), &FindsNothing, &work);
+
+    assert_ne!(signed(&one), signed(&other));
+    assert_eq!(signed(&one), signed(&page("A   red\nkite.")));
+}

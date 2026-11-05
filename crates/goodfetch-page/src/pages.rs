@@ -1497,6 +1497,8 @@ impl Pages {
                 (&Values::default(), served.extractor),
                 &Values::default(),
             );
+            let measure =
+                clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
             let cosmetic = self.interception.served_cosmetic(&served.run).await;
             let work = served.run.metrics().counted_work().clone();
             let (formats, read) = served
@@ -1507,7 +1509,7 @@ impl Pages {
                         &document,
                         Serialization::Served,
                         request,
-                        extractor.extractor(),
+                        (extractor.extractor(), measure),
                         (cosmetic.as_ref(), &[]),
                         &work,
                     )
@@ -1531,6 +1533,7 @@ impl Pages {
             (&session, page.driver.value().extractor()),
             &page.settings,
         );
+        let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
         let work = page.run.metrics().counted_work().clone();
@@ -1542,7 +1545,7 @@ impl Pages {
                     &document,
                     Serialization::Dom,
                     request,
-                    extractor.extractor(),
+                    (extractor.extractor(), measure),
                     (cosmetic.as_ref(), &hidden),
                     &work,
                 )

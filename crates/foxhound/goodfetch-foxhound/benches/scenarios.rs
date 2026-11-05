@@ -353,6 +353,8 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
         | Row::PageLocaleFormBuilds
         | Row::PagePluginSerializations
         | Row::PagePluginAnswerParses
+        | Row::PageTreeCopies
+        | Row::PageShareReadabilityRuns
         | Row::PageBlockClassifications => Arc::new(move |_: &str| work.count(row)),
         _ => return None,
     };

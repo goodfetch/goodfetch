@@ -77,6 +77,7 @@ pub(crate) enum Case {
     RouteSendsOn,
     CrossSiteFrame,
     HiddenTextRemoved,
+    RemovalShareMeasures,
     HidingSheetUnseen,
     HiddenTargetLifted,
     LiveHidingModes,
@@ -107,6 +108,9 @@ impl Case {
             "hidden-text-is-absent-from-extracted-output-in-shadow-roots-too-and-a-large-removal-is-flagged" => {
                 Self::HiddenTextRemoved
             }
+            "the-share-a-removal-took-is-an-estimate-by-default-and-exact-when-set-and-provenance-names-each" => {
+                Self::RemovalShareMeasures
+            }
             "the-hiding-sheet-hides-in-every-frame-and-is-absent-from-document-style-sheets" => {
                 Self::HidingSheetUnseen
             }
@@ -134,6 +138,7 @@ impl Case {
             Self::RouteSendsOn => route_sends_on(connection, site, checks),
             Self::CrossSiteFrame => cross_site_frame(connection, site, checks),
             Self::HiddenTextRemoved => hidden_text_removed(connection, target, site, checks),
+            Self::RemovalShareMeasures => removal_share_measures(connection, target, site, checks),
             Self::HidingSheetUnseen => hiding_sheet_unseen(connection, target, site, checks),
             Self::HiddenTargetLifted => hidden_target_lifted(connection, target, site, checks),
             Self::LiveHidingModes => live_hiding_modes(connection, target, site, checks),
@@ -728,6 +733,76 @@ fn hidden_text_removed(
             line["flagged"] == json!(true)
                 && line["share"].as_f64().is_some_and(|share| share > 0.2)
         }),
+    );
+    Ok(())
+}
+
+/// Under each value of `extraction.removal_share`, Provenance records the
+/// share of `/hiding`'s and `/removal`'s main content their removal took
+/// and how it was measured: by default the estimate, the text removed over
+/// that text plus the main content left, which is never below the exact
+/// share `exact` measures; both leave `/hiding`'s removal unflagged and flag
+/// `/removal`'s.
+fn removal_share_measures(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut shares = Vec::new();
+    for (measure, settings) in [
+        ("estimate", json!({})),
+        (
+            "exact",
+            json!({ "extraction": { "removal_share": "exact" } }),
+        ),
+    ] {
+        let run_id = format!("conformance-clean-up-share-{measure}");
+        let Some(page) = open(connection, site, &run_id, &settings, checks)? else {
+            return finish(connection, &run_id).map(drop);
+        };
+        for path in ["/hiding", "/removal"] {
+            let (url, answer) = visit(connection, site, &page, path)?;
+            answered(&answer, &format!("the `goto` to {path}"), &url, 200, checks);
+            markdown(connection, &page)?;
+        }
+        finish(connection, &run_id)?;
+        let lines = provenance(target, &run_id);
+        let [hiding, removal] = ["/hiding", "/removal"].map(|path| {
+            removals_of(&lines, path).first().map(|line| {
+                (
+                    line["share"].as_f64().unwrap_or(-1.0),
+                    line["share_measure"].clone(),
+                    line["flagged"].clone(),
+                )
+            })
+        });
+        checks.check(
+            format!("under `{measure}`, Provenance records each share as measured by `{measure}`"),
+            [&hiding, &removal].iter().all(|line| {
+                line.as_ref()
+                    .is_some_and(|(_, named, _)| *named == json!(measure))
+            }),
+        );
+        checks.check(
+            format!("under `{measure}`, `/hiding`'s removal is unflagged and `/removal`'s flagged, over a fifth"),
+            hiding.as_ref().is_some_and(|(_, _, flagged)| *flagged == json!(false))
+                && removal.as_ref().is_some_and(|(share, _, flagged)| {
+                    *flagged == json!(true) && *share > 0.2
+                }),
+        );
+        shares.push([
+            hiding.map(|(share, ..)| share),
+            removal.map(|(share, ..)| share),
+        ]);
+    }
+    checks.check(
+        "each page's estimated share is at least its exact share",
+        shares.len() == 2
+            && shares[0]
+                .iter()
+                .zip(&shares[1])
+                .all(|(estimate, exact)| matches!((estimate, exact), (Some(estimate), Some(exact)) if estimate >= exact)),
     );
     Ok(())
 }

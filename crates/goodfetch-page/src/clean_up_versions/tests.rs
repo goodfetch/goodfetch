@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 
+use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Fetching;
@@ -21,7 +22,9 @@ use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
 use super::upstream::Fetches;
-use super::{Kept, Sources, Unobtained, Version, Versions, manifest_file, now_of, replace};
+use super::{
+    KEPT_VERSIONS, Kept, Sources, Unobtained, Version, Versions, manifest_file, now_of, replace,
+};
 
 /// Covers: story:5-97
 #[test]
@@ -205,5 +208,62 @@ async fn concurrent_loads_of_a_version_that_does_not_read_fail_together() {
             2,
             Err("not_loaded")
         )
+    );
+}
+
+/// Compiles no rule, counting each load on `loads`.
+fn empty_lists(loads: &AtomicUsize) -> FilterLists {
+    loads.fetch_add(1, Ordering::SeqCst);
+    FilterLists::compile(&ListTexts {
+        ads: "",
+        trackers: "",
+        annoyances: "",
+        unbreak: "",
+    })
+}
+
+/// A digest of its own for each of `n`.
+fn digest_of(n: usize) -> String {
+    format!("sha256:{n:064}")
+}
+
+/// A version whose Runs all ended is not loaded again for the next Run
+/// that holds to it: the engine keeps it, within its bound.
+#[tokio::test]
+async fn the_next_run_on_a_version_no_run_holds_reuses_its_lists() {
+    let versions = Versions::default();
+    let loads = AtomicUsize::new(0);
+    let load = || std::future::ready(Ok::<_, Unobtained>(empty_lists(&loads)));
+
+    let first = versions.loaded_once(&digest_of(1), load).await.unwrap();
+    drop(first);
+    let next = versions.loaded_once(&digest_of(1), load).await;
+
+    assert_eq!((next.is_ok(), loads.load(Ordering::SeqCst)), (true, 1));
+}
+
+/// The engine keeps at most `KEPT_VERSIONS` versions no Run holds, the
+/// most recently used: an older one is loaded again.
+#[tokio::test]
+async fn versions_no_run_holds_are_kept_within_their_bound() {
+    let versions = Versions::default();
+    let loads = AtomicUsize::new(0);
+    let load = || std::future::ready(Ok::<_, Unobtained>(empty_lists(&loads)));
+
+    for n in 0..=KEPT_VERSIONS {
+        drop(versions.loaded_once(&digest_of(n), load).await.unwrap());
+    }
+    let newest = versions.loaded_once(&digest_of(KEPT_VERSIONS), load).await;
+    let after_newest = loads.load(Ordering::SeqCst);
+    let oldest = versions.loaded_once(&digest_of(0), load).await;
+
+    assert_eq!(
+        (
+            newest.is_ok(),
+            after_newest,
+            oldest.is_ok(),
+            loads.load(Ordering::SeqCst)
+        ),
+        (true, KEPT_VERSIONS + 1, true, KEPT_VERSIONS + 2)
     );
 }

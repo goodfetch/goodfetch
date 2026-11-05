@@ -65,7 +65,7 @@
 //! passes through one loop.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use futures_util::future::join_all;
 use goodfetch_counted_work::Row;
@@ -342,6 +342,33 @@ fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
         .counting_on(run.metrics().counted_work().clone())
 }
 
+/// What the delivery's loop reads of the Run's settings, resolved once as
+/// the Run opened: no admission, lease or settlement reads them again (ADR
+/// 0138).
+#[derive(Clone, Copy)]
+struct Read {
+    /// How its attempts are bounded and retried.
+    policy: CrawlPolicy,
+    /// The bounds its Session pool draws and scores under.
+    pool: PoolSettings,
+    /// Whether its requests go through a proxy.
+    proxied: bool,
+    /// The longest wait a response may ask of its domain.
+    longest_wait: Option<Duration>,
+}
+
+impl Read {
+    /// What `resolved` gives the loop.
+    fn of(resolved: &Resolved) -> Self {
+        Self {
+            policy: CrawlPolicy::of(resolved),
+            pool: PoolSettings::of(resolved),
+            proxied: proxied(resolved),
+            longest_wait: goodfetch_frontier::longest_wait(resolved),
+        }
+    }
+}
+
 /// The delivery's loop, which returns once the Run ended or stopped.
 async fn deliver(
     run: &Run,
@@ -362,14 +389,15 @@ async fn deliver(
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let resolved = settings.resolved();
-    let policy = CrawlPolicy::of(resolved);
+    let read = Read::of(resolved);
+    let policy = read.policy;
     loop {
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,
                 &run_leases,
                 policy,
-                Pooled::of(&mut pool, resolved, fetching),
+                Pooled::of(&mut pool, read.pool, fetching),
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -420,7 +448,8 @@ async fn deliver(
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         let room = [stop.is_some(), free, starved];
-        show(run, (&mut admission, &mut queued), resolved, servers, room);
+        let shown = (resolved, policy);
+        show(run, (&mut admission, &mut queued), shown, servers, room);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -443,7 +472,7 @@ async fn deliver(
             Some(first) = attempts.join_next() => {
                 let ended = ended_with(first, &mut attempts);
                 let pool = (held(&mut pool), fetching);
-                settled(run, settings, &mut admission, pool, servers, ended).await;
+                settled(run, (resolved, read), &mut admission, pool, servers, ended).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
@@ -474,14 +503,14 @@ fn ended_with(
 fn show(
     run: &Run,
     (admission, count): (&mut Admission, &mut Level),
-    resolved: &Resolved,
+    (resolved, policy): (&Resolved, CrawlPolicy),
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
 ) {
     let serving = servers.iter_mut().any(Serving::serves);
     let handlers = servers.iter().map(|server| server.in_flight).sum();
     let room = progress::room(stopping || !serving, free, starved);
-    let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
+    let concurrency = policy.handler_concurrency;
     let now = run.clock().now();
     let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
@@ -830,15 +859,15 @@ struct Pooled<'a> {
 }
 
 impl<'a> Pooled<'a> {
-    /// Draws from `pool` under `resolved`, fetching on `fetching`.
+    /// Draws from `pool` under `settings`, fetching on `fetching`.
     fn of(
         pool: &'a mut Option<SessionPool>,
-        resolved: &Resolved,
+        settings: PoolSettings,
         fetching: &'a Fetching<'a>,
     ) -> Self {
         Self {
             pool,
-            settings: PoolSettings::of(resolved),
+            settings,
             fetching,
         }
     }
@@ -1197,7 +1226,8 @@ struct Settling {
 }
 
 /// Settles the attempts that ended, `ended`, in the order they ended,
-/// under the Run's policy: takes each out of the requests in flight
+/// under the Run's policy and pool settings, resolved as it opened (ADR
+/// 0138): takes each out of the requests in flight
 /// its progress shows, frees its place on its Connection and scores its
 /// Session, writing the pool's changes once; commits or ends them all
 /// together, so the run state's writer takes their writes in one group
@@ -1206,14 +1236,13 @@ struct Settling {
 /// queue, in their order, and journals what the queues changed.
 async fn settled(
     run: &Run,
-    settings: &RunSettings,
+    (resolved, read): (&Resolved, Read),
     admission: &mut Admission,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) {
-    let resolved = settings.resolved();
-    let (attempts, settlings) = scored(run, resolved, (&mut *pool, fetching), servers, ended).await;
+    let (attempts, settlings) = scored(run, read, (&mut *pool, fetching), servers, ended).await;
     let changes = pool.changes();
     if !changes.is_empty()
         && let Err(error) = run
@@ -1228,7 +1257,6 @@ async fn settled(
             .retire(run, pool, &servers[attempt.server].context)
             .await;
     }
-    let policy = CrawlPolicy::of(resolved);
     let retried = join_all(attempts.into_iter().zip(&settlings).map(
         |(attempt, settling)| async move {
             match attempt.answer {
@@ -1236,7 +1264,7 @@ async fn settled(
                     read_sitemap(run, resolved, attempt).await;
                     false
                 }
-                _ => settle(run, policy, settling.held.is_some(), attempt).await,
+                _ => settle(run, read.policy, settling.held.is_some(), attempt).await,
             }
         },
     ))
@@ -1250,16 +1278,15 @@ async fn settled(
 
 /// Takes each attempt of `ended` out of the requests in flight its
 /// progress shows, frees its place on its Connection and scores its
-/// Session in `pool` under `resolved`, in their order, answering them with
+/// Session in `pool` under what the loop `read`, in their order, answering them with
 /// what each one's settling keeps.
 async fn scored(
     run: &Run,
-    resolved: &Resolved,
+    read: Read,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) -> (Vec<Attempt>, Vec<Settling>) {
-    let pool_settings = PoolSettings::of(resolved);
     let mut attempts = Vec::with_capacity(ended.len());
     let mut settlings = Vec::with_capacity(ended.len());
     for mut attempt in ended {
@@ -1280,7 +1307,7 @@ async fn scored(
         let domain = domain_ending(
             &attempt.answer,
             attempt.document.as_ref(),
-            proxied(resolved),
+            read.proxied,
             run.clock().now(),
             run.clock().wall(),
         );
@@ -1291,12 +1318,12 @@ async fn scored(
             &attempt.session,
             &waiting.key,
             effect(&attempt.answer),
-            &pool_settings,
+            &read.pool,
         );
         let held = held_past_bound(
             &attempt.answer,
             attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
-            goodfetch_frontier::longest_wait(resolved),
+            read.longest_wait,
         );
         settlings.push(Settling {
             waiting,

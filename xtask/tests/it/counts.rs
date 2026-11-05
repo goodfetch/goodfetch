@@ -681,6 +681,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.locale_form_builds` | locale-form builds per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.plugin_serializations` | serializations per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.plugin_answer_parses` | answer parses per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F1.block_classifications` | Block classifications per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -743,6 +744,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.locale_form_builds", 0),
         ("F1.plugin_serializations", 0),
         ("F1.plugin_answer_parses", 0),
+        ("F1.block_classifications", 13),
         ("F4.declaration_reads", 0),
         ("F4.validator_builds", 0),
         ("F4.validations", 13),

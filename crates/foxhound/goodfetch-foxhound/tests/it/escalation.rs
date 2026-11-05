@@ -232,6 +232,63 @@ fn a_challenge_under_a_forced_http_tier_ends_its_request_blocked_and_never_moves
     );
 }
 
+/// With `fetch.block_classification` off, the same Challenge page under
+/// the forced `http` tier is read by no Block classification rule: its
+/// handler is given it as the page it is, and its request succeeds, fetched
+/// once (ADR 0138).
+///
+/// Covers: story:8-210, setting:fetch.block_classification
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn with_block_classification_off_a_challenge_page_is_handled_as_it_is() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut handled_by = Vec::new();
+    let finished = crawl_declaring(
+        &mut engine,
+        "unclassified",
+        &seeds(&proving_ground, &["/corpus/interstitial"]),
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "http", "sample": { "count": 1 }, "block_classification": false },
+                "session": { "pool": { "max_size": 1 } },
+            }),
+        ),
+        &mut |_, handle| {
+            handled_by.push(seen(handle));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, "unclassified");
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            handled_by,
+            ended,
+            fetched(&proving_ground, "/corpus/interstitial"),
+        ),
+        (
+            &json!("finished"),
+            vec![handled("/corpus/interstitial", "session-1", "http")],
+            vec![(
+                "/corpus/interstitial".to_owned(),
+                json!("succeeded"),
+                Value::Null
+            )],
+            1,
+        )
+    );
+}
+
 /// A Challenge the program's own code names on a page served over HTTP,
 /// as an after-response Hook's `block(cause)` will (ADR 0104), takes the
 /// same way as one the rules found: the same attempt runs again in the

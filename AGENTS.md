@@ -14,7 +14,11 @@ this status remains pre-release, ask the owner before a breaking change.
 
 ## Money
 
-Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT) for the implementation and its gate, until the owner ends it.
+Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT) for the implementation and its gate, until the owner ends it.
+
+## Secrets
+
+Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` from `.env.example`. Run a `justfile` recipe's lines by hand without `bash -x` or `set -x`, and search their logs for error text: recipes such as `just lint` expand `$(gh auth token)`, so a shell trace prints the live `GITHUB_TOKEN`.
 
 ## Code style
 
@@ -34,7 +38,7 @@ Traps that break things, each explained in `STYLE.md`:
 
 CI runs locally (ADR 0135); GitHub Actions runs the Release suite only.
 
-- Merge a pull request only with `just merge <number>`: it gates the pull request's exact head in a clean, locked worktree, runs the quick gate instead when `xtask affected` prints `gate=quick` and the docs gate when it prints `gate=docs`, and merges only when the gate passes. It refuses once 10 merges have landed on `main` since the backstop's last green run; only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04). In a stack of pull requests, merge the bottom one first. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
+- Merge a pull request only with `just merge <number>`: it gates the pull request's exact head in a clean, locked worktree, runs the quick gate instead when `xtask affected` prints `gate=quick` and the docs gate when it prints `gate=docs`, and merges only when the gate passes. It refuses once 10 merges have landed on `main` since the backstop's last green run; only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04). In a stack of pull requests, merge the bottom one first. When several ready pull requests would each get the full gate, combine them into one branch and run `just merge` once. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.
 - Keep every other workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
 - Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.

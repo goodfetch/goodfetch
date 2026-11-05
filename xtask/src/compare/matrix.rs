@@ -443,7 +443,7 @@ pub(crate) const CELLS: [Cell; 21] = [
             "`run_state.durability: off` (#1927): runs `fast`, the fastest level there is",
             "`frontier.learning: false` (#1909): runs with learning on, the only state there is",
         ],
-        status: Status::Pending(FOXHOUND_BROWSER_LINKS),
+        status: Status::Measured(Config::Foxhound { durability: "fast" }),
     },
     Cell {
         scenario: Scenario::Browser,
@@ -479,16 +479,6 @@ pub(crate) const CELLS: [Cell; 21] = [
         status: Status::Measured(Config::Scrapy),
     },
 ];
-
-/// Why Foxhound's headless browser cell gives no figure yet: what two of its
-/// crawls of the script-rendered site showed, which no same-work check
-/// passes.
-const FOXHOUND_BROWSER_LINKS: &str = "Foxhound's `browser` tier misses the links a page's \
-     script adds on some pages: on 2026-11-03 (#1903), two crawls of the script-rendered site \
-     reached 890 and 990 of its 1,000 pages, each fetching page 9 but none of the 10 pages its \
-     script links (and in the first, none of theirs); the fix is the issue #1903's report asks \
-     for, which also covers the `Connection: close` it sends with each page, 19 bytes more in \
-     each answer than the other tools are served";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.

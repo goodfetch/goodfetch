@@ -933,7 +933,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        _ => bail!(
+        super::matrix::Status::NotSupported(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),

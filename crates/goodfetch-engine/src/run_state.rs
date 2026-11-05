@@ -14,7 +14,9 @@
 //! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
-//! committed state waits on for more, never holding the writer back. The
+//! committed state waits on for more, never holding the writer back; its
+//! reads run beside the writer, on a bounded group of read-only
+//! connections it keeps ([`readers`], ADR 0138). The
 //! writer stops once every handle on it is gone, or once its last write
 //! commits, as a Run's end writes its record: whatever any handle queues
 //! after that is refused (#1763).
@@ -36,6 +38,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::tasks::TaskOwner;
 
 pub mod install;
+mod readers;
+
+pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
@@ -335,7 +340,7 @@ pub struct RunState {
     path: PathBuf,
     epoch: u64,
     watched: std::sync::Arc<Watched>,
-    work: CountedWork,
+    readers: std::sync::Arc<RunStateReaders>,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -377,8 +382,16 @@ impl RunState {
         let actor_path = path.clone();
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
-        let work = options.work.clone();
-        let counted = work.clone();
+        let counted = options.work.clone();
+        let readers = std::sync::Arc::new(RunStateReaders::new(
+            path.clone(),
+            options.vfs.clone(),
+            owner.blocking_threads(),
+        ));
+        let connection = WriterConnection {
+            connection,
+            readers: std::sync::Arc::clone(&readers),
+        };
         owner
             .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
                 let signals = Signals {
@@ -389,7 +402,7 @@ impl RunState {
                 let last = group.iter().position(|queued| queued.last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
                 let group = group.into_iter().map(|queued| queued.write).collect();
-                commit_group(&connection, &actor_path, epoch, group, &signals);
+                commit_group(&connection.connection, &actor_path, epoch, group, &signals);
                 for queued in refused {
                     (queued.write)(None).0(Err(RunStateError::Closed));
                 }
@@ -405,7 +418,7 @@ impl RunState {
             path,
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
-            work,
+            readers,
         })
     }
 
@@ -512,12 +525,14 @@ impl RunState {
             .map_err(|_| RunStateError::Closed)
     }
 
-    /// Runs `work` on the writer's connection, in order with its writes, so
-    /// it sees every acknowledged one.
+    /// Runs `work` in one read transaction of the file's committed state,
+    /// on one of its readers' connections, beside the writer: it never
+    /// waits for a commit, and sees every write acknowledged before it
+    /// began, as a write is answered once its commit is in the file.
     ///
     /// # Errors
     ///
-    /// As [`RunState::write`].
+    /// `Sqlite` when `work` failed or the file could not be read.
     ///
     /// # Cancel safety
     ///
@@ -527,8 +542,29 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.work.count(Row::WriterReads);
-        self.write(work).await
+        self.readers
+            .read(move |connection| readers::in_one_transaction(connection, work))
+            .await
+            .map_err(|error| sqlite_error(&self.path, &error))
+    }
+
+    /// Its readers, which read the file as [`RunState::read`] does, for a
+    /// reader of the Run that must not hold its writer open.
+    pub(crate) fn readers(&self) -> std::sync::Arc<RunStateReaders> {
+        std::sync::Arc::clone(&self.readers)
+    }
+}
+
+/// The writer's connection, which closes its readers' first: the writer is
+/// then the file's last connection, which folds its WAL into it on closing.
+struct WriterConnection {
+    connection: Connection,
+    readers: std::sync::Arc<RunStateReaders>,
+}
+
+impl Drop for WriterConnection {
+    fn drop(&mut self) {
+        self.readers.close();
     }
 }
 

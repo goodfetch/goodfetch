@@ -3,8 +3,13 @@
 //! tests and crashes in one process): requests of three domains come with
 //! any priority and `forefront`, are leased each domain's next first, and
 //! end done or back to pending, until the process crashes or the power
-//! goes. A reference lines each domain's requests up by hand; every lease
-//! takes the one it puts next, and after the crash the file the next
+//! goes. Each step reads as the delivery loop does, through the run file's
+//! readers beside its writer (ADR 0138): the requests not keyed yet
+//! (`unkeyed`) after the write that added them, a domain's next
+//! (`waiting`) before its lease, and whether any is pending
+//! (`any_pending`) after every step, each seeing the writes acknowledged
+//! before it. A reference lines each domain's requests up by hand; every
+//! lease takes the one it puts next, and after the crash the file the next
 //! process opens, its leases recovered and its per-domain queues filled
 //! again as a resume fills them, admits each domain's requests in the
 //! reference's order. 16 cases in the Quick suite and 256 in the Pre-merge
@@ -155,7 +160,26 @@ impl Subject {
         self.runtime.block_on(state.write(write)).unwrap()
     }
 
-    /// Adds a request of `url` and keys it, as the delivery does.
+    /// Reads the run file's committed state as the delivery loop does,
+    /// through its readers, beside the writer.
+    fn read<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> T {
+        let state = self
+            .state
+            .clone()
+            .expect("invariant: the writer is open until the crash");
+        self.runtime.block_on(state.read(read)).unwrap()
+    }
+
+    /// Whether any request is pending, as the delivery loop asks when idle.
+    fn any_pending(&self) -> bool {
+        self.read(super::any_pending)
+    }
+
+    /// Adds a request of `url`, then reads the requests not keyed yet and
+    /// keys them, as the delivery does.
     fn comes(&self, url: String, priority: i64, forefront: bool) {
         let key = self.keys.key(&url);
         self.write(move |connection| {
@@ -190,24 +214,32 @@ impl Subject {
                         },
                     )
                 },
-            )?;
-            let keys: Vec<(String, String)> = super::unkeyed(connection, usize::MAX)?
-                .into_iter()
-                .map(|(_, waiting)| (waiting.id, key.clone()))
-                .collect();
-            super::set_keys(connection, &keys)
+            )
+            .map(drop)
         });
+        let keys: Vec<(String, String)> = self
+            .read(|connection| super::unkeyed(connection, usize::MAX))
+            .into_iter()
+            .map(|(_, waiting)| (waiting.id, key.clone()))
+            .collect();
+        assert_eq!(
+            keys.len(),
+            1,
+            "the request just added is read not keyed yet"
+        );
+        self.write(move |connection| super::set_keys(connection, &keys));
     }
 
     /// Leases the next pending request of `url`'s domain, as its queue fills
     /// from the run file: its URL, ID and lease epoch.
     fn lease(&self, url: &str) -> Option<(String, String, u64)> {
         let key = self.keys.key(url);
+        let next: Vec<String> = self
+            .read(move |connection| super::waiting(connection, Some(key.as_str()), 1))
+            .into_iter()
+            .map(|waiting| waiting.id)
+            .collect();
         self.write(move |connection| {
-            let next: Vec<String> = super::waiting(connection, Some(key.as_str()), 1)?
-                .into_iter()
-                .map(|waiting| waiting.id)
-                .collect();
             Ok(super::lease(connection, &next)?
                 .into_iter()
                 .next()
@@ -338,6 +370,8 @@ proptest! {
                     }
                 }
             }
+            let pending = lines.iter().flatten().any(|lined| !lined.leased);
+            prop_assert_eq!(subject.any_pending(), pending);
         }
 
         let admitted = subject.crash_and_resume(crash);

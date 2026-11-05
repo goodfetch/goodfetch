@@ -4453,6 +4453,7 @@ impl Registry {
         let following = self.live.get(run_id).map(|live| Following {
             commits: live.run.as_ref().map(|run| run.state.commits()),
             report: live.report.subscribe(),
+            readers: live.run.as_ref().map(|run| run.state.readers()),
         });
         RunReader::new(
             run_id.clone(),

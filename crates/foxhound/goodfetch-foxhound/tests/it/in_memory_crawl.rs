@@ -400,8 +400,9 @@ fn record_counts(planted: bool) -> ([u64; 7], u64) {
 
 /// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
 /// Dataset's schema, is validated and serialized once and commits in its
-/// attempt's transaction; what its check and its commit repeat per Record is
-/// counted (the Exceptions X7 and X8), and one planted unit per page adds
+/// attempt's transaction, reading no declaration and building no validator,
+/// both done when the crawl starts (ADR 0138); what its commit repeats per
+/// Record is counted (the Exception X8), and one planted unit per page adds
 /// exactly its Records' worth to every row. `xtask counts` holds the figures
 /// to the register, and `--prove` runs each plant through it.
 #[test]
@@ -427,12 +428,12 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
     ] = default;
     assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
     assert_eq!(
-        (validations, serializations, transactions),
-        (records, records, 0)
+        (reads, builds, validations, serializations, transactions),
+        (0, 0, records, records, 0)
     );
     assert!(
-        reads > 0 && builds > 0 && copies > 0 && lookups > 0,
-        "reads {reads}, builds {builds}, copies {copies}, lookups {lookups}"
+        copies > 0 && lookups > 0,
+        "copies {copies}, lookups {lookups}"
     );
     assert_eq!(
         std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),
@@ -642,9 +643,12 @@ fn a_planted_unit_per_page_moves_its_run_state_row_by_a_page_each(#[case] row: &
 }
 
 /// The crawl does the writer's work the rows count at concurrency 1 and 16,
-/// and durability changes how a transaction reaches the disk and not how many
-/// there are: `fast` keeps its transactions and takes syncs away. That a count
-/// does not depend on how its jobs group is `run_state`'s own test.
+/// reading the machine's settings once as the Run opens, however many
+/// admissions and settlings follow (ADR 0138), beside the engine's own read
+/// as it starts, for its managed Limits (ADR 0041); and durability changes how a
+/// transaction reaches the disk and not how many there are: `fast` keeps its
+/// transactions and takes syncs away. That a count does not depend on how its
+/// jobs group is `run_state`'s own test.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -667,7 +671,8 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
     });
 
     for counts in [&one, &sixteen, &full] {
-        assert!(counts.transactions > 0 && counts.syncs > 0 && counts.configuration_reads > 0);
+        assert!(counts.transactions > 0 && counts.syncs > 0);
+        assert_eq!(counts.configuration_reads, 2);
     }
     assert_eq!(full.transactions, fast.transactions);
     assert!(

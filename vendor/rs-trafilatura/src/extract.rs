@@ -1,3 +1,6 @@
+// Modified by Goodfetch (2026-11-05): `extract_document_content`, the
+// extraction from a document the caller parsed, which `extract_content`
+// runs after its own parse (#1916).
 //! Core content extraction algorithm.
 //!
 //! This module contains the main extraction logic ported from go-trafilatura.
@@ -32,7 +35,6 @@ use crate::result::{ExtractResult, ImageData};
 use crate::url_utils::{extract_filename, filenames_match};
 
 /// Main entry point for content extraction.
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractResult> {
     if cfg!(debug_assertions) {
         eprintln!("DEBUG: Starting content extraction (HTML length: {} chars)", html.len());
@@ -41,6 +43,16 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
     // Parse HTML document
     let document = Document::from(html);
 
+    extract_document_content(document, Some(html.len()), options)
+}
+
+/// Content extraction from a document the caller parsed (Goodfetch): the
+/// extraction `extract_content` runs after its parse. `html_len` is the
+/// length of the HTML the document was parsed from, which only the
+/// extraction quality's ratio signal reads; with none, that signal is left
+/// out.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn extract_document_content(document: Document, html_len: Option<usize>, options: &Options) -> Result<ExtractResult> {
     let mut warnings = Vec::new();
 
     // Extract metadata first (works on full document before cleaning)
@@ -401,7 +413,7 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
     let extraction_quality = compute_extraction_quality_heuristic(
         &content_text,
         content_html.as_deref(),
-        html.len(),
+        html_len.unwrap_or(0),
         detected_page_type,
     );
 

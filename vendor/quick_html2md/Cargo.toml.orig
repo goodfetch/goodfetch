@@ -1,3 +1,4 @@
+# Modified by Goodfetch (2026-11-05): dom_query 0.28, the workspace's (#1916).
 [package]
 name = "quick_html2md"
 version = "0.2.1"
@@ -18,7 +19,7 @@ default = []
 url = ["dep:url"]
 
 [dependencies]
-dom_query = "0.24"
+dom_query = "0.28"
 url = { version = "2.5", optional = true }
 
 [dev-dependencies]

@@ -56,8 +56,10 @@ path = "src/lib.rs"
 [dependencies.chrono]
 version = "0.4"
 
+# Modified by Goodfetch (2026-11-05): the workspace's dom_query and the
+# tendril it links, so a caller's tree is this crate's (#1916).
 [dependencies.dom_query]
-version = "0.24"
+version = "0.28"
 
 [dependencies.encoding_rs]
 version = "0.8"
@@ -84,7 +86,7 @@ optional = true
 default-features = false
 
 [dependencies.tendril]
-version = "0.4"
+version = "0.5"
 
 [dependencies.thiserror]
 version = "2.0"
@@ -118,3 +120,10 @@ priority = -1
 
 [lints.rust]
 unsafe_code = "forbid"
+
+# Modified by Goodfetch (2026-11-05): a path dependency's lints are not
+# capped as a registry crate's are, so upstream's unused items, which its
+# crates.io build never shows, are allowed here (#1916).
+[lints.rust.unused]
+level = "allow"
+priority = -1

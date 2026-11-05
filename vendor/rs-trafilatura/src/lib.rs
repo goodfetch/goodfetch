@@ -1,3 +1,5 @@
+// Modified by Goodfetch (2026-11-05): `extract_document_with_options`, a
+// document entry that reads a tree the caller parsed (#1916).
 //! # rs-trafilatura
 //!
 //! Rust port of trafilatura - a web content extraction library.
@@ -138,6 +140,30 @@ pub fn extract(html: &str) -> Result<ExtractResult> {
 #[allow(clippy::missing_errors_doc)]
 pub fn extract_with_options(html: &str, options: &Options) -> Result<ExtractResult> {
     extract::extract_content(html, options)
+}
+
+/// Extracts main content from a document the caller parsed, with custom
+/// options: what [`extract_with_options`] does after its parse, so a caller
+/// holding the page's tree parses nothing again. The document is consumed:
+/// the extraction cleans it in place.
+///
+/// The result is [`extract_with_options`]'s on the HTML the document was
+/// parsed from, but for [`ExtractResult::extraction_quality`], whose ratio
+/// of extracted text to HTML length the document cannot give and is left
+/// out.
+///
+/// # Example
+///
+/// ```rust
+/// use rs_trafilatura::{extract_document_with_options, Options};
+///
+/// let html = "<html><body><article><p>Content</p></article></body></html>";
+/// let result = extract_document_with_options(dom_query::Document::from(html), &Options::default())?;
+/// # Ok::<(), rs_trafilatura::Error>(())
+/// ```
+#[allow(clippy::missing_errors_doc)]
+pub fn extract_document_with_options(document: dom_query::Document, options: &Options) -> Result<ExtractResult> {
+    extract::extract_document_content(document, None, options)
 }
 
 /// Extracts main content from HTML bytes with automatic encoding detection.

@@ -1,3 +1,4 @@
+# Modified by Goodfetch (2026-11-05): dom_query 0.28, the workspace's (#1916).
 [package]
 name = "rs-trafilatura"
 version = "0.2.2"
@@ -17,8 +18,8 @@ categories = ["parser-implementations", "web-programming", "text-processing"]
 html-cleaning = "0.3"
 quick_html2md = "0.2"
 web-page-classifier = "0.1"
-dom_query = "0.24"         # Primary DOM manipulation
-tendril = "0.4"            # Zero-copy text operations via StrTendril
+dom_query = "0.28"         # Primary DOM manipulation
+tendril = "0.5"            # Zero-copy text operations via StrTendril
 thiserror = "2.0"
 regex = "1.11"
 chrono = "0.4"
@@ -34,7 +35,7 @@ spider = ["dep:spider"]
 
 [dev-dependencies]
 criterion = "0.5"
-tendril = "0.4"
+tendril = "0.5"
 
 [[bin]]
 name = "extract_stdin"

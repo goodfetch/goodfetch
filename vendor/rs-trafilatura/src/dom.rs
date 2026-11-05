@@ -1,3 +1,5 @@
+// Modified by Goodfetch (2026-11-05): `clone_document` copies the tree
+// instead of parsing its serialization again (#1916).
 //! DOM Operations Adapter
 //!
 //! Provides go-shiori/dom-style operations using the `dom_query` crate.
@@ -242,7 +244,7 @@ pub fn strip_tags(sel: &Selection, tags: &[&str]) {
 ///
 /// Go equivalent: `dom.Clone(n, true)`
 pub fn clone_document(doc: &Document) -> Document {
-    Document::from(doc.html().to_string())
+    doc.clone()
 }
 
 /// Append HTML content

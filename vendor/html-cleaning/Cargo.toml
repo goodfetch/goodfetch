@@ -61,8 +61,10 @@ url = ["dep:url"]
 name = "html_cleaning"
 path = "src/lib.rs"
 
+# Modified by Goodfetch (2026-11-05): the workspace's dom_query, the one
+# rs-trafilatura's fork hands its trees in (#1916).
 [dependencies.dom_query]
-version = "0.24"
+version = "0.28"
 
 [dependencies.regex]
 version = "1.11"

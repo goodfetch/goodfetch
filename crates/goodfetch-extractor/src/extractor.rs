@@ -5,10 +5,10 @@
 //! adapter (area 7) implements the same interface, so a Plugin's main
 //! content takes the built-ins' place and nothing else changes.
 //!
-//! A step takes the page's tree, never its text (ADR 0138): dom-smoothie
-//! reads it through `Readability::with_document`, with no parse of its own;
-//! rs-trafilatura reads its serialization until its vendored fork gains a
-//! document entry (#1916).
+//! A step takes the page's tree, never its text (ADR 0138), and parses
+//! nothing of its own: dom-smoothie reads it through
+//! `Readability::with_document`, rs-trafilatura through its vendored fork's
+//! document entry (`vendor/rs-trafilatura`, #1916).
 
 use dom_smoothie::Readability;
 use goodfetch_counted_work::ParsedHtml;
@@ -108,8 +108,8 @@ impl Extractor for DomSmoothie {
 /// tables, images, links and inline formatting. Its fallback is off, and
 /// so are its least sizes: the fallback answers a short page's whole body
 /// as one paragraph of run-together text, its headings, lists and tables
-/// lost, and the least sizes send a short page to it. It reads the tree's
-/// serialization, which it parses itself, until #1916.
+/// lost, and the least sizes send a short page to it. It reads the tree
+/// through its fork's document entry.
 struct Trafilatura;
 
 impl Extractor for Trafilatura {
@@ -125,7 +125,7 @@ impl Extractor for Trafilatura {
             url: Some(url.to_owned()),
             ..rs_trafilatura::Options::default()
         };
-        rs_trafilatura::extract_with_options(&document.html(), &options)
+        rs_trafilatura::extract_document_with_options(document, &options)
             .ok()?
             .content_html
             .map(Found::of_html)

@@ -124,6 +124,36 @@ fn a_page_never_answered_is_missing() {
     assert_eq!(observed.work.missing, vec!["/sites/4/4".to_owned()]);
 }
 
+/// The site's work is every `GET` of its pages answered `200` on its host,
+/// named with or without its port; a `HEAD` and a page answered `404` are
+/// none of it.
+#[test]
+fn a_trials_work_is_its_answered_page_gets_on_the_sites_host() {
+    let mut observations = observations();
+    let requests = observations["requests"].as_array_mut().unwrap();
+    let mut head = request(3, "/sites/4/1", 200, 1_910_000, 1_920_000);
+    head["method"] = json!("HEAD");
+    let mut portless = request(3, "/sites/4/2", 200, 1_930_000, 1_940_000);
+    portless["host"] = json!("scale.test");
+    requests.extend([
+        head,
+        request(3, "/sites/4/5", 404, 1_950_000, 1_960_000),
+        portless,
+    ]);
+
+    let observed = observe(&observations, &SITE, 1.0, None).unwrap();
+
+    assert_eq!(
+        (
+            observed.work.pages,
+            observed.work.extra.len(),
+            observed.work.requests,
+            observed.work.bytes,
+        ),
+        (4, 0, 6, 3600)
+    );
+}
+
 #[test]
 fn unrecorded_requests_measure_nothing() {
     let mut observations = observations();

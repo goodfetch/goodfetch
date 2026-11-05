@@ -928,6 +928,28 @@ fn a_callgrind_run_of_other_pages_fails_the_same_work_check_and_reports_no_figur
 }
 
 #[test]
+fn a_callgrind_run_served_other_bytes_fails_the_same_work_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = callgrind();
+    cell["runs"][1]["work"]["bytes"] = json!(600_001);
+    let mut trials = trials();
+    trials["instructions"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("different_bytes", "raw foxhound callgrind trial 2")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+#[test]
 fn a_tool_short_of_its_declared_callgrind_runs_fails() {
     let workspace = Workspace::from_fixture("empty");
     let mut cell = callgrind();

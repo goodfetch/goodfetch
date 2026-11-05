@@ -90,6 +90,64 @@ fn trials_that_did_the_same_work_pass() {
     assert_eq!(named(&comparison(|_, _| work(0))), vec![]);
 }
 
+/// The first trial is held to the site's own pages like any other, so
+/// when it is the one that did other work, it alone is named.
+#[test]
+fn a_first_trial_that_fetched_other_pages_is_the_one_named() {
+    let mut trials = comparison(|_, _| work(0));
+    let first = &mut trials.trials[0].measured.work;
+    first.pages = 3;
+    first.missing = vec!["/sites/4/4".to_owned()];
+
+    assert_eq!(
+        named(&trials),
+        vec![("different_pages", "raw foxhound trial 1".to_owned())]
+    );
+}
+
+/// Bytes are held to what most trials were served, so a first trial
+/// served other bytes for the site's pages is the one named.
+#[test]
+fn a_first_trial_served_other_bytes_is_the_one_named() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.trials[0].measured.work.bytes += 1;
+
+    assert_eq!(
+        named(&trials),
+        vec![("different_bytes", "raw foxhound trial 1".to_owned())]
+    );
+}
+
+/// Every trial that misses the same page is named, though they agree with
+/// each other.
+#[test]
+fn trials_that_all_miss_a_page_are_each_named() {
+    let trials = comparison(|scenario, _| match scenario {
+        Scenario::Raw => Work {
+            pages: 3,
+            missing: vec!["/sites/4/4".to_owned()],
+            extra: Vec::new(),
+            requests: 3,
+            bytes: 1800,
+            first_bytes: 1800,
+        },
+        _ => work(0),
+    });
+
+    let raw: Vec<(&'static str, String)> = matrix::measured()
+        .filter(|(cell, _)| cell.scenario == Scenario::Raw)
+        .flat_map(|(cell, _)| {
+            (1..=3).map(move |number| {
+                (
+                    "different_pages",
+                    format!("raw {} trial {number}", cell.name),
+                )
+            })
+        })
+        .collect();
+    assert_eq!(named(&trials), raw);
+}
+
 /// A resumed crawl fetches the pages in flight at its kill again: as many
 /// as it was killed with, which varies, and is no other work.
 #[test]

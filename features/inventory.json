@@ -6684,7 +6684,7 @@
     {
       "id": "setting:extraction.removal_share",
       "kind": "setting",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

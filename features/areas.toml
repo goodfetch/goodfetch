@@ -693,6 +693,13 @@ number = 6
 kind = "setting"
 prefix = "content."
 
+# How `page.formats` measures ADR 0047's share of the main content the
+# Clean-up rules removed (ADR 0138, #1913).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "extraction."
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]

@@ -55,6 +55,15 @@ impl Pace {
         }
     }
 
+    /// Whether it may hold a start back: a delay, a Crawl-delay waited
+    /// out, the adaptive delay or a rate.
+    pub(crate) fn paces(&self) -> bool {
+        self.delay.is_some()
+            || self.max_crawl_delay.is_some_and(|max| !max.is_zero())
+            || self.adaptive_max.is_some()
+            || self.rate.is_some()
+    }
+
     /// The delay between starts on a domain key whose hosts ask for
     /// `crawl_delays` (ADR 0086) and whose responses' latency averages
     /// `latency` milliseconds: the longest of `politeness.domain.delay`,

@@ -42,6 +42,13 @@
 //! The per-domain state lives in the `domain_limits`, `crawl_delays` and
 //! `domain_pacing` tables Foxhound adds to the file; a Collie engine adds
 //! none and touches none (ADR 0098).
+//!
+//! A run whose rule paces nothing ([`paces`]: no
+//! `politeness.domain.concurrency`, no delay, no rate, no adaptive delay
+//! and no Crawl-delay, robots.txt not obeyed) consults no Politeness store
+//! (ADR 0138): its per-domain queues back its domains off themselves, by
+//! the same rule over a domain's state they keep in memory, so the backoff,
+//! a `Retry-After` and a 429's halving stay their own features.
 
 #![expect(
     clippy::disallowed_types,
@@ -149,16 +156,17 @@ fn whole_milliseconds(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
-/// One domain key's shared state.
+/// One domain key's shared state, or the state a run that paces nothing
+/// keeps of it in memory.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Limits {
+pub(crate) struct Limits {
     /// No request before this moment, in milliseconds.
-    ready_at: Option<i64>,
+    pub(crate) ready_at: Option<i64>,
     /// The last wait of the backoffs in a row, in milliseconds; `None`
     /// once a request succeeded.
     backoff: Option<i64>,
     /// The most requests in flight a 429 left it.
-    ceiling: Option<u64>,
+    pub(crate) ceiling: Option<u64>,
     /// When the ceiling last changed, in milliseconds.
     ceiling_changed_at: Option<i64>,
     /// The last request start by any sharing run, in milliseconds.
@@ -169,6 +177,12 @@ struct Limits {
 }
 
 impl Limits {
+    /// Whether it keeps nothing of a backoff or a 429 for its key: no
+    /// backoff in a row, and no ceiling.
+    pub(crate) fn is_clear(&self) -> bool {
+        self.backoff.is_none() && self.ceiling.is_none()
+    }
+
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
             .query_row(
@@ -257,14 +271,14 @@ impl Limits {
     }
 
     /// The state after a request ended at `now` as `ending` says, with
-    /// `others` still in flight, under a run's own rule, drawing a backoff
-    /// from `entropy`.
-    fn ended(
+    /// `others` still in flight, under what a run waits for, `waits`,
+    /// drawing a backoff from `entropy`.
+    pub(crate) fn ended(
         mut self,
         others: u64,
         ending: Ending,
         now: i64,
-        rule: &DomainRule,
+        waits: &Waits,
         entropy: &mut Entropy,
     ) -> Self {
         let (backs_off, asked) = match ending {
@@ -287,7 +301,7 @@ impl Limits {
                 (true, asked)
             }
         };
-        let Some(backoff) = &rule.waits.backoff else {
+        let Some(backoff) = &waits.backoff else {
             return self;
         };
         let mut until = asked.map(milliseconds);
@@ -431,7 +445,7 @@ pub fn refuse_second_copies(settings: &Resolved, switch: &Setting) -> Result<(),
 
 /// What a crawl waits for under its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Waits {
+pub(crate) struct Waits {
     /// `None` when `politeness.backoff.enabled` is off.
     backoff: Option<Backoff>,
     /// `politeness.retry_after.max`.
@@ -439,7 +453,7 @@ struct Waits {
 }
 
 impl Waits {
-    fn of(settings: &Resolved) -> Self {
+    pub(crate) fn of(settings: &Resolved) -> Self {
         let duration = |name| settings.duration(name).unwrap_or_default();
         Self {
             backoff: (settings.value(POLITENESS_BACKOFF_ENABLED.name).as_bool() != Some(false))
@@ -455,6 +469,34 @@ impl Waits {
         let backoff = self.backoff?;
         Some(self.retry_after_max.max(backoff.max()))
     }
+
+    /// The backoff it draws, `None` while `politeness.backoff.enabled` is
+    /// off.
+    pub(crate) fn backoff(&self) -> Option<Backoff> {
+        self.backoff
+    }
+}
+
+impl Default for Waits {
+    /// What a crawl waits for under the catalog's defaults: a backoff from
+    /// 2 s up to 60 s, and a `Retry-After` up to 15 minutes.
+    fn default() -> Self {
+        Self {
+            backoff: Some(Backoff {
+                initial: Duration::from_secs(2),
+                max: Duration::from_mins(1),
+            }),
+            retry_after_max: Duration::from_mins(15),
+        }
+    }
+}
+
+/// Whether a crawl under `settings` paces its domain keys: it caps them
+/// with `politeness.domain.concurrency`, or spaces or rates their starts
+/// ([`Pace`]). One that does not consults no Politeness store for them
+/// (ADR 0138).
+pub fn paces(settings: &Resolved) -> bool {
+    settings.count(POLITENESS_DOMAIN_CONCURRENCY.name).is_some() || Pace::of(settings).paces()
 }
 
 /// A crawl's per-domain rule under its own settings.
@@ -481,6 +523,10 @@ impl DomainRule {
 }
 
 impl PermitRule for DomainRule {
+    fn paces(&self) -> bool {
+        self.concurrency.is_some() || self.pace.paces()
+    }
+
     fn admit(
         &self,
         connection: &Connection,
@@ -524,7 +570,7 @@ impl PermitRule for DomainRule {
         let now = milliseconds(now);
         let limits = {
             let mut entropy = self.entropy.lock().unwrap_or_else(PoisonError::into_inner);
-            Limits::read(connection, key)?.ended(in_flight, ending, now, self, &mut entropy)
+            Limits::read(connection, key)?.ended(in_flight, ending, now, &self.waits, &mut entropy)
         };
         limits.write(connection, key)?;
         let longest = self.waits.longest().map(duration_milliseconds);

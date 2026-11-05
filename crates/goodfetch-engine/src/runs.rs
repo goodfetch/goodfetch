@@ -1643,10 +1643,11 @@ impl Run {
 
     /// Its admission under `settings`: the gate in admission the
     /// composition passes in, opened from what its run file journaled, its
-    /// rate cap, and, when the gate names a rule for its keys, the
+    /// rate cap, and, when the gate names a rule that paces its keys, the
     /// Politeness `politeness.sharing` says it shares: the per-user
     /// Politeness file for `shared` and `per_daemon`, a file of its own in
-    /// memory for `run`. `None` when the composition passes in no gate.
+    /// memory for `run`. A rule that paces nothing opens none (ADR 0138).
+    /// `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///
@@ -1669,15 +1670,47 @@ impl Run {
             .state
             .read(move |connection| gates.open(&opening, connection, wall, now, entropy))
             .await?;
-        let admission = Admission::new(gate, settings);
-        if !admission.shares(settings) {
-            return Ok(Some(admission));
+        let mut admission = Admission::new(gate, settings);
+        self.share_politeness(&mut admission, settings).await?;
+        Ok(Some(admission))
+    }
+
+    /// Takes `settings` into `admission` at an admission point
+    /// ([`Admission::update`]); when its gate's rule paces its keys now and
+    /// did not before, such as under a tightened Operator policy, it starts
+    /// sharing the Run's Politeness from here on.
+    ///
+    /// # Errors
+    ///
+    /// When the Politeness file cannot be opened: the admission goes on
+    /// sharing none.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves `admission` updated, sharing none yet.
+    pub async fn update_admission(
+        &self,
+        admission: &mut Admission,
+        settings: &Resolved,
+    ) -> Result<(), PolitenessError> {
+        admission.update(settings);
+        self.share_politeness(admission, settings).await
+    }
+
+    /// Has `admission` share the Run's Politeness, its proxies' limits
+    /// included, when its gate's rule paces its keys under `settings` and
+    /// it shares none yet.
+    async fn share_politeness(
+        &self,
+        admission: &mut Admission,
+        settings: &Resolved,
+    ) -> Result<(), PolitenessError> {
+        if !admission.must_share(settings) {
+            return Ok(());
         }
-        // The one Politeness the Run shares, its proxies' limits included.
         let (politeness, holder) = self.politeness(settings).await?;
-        Ok(Some(
-            admission.sharing(politeness, holder, self.clock, settings),
-        ))
+        admission.share(politeness, holder, self.clock, settings);
+        Ok(())
     }
 
     /// The Politeness its own code shares for keys outside admission, such

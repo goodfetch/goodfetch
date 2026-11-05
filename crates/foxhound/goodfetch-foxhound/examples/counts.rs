@@ -390,14 +390,15 @@ fn cells() -> [Cell; 10] {
             handler: false,
             limit: false,
         },
-        // robots.txt off and Politeness off take none of E6's work away yet:
-        // ADR 0138's "cost nothing" is the Shared paths spec's, and X19 waives
-        // it meanwhile, so neither cell removes a row.
+        // Politeness off consults no Politeness store for admission or a
+        // send (#1920): with the fixture's delay of 0, robots.txt off waits
+        // out no Crawl-delay, so both cells take the permits' transactions
+        // away. The robots.txt reads they still make are X19's.
         Cell {
             name: "robots_txt_off",
             settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
             frontier: None,
-            removes: &[],
+            removes: &[Row::PolitenessTransactions],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -409,7 +410,7 @@ fn cells() -> [Cell; 10] {
                 "site_preferences": { "respect_robots_txt": false },
             }),
             frontier: None,
-            removes: &[],
+            removes: &[Row::PolitenessTransactions],
             removes_syncs: false,
             handler: false,
             limit: false,

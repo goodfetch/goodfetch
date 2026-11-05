@@ -11,7 +11,7 @@
 )]
 
 use std::collections::BTreeMap;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{Ended, Gate, Gates, Held, Waiting};
 use goodfetch_engine::entropy::Entropy;
@@ -25,7 +25,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::{BOUND, DomainGates, DomainQueues, TABLES, backoff};
+use super::{BOUND, DomainGates, DomainQueues, TABLES};
 use crate::domain_key::DomainKeys;
 
 fn queues() -> DomainQueues {
@@ -177,15 +177,19 @@ fn a_domain_backing_off_holds_no_turn_while_the_others_go() {
     queues.ended(&first.key, now, Ended::BackOff(None));
 
     let admitted = admit_all(&mut queues, now);
-    let ready_at = queues.ready_at(now);
+    let wait = queues.ready_at(now).map(|ready_at| ready_at - now);
 
-    assert_eq!(
-        (admitted, ready_at),
-        (
-            vec!["a1".to_owned(), "a2".to_owned()],
-            Some(now + Duration::from_secs(2))
-        )
+    assert_eq!(admitted, vec!["a1".to_owned(), "a2".to_owned()]);
+    assert!(
+        wait.is_some_and(|wait| a_first_backoff(wait, Duration::from_secs(2))),
+        "{wait:?}"
     );
+}
+
+/// Whether `wait` is a first wait of a backoff from `initial`: drawn
+/// between it and three times it (ADR 0118).
+fn a_first_backoff(wait: Duration, initial: Duration) -> bool {
+    (initial..=initial * 3).contains(&wait)
 }
 
 /// Covers: story:3-50
@@ -240,15 +244,81 @@ fn a_drained_domain_is_released_once_its_last_request_ended() {
     );
 }
 
-/// Covers: story:3-50
+/// Queues that took `settings` as their Run's, opened from an empty run
+/// file at `now`.
+fn queues_under(settings: &goodfetch_engine::settings::Resolved, now: Instant) -> Box<dyn Gate> {
+    DomainGates
+        .open(
+            settings,
+            &run_file(),
+            SystemTime::UNIX_EPOCH + Duration::from_hours(500_000),
+            now,
+            Entropy::seeded(1),
+        )
+        .unwrap()
+}
+
+/// While the Run shares no Politeness, the queues back a domain off by
+/// its own settings: the first wait drawn between
+/// `politeness.backoff.initial` and three times it, and none with
+/// `politeness.backoff.enabled` off (ADRs 0118 and 0138).
+///
+/// Covers: setting:politeness.backoff.initial, setting:politeness.backoff.enabled
 #[rstest]
-#[case::the_first(1, 2)]
-#[case::the_second(2, 4)]
-#[case::the_fifth(5, 32)]
-#[case::the_sixth_reaches_the_ceiling(6, 60)]
-#[case::far_past_the_ceiling(40, 60)]
-fn a_backoff_doubles_from_two_seconds_up_to_a_minute(#[case] backoffs: u32, #[case] seconds: u64) {
-    assert_eq!(backoff(backoffs), Duration::from_secs(seconds));
+#[case::backoff_on(json!({ "politeness": { "backoff": { "initial": 10_000, "max": 60_000 } } }), Some(Duration::from_secs(10)))]
+#[case::backoff_off(json!({ "politeness": { "backoff": { "enabled": false } } }), None)]
+fn a_domain_backs_off_as_its_runs_backoff_settings_say(
+    #[case] run: Value,
+    #[case] initial: Option<Duration>,
+) {
+    let now = Instant::now();
+    let mut queues = queues_under(&settings(run), now);
+    enqueue(&mut *queues, "h1", "https://heavy.test/1", 0);
+    enqueue(&mut *queues, "h2", "https://heavy.test/2", 0);
+    let first = queues.admit(now).unwrap();
+    queues.ended(&first.key, now, Ended::TooManyRequests(None));
+
+    let wait = queues.ready_at(now).map(|ready_at| ready_at - now);
+
+    match initial {
+        Some(initial) => assert!(
+            wait.is_some_and(|wait| a_first_backoff(wait, initial)),
+            "{wait:?}"
+        ),
+        None => assert_eq!(wait, Some(Duration::ZERO)),
+    }
+}
+
+/// While the Run shares no Politeness, a 429 halves the count of a
+/// domain's requests in flight, from those in flight when it came: a
+/// domain with four in flight then admits a request only once fewer than
+/// two are (ADRs 0021 and 0086).
+///
+/// Covers: story:3-80
+#[test]
+fn a_429_halves_the_requests_a_domain_has_in_flight() {
+    let now = Instant::now();
+    let run = json!({ "politeness": { "backoff": { "enabled": false } } });
+    let mut queues = queues_under(&settings(run), now);
+    for id in ["h1", "h2", "h3", "h4", "h5"] {
+        enqueue(&mut *queues, id, &format!("https://heavy.test/{id}"), 0);
+    }
+    let in_flight: Vec<String> = (0..4)
+        .filter_map(|_| queues.admit(now).map(|admitted| admitted.id))
+        .collect();
+    let key = "heavy.test";
+    queues.ended(key, now, Ended::TooManyRequests(None));
+
+    let at_three = queues.admit(now).map(|admitted| admitted.id);
+    queues.ended(key, now, Ended::Done);
+    let at_two = queues.admit(now).map(|admitted| admitted.id);
+    queues.ended(key, now, Ended::Done);
+    let at_one = queues.admit(now).map(|admitted| admitted.id);
+
+    assert_eq!(
+        (in_flight.len(), at_three, at_two, at_one),
+        (4, None, None, Some("h5".to_owned()))
+    );
 }
 
 /// A run file in memory with the queues' table.
@@ -531,7 +601,8 @@ proptest! {
     }
 
     /// A backoff's end is the reading it was given plus its wait, which
-    /// stays within 2 s and a minute and never shrinks in a row.
+    /// stays within the catalog's `politeness.backoff.initial` of 2 s and
+    /// its `politeness.backoff.max` of a minute.
     ///
     /// Covers: story:3-50
     #[test]
@@ -540,7 +611,6 @@ proptest! {
     ) {
         let start = Instant::now();
         let mut queues = queues();
-        let mut previous = Duration::ZERO;
         let mut at = start;
         for (index, offset) in offsets.iter().enumerate() {
             enqueue(&mut queues, &index.to_string(), "https://heavy.test/", 0);
@@ -550,8 +620,6 @@ proptest! {
             enqueue(&mut queues, "next", "https://heavy.test/next", 0);
             let wait = queues.ready_at(at).unwrap() - at;
             prop_assert!(wait >= Duration::from_secs(2) && wait <= Duration::from_mins(1));
-            prop_assert!(wait >= previous);
-            previous = wait;
             queues.admit(queues.ready_at(at).unwrap()).unwrap();
         }
     }

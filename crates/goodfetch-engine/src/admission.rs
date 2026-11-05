@@ -8,8 +8,9 @@
 //! Run going on takes its settings again at each admission point, so a
 //! tightened Operator policy cap reaches it there.
 //!
-//! When the gate names a rule for its keys, such as Foxhound's per-domain
-//! Politeness, each request the gate would admit also takes a Permit under
+//! When the gate names a rule for its keys that paces them, such as
+//! Foxhound's per-domain Politeness, each request the gate would admit also
+//! takes a Permit under
 //! its key from the Politeness the Run shares with the other runs of its
 //! user, and gives it back once it ended: a key the Politeness refuses is
 //! held, until the moment it names or until a wake says a Permit came back
@@ -17,7 +18,10 @@
 //! held for that, until the Run tries it again. A key its Run refuses
 //! until a moment, its site having asked for a time further away than the
 //! Run waits (ADR 0118), comes with each of its requests refused until
-//! then, unsent, whatever the Politeness says meanwhile.
+//! then, unsent, whatever the Politeness says meanwhile. A rule that
+//! paces nothing ([`PermitRule::paces`]) has the Run consult no Politeness
+//! store at all: its gate backs its keys off itself (ADR 0138), until a
+//! tightened setting has the rule pace, and the Run then shares it.
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
@@ -203,6 +207,13 @@ pub trait Gate: Send {
         None
     }
 
+    /// Takes `settings`, as its Run takes them at each admission point,
+    /// such as the backoff it backs its keys off with itself while its Run
+    /// shares no Politeness. Nothing by default.
+    fn update(&mut self, settings: &Resolved) {
+        let _ = settings;
+    }
+
     /// A request of `key` it admitted ended at `now`, as `ended` says.
     fn ended(&mut self, key: &str, now: Instant, ended: Ended);
 
@@ -321,17 +332,17 @@ impl Admission {
         }
     }
 
-    /// The same, sharing `politeness` as `holder` under the rule its gate
-    /// names for `settings`, reading the wall time from `clock`; unchanged
-    /// when the gate names none.
-    pub(crate) fn sharing(
-        mut self,
+    /// Shares `politeness` as `holder` under the rule its gate names for
+    /// `settings`, reading the wall time from `clock`; unchanged when the
+    /// gate names none, or one that paces nothing.
+    pub(crate) fn share(
+        &mut self,
         politeness: Politeness,
         holder: Holder,
         clock: Clock,
         settings: &Resolved,
-    ) -> Self {
-        if let Some(rule) = self.gate.rule(settings) {
+    ) {
+        if let Some(rule) = self.gate.rule(settings).filter(|rule| rule.paces()) {
             let wakes = Some(politeness.wakes());
             self.shared = Some(Shared {
                 politeness,
@@ -343,19 +354,19 @@ impl Admission {
                 wakes,
             });
         }
-        self
     }
 
-    /// Whether its gate names a rule of shared Politeness under
-    /// `settings`.
-    pub(crate) fn shares(&self, settings: &Resolved) -> bool {
-        self.gate.rule(settings).is_some()
+    /// Whether it must share Politeness under `settings` and does not yet:
+    /// its gate names a rule that paces its keys (ADR 0138).
+    pub(crate) fn must_share(&self, settings: &Resolved) -> bool {
+        self.shared.is_none() && self.gate.rule(settings).is_some_and(|rule| rule.paces())
     }
 
     /// Takes the rate cap of `settings`, and the rule of its shared
     /// Politeness, as a Run does at each admission point, keeping when it
     /// last admitted.
     pub fn update(&mut self, settings: &Resolved) {
+        self.gate.update(settings);
         {
             let mut rate = lock(&self.rate);
             *rate = match (*rate, rate_cap_of(settings)) {

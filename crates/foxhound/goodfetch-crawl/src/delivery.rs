@@ -303,7 +303,12 @@ async fn deliver(
     loop {
         let resolved = settings.at_admission().await;
         let policy = CrawlPolicy::of(&resolved);
-        admission.update(&resolved);
+        if let Err(error) = run.update_admission(&mut admission, &resolved).await {
+            tracing::warn!(%error, run_id = %run.id(), "the Politeness the crawl's settings now pace by could not open; its gate backs its domains off alone");
+        }
+        if wakes.is_none() {
+            wakes = admission.wakes();
+        }
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,

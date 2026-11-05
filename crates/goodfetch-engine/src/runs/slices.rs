@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::{LimitScope, RunId};
+use goodfetch_protocol::run::{LimitScope, RUN_STATE_DURABILITY, RunId};
+use goodfetch_protocol::settings::WeakenedSetting;
 use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON};
 use jiff::Timestamp;
 use rusqlite::Connection;
@@ -146,28 +147,104 @@ pub(super) fn journal(
     Ok(())
 }
 
+/// What a reclaim of the Slices the Run held before run epoch `epoch` may
+/// have charged past its journal, once one of them charged a Limit; none
+/// when nothing could be over-charged.
+///
+/// # Errors
+///
+/// When the file cannot be read.
+pub(super) fn reclaimed_beyond(
+    connection: &Connection,
+    epoch: u64,
+) -> rusqlite::Result<Option<OverCharge>> {
+    let charged: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM usage WHERE epoch < ?1)",
+        [i64::try_from(epoch).unwrap_or(i64::MAX)],
+        |row| row.get(0),
+    )?;
+    if !charged {
+        return Ok(None);
+    }
+    let (declared, weakened): (i64, String) =
+        connection.query_row("SELECT deferred_charges, weakened FROM run", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+    Ok(match beyond(declared, &weakened) {
+        0 => None,
+        u64::MAX => Some(OverCharge::WholeSlices),
+        bound => Some(OverCharge::UpTo(bound)),
+    })
+}
+
+/// What a reclaim may have charged of each Slice past a Run's journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OverCharge {
+    /// The whole Slice, at a Durability level that syncs no commit.
+    WholeSlices,
+    /// Up to this much more: the bound the run file declares at `full`.
+    UpTo(u64),
+}
+
+/// What a run file whose `deferred_charges` is `declared` and whose
+/// `weakened` listing is `weakened` may have charged of each Slice past its
+/// journal: every Slice whole when its Durability level is weakened, which
+/// syncs no commit, else the bound it declares.
+fn beyond(declared: i64, weakened: &str) -> u64 {
+    let unsynced =
+        serde_json::from_str::<Vec<WeakenedSetting>>(weakened).map_or(true, |weakened| {
+            weakened
+                .iter()
+                .any(|setting| setting.key == RUN_STATE_DURABILITY.name)
+        });
+    if unsynced {
+        u64::MAX
+    } else {
+        u64::try_from(declared).unwrap_or_default()
+    }
+}
+
 /// What a reclaimer finds of the run `holder` names, its state in `file`
 /// of its folder, opened through `vfs`.
 pub(super) fn probe(holder: &Holder, file: &str, vfs: Option<&str>) -> Probed {
     let writer = test_writer(&holder.folder);
     let read = read(&holder.folder.join(file), vfs, holder.epoch);
     match (writer, read) {
-        (Ok(Writer::Live), Ok((epoch, used))) if epoch > holder.epoch => Probed::Gone { used },
+        (Ok(Writer::Live), Ok(Read { now, used, beyond })) if now > holder.epoch => {
+            Probed::Gone { used, beyond }
+        }
         (Ok(Writer::Live) | Err(_), _) => Probed::Live,
-        (Ok(Writer::None), Ok((_, used))) => Probed::Gone { used },
+        (Ok(Writer::None), Ok(Read { used, beyond, .. })) => Probed::Gone { used, beyond },
         (Ok(Writer::None), Err(())) => Probed::Unreadable,
     }
 }
 
-/// The run file's run epoch now, and what the run journaled under `epoch`.
-fn read(file: &Path, vfs: Option<&str>, epoch: u64) -> Result<(u64, BTreeMap<SliceId, u64>), ()> {
-    let read = || -> rusqlite::Result<Option<(u64, BTreeMap<SliceId, u64>)>> {
+/// What a reclaimer reads of a run file.
+struct Read {
+    /// Its run epoch now.
+    now: u64,
+    /// What the run journaled of each Slice under the epoch asked for.
+    used: BTreeMap<SliceId, u64>,
+    /// What it may have charged of each Slice past that in writes a power
+    /// cut took (ADR 0138's note of #1926): the bound its file declares
+    /// for its deferred claims at `full`, and every Slice whole at a lower
+    /// Durability level, which commits nothing synced.
+    beyond: u64,
+}
+
+/// The run file's run epoch now, what the run journaled under `epoch` and
+/// what it may have charged beyond it.
+fn read(file: &Path, vfs: Option<&str>, epoch: u64) -> Result<Read, ()> {
+    let read = || -> rusqlite::Result<Option<Read>> {
         let Some(connection) = open_reader(file, vfs)? else {
             return Ok(None);
         };
-        let now: i64 = connection
-            .prepare_cached("SELECT epoch FROM run")
-            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
+        let (now, declared, weakened): (i64, i64, String) = connection
+            .prepare_cached("SELECT epoch, deferred_charges, weakened FROM run")
+            .and_then(|mut cached| {
+                cached.query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            })?;
+        let beyond = beyond(declared, &weakened);
         let mut statement =
             connection.prepare_cached("SELECT slice_id, used FROM usage WHERE epoch = ?1")?;
         let used = statement
@@ -176,7 +253,11 @@ fn read(file: &Path, vfs: Option<&str>, epoch: u64) -> Result<(u64, BTreeMap<Sli
             })?
             .map(|row| row.map(|(slice, used)| (slice, u64::try_from(used).unwrap_or_default())))
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Some((u64::try_from(now).unwrap_or_default(), used)))
+        Ok(Some(Read {
+            now: u64::try_from(now).unwrap_or_default(),
+            used,
+            beyond,
+        }))
     };
     read().ok().flatten().ok_or(())
 }

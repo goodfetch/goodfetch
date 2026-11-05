@@ -66,8 +66,9 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
 
 /// The ticket's warning table (#1543, #713's `block_resources_visible` and
 /// #714's `clean_up_rules_fallback`): every code an area hands over to a
-/// Run's report, Foxhound's `trap_links_off` included.
-const TICKET_WARNING_CODES: [&str; 24] = [
+/// Run's report, Foxhound's `trap_links_off` and #1909's `learning_off`
+/// included.
+const TICKET_WARNING_CODES: [&str; 25] = [
     "fingerprint_none",
     "fingerprint_js_injection",
     "fingerprint_basic",
@@ -80,6 +81,7 @@ const TICKET_WARNING_CODES: [&str; 24] = [
     "proxy_exit_may_change",
     "filter_vendor_flagged",
     "trap_links_off",
+    "learning_off",
     "local_address_rotated_within_block",
     "cpu_throttled",
     "storage_low",
@@ -118,7 +120,7 @@ fn trap_links_off_is_foxhounds_and_every_other_code_both_products() {
         let carried_by = crate::entries::product_of_value(SharedType::RunWarningCode, code);
         let expected = if matches!(
             code,
-            "trap_links_off" | "local_address_rotated_within_block"
+            "trap_links_off" | "learning_off" | "local_address_rotated_within_block"
         ) {
             Product::Foxhound
         } else {

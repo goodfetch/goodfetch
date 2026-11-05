@@ -6858,6 +6858,16 @@
       ]
     },
     {
+      "id": "setting:frontier.learning",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:governor.browser.contexts_per_process",
       "kind": "setting",
       "area": 3,

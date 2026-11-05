@@ -111,7 +111,7 @@ impl Reader {
                 url: &url,
                 location: &location,
             };
-            trace::provenance(&reader.run, &reading.entry(&fetched)).await;
+            trace::provenance(&reader.run, reading.entry(&fetched)).await;
         });
     }
 

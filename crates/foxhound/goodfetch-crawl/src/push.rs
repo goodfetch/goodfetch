@@ -1,5 +1,5 @@
 //! A handler's push (ADR 0103): `crawl_request.push` checks one Record
-//! against the Dataset it names, as the run file declares it, and stages
+//! against the Dataset it names, as the live crawl declares it, and stages
 //! it with its attempt while the attempt's lease holds; it commits once
 //! with the attempt or is discarded with it. A Record that does not hold
 //! is refused with `dataset_unknown` or `record_invalid` and not staged,
@@ -10,7 +10,7 @@
 //! `effect_staging_refused`.
 
 use goodfetch_counted_work::Row;
-use goodfetch_dataset::{Datasets, Refused};
+use goodfetch_dataset::Refused;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::foxhound::dataset::{
@@ -48,21 +48,26 @@ async fn push(
             &(),
         )
     };
-    let Some(LiveCrawl { run, staging, .. }) = crawls.live(&run_id).await else {
+    let Some(LiveCrawl {
+        run,
+        staging,
+        datasets,
+        ..
+    }) = crawls.live(&run_id).await
+    else {
         return Err(ended());
     };
     let work_item = crawl_request_id.clone();
     let work = run.metrics().counted_work().clone();
     let answered = run
         .state()
-        .write(move |connection| {
+        .write(move |_| {
             // This write is the push's own, apart from its attempt's commit.
             work.count(Row::RecordTransactions);
             if !staging.holds(&work_item, lease_epoch) {
                 return Ok(None);
             }
-            let declared = Datasets::read_for_records(connection, &work)?;
-            match declared.check_pushed(PushedRecord { dataset, data }, &work) {
+            match datasets.check_pushed(PushedRecord { dataset, data }, &work) {
                 Ok(checked) => Ok(staging.push(&work_item, lease_epoch, checked)),
                 Err(Refused { error, rejected }) => Ok(staging
                     .push(&work_item, lease_epoch, rejected)

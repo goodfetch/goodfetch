@@ -81,24 +81,6 @@ fn a_cap_of_zero_admits_nothing() {
     assert_eq!((cap.admit(start), cap.ready_at(start)), (Err(None), None));
 }
 
-/// Covers: story:3-51
-#[test]
-fn a_tightened_cap_spaces_the_next_admission_by_its_own_interval() {
-    let start = Instant::now();
-    let mut cap = RateCap::per_minute(60);
-    cap.admit(start).unwrap();
-
-    let mut tightened = cap.set_to(6);
-
-    assert_eq!(
-        (
-            tightened.admit(start + Duration::from_secs(1)).is_ok(),
-            tightened.admit(start + Duration::from_secs(10)).is_ok(),
-        ),
-        (true, false)
-    );
-}
-
 proptest! {
     /// However requests arrive, no minute admits more than the cap, and a
     /// request offered once the cap is ready is admitted.

@@ -172,6 +172,107 @@ fn a_run_file_bounds_its_page_cache() {
     assert_eq!(cache_size, format!("-{PAGE_CACHE_KIB}"));
 }
 
+/// ADR 0138: a savepoint's statement journal stays in memory, so none
+/// spills to `$TMPDIR`.
+#[test]
+fn a_run_file_keeps_its_savepoint_journals_in_memory() {
+    let env = TestEnv::new();
+
+    let temp_store = with_writer(&env, 1, async |state| {
+        state.read(pragma("temp_store")).await.unwrap()
+    });
+
+    assert_eq!(temp_store, "2");
+}
+
+/// The size of the file `name` in the test's folder, 0 when there is none.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a file's size between its writer's steps, on its own runtime with nothing else to run"
+)]
+fn size_of(env: &TestEnv, name: &str) -> u64 {
+    std::fs::metadata(env.folder().join(name)).map_or(0, |metadata| metadata.len())
+}
+
+/// ADR 0138: the writer runs no checkpoint of its own, so a WAL under the
+/// checkpointer's threshold stays in the WAL, though it is past SQLite's
+/// 1,000-page automatic checkpoint.
+#[test]
+fn the_writer_leaves_a_wal_under_the_threshold_uncheckpointed() {
+    let env = TestEnv::new();
+
+    let (before, after, wal) = with_writer(&env, 1, async |state| {
+        let before = size_of(&env, "run.sqlite");
+        state.write(blob(5)).await.unwrap();
+        (
+            before,
+            size_of(&env, "run.sqlite"),
+            size_of(&env, "run.sqlite-wal"),
+        )
+    });
+
+    assert_eq!(after, before);
+    assert!(wal >= 5 * 1_048_576, "{wal}");
+}
+
+/// ADR 0138: past its threshold of WAL, the checkpointer copies the WAL into
+/// the file on its own connection, while the writer goes on.
+#[test]
+fn the_checkpointer_copies_a_wal_past_its_threshold_into_the_file() {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        wal_checkpoint_after: 1_048_576,
+        ..RunStateOptions::default()
+    };
+
+    let copied = with_writer_options(&env, &options, async |state| {
+        state.write(blob(2)).await.unwrap();
+        for _ in 0..1_000 {
+            if size_of(&env, "run.sqlite") >= 2 * 1_048_576 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        state.write(insert(1)).await.unwrap();
+        size_of(&env, "run.sqlite")
+    });
+
+    assert!(copied >= 2 * 1_048_576, "{copied}");
+}
+
+/// ADR 0138: a clean stop, the writer's last write, truncates the WAL, though
+/// a reader still holds the file open, so its close copies nothing.
+#[test]
+fn a_clean_stop_truncates_the_wal() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let reader = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            path.clone(),
+            &RunStateOptions::default(),
+            vec![ITEMS],
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        let reader = open_reader(&path, None).unwrap();
+        items(&reader).unwrap();
+        state.write(blob(1)).await.unwrap();
+        state.write_last(insert(1)).await.unwrap();
+        drop(state);
+        owner.wait().await;
+        reader
+    });
+
+    assert_eq!(
+        (size_of(&env, "run.sqlite-wal"), items(&reader).unwrap()),
+        (0, vec![1])
+    );
+}
+
 /// Covers: story:3-26
 #[cfg(target_os = "macos")]
 #[test]
@@ -255,8 +356,7 @@ fn committed_through(env: &TestEnv, vfs: &CrashVfs) -> (Vec<i64>, String) {
 
 /// A full disk met at a statement in the middle of a group, where a write
 /// spills past the writer's page cache, ends the group's transaction in
-/// SQLite: no write of the group commits, though a small one still fits in
-/// the room an earlier checkpoint left in the WAL, each is answered with the
+/// SQLite: no write of the group commits, each is answered with the
 /// storage failure, and the writer reports it to whoever watches its storage
 /// failures, which stop its Run (ADR 0122).
 ///
@@ -272,8 +372,8 @@ fn a_full_disk_at_a_statement_fails_its_whole_group_as_a_storage_failure() {
 
     let (answers, reported) = with_writer_options(&env, &options, async |state| {
         state.write(insert(0)).await.unwrap();
-        // Past SQLite's 1,000-page automatic checkpoint, whose WAL the next
-        // commit writes again from its start.
+        // A WAL past SQLite's 1,000-page automatic checkpoint, which the
+        // writer never runs (ADR 0138).
         state.write(blob(5)).await.unwrap();
         vfs.fail_at(vfs.operations(), IoFault::Full);
         let first = state.reserve().await.unwrap().write(blob(8));
@@ -525,14 +625,36 @@ fn a_writers_transactions_count_its_jobs_whatever_group_they_commit_in() {
     assert_eq!((apart.0, grouped.0), (3, 3));
 }
 
-/// A read through the writer counts as a read, and as the job it is.
+/// A read through the writer counts as a read and commits nothing, alone or
+/// in a group with a write (ADR 0138).
 #[test]
-fn a_read_through_the_writer_counts_one_read_and_one_transaction() {
-    let counts = counted(async |state| {
+fn a_read_through_the_writer_counts_one_read_and_no_transaction() {
+    let alone = counted(async |state| {
         state.read(|_| Ok(())).await.unwrap();
     });
+    let beside_a_write = counted(async |state| {
+        let (written, read) = tokio::join!(state.write(|_| Ok(())), state.read(|_| Ok(())));
+        written.unwrap();
+        read.unwrap();
+    });
 
-    assert_eq!(counts, (1, 1));
+    assert_eq!((alone, beside_a_write), ((0, 1), (1, 1)));
+}
+
+/// A read commits nothing, so the writer's acknowledged commits do not move
+/// for it, and it sees every write acknowledged before it.
+#[test]
+fn a_read_moves_no_acknowledged_commit() {
+    let env = TestEnv::new();
+
+    let (before, seen, after) = with_writer(&env, 1, async |state| {
+        state.write(insert(1)).await.unwrap();
+        let before = *state.commits().borrow();
+        let seen = state.read(items).await.unwrap();
+        (before, seen, *state.commits().borrow())
+    });
+
+    assert_eq!((seen, after), (vec![1], before));
 }
 
 /// A group that does not commit counts no transaction.

@@ -531,7 +531,7 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         }
         Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}
     }
-    trace::counted_provenance(&shared.run, Row::NavigationProvenanceEntries, &entry).await;
+    trace::counted_provenance(&shared.run, Row::NavigationProvenanceEntries, entry).await;
 }
 
 /// Whether `frame` is the page's main frame.

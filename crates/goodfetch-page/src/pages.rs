@@ -1514,7 +1514,7 @@ impl Pages {
                 })
                 .await;
             if let Some(read) = read {
-                trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
+                trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
             }
             return Ok(formats);
         }
@@ -1549,7 +1549,7 @@ impl Pages {
             })
             .await;
         if let Some(read) = read {
-            trace::provenance(&page.run, &read.entry(&params.page_id, Some(&page.session))).await;
+            trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
         }
         Ok(formats)
     }

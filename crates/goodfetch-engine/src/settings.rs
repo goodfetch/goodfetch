@@ -216,7 +216,6 @@ impl Settings {
             .map_err(|error| self.0.files.named_in(error))?;
         Ok((
             RunSettings {
-                settings: self.clone(),
                 resolved,
                 project: opening.project,
             },
@@ -225,12 +224,11 @@ impl Settings {
     }
 }
 
-/// One Run's resolved settings, which a Run already going reads again at
-/// each admission point, so a tightened Operator policy cap reaches it
-/// there (ADR 0028).
+/// One Run's resolved settings, resolved once, as it opens: a Run reads the
+/// machine's layers no more, so a change to them, a tightened Operator
+/// policy cap included, reaches the next Run (ADR 0138).
 #[derive(Clone)]
 pub struct RunSettings {
-    settings: Settings,
     resolved: Resolved,
     project: Option<ProjectSettings>,
 }
@@ -246,23 +244,6 @@ impl RunSettings {
     pub fn project_setting(&self, key: &str) -> Option<&str> {
         let project = self.project.as_ref()?;
         nested(&project.settings, key).map(|_| project.path.as_str())
-    }
-
-    /// What the Run takes at an admission point: its values under the
-    /// Operator policy's caps as they are now. A policy that no longer reads
-    /// leaves the values it opened with, with a warning.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future changes nothing.
-    pub async fn at_admission(&self) -> Resolved {
-        match self.settings.machine().await {
-            Ok(machine) => self.resolved.under_caps_of(&machine.operator_policy),
-            Err(error) => {
-                tracing::warn!(code = error.code(), "{error}; the Run keeps its settings");
-                self.resolved.clone()
-            }
-        }
     }
 }
 

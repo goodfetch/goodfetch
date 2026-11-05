@@ -847,42 +847,6 @@ fn an_unset_rate_cap_under_an_operator_policy_cap_takes_the_cap() {
     );
 }
 
-/// Covers: story:3-51, setting:admission.max_requests_per_minute
-#[test]
-fn a_run_going_with_no_rate_cap_takes_a_new_operator_policy_cap() {
-    let opened = resolved(&Layers::default());
-    let tightened = policy(
-        json!({}),
-        json!({}),
-        json!({ "admission": { "max_requests_per_minute": 30 } }),
-    );
-
-    let admitted = opened.under_caps_of(&tightened);
-
-    assert_eq!(
-        admitted.value("admission.max_requests_per_minute"),
-        &json!(30)
-    );
-}
-
-/// Covers: story:3-88, setting:crawl.retry.max
-#[test]
-fn a_run_already_going_takes_a_tightened_cap() {
-    let opened = resolved(&only(SettingsLayer::Run, "crawl.retry.max", &json!(5)));
-    let tightened = policy(
-        json!({}),
-        json!({}),
-        json!({ "crawl": { "retry": { "max": 1 } } }),
-    );
-
-    let admitted = opened.under_caps_of(&tightened);
-
-    assert_eq!(
-        (admitted.value("crawl.retry.max"), admitted.policy_version()),
-        (&json!(1), Some("sha256:0123456789abcdef"))
-    );
-}
-
 /// Covers: story:3-92, setting:tls.accept_invalid_certs
 #[test]
 fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
@@ -1040,9 +1004,9 @@ fn a_crawls_pacing_key_is_not_in_product_on_a_collie_engine(
     );
 }
 
-/// An Operator policy caps a crawl's per-domain rate and burst, a run
-/// asking for none or for more taking the cap, and locks its adaptive
-/// delay on (spec #582's Settings; ADR 0028).
+/// An Operator policy caps a crawl's per-domain rate and burst as its Run
+/// opens, a run asking for none taking the cap and one asking for more
+/// refused with `setting_locked` (spec #582's Settings; ADRs 0028 and 0138).
 ///
 /// Covers: story:3-88
 #[rstest]
@@ -1051,46 +1015,44 @@ fn a_crawls_pacing_key_is_not_in_product_on_a_collie_engine(
     json!({ "politeness": { "domain": { "rate": 30 } } }),
     json!({}),
     "politeness.domain.rate",
-    json!(30)
+    Ok(json!(30))
 )]
 /// Covers: story:6-248, setting:politeness.domain.rate
 #[case::a_higher_rate(
     json!({ "politeness": { "domain": { "rate": 30 } } }),
     json!({ "politeness": { "domain": { "rate": 600 } } }),
     "politeness.domain.rate",
-    json!(30)
+    Err("setting_locked")
 )]
 /// Covers: story:6-248, setting:politeness.domain.burst
 #[case::a_larger_burst(
     json!({ "politeness": { "domain": { "burst": 1 } } }),
     json!({ "politeness": { "domain": { "burst": 10 } } }),
     "politeness.domain.burst",
-    json!(1)
+    Err("setting_locked")
 )]
 fn an_operator_policy_caps_a_crawls_pacing(
     #[case] cap: Value,
     #[case] run: Value,
     #[case] key: &str,
-    #[case] held_to: Value,
+    #[case] held_to: Result<Value, &str>,
 ) {
     let opened = resolve(
         &Layers {
+            operator_policy: policy(json!({}), json!({}), cap),
             run: values(SettingsLayer::Run, run),
             ..Layers::default()
         },
         Product::Foxhound,
         Product::Foxhound,
     );
-    let opened = match opened {
-        Ok(opened) => opened.under_caps_of(&policy(json!({}), json!({}), cap.clone())),
-        Err(refused) => panic!("{refused:?}"),
-    };
-    let capped = resolved(&Layers {
-        operator_policy: policy(json!({}), json!({}), cap),
-        ..Layers::default()
-    });
 
-    assert_eq!((opened.value(key), capped.value(key)), (&held_to, &held_to));
+    assert_eq!(
+        opened
+            .map(|opened| opened.value(key).clone())
+            .map_err(|refused| refused.code()),
+        held_to
+    );
 }
 
 /// Covers: story:6-247, setting:politeness.domain.adaptive_delay

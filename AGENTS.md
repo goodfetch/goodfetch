@@ -60,7 +60,7 @@ Rust has no Rust-specific skill: its section of `STYLE.md` and the references it
 
 ## Agent skills
 
-Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133).
+Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133). Where a skill asks for more checks or more implementers at once than `TESTING.md`'s [Checks by role](TESTING.md#checks-by-role) allows, such as `/implement`'s full test suite at the end or `/implement-spec`'s maximum concurrency, Checks by role wins.
 
 ### Issue tracker
 

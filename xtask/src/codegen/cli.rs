@@ -16,7 +16,6 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -57,11 +56,11 @@ pub(super) fn rerun(cargo: &OsStr, root: &Path, generators: &Generators) -> Resu
     let absolute = |path: &Path| {
         std::path::absolute(path).with_context(|| format!("resolving {}", path.display()))
     };
-    let status = Command::new(cargo)
+    let status = crate::child_cargo::command(cargo)
         .args([
             "run",
             "--quiet",
-            "--package",
+            "--bin",
             "xtask",
             "--",
             "codegen",

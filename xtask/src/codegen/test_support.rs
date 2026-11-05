@@ -6,15 +6,9 @@
 //! `goodfetch-test-env`: `--print-schemas` prints one JSON object keyed by
 //! each schema's path under `test-support/fixtures/`, and
 //! `--print-canary-rule` the rule; neither starts anything.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
-)]
-
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
@@ -47,19 +41,12 @@ pub(super) fn canary_rule(cargo: &OsStr, root: &Path) -> Result<Vec<u8>> {
     print(cargo, root, "--print-canary-rule")
 }
 
-/// What `goodfetch-test-env <flag>` prints on stdout.
+/// What `goodfetch-test-env <flag>` prints on stdout. The binary is named
+/// alone, without its package, so its dependencies resolve their features
+/// as the test tools' build of it resolves them, and it reuses that build.
 fn print(cargo: &OsStr, root: &Path, flag: &str) -> Result<Vec<u8>> {
-    let output = Command::new(cargo)
-        .args([
-            "run",
-            "--quiet",
-            "--package",
-            "goodfetch-test-support",
-            "--bin",
-            "goodfetch-test-env",
-            "--",
-            flag,
-        ])
+    let output = crate::child_cargo::command(cargo)
+        .args(["run", "--quiet", "--bin", "goodfetch-test-env", "--", flag])
         .current_dir(root)
         .output()
         .with_context(|| format!("running goodfetch-test-env {flag}"))?;

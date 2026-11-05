@@ -2,6 +2,9 @@
 node_modules/
 # Cargo's builds, and every runner's JUnit XML and test output under target/
 target/
+# The folders test support's own tests copy a runner's configuration into
+# (test-support/typescript/tests/runner-project.ts)
+.runner-projects/
 # Each Product's Console build, which `xtask console build` writes and its
 # executable embeds (ADR 0057)
 crates/goodfetch-collie/console-build/

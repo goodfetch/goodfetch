@@ -48,18 +48,18 @@ job_name() {
 
 # xtask on the runner's own system, before the deny.
 host_xtask() {
-  (cd "$root" && cargo run --quiet --locked -p xtask -- egress "$@")
+  (cd "$root" && cargo run --quiet --locked --bin xtask -- egress "$@")
 }
 
 # xtask where the product runs, under the deny: offline.
 denied_xtask() {
-  (cd "$root" && "$here/under-deny.sh" cargo run --quiet --locked --offline -p xtask -- egress "$@")
+  (cd "$root" && "$here/under-deny.sh" cargo run --quiet --locked --offline --bin xtask -- egress "$@")
 }
 
 ### In the job's VM on the owner's machine.
 
 vm_xtask() {
-  "$root/ci/vm/exec.sh" cargo run --quiet --locked -p xtask -- egress "$@"
+  "$root/ci/vm/exec.sh" cargo run --quiet --locked --bin xtask -- egress "$@"
 }
 
 vm_counters() {

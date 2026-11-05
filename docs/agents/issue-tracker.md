@@ -56,7 +56,7 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 
 ## Implementation loop
 
-The owner builds V1 one spec at a time: each `/implement-spec` run is one whole spec, every open ticket of that spec whatever its milestone (ADR 0136). Start it as `/implement-spec #<spec>`. The run follows the skill as written. Its integration branch is `spec/<n>`, where `<n>` is the spec's issue number, created by the skill's step 3. Its draft pull request opens after the first merge into that branch, marked as closing the spec and its tickets (`Closes #<n>` and one `Closes #<ticket>` line per ticket), and merges into `main` through `just merge`. The owner picks the next spec; ADR 0037's spec order mostly runs a providing spec first. After M1, [the rollout order](rollout-order.md) comes first.
+The owner builds V1 one spec at a time: each `/implement-spec` run is one whole spec, every open ticket of that spec whatever its milestone (ADR 0136). Start it as `/implement-spec #<spec>`. The run follows the skill as written, with the checks and the implementer limit of `TESTING.md`'s [Checks by role](../../TESTING.md#checks-by-role). Its integration branch is `spec/<n>`, where `<n>` is the spec's issue number, created by the skill's step 3. Its draft pull request opens after the first merge into that branch, marked as closing the spec and its tickets (`Closes #<n>` and one `Closes #<ticket>` line per ticket), and merges into `main` through `just merge`. The owner picks the next spec; ADR 0037's spec order mostly runs a providing spec first. While [the rollout order](rollout-order.md) lists specs, it picks the next one.
 
 ## Automation labels
 

@@ -59,21 +59,21 @@ command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not install
 # Callgrind's call count: each run against its limit, then each counter against
 # a planted unit of its work.
 counted_rows() {
-  cargo run --quiet -p xtask -- counts
-  cargo run --quiet -p xtask -- counts --prove
+  cargo run --quiet --bin xtask -- counts
+  cargo run --quiet --bin xtask -- counts --prove
   # B1 and B2 under strace: what it sees of the Run trace's opens and folders
   # and of the counted files' syncs against the counters, then a raw unit of
   # each beside its counted function, which must fail the cell (ADR 0140).
   # Without strace on a local host it lists itself as skipped; CI fails.
-  cargo run --quiet -p xtask -- counts --strace
-  cargo run --quiet -p xtask -- counts --strace --prove
+  cargo run --quiet --bin xtask -- counts --strace
+  cargo run --quiet --bin xtask -- counts --strace --prove
 }
 
 # The rows read under Valgrind (ADR 0140): each against its limit, then each
 # against a planted unit of work.
 valgrind_rows() {
-  cargo run --quiet -p xtask -- counts --valgrind
-  cargo run --quiet -p xtask -- counts --valgrind --prove
+  cargo run --quiet --bin xtask -- counts --valgrind
+  cargo run --quiet --bin xtask -- counts --valgrind --prove
 }
 
 if ! command -v gungraun-runner >/dev/null 2>&1; then
@@ -92,9 +92,9 @@ counting=$!
 
 status=0
 {
-  selection=$(cargo run --quiet -p xtask -- affected "${change[@]}") &&
+  selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}") &&
     targets=$(sed -n 's/^bench-targets=//p' <<<"$selection") &&
-    cargo run --quiet -p xtask -- perf build --base "$base" --bench-targets "$targets"
+    cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
 } || status=$?
 counted=0
 wait "$counting" || counted=$?
@@ -105,5 +105,5 @@ wait "$counting" || counted=$?
 # it, every figure past its threshold is reported. Until M1's optimization
 # pass, each is a note that fails nothing, and only a broken measurement
 # fails (`xtask perf`'s `GATING`, ADR 0134 as amended on 2026-10-22).
-cargo run --quiet -p xtask -- perf run \
+cargo run --quiet --bin xtask -- perf run \
   ${GOODFETCH_PERF_PULL_REQUEST:+--pull-request "$GOODFETCH_PERF_PULL_REQUEST"}

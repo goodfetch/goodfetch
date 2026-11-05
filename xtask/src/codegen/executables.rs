@@ -12,7 +12,6 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_collie::executable::command;
@@ -40,7 +39,7 @@ pub(super) fn command_lines(cargo: &OsStr, root: &Path) -> Result<Option<Command
 
 fn run_example(cargo: &OsStr, root: &Path) -> Result<CommandLines> {
     let folder = tempfile::tempdir().context("creating a folder for the command lines")?;
-    let output = Command::new(cargo)
+    let output = crate::child_cargo::command(cargo)
         .args([
             "run",
             "--quiet",

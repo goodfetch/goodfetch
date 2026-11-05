@@ -296,12 +296,18 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 }
 
 // The local gate runs its quick form only when no test, benchmark, model,
-// container or Evaluation reads the change (ADR 0135).
+// container or Evaluation reads the change, and its docs form when, of
+// those, every path is a document: Markdown the Quick suite alone checks
+// (ADR 0135). Any other file, or no change at all, takes the quick form.
 #[rstest]
-#[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "quick")]
-#[case::an_adr(&["docs/adr/0135-local-gate.md"], "quick")]
+#[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "docs")]
+#[case::an_adr(&["docs/adr/0135-local-gate.md"], "docs")]
+#[case::research_notes(&["rnd/research/2026-11-04-notes.MD", "website/README.md"], "docs")]
 #[case::docs_and_website(&["docs/collie/index.md", "website/index.html"], "quick")]
 #[case::the_lab(&["rnd/lab/src/cli.ts"], "quick")]
+#[case::an_image_beside_the_adrs(&["docs/adr/0135-local-gate.md", "docs/adr/flow.svg"], "quick")]
+#[case::no_change(&[], "quick")]
+#[case::the_quality_register(&["TESTING.md"], "full")]
 #[case::a_crate(&["crates/goodfetch-collie/src/main.rs"], "full")]
 #[case::markdown_a_crate_owns(&["crates/foxhound/README.md"], "full")]
 #[case::a_skill(&["skills/collie/SKILL.md"], "full")]
@@ -342,13 +348,13 @@ fn write(root: &std::path::Path, path: &str, text: &str) {
 #[case::glossary_and_adrs_beside_a_folder_named_by_a_fixture(
     r#"workspace.write("docs/adr/0135-local-gate.md", "");"#,
     &["GLOSSARY.md", "docs/adr/0086-politeness.md", "docs/adr/0138-analysis.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::an_adr_beside_its_folder_as_a_word(
     r#"match segment { "docs" => 1, _ => 0 }"#,
     &["docs/adr/0086-politeness.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::research_beside_its_folder_as_a_word(
@@ -360,13 +366,13 @@ fn write(root: &std::path::Path, path: &str, text: &str) {
 #[case::a_comment_naming_the_file(
     "/// `TESTING.md`'s path traversal cases.\n//! See TESTING.md\".\n",
     &["GLOSSARY.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::a_possessive_in_a_string(
     r#"#[expect(unused, reason = "GLOSSARY.md's terms")]"#,
     &["GLOSSARY.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::an_adr_the_code_reads(
@@ -410,7 +416,7 @@ fn a_document_is_read_only_where_code_names_the_file_itself(
 /// guard run in the quick gate, or its fixture workspaces' files; its tests
 /// reach the repository's own documents from their folder, through `../`.
 #[rstest]
-#[case::a_fixture_file(r##"workspace.write("NOTES.md", b"# Notes\n");"##, "quick")]
+#[case::a_fixture_file(r##"workspace.write("NOTES.md", b"# Notes\n");"##, "docs")]
 #[case::a_test_reading_the_repository_document(
     r#"const NOTES: &str = include_str!("../../../NOTES.md");"#,
     "full"

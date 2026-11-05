@@ -5,10 +5,24 @@
 # request's exact head it runs `just pre-merge all`, which starts with `just
 # quick all`'s lint and Quick suite, or `just pre-merge quick` when `xtask
 # affected` finds that no test, benchmark, model, container or Evaluation
-# reads the change (`gate=quick`, ADR 0135), and merges only when it passes.
+# reads the change (`gate=quick`, ADR 0135), or `just pre-merge docs` when
+# that change is documents alone (`gate=docs`), and merges only when it
+# passes. First the merge cap (ci/merge-cap.sh) refuses once 10 merges have
+# landed on `main` since the backstop's last green run, unless the owner
+# passes `--past-cap`.
 set -euo pipefail
 
-number=${1:?usage: ci/merge-pr.sh <pull request number>}
+usage="usage: ci/merge-pr.sh <pull request number> [--past-cap]"
+number=${1:?$usage}
+cap=()
+case "${2:-}" in
+  "") ;;
+  --past-cap) cap=(--past-cap) ;;
+  *)
+    echo "error: $usage" >&2
+    exit 2
+    ;;
+esac
 
 IFS=$'\t' read -r state draft head base title < <(
   gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,title \
@@ -24,6 +38,8 @@ if [[ $draft != false ]]; then
 fi
 
 git fetch --quiet origin "$base"
+git fetch --quiet origin main
+"$(dirname "$0")/merge-cap.sh" ${cap[@]+"${cap[@]}"}
 git fetch --quiet origin "pull/$number/head"
 if [[ $(git rev-parse FETCH_HEAD) != "$head" ]]; then
   echo "error: pull request #$number moved while it was read; run the command again" >&2
@@ -46,10 +62,12 @@ gate_worktree_checkout "$head"
 
 # The head's own `xtask affected` decides, so a head from before `gate=`
 # existed prints no such line and gets the full gate.
-gate=$(cd "$worktree" && cargo run --quiet --locked -p xtask -- affected --base "origin/$base" --head "$head" |
+gate=$(cd "$worktree" && cargo run --quiet --locked --bin xtask -- affected --base "origin/$base" --head "$head" |
   sed -n 's/^gate=//p')
 if [[ $gate == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
+elif [[ $gate == docs ]]; then
+  ran="\`just pre-merge docs\` (the change is documents alone)"
 else
   gate=all
   ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
@@ -58,15 +76,15 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
 (
   cd "$worktree"
   just fetch
-  if [[ $gate == quick ]]; then
-    just pre-merge quick
+  if [[ $gate == quick || $gate == docs ]]; then
+    just pre-merge "$gate"
   else
     # What the pull request's "Performance change" section and its owner's
     # acceptance comment accept, read at this head for `just perf` (ADR 0134).
     # Until M1's optimization pass it only marks figures accepted in the
     # table: no figure past its threshold fails (ADR 0134, as amended on
     # 2026-10-22).
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet -p xtask -- \
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
       perf pull-request --number "$number" --save target/perf-pull-request.json
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
@@ -79,9 +97,11 @@ if [[ -n "$reused" && "$reused" != none ]]; then
   ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
 fi
 
+past=""
+[[ ${#cap[@]} -eq 0 ]] || past=" Merged past the merge cap: the owner passed --past-cap."
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \
-  --body "Merged on the local gate: $ran passed at $head.
+  --body "Merged on the local gate: $ran passed at $head.$past
 
 Signed-off-by: $(git config user.name) <$(git config user.email)>"
 echo "Merged #$number at $head"
@@ -96,9 +116,9 @@ base_tip=$(git rev-parse "origin/$base")
 git fetch --quiet origin "$base" || true
 merged=$(git rev-parse "origin/$base")
 listings="$worktree/target/stress-listings"
-if [[ $gate == quick ]]; then
-  # No test reads a quick gate's change, so the base's listings, when saved,
-  # are the merge's too, and no test binary was built to list.
+if [[ $gate == quick || $gate == docs ]]; then
+  # No test reads a quick or docs gate's change, so the base's listings,
+  # when saved, are the merge's too, and no test binary was built to list.
   if [[ -d "$listings/$base_tip" ]] && mv "$listings/$base_tip" "$listings/$merged"; then
     echo "Kept the stress listings of $base_tip for $merged"
   else
@@ -107,7 +127,7 @@ if [[ $gate == quick ]]; then
   fi
 elif [[ $(git rev-parse "$merged^{tree}") == $(git rev-parse "$head^{tree}") ]] &&
   (cd "$worktree" && rm -rf "$listings" &&
-    cargo run --quiet --locked -p xtask -- stress listings --cargo-profile test --out "$listings" &&
+    cargo run --quiet --locked --bin xtask -- stress listings --cargo-profile test --out "$listings" &&
     mv "$listings/$head" "$listings/$merged"); then
   echo "Saved the stress listings of $merged for the next gate"
 else

@@ -123,9 +123,24 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     let formats = formats(root)?;
     let folders = folders(root)?;
     let writers = Writers::find(cargo, root)?;
+    // The writer of each format with a committed `head/` set, run together.
+    let written: Vec<&Format> = formats
+        .iter()
+        .filter(|format| writers.has(format))
+        .filter(|format| {
+            tree::read(&set_folder(root, format.name.as_str(), HEAD))
+                .is_ok_and(|committed| !committed.is_empty())
+        })
+        .collect();
+    let mut produced: BTreeMap<&str, Tree> = written
+        .iter()
+        .map(|format| format.name.as_str())
+        .zip(writers.write(cargo, root, &written)?)
+        .collect();
     let mut findings = Vec::new();
     for format in &formats {
-        check_format(cargo, root, format, &folders, &writers, &mut findings)?;
+        let produced = produced.remove(format.name.as_str());
+        check_format(root, format, &folders, &writers, produced, &mut findings)?;
     }
     check_folders(root, &formats, &folders, &mut findings)?;
     check_shipped(root, &folders, &mut findings)?;
@@ -136,11 +151,11 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
 /// set, its `head/` set against what the writer produces, and the set's
 /// schema coverage.
 fn check_format(
-    cargo: &OsStr,
     root: &Path,
     format: &Format,
     folders: &BTreeMap<String, Sets>,
     writers: &Writers,
+    produced: Option<Tree>,
     findings: &mut Vec<Finding>,
 ) -> Result<()> {
     let has_writer = writers.has(format);
@@ -177,8 +192,7 @@ fn check_format(
         ));
         return Ok(());
     }
-    if has_writer {
-        let produced = writers.write(cargo, root, format)?;
+    if let Some(produced) = produced {
         drift(&subject(root, &folder), &committed, &produced, findings);
     }
     for path in coverage::uncovered(format, &committed)
@@ -337,9 +351,9 @@ pub(crate) fn freeze(root: &Path, tag_name: &str) -> Result<Freeze> {
 pub(crate) fn write(cargo: &OsStr, root: &Path) -> Result<()> {
     let formats = formats(root)?;
     let writers = Writers::find(cargo, root)?;
-    for format in &formats {
-        let set = writers.write(cargo, root, format)?;
-        tree::replace(&set_folder(root, format.name.as_str(), HEAD), &set)?;
+    let sets = writers.write(cargo, root, &formats.iter().collect::<Vec<_>>())?;
+    for (format, set) in formats.iter().zip(&sets) {
+        tree::replace(&set_folder(root, format.name.as_str(), HEAD), set)?;
     }
     for (name, sets) in folders(root)? {
         let registered = formats.iter().any(|format| format.name.as_str() == name);

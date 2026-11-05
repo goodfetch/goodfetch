@@ -80,7 +80,7 @@ rm -rf "$output"
 mkdir -p "$output/visual"
 # The image has no Rust, so the test quarantine list's exclusions are written
 # here, where ci/visual/run.sh test reads them (ADR 0064).
-cargo run --quiet --locked -p xtask -- quarantine exclude >"$output/visual/quarantine.tsv"
+cargo run --quiet --locked --bin xtask -- quarantine exclude >"$output/visual/quarantine.tsv"
 
 environment=(--env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST")
 if [[ "$mode" == update ]]; then

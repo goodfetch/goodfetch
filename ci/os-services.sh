@@ -73,7 +73,7 @@ services=(--loopback "${addresses[@]}")
 [[ "$(uname -s)" == Linux ]] && services+=(--secret-service --netem --service-manager)
 
 xtask_check() {
-  (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check "${services[@]}" "$@")
+  (cd "$root" && cargo run --quiet --locked --bin xtask -- os-services check "${services[@]}" "$@")
 }
 
 # Runs a command as root: directly in a container, through sudo on a runner.
@@ -180,7 +180,7 @@ setup_linux() {
   # ci/pre-merge.sh) keeps the session an earlier setup started while its
   # Secret Service answers, so a run still using it keeps it.
   if [[ -S "$RUNTIME/bus" ]] &&
-    (cd "$root" && cargo run --quiet --locked -p xtask -- os-services check --secret-service) >/dev/null 2>&1; then
+    (cd "$root" && cargo run --quiet --locked --bin xtask -- os-services check --secret-service) >/dev/null 2>&1; then
     echo "Kept the D-Bus session and Secret Service an earlier setup started."
   else
     # The earlier session's bus, if it still runs; its keyring daemon ends

@@ -26,7 +26,7 @@ use super::writer::{LOCK_FILE, retried, try_lock};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::run_state::install::InstallDatabase;
-use crate::run_state::{RunStateError, sqlite_error};
+use crate::run_state::{Durability, RunStateError, sqlite_error};
 use crate::tasks::TaskOwner;
 
 /// What a discard found of a Run.
@@ -119,6 +119,68 @@ pub(super) async fn discard(
         })
         .await?;
     Ok(Discarded::Erased)
+}
+
+/// Discards the state of the Run `run_id` in `folder` when its run file,
+/// opening through the VFS `vfs`, is one a crash left at `off` (ADR 0138),
+/// the Run's Durability level now being `durability`: it then erases what
+/// [`discard`] does, under the Run's writer lock, so another engine's live
+/// Run, whose file holds the mark too, is refused as held. Its data key is
+/// overwritten first when the file can still be written, as a discard
+/// does. The run folder and its lock stay, for the Run that starts again.
+/// Answers whether it discarded it.
+pub(super) async fn discard_unclean(
+    discarding: Discarding<'_>,
+    run_id: &str,
+    folder: &Path,
+    vfs: Option<&str>,
+    install: Option<&Arc<InstallDatabase>>,
+    durability: Durability,
+) -> Result<bool, DiscardError> {
+    let Discarding {
+        owner,
+        clock,
+        entropy,
+    } = discarding;
+    let file = folder.join(RUN_FILE);
+    let checked = |file: std::path::PathBuf, vfs: Option<String>| {
+        owner.blocking(move || crate::run_state::unclean(&file, vfs.as_deref(), durability))
+    };
+    if !checked(file.clone(), vfs.map(str::to_owned)).await? {
+        return Ok(false);
+    }
+    let lock = match try_lock(owner, folder).await {
+        Ok(Some(lock)) => Ok(Some(lock)),
+        Ok(None) => retried(clock, entropy, || try_lock(owner, folder)).await,
+        Err(error) => Err(error),
+    };
+    let lock = lock.map_err(DiscardError::Io)?.ok_or(DiscardError::Held)?;
+    // Read again under the lock: a Run that started meanwhile ended clean.
+    if !checked(file.clone(), vfs.map(str::to_owned)).await? {
+        return Ok(false);
+    }
+    let (id, at, opened_with, held) = (
+        run_id.to_owned(),
+        folder.to_owned(),
+        vfs.map(str::to_owned),
+        install.cloned(),
+    );
+    owner
+        .blocking(move || {
+            let file = at.join(RUN_FILE);
+            // A damaged file may refuse it: its bytes go with the file.
+            if destroy_key(&file, opened_with.as_deref(), held.is_some()).is_ok() {
+                let _ = truncate_wal(&file, opened_with.as_deref());
+            }
+            if let Some(install) = held {
+                install.erase(&id)?;
+            }
+            remove_all_but_the_lock(&at).map_err(|error| DiscardError::Io(error.to_string()))?;
+            drop(lock);
+            Ok::<_, DiscardError>(())
+        })
+        .await?;
+    Ok(true)
 }
 
 /// Whether anything of the Run `run_id` is in `folder` or `install`: `None`

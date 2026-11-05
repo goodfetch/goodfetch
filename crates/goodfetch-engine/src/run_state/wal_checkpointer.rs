@@ -124,7 +124,7 @@ pub(super) fn open_wal_checkpointer(
         None => Connection::open_with_flags(path, flags),
     }?;
     connection.busy_timeout(std::time::Duration::ZERO)?;
-    connection.pragma_update(None, "synchronous", durability.synchronous())?;
+    connection.pragma_update(None, "synchronous", durability.checkpoint_synchronous())?;
     if cfg!(target_os = "macos") {
         connection.pragma_update(None, "fullfsync", "ON")?;
         connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;

@@ -71,9 +71,10 @@ use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow,
-    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
-    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY, ReachedLimit,
+    RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress, RunReport,
+    RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs, StopReason,
+    Tags,
 };
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
@@ -3975,6 +3976,58 @@ struct Erasing {
     version: ProductVersion,
 }
 
+/// Why the run file a crash left at `off` of the Run `run_id` was not
+/// discarded.
+struct UncleanDiscard {
+    run_id: RunId,
+    folder: PathBuf,
+    error: discard::DiscardError,
+}
+
+/// The error a start of the Run answers.
+impl From<UncleanDiscard> for StartError {
+    fn from(unclean: UncleanDiscard) -> Self {
+        let UncleanDiscard {
+            run_id,
+            folder,
+            error,
+        } = unclean;
+        match error {
+            discard::DiscardError::Held => StartError::InUse { run_id, folder },
+            discard::DiscardError::State(error) => StartError::Unavailable {
+                run_id,
+                folder,
+                error: error.to_string(),
+            },
+            discard::DiscardError::Io(error) => StartError::Unavailable {
+                run_id,
+                folder,
+                error,
+            },
+        }
+    }
+}
+
+/// The error a resume of the Run answers.
+impl From<UncleanDiscard> for RunError {
+    fn from(unclean: UncleanDiscard) -> Self {
+        let UncleanDiscard {
+            run_id,
+            folder,
+            error,
+        } = unclean;
+        match error {
+            discard::DiscardError::Held => RunError::InUse { run_id, folder },
+            discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
+            discard::DiscardError::Io(error) => RunError::Unavailable {
+                run_id,
+                folder,
+                error,
+            },
+        }
+    }
+}
+
 /// How a discard went.
 struct Erased {
     run_id: RunId,
@@ -4786,14 +4839,12 @@ impl Registry {
         None
     }
 
-    /// How a Run's run file opens under its `settings`: in the durability
-    /// `run_state.durability` names, `full` when it has none.
+    /// How a Run's run file opens under its `settings`: at the Durability
+    /// level `run_state.durability` names, `full` when it has none.
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
-        let durability = settings.map_or(Durability::Full, |settings| {
-            Durability::named(settings.resolved().value(RUN_STATE_DURABILITY.name))
-        });
         RunStateOptions {
-            durability,
+            durability: durability_of(settings),
+            clock: self.setup.clock,
             ..self.setup.run_state.clone()
         }
     }
@@ -4853,6 +4904,10 @@ impl Registry {
         }
         let inputs = canonical_inputs(&kept);
         start.tags = masked_tags(&self.setup.masks, &start.tags);
+        // A run file a crash left at `off` is discarded, never read: the Run
+        // starts again (ADR 0138).
+        self.discard_unclean(&run_id, start.settings.as_ref())
+            .await?;
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
             if found.needs != start.needs {
@@ -4920,6 +4975,48 @@ impl Registry {
             link.add_to(run.span());
         }
         Ok(started)
+    }
+
+    /// Discards the state of the Run `run_id`, which this engine does not
+    /// run, when its run file is one a crash left at `off` (ADR 0138), the
+    /// Run's Durability level now being the one its `settings` name: under
+    /// its writer lock, as a discard does, so another engine's live Run is
+    /// never touched.
+    async fn discard_unclean(
+        &mut self,
+        run_id: &RunId,
+        settings: Option<&RunSettings>,
+    ) -> Result<(), UncleanDiscard> {
+        if self.live.contains_key(run_id) {
+            return Ok(());
+        }
+        let folder = self.folder(run_id);
+        let discarding = discard::Discarding {
+            owner: &self.owner,
+            clock: &self.setup.clock,
+            entropy: &mut self.setup.entropy,
+        };
+        let discarded = discard::discard_unclean(
+            discarding,
+            run_id.as_str(),
+            &folder,
+            self.setup.run_state.vfs.as_deref(),
+            self.setup.install.as_ref(),
+            durability_of(settings),
+        )
+        .await
+        .map_err(|error| UncleanDiscard {
+            run_id: run_id.clone(),
+            folder,
+            error,
+        })?;
+        if discarded {
+            tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
+            self.ended.forget(run_id);
+            self.found_ended.remove(run_id);
+            self.unrecorded.remove(run_id);
+        }
+        Ok(())
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -5726,6 +5823,9 @@ impl Registry {
         if let Some(live) = self.live.get(&run_id) {
             return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
         }
+        // A run file a crash left at `off` is discarded, never read: the Run
+        // is then not found, and starts again (ADR 0138).
+        self.discard_unclean(&run_id, settings.as_ref()).await?;
         let held = self
             .held_with_key(&run_id, checkpoint.as_deref(), stored)
             .await?;
@@ -6545,6 +6645,20 @@ impl SharedPoliteness {
             .await
             .cloned()
     }
+}
+
+/// The Durability level a Run's `settings` name (`run_state.durability`,
+/// with `run_state.commit_interval` at `periodic`), `full` when it has none.
+fn durability_of(settings: Option<&RunSettings>) -> Durability {
+    settings.map_or(Durability::Full, |settings| {
+        let resolved = settings.resolved();
+        let interval = resolved
+            .duration(RUN_STATE_COMMIT_INTERVAL.name)
+            .unwrap_or_default();
+        Durability::named(resolved.value(RUN_STATE_DURABILITY.name), interval).expect(
+            "invariant: the settings resolver lets only `run_state.durability`'s choices through",
+        )
+    })
 }
 
 /// Whether the Run in `folder` that took Permits under `epoch` is gone

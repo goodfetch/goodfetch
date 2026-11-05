@@ -281,6 +281,9 @@ fn copy_into(reader: &Connection, source: &Path, into: &Path) -> Result<(u64, u6
     )]
     copy.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))
         .map_err(failed)?;
+    // A Checkpoint holds one commit's whole state, so it is never "unclean"
+    // (ADR 0138): a Run at `off` resumes from it.
+    copy.execute("DELETE FROM unclean", []).map_err(failed)?;
     if let Some(folder) = source.parent() {
         run_files::pack(&copy, folder).map_err(|error| carry_failed(error, source))?;
     }

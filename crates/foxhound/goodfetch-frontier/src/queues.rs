@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{
-    Admitted, Ended, Gate, Gates, Held, Journal, QueuedGroup, Waiting,
+    Admitted, Ended, Gate, Gates, Held, Journal, Keys, QueuedGroup, Waiting,
 };
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{Ending, PermitRule};
@@ -346,6 +346,11 @@ impl DomainQueues {
 impl Gate for DomainQueues {
     fn key(&self, url: &str) -> String {
         self.keys.key(url)
+    }
+
+    fn keys(&self) -> Keys {
+        let keys = self.keys.clone();
+        Keys::new(move |url| keys.key(url))
     }
 
     fn bound(&self) -> usize {

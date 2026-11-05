@@ -23,8 +23,8 @@ use tokio::time::Instant;
 use goodfetch_protocol::catalog::Product;
 
 use super::{
-    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, RateCap, Room, SecondCopies,
-    Waiting,
+    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, Keys, RateCap, Room,
+    SecondCopies, Waiting,
 };
 use crate::clock::Clock;
 use crate::politeness::{
@@ -328,6 +328,10 @@ impl Gate for OneKey {
         "shop.test".to_owned()
     }
 
+    fn keys(&self) -> Keys {
+        Keys::new(|_| "shop.test".to_owned())
+    }
+
     fn bound(&self) -> usize {
         1
     }
@@ -441,6 +445,10 @@ struct InOrder {
 impl Gate for InOrder {
     fn key(&self, _: &str) -> String {
         "shop.test".to_owned()
+    }
+
+    fn keys(&self) -> Keys {
+        Keys::new(|_| "shop.test".to_owned())
     }
 
     fn bound(&self) -> usize {

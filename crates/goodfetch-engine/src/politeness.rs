@@ -366,17 +366,18 @@ impl Politeness {
         let vfs = options.vfs.clone();
         let opened = path.clone();
         let work = options.work.clone();
-        let (connection, folder) = owner
+        let (connection, folder, (mut listener, endpoint)) = owner
             .blocking(move || -> Result<_, PolitenessError> {
                 let connection = open_file(&opened, vfs.as_deref(), &work, &tables)?;
-                let folder = transport::socket_folder("goodfetch-wake-", WAKE_SOCKET)
-                    .map_err(|error| PolitenessError::WakeEndpoint(error.to_string()))?;
-                Ok((connection, folder))
+                let endpoint =
+                    |error: std::io::Error| PolitenessError::WakeEndpoint(error.to_string());
+                let folder =
+                    transport::socket_folder("goodfetch-wake-", WAKE_SOCKET).map_err(endpoint)?;
+                let listening =
+                    transport::listen_wakes(&folder.path().join(WAKE_SOCKET)).map_err(endpoint)?;
+                Ok((connection, folder, listening))
             })
             .await?;
-        let (mut listener, endpoint) = transport::listen_wakes(&folder.path().join(WAKE_SOCKET))
-            .await
-            .map_err(|error| PolitenessError::WakeEndpoint(error.to_string()))?;
         let (wakes, _) = broadcast::channel(WAKES);
         let woken = wakes.clone();
         let cancelled = owner.token().clone();

@@ -380,13 +380,18 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
             label: "home".to_owned(),
         }],
     };
+    // Each seed takes the position after every one the run file holds or
+    // an attempt's staged enqueue reserved, as the crawl's own adds do.
     let admit = |seed: &SitemapSeed, status: &str| {
         let answer = sitemap::admit_seed(connection, &policy, seed, |url| {
             connection.query_row(
                 "INSERT INTO work_items
                      (id, position, url, method, label, depth, status, attempts, retried_from, lease_epoch, domain_key, priority)
                  SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 0, 1, 'maps.test', 0
-                 FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
+                 FROM (SELECT max(
+                     (SELECT coalesce(max(position), 0) FROM work_items),
+                     (SELECT coalesce(max(reserved), 0) FROM work_item_positions)
+                 ) + 1 AS next)
                  RETURNING id",
                 [url.as_str(), status],
                 |row| row.get(0),
@@ -554,7 +559,9 @@ fn bound() -> Contribution {
 
 /// The handler's enqueue, from the home page's attempt, of a request that
 /// goes ahead of its domain's pending ones, on a domain of its own so the
-/// home page's domain still waits when `run.finish` ends the crawl.
+/// home page's domain still waits when `run.finish` ends the crawl. It is
+/// sent once `compat.learned`'s write committed, so the crawl's writes
+/// interleave alike at every write, however soon the attempt starts.
 fn enqueue(request: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -702,6 +709,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut messages = BufReader::new(reader).lines();
             let mut last = Value::Null;
             let mut enqueuing = None;
+            // The home page's handler request, held until `compat.learned`
+            // answered.
+            let mut home = None;
+            let mut learned = false;
             for message in scenario() {
                 writer.write_all(&line(&message)?).await?;
                 loop {
@@ -713,8 +724,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )?;
                     if received["method"] == "crawl_request.handle" {
                         if received["params"]["crawl_request"]["url"] == "https://shop.test/" {
-                            writer.write_all(&line(&enqueue(&received))?).await?;
-                            enqueuing = Some(received);
+                            if learned {
+                                writer.write_all(&line(&enqueue(&received))?).await?;
+                                enqueuing = Some(received);
+                            } else {
+                                home = Some(received);
+                            }
                         } else {
                             writer.write_all(&line(&handle(&received))?).await?;
                         }
@@ -723,6 +738,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else if received["id"] == message["id"] {
                         if received.get("error").is_some() {
                             return Err(format!("the scenario failed: {received}").into());
+                        }
+                        learned |= message["method"] == "compat.learned";
+                        if learned && let Some(request) = home.take() {
+                            writer.write_all(&line(&enqueue(&request))?).await?;
+                            enqueuing = Some(request);
                         }
                         last = received;
                         break;

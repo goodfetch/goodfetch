@@ -124,6 +124,7 @@ providers = { "example.test" = { endpoint = "http://proxy.example:8000", passwor
 [settings.run_state]
 location = "example"
 durability = "full"
+commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
@@ -480,6 +481,7 @@ providers = { "example.test" = { endpoint = "http://proxy.example:8000", passwor
 [lock.run_state]
 location = "example"
 durability = "full"
+commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
@@ -766,6 +768,9 @@ max_json_depth = 4
 
 [cap.proxy]
 sticky_lifetime = 30000
+
+[cap.run_state]
+commit_interval = 30000
 
 [cap.checkpoint]
 interval = 30000

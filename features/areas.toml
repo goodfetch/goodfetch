@@ -741,6 +741,11 @@ prefix = "site_preferences.respect_robots_txt"
 [[area]]
 number = 6
 kind = "setting"
+prefix = "site_preferences.mark_robots_txt_ignored"
+
+[[area]]
+number = 6
+kind = "setting"
 prefix = "site_preferences.max_crawl_delay"
 
 [[area]]

@@ -2,7 +2,8 @@
 //! the Audit log and the Records' Provenance", on the `cli` surface (ADRs
 //! 0063, 0075 and 0086): a person runs a crawl from a program, the test's
 //! own client of Foxhound's Attached engine over stdio, with
-//! `site_preferences.respect_robots_txt` off over a page the Proving
+//! `site_preferences.respect_robots_txt` off and
+//! `site_preferences.mark_robots_txt_ignored` on, over a page the Proving
 //! ground's robots.txt allows and one it disallows, reads the Run report,
 //! exports the Audit log with Foxhound's shipped executable and reads the
 //! crawl's Records.
@@ -32,7 +33,7 @@ fn cli() {
     let mut read: Vec<Value> = Vec::new();
 
     run.step(
-        "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off for the run, each page's handler pushing a Record",
+        "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off and `site_preferences.mark_robots_txt_ignored` turned on for the run, each page's handler pushing a Record",
         |run| {
             let proving_ground = run.proving_ground().expect("J-031 has a Proving ground");
             let mut command = run.env().process_command(run.engine());
@@ -45,7 +46,10 @@ fn cli() {
                 &["/catalog/1", "/private/catalog/1"],
                 &settings(
                     proving_ground,
-                    &json!({ "site_preferences": { "respect_robots_txt": false } }),
+                    &json!({ "site_preferences": {
+                        "respect_robots_txt": false,
+                        "mark_robots_txt_ignored": true,
+                    } }),
                 ),
             )["result"]
                 .clone();

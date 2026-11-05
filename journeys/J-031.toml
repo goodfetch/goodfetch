@@ -3,7 +3,7 @@ id = "J-031"
 title = "Crawl with robots.txt turned off and find it in the Run report, the Audit log and the Records' Provenance"
 goal = """
 A person runs a crawl from a program with `site_preferences.respect_robots_txt` \
-turned off, over a site whose robots.txt disallows part of it, then reads the \
+turned off and `site_preferences.mark_robots_txt_ignored` turned on, over a site whose robots.txt disallows part of it, then reads the \
 Run report, exports the Audit log and reads the crawl's Records. Turning \
 robots.txt off MUST be explicit and recorded: the Run report MUST list it in \
 `weakened` with the layer that set it, the Audit log MUST hold one \
@@ -33,7 +33,7 @@ sdk-typescript = "M2"
 sdk-python = "M2"
 
 [[steps]]
-text = "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off for the run, each page's handler pushing a Record"
+text = "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off and `site_preferences.mark_robots_txt_ignored` turned on for the run, each page's handler pushing a Record"
 
 [[steps]]
 text = "Read the run's report"

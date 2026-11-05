@@ -23,9 +23,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallContext, CallError};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Url;
 use goodfetch_protocol::connection::CLOSED;
@@ -42,7 +42,7 @@ use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 
-use crate::enqueue::links::enqueue_links;
+use crate::enqueue::links::defer_links;
 use crate::serving::Crawls;
 use crate::work_items::FieldsRead;
 
@@ -343,15 +343,15 @@ impl CodeFree {
     }
 
     /// Handles the attempt `params` gives, as a handler would: reads its
-    /// page's formats and fields, under `follow: scope` admits every link
-    /// of its page, staged with the attempt, then answers its page's
+    /// page's formats and fields, under `follow: scope` stages every link
+    /// of its page with the attempt, for its commit to admit in its
+    /// outcome's one job (ADR 0138), then answers its page's
     /// Record, read at `fetched_at`, and what its fields' Provenance names.
     ///
     /// # Errors
     ///
     /// `closed` when the attempt has no page, and those of `page.formats`,
-    /// of [`FetchTiers::field_elements`] and of
-    /// `crawl_request.enqueue_links`.
+    /// of [`FetchTiers::field_elements`] and of [`defer_links`].
     ///
     /// # Cancel safety
     ///
@@ -360,7 +360,6 @@ impl CodeFree {
     pub(crate) async fn handled(
         &self,
         params: &CrawlRequestHandleParams,
-        context: &CallContext,
         fetched_at: PointInTime,
     ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
         let Some(page_id) = &params.page_id else {
@@ -379,8 +378,8 @@ impl CodeFree {
             None
         };
         if self.extraction.follow == ExtractionFollow::Scope {
-            enqueue_links(
-                CrawlRequestEnqueueLinksParams {
+            defer_links(
+                &CrawlRequestEnqueueLinksParams {
                     run_id: params.run_id.clone(),
                     crawl_request_id: params.crawl_request.id.clone(),
                     lease_epoch: params.lease_epoch,
@@ -396,9 +395,8 @@ impl CodeFree {
                     limit: None,
                     priority: 0,
                 },
-                context.clone(),
-                self.crawls.clone(),
-                self.tiers.clone(),
+                &self.crawls,
+                &self.tiers,
             )
             .await?;
         }

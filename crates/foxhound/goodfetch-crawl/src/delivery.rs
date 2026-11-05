@@ -65,6 +65,7 @@
 //! passes through one loop.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
 use futures_util::future::join_all;
@@ -115,12 +116,13 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
-use goodfetch_session_pool::{LocalAddressing, PoolSettings, Rotated, SessionPool};
+use goodfetch_session_pool::{Changes, LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use crate::attempt_outcome::{self, Outcome, Refusing};
 use crate::code_free::{self, CodeFree};
 use crate::completeness;
 use crate::labels;
@@ -136,7 +138,9 @@ use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlig
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, Gating, Tiering, attempt, block_cause, effect, leased_count};
+use attempt::{
+    Answer, Attempt, Gating, Taught, Tiering, attempt, block_cause, effect, leased_count,
+};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -334,12 +338,14 @@ fn wall_ms(run: &Run) -> u64 {
 }
 
 /// Where `run`'s leases are granted, each attempt staging in the crawl's
-/// staging.
-fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
+/// staging, and its commit keying the work items it adds as `admission`'s
+/// gate keys them.
+fn leases_of(run: &Run, arrivals: &Opened, admission: &Admission) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
         .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())
+        .keyed_by(admission.keys())
 }
 
 /// What the delivery's loop reads of the Run's settings, resolved once as
@@ -377,12 +383,12 @@ async fn deliver(
     settings: &RunSettings,
     fetching: &Fetching<'_>,
 ) {
-    let run_leases = leases_of(run, arrivals);
     // The pool is out of `pool` only while a write that leases work items
     // draws from it: the loop ends on that write's error.
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
+    let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
@@ -824,27 +830,18 @@ impl Fetching<'_> {
         }
     }
 
-    /// Classifies the sample `attempt` was, if it was one, and writes what
-    /// its Label on its domain now learned into the run file.
-    async fn classify(&self, run: &Run, attempt: &mut Attempt) {
-        let Some((sampled, weighed)) = attempt.sampled.take() else {
-            return;
-        };
+    /// Classifies the sample `attempt` was, if it was one, answering what
+    /// its Label on its domain now learned, by Label and domain key, for
+    /// its outcome to write into the run file.
+    async fn classify(&self, run: &Run, attempt: &mut Attempt) -> Option<(String, String, Unit)> {
+        let (sampled, weighed) = attempt.sampled.take()?;
         let unit = self
             .choices
             .lock()
             .await
             .classify(&sampled, weighed, wall_ms(run))
             .clone();
-        if let Err(error) = run
-            .state()
-            .write(move |connection| {
-                tier_choice::record(connection, &sampled.label, &sampled.domain_key, &unit)
-            })
-            .await
-        {
-            tracing::warn!(%error, run_id = %run.id(), "a Label's tier choice was not written; a resumed crawl samples it again");
-        }
+        Some((sampled.label, sampled.domain_key, unit))
     }
 }
 
@@ -1225,15 +1222,25 @@ struct Settling {
     held: Option<SystemTime>,
 }
 
+/// What one ended attempt's outcome writes beside its work item's end:
+/// what its Session's score changed, and its tier choice once its sample
+/// was classified.
+struct Scored {
+    changes: Changes,
+    chosen: Option<(String, String, Unit)>,
+}
+
 /// Settles the attempts that ended, `ended`, in the order they ended,
 /// under the Run's policy and pool settings, resolved as it opened (ADR
 /// 0138): takes each out of the requests in flight
 /// its progress shows, frees its place on its Connection and scores its
-/// Session, writing the pool's changes once; commits or ends them all
-/// together, so the run state's writer takes their writes in one group
-/// rather than the loop waiting for each in turn (#1765); then returns
-/// each one's domain turn and puts each retried work item back in its
-/// queue, in their order, and journals what the queues changed.
+/// Session; queues each one's outcome as one job of the run state's
+/// writer, in their order, so the writer takes them in one group rather
+/// than the loop waiting for each in turn (#1765), and each one's failure
+/// rolls back its own alone (ADR 0138); then returns each one's domain
+/// turn and puts each retried work item back in its queue, in their order,
+/// offers its domain's queue each work item an outcome added, keyed as it
+/// was added, and journals what the queues changed.
 async fn settled(
     run: &Run,
     (resolved, read): (&Resolved, Read),
@@ -1242,34 +1249,33 @@ async fn settled(
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) {
-    let (attempts, settlings) = scored(run, read, (&mut *pool, fetching), servers, ended).await;
-    let changes = pool.changes();
-    if !changes.is_empty()
-        && let Err(error) = run
-            .state()
-            .write(move |connection| changes.write(connection))
-            .await
-    {
-        tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
-    }
+    let (attempts, mut settlings, scores) =
+        scored(run, read, (&mut *pool, fetching), servers, ended).await;
     for attempt in &attempts {
         fetching
             .retire(run, pool, &servers[attempt.server].context)
             .await;
     }
-    let retried = join_all(attempts.into_iter().zip(&settlings).map(
-        |(attempt, settling)| async move {
-            match attempt.answer {
-                Answer::SitemapRead(_) => {
-                    read_sitemap(run, resolved, attempt).await;
-                    false
-                }
-                _ => settle(run, read.policy, settling.held.is_some(), attempt).await,
-            }
-        },
-    ))
-    .await;
+    let mut queued = Vec::with_capacity(attempts.len());
+    for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
+        let held = settling.held.is_some();
+        queued.push(queue_outcome(run, (resolved, read.policy), held, attempt, scored).await);
+    }
+    let mut retried = Vec::with_capacity(queued.len());
+    let mut keyed = Vec::new();
+    for (outcome, settling) in join_all(queued.into_iter().map(QueuedOutcome::finished))
+        .await
+        .into_iter()
+        .zip(&mut settlings)
+    {
+        settling.merged.extend(outcome.merged);
+        keyed.extend(outcome.keyed);
+        retried.push(outcome.retried);
+    }
     returned(run, admission, settlings.into_iter().zip(retried)).await;
+    for waiting in keyed {
+        admission.enqueue(waiting);
+    }
     if let Err(error) = key_new(run, admission).await {
         tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
     }
@@ -1279,18 +1285,20 @@ async fn settled(
 /// Takes each attempt of `ended` out of the requests in flight its
 /// progress shows, frees its place on its Connection and scores its
 /// Session in `pool` under what the loop `read`, in their order, answering them with
-/// what each one's settling keeps.
+/// what each one's settling keeps and what its outcome writes of its
+/// score and tier choice.
 async fn scored(
     run: &Run,
     read: Read,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
-) -> (Vec<Attempt>, Vec<Settling>) {
+) -> (Vec<Attempt>, Vec<Settling>, Vec<Scored>) {
     let mut attempts = Vec::with_capacity(ended.len());
     let mut settlings = Vec::with_capacity(ended.len());
+    let mut scores = Vec::with_capacity(ended.len());
     for mut attempt in ended {
-        fetching.classify(run, &mut attempt).await;
+        let chosen = fetching.classify(run, &mut attempt).await;
         fetching.time(&mut attempt).await;
         fetching
             .in_flight
@@ -1303,7 +1311,7 @@ async fn scored(
             server.gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
-        let merged = std::mem::take(&mut attempt.merged);
+        let merged = std::mem::take(&mut attempt.taught.merged);
         let domain = domain_ending(
             &attempt.answer,
             attempt.document.as_ref(),
@@ -1331,9 +1339,13 @@ async fn scored(
             domain,
             held,
         });
+        scores.push(Scored {
+            changes: pool.changes(),
+            chosen,
+        });
         attempts.push(attempt);
     }
-    (attempts, settlings)
+    (attempts, settlings, scores)
 }
 
 /// Returns, in their order, each settled attempt's domain turn to
@@ -1717,19 +1729,59 @@ fn count_retry(run: &Run) {
         .add(1, &[]);
 }
 
-/// Commits an attempt's outcome: its Records once while its lease holds,
-/// its handler's skip, its block, or its work item retried or failed, with
-/// no retry when its failure's site asked for a time further away than the
-/// Run waits (`held`); then releases its lease. Answers whether its work
-/// item waits again for a retry.
-async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) -> bool {
+/// An ended attempt's outcome, queued as one job of the run state's
+/// writer, and what finishing it needs once that job answers.
+struct QueuedOutcome {
+    leased: Leased,
+    lease: WorkItemLease,
+    run: Run,
+    /// Whether it commits its answer.
+    commits: bool,
+    written: Pin<Box<dyn Future<Output = Written> + Send>>,
+}
+
+/// What an outcome's job answered.
+type Written = Result<(attempt_outcome::Ended, Vec<(String, String)>), RunStateError>;
+
+/// What an attempt's outcome left the delivery to do once it was written:
+/// the pending requests a rule its page taught merged, by ID with their
+/// domain key, each work item it added keyed, in order, and whether its
+/// work item waits again for a retry.
+struct Finished {
+    merged: Vec<(String, String)>,
+    keyed: Vec<Waiting>,
+    retried: bool,
+}
+
+/// Queues `attempt`'s outcome as one job of the run state's writer (ADR
+/// 0138), with what its Session's score changed and its tier choice,
+/// `scored`, and what its page teaches the Frontier when it left that to
+/// its outcome: its Records committed once while its lease holds, its
+/// links admitted and keyed, or its handler's skip, its block, or its work
+/// item retried or failed, under the Run's `policy`, with no retry when its
+/// failure's site asked for a time further away than the Run waits
+/// (`held`), or its sitemap's entries admitted under the Run's domain
+/// policy as `resolved` holds it, within the scope the run file holds,
+/// the fetch ended with no outcome (ADR 0093).
+async fn queue_outcome(
+    run: &Run,
+    (resolved, policy): (&Resolved, CrawlPolicy),
+    held: bool,
+    attempt: Attempt,
+    scored: Scored,
+) -> QueuedOutcome {
     let Attempt {
         leased,
         lease,
         answer,
+        taught,
         ..
     } = attempt;
-    let failure = |failure, retryable| retried_or_failed(policy, leased.tries, failure, retryable);
+    let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let masks = run.secrets().mask().masks().clone();
+    let tries = leased.tries;
+    let failure = move |failure, retryable| retried_or_failed(policy, tries, failure, retryable);
+    let mut commits = false;
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
@@ -1743,49 +1795,41 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
         Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
-        // Read by `read_sitemap`, never settled here.
-        Answer::SitemapRead(_) => {
-            lease.release();
-            return false;
+        Answer::SitemapRead(document) => {
+            let work = run.metrics().counted_work().clone();
+            work.count(Row::SitemapTransactions);
+            let ending = attempt_outcome::Ending::Sitemap {
+                work_item,
+                lease_epoch,
+                egress: resumed_domain_policy(resolved, run.id()),
+                document,
+                work,
+            };
+            return queued(run, (leased, lease), (scored, taught, ending), false).await;
         }
         Answer::Handled(handled) => {
-            match lease
-                .commit(
-                    run.state(),
-                    run.secrets().mask().masks(),
-                    handled.records,
-                    run.point_in_time(),
-                )
-                .await
-            {
-                Ok(committed) => {
-                    lease.release();
-                    crate::enqueue::links::mark_suspected(
-                        run,
-                        &leased.crawl_request.id,
-                        &committed.suspected,
-                    )
-                    .await;
-                    goodfetch_engine::key_value_store::forget_files(run, committed.files).await;
-                    return false;
+            match lease.committing(run.state(), &masks, handled.records, run.point_in_time()) {
+                Ok(commit) => {
+                    commits = true;
+                    let refused: Refusing =
+                        Box::new(move |refusal: goodfetch_engine::CallError| {
+                            failure(
+                                kept_failure(
+                                    &masks,
+                                    refusal.code().to_owned(),
+                                    refusal.message(),
+                                    refusal.details().cloned().unwrap_or_default(),
+                                ),
+                                refusal.retryable(),
+                            )
+                        });
+                    let ending = attempt_outcome::Ending::Commit { commit, refused };
+                    return queued(run, (leased, lease), (scored, taught, ending), commits).await;
                 }
-                Err(CommitError::LeaseLost) => failure(
+                Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
                 ),
-                Err(CommitError::Refused(refused)) => failure(
-                    kept_failure(
-                        run,
-                        refused.code().to_owned(),
-                        refused.message(),
-                        refused.details().cloned().unwrap_or_default(),
-                    ),
-                    refused.retryable(),
-                ),
-                Err(CommitError::RunState(error)) => {
-                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-                    return false;
-                }
             }
         }
         Answer::ClientGone => failure(
@@ -1802,7 +1846,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             message,
             details,
         } => {
-            let failed = kept_failure(run, code, &message, details);
+            let failed = kept_failure(&masks, code, &message, details);
             match block_cause(&failed.code, &failed.details) {
                 Some(cause) => Unsuccessful::Blocked(cause),
                 None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
@@ -1810,50 +1854,133 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             }
         }
     };
-    end_unsuccessful(run, &lease, &leased, unsuccessful).await
+    let ending = attempt_outcome::Ending::End {
+        work_item,
+        lease_epoch,
+        unsuccessful,
+        ended_at: run.point_in_time(),
+    };
+    queued(run, (leased, lease), (scored, taught, ending), commits).await
 }
 
-/// Reads what the sitemap fetch `attempt` gave while its lease holds, in
-/// one write: its entries and nested sitemaps admitted under the Run's
-/// domain policy as `resolved` holds it, within the scope the run file
-/// holds, and the fetch ended with no outcome (ADR 0093); the delivery
-/// then keys the work items it added. Releases its lease.
-async fn read_sitemap(run: &Run, resolved: &Resolved, attempt: Attempt) {
-    let Attempt {
+/// Queues the outcome of `leased`'s attempt under `lease`, ending as
+/// `ending` says beside `scored` and what `taught` leaves to it, in the
+/// run state's writer's queue now.
+async fn queued(
+    run: &Run,
+    (leased, lease): (Leased, WorkItemLease),
+    (scored, taught, ending): (Scored, Taught, attempt_outcome::Ending),
+    commits: bool,
+) -> QueuedOutcome {
+    let outcome = Outcome {
+        scored: scored.changes,
+        chosen: scored.chosen,
+        learning: taught.learning.map(|learning| *learning),
+        ending,
+    };
+    let written: Pin<Box<dyn Future<Output = Written> + Send>> = match run.state().reserve().await {
+        Ok(place) => Box::pin(place.write(move |connection| outcome.write(connection))),
+        Err(error) => Box::pin(std::future::ready(Err(error))),
+    };
+    QueuedOutcome {
         leased,
         lease,
-        answer: Answer::SitemapRead(document),
-        ..
-    } = attempt
-    else {
-        return;
-    };
-    let egress = resumed_domain_policy(resolved, run.id());
-    let (id, epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
-    let work = run.metrics().counted_work().clone();
-    work.count(Row::SitemapTransactions);
-    let written = run
-        .state()
-        .write(move |connection| {
-            work_items::read_sitemap(connection, &egress, (&id, epoch), &document, &work)
-        })
-        .await;
-    lease.release();
-    match written {
-        Ok(true) => {}
-        Ok(false) => {
-            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "a sitemap's entries were not admitted");
-        }
+        run: run.clone(),
+        commits,
+        written,
     }
 }
 
-/// A handler's failure as the Run's state keeps it: no value the Run
-/// resolved stays in its message or details (spec #564).
-fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Value>) -> Failure {
-    let masks = run.secrets().mask().masks();
+impl QueuedOutcome {
+    /// Waits for its job's answer, then releases its lease and finishes
+    /// what the job committed: a committed attempt's suspected trap links'
+    /// Provenance and the files it took out, and the failure an attempt
+    /// ended with counted in its Run's outcomes.
+    async fn finished(self) -> Finished {
+        let Self {
+            leased,
+            lease,
+            run,
+            commits,
+            written,
+        } = self;
+        let mut finished = Finished {
+            merged: Vec::new(),
+            keyed: Vec::new(),
+            retried: false,
+        };
+        let ended = match written.await {
+            Ok((ended, merged)) => {
+                finished.merged = merged;
+                ended
+            }
+            Err(error) => {
+                if commits {
+                    // Traced as a commit the run file refused, its lease
+                    // left to end.
+                    if let Err(CommitError::RunState(error)) = lease.committed(Err(error)) {
+                        tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                    }
+                } else {
+                    lease.release();
+                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                }
+                return finished;
+            }
+        };
+        match ended {
+            attempt_outcome::Ended::Committed(committed) => {
+                let committed = lease
+                    .committed(Ok(Some(Ok(committed))))
+                    .expect("invariant: a commit written is committed");
+                lease.release();
+                crate::enqueue::links::mark_suspected(
+                    &run,
+                    &leased.crawl_request.id,
+                    &committed.suspected,
+                )
+                .await;
+                goodfetch_engine::key_value_store::forget_files(&run, committed.files).await;
+                finished.keyed = committed.keyed;
+            }
+            attempt_outcome::Ended::LeaseLost => {
+                let _ = lease.committed(Ok(None));
+                lease.release();
+            }
+            attempt_outcome::Ended::Unsuccessful {
+                ended,
+                recorded,
+                retried,
+            } => {
+                lease.release();
+                if ended {
+                    if let Some(code) = recorded {
+                        run.record_outcome(&code);
+                    }
+                    finished.retried = retried;
+                } else {
+                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
+                }
+            }
+            attempt_outcome::Ended::SitemapRead(read) => {
+                lease.release();
+                if !read {
+                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+                }
+            }
+        }
+        finished
+    }
+}
+
+/// A handler's failure as the Run's state keeps it: no value of `masks`,
+/// those the Run resolved, stays in its message or details (spec #564).
+fn kept_failure(
+    masks: &goodfetch_engine::mask::Masks,
+    code: String,
+    message: &str,
+    details: Map<String, Value>,
+) -> Failure {
     let mut kept = Value::Object(details);
     masks.apply_value(&mut kept, Scope::Kept);
     let Value::Object(details) = kept else {
@@ -1863,48 +1990,6 @@ fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Val
         code,
         message: masks.apply(message, Scope::Kept).into_owned(),
         details,
-    }
-}
-
-/// Ends `leased`'s work item `unsuccessful` while its lease holds,
-/// counting its failure's code in the Run's outcomes, then releases
-/// `lease`. Answers whether the work item waits again for a retry.
-async fn end_unsuccessful(
-    run: &Run,
-    lease: &WorkItemLease,
-    leased: &Leased,
-    unsuccessful: Unsuccessful,
-) -> bool {
-    let id = leased.crawl_request.id.clone();
-    let epoch = leased.lease_epoch;
-    let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
-    let recorded = match &unsuccessful {
-        Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
-            Some(failure.code.clone())
-        }
-        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
-    };
-    let ended_at = run.point_in_time();
-    let written = run
-        .state()
-        .write(move |connection| work_items::end(connection, &id, epoch, unsuccessful, &ended_at))
-        .await;
-    lease.release();
-    match written {
-        Ok(true) => {
-            if let Some(code) = recorded {
-                run.record_outcome(&code);
-            }
-            retried
-        }
-        Ok(false) => {
-            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
-            false
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-            false
-        }
     }
 }
 

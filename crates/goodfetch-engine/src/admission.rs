@@ -145,6 +145,30 @@ pub struct QueuedGroup {
     pub sample: Vec<(String, Option<Instant>)>,
 }
 
+/// How a gate keys its requests' URLs, apart from the gate, so a write of
+/// the run state that adds work items keys each as it adds it, as the gate
+/// would key it ([`Gate::keys`]).
+#[derive(Clone)]
+pub struct Keys(Arc<dyn Fn(&str) -> String + Send + Sync>);
+
+impl Keys {
+    /// Keys each URL as `key` does.
+    pub fn new(key: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+        Self(Arc::new(key))
+    }
+
+    /// The key a request to `url` waits under.
+    pub fn key(&self, url: &str) -> String {
+        (self.0)(url)
+    }
+}
+
+impl fmt::Debug for Keys {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("Keys").finish_non_exhaustive()
+    }
+}
+
 /// What a gate writes into the run file, in one of its writer's commits.
 pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
 
@@ -153,6 +177,9 @@ pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
 pub trait Gate: Send {
     /// The key a request to `url` waits under.
     fn key(&self, url: &str) -> String;
+
+    /// How it keys a request's URL, as [`Gate::key`] does, apart from it.
+    fn keys(&self) -> Keys;
 
     /// How many requests of one key it holds at most.
     fn bound(&self) -> usize;
@@ -393,6 +420,11 @@ impl Admission {
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
+    }
+
+    /// How its gate keys a request's URL, apart from it ([`Gate::keys`]).
+    pub fn keys(&self) -> Keys {
+        self.gate.keys()
     }
 
     /// How many requests of one key the gate holds at most.

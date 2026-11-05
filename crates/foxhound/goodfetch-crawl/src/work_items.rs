@@ -27,7 +27,7 @@ use std::sync::LazyLock;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
-use goodfetch_engine::admission::Waiting;
+use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateTables;
@@ -417,6 +417,10 @@ pub(crate) struct Positions {
     admitting: goodfetch_frontier::Admitting,
     /// Where a stored Payload's serialization is counted.
     work: CountedWork,
+    /// How each work item it adds is keyed as it is added, and those it
+    /// keyed, in order: an attempt's commit keys its links so (ADR 0138);
+    /// `None` leaves them for the delivery to key.
+    keyed: Option<(Keys, Vec<Waiting>)>,
 }
 
 impl Positions {
@@ -438,6 +442,7 @@ impl Positions {
             taken: BTreeMap::new(),
             admitting: goodfetch_frontier::Admitting::RunFile,
             work: CountedWork::default(),
+            keyed: None,
         })
     }
 
@@ -457,14 +462,28 @@ impl Positions {
     }
 
     /// The same, admitting at an attempt's commit, which notes each URL it
-    /// does not add.
-    pub(crate) fn committing(connection: &Connection) -> rusqlite::Result<Self> {
+    /// does not add, and keys each work item it adds under `keys`, when
+    /// given, as it adds it.
+    pub(crate) fn committing(
+        connection: &Connection,
+        keys: Option<Keys>,
+    ) -> rusqlite::Result<Self> {
         Ok(Self {
             admitting: goodfetch_frontier::Admitting::Commit {
                 refused: Vec::new(),
             },
+            keyed: keys.map(|keys| (keys, Vec::new())),
             ..Self::of(connection)?
         })
+    }
+
+    /// Each work item it added keyed, in order, as it waits for its
+    /// domain's queue.
+    pub(crate) fn keyed(&mut self) -> Vec<Waiting> {
+        self.keyed
+            .as_mut()
+            .map(|(_, keyed)| std::mem::take(keyed))
+            .unwrap_or_default()
     }
 
     /// [`Positions::of`], counting each Payload it stores on `work`.
@@ -562,9 +581,13 @@ pub(crate) fn add(
     adding: Adding<'_>,
 ) -> rusqlite::Result<String> {
     let position = integer(positions.take(url.as_str()));
-    connection.prepare_cached("INSERT INTO work_items
-             (id, position, url, method, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront)
-         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, 0, ?7, CASE WHEN ?8 THEN ?1 END)
+    let key = positions
+        .keyed
+        .as_ref()
+        .map(|(keys, _)| keys.key(url.as_str()));
+    let id: String = connection.prepare_cached("INSERT INTO work_items
+             (id, position, url, method, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront, domain_key)
+         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, 0, ?7, CASE WHEN ?8 THEN ?1 END, ?9)
          RETURNING id").and_then(|mut cached| cached.query_row((
             position,
             url.as_str(),
@@ -574,11 +597,19 @@ pub(crate) fn add(
             adding.depth,
             adding.priority,
             adding.forefront,
-        ), |row| row.get(0)))
-    .and_then(|id: String| {
-        payload::store(connection, &id, adding.payload, &positions.work)?;
-        Ok(id)
-    })
+            key.as_deref(),
+        ), |row| row.get(0)))?;
+    payload::store(connection, &id, adding.payload, &positions.work)?;
+    if let (Some(key), Some((_, keyed))) = (key, positions.keyed.as_mut()) {
+        keyed.push(Waiting {
+            id: id.clone(),
+            key,
+            priority: adding.priority,
+            order: position,
+            forefront: adding.forefront,
+        });
+    }
+    Ok(id)
 }
 
 /// The IDs of the work items of `label` not ended, pending or leased, in

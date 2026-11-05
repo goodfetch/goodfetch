@@ -2,6 +2,7 @@
 //! built-in by its name, the main content each finds where they differ,
 //! and the rules the composition holds every step to, whichever it is.
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::page::{FormatsRequest, MainContent, PageFormats};
 use rstest::rstest;
 use serde_json::json;
@@ -97,4 +98,36 @@ fn a_document_with_no_main_content_answers_none_whatever_the_step(
     assert_eq!(read.main_content, Some(MainContent::None));
     assert_eq!(read.markdown.as_deref(), Some(""));
     assert_eq!(read.text.as_deref(), Some(""));
+}
+
+/// rs-trafilatura reads the tree it is given, never a parse of that tree's
+/// serialization (#1916): a script whose text, set on the tree, closes the
+/// script and opens a paragraph is a script on the tree, and a paragraph
+/// only once the serialization is parsed again.
+///
+/// Covers: story:6-11
+#[test]
+fn trafilatura_reads_the_tree_it_is_given_never_a_parse_of_its_serialization() {
+    let html = r#"<!doctype html><html lang="en"><head><title>Bridles</title></head><body>
+<article><h1>Bridles</h1>
+<p>A two-leg bridle sets the angle a single-line kite meets the wind at, and moving its towing point a centimetre changes how the kite climbs.</p>
+<script></script>
+<p>Tie the towing point with a lark's head knot, so it slides when you want it to and holds when the line is under load.</p>
+</article></body></html>"#;
+    let work = CountedWork::default();
+    let tree = work.parse_html(Row::PageParses, html);
+    let script = work
+        .compile_selector(Row::PageSelectorCompilations, "script")
+        .unwrap();
+    tree.select_matcher(&script).set_text(
+        "</script><p>A paragraph that only a parse of the tree's serialization holds, long enough to read as content.</p><script>",
+    );
+
+    let found = BuiltIn::Trafilatura
+        .extractor()
+        .main_content(tree, URL)
+        .unwrap();
+
+    assert!(found.text.contains("lark's head knot"), "{found:?}");
+    assert!(!found.text.contains("only a parse"), "{found:?}");
 }

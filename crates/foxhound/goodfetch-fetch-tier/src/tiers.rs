@@ -166,6 +166,14 @@ impl Drop for HandedOver {
     }
 }
 
+tokio::task_local! {
+    /// The hand-over of the attempt whose own browser page
+    /// [`FetchTiers::browser`] opens on this task: the page takes its
+    /// value as it opens, in its Session, while the Run's other attempts
+    /// hand its pages over at once.
+    static OPENING: Arc<HandOver>;
+}
+
 #[derive(Default)]
 struct Pages {
     /// The number of the next page served.
@@ -1676,8 +1684,9 @@ impl FetchTiers {
     /// `context`, whose
     /// Connection's Client then reaches it, and navigates it to `url`
     /// through its navigation gate: the attempt hands its Run's pages over
-    /// first, so the page takes its value. Answers its ID and the
-    /// navigation's answer.
+    /// first, as `hand_over`, and the page takes that hand-over's value,
+    /// reader and observer, however many of the Run's attempts handed its
+    /// pages over since. Answers its ID and the navigation's answer.
     ///
     /// # Errors
     ///
@@ -1689,7 +1698,7 @@ impl FetchTiers {
     /// with it.
     pub async fn browser(
         &self,
-        run_id: &RunId,
+        hand_over: &Arc<HandOver>,
         pooled: &PooledSession,
         url: &str,
         context: &CallContext,
@@ -1700,7 +1709,13 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        pages.open(run_id, pooled, url, context).await
+        let run_id = hand_over.run.id();
+        OPENING
+            .scope(
+                Arc::clone(hand_over),
+                pages.open(run_id, pooled, url, context),
+            )
+            .await
     }
 
     /// The invalid-certificate exception the browser page `page_id`
@@ -1807,8 +1822,17 @@ impl FetchTiers {
         lock(&self.served.pages).open.get(page_id).cloned()
     }
 
-    /// The hand-over of the attempt that handed `run`'s pages over last.
+    /// The hand-over whose value, reader and observer a page of `run`
+    /// opening now takes: that of the attempt whose own browser page
+    /// [`FetchTiers::browser`] is opening, whichever attempt of the Run
+    /// handed its pages over since (#2083); else that of the attempt that
+    /// handed `run`'s pages over last.
     fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
+        if let Ok(opening) = OPENING.try_with(Arc::clone)
+            && opening.run.id() == run
+        {
+            return Some(opening);
+        }
         lock(&self.served.handed)
             .by_run
             .get(run)
@@ -1887,15 +1911,11 @@ impl FetchTiers {
 }
 
 impl HandlerPages for FetchTiers {
-    /// The value of the attempt that handed its Run's pages over last,
-    /// while its handler runs; else a program's page's, empty.
+    /// The value of the attempt opening its own browser page, else of the
+    /// one that handed its Run's pages over last, while its handler runs
+    /// ([`FetchTiers::handed_over`]); else a program's page's, empty.
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue {
-        let handed = lock(&self.served.handed)
-            .by_run
-            .get(run)
-            .and_then(|attempts| attempts.last())
-            .map(|(_, hand_over)| Arc::clone(hand_over));
-        match handed {
+        match self.handed_over(run) {
             Some(hand_over) => {
                 let (page_check, extractor) = (hand_over.page_check.clone(), hand_over.extractor);
                 PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))

@@ -419,7 +419,7 @@ async fn http(
     let mut proxy = Tallied::new(proxy, upstream.usage.as_ref());
     if let Target::Absolute { .. } = head.target {
         met(Met::Reached);
-        let mut forwarded = head.forwarded(true, authorization);
+        let mut forwarded = closing(head, true, authorization);
         let sent = proxy.send(&forwarded).await;
         // The buffer that held the credentials is cleared before it is
         // dropped.
@@ -549,7 +549,7 @@ async fn socks5(
     met(Met::Reached);
     let started = match head.target {
         Target::Tunnel { .. } => client.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => proxy.send(&head.forwarded(false, None)).await,
+        Target::Absolute { .. } => proxy.send(&closing(head, false, None)).await,
     };
     if started.is_err() {
         return;
@@ -582,6 +582,17 @@ async fn carry(client: TcpStream, mut proxy: Tallied, rest: &[u8]) -> std::io::R
         proxy.send(rest).await?;
     }
     pass(client, proxy).await
+}
+
+/// A plain request's head as the egress relay sends it on
+/// ([`Head::as_sent`]), with `Connection: close` added: this relay judges
+/// and tallies each connection's host once, at its start, so the
+/// connection carries one request.
+fn closing(head: &Head, to_proxy: bool, authorization: Option<&str>) -> Vec<u8> {
+    let mut sent = head.as_sent(to_proxy, authorization);
+    sent.truncate(sent.len().saturating_sub(2));
+    sent.extend_from_slice(b"Connection: close\r\n\r\n");
+    sent
 }
 
 /// The error of bytes a Limit refused, which closes the connection.

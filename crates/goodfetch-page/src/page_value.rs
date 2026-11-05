@@ -707,7 +707,8 @@ impl Debug for ServedDocument {
 
 /// The seam through which a Product sets what the pages it hands to
 /// handlers carry, asked as each page of the Session `session` of the Run
-/// `run` opens; every page of one Session takes the same.
+/// `run` opens, on the task that opens it, so a Product that runs many
+/// attempts at once gives each attempt's own page that attempt's value.
 pub trait HandlerPages: Send + Sync {
     /// The page's value.
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue;

@@ -5,8 +5,9 @@
 //! checks, as `just merge` does (ADR 0135); any other change, and `all`,
 //! takes every lint and the Quick suite. The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
-//! `cargo`. The pre-push tier is repository tooling, so the module declares
-//! no Feature.
+//! `cargo`. The Quick suite's Cargo targets come from `ci/quick-targets.sh`,
+//! run here on a fixture workspace. The pre-push tier is repository tooling,
+//! so the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -188,4 +189,44 @@ fn an_unknown_argument_is_refused_before_any_step() {
 
     assert_eq!(run.code, Some(2), "{}", run.stderr);
     assert!(run.calls.is_empty(), "{:?}", run.calls);
+}
+
+/// `ci/quick-targets.sh` on the `affected` fixture, whose engine, conformance
+/// and frontier crates have a library and whose Proving ground and S3 Sink
+/// are executables alone.
+fn quick_targets(packages: &[&str]) -> Vec<String> {
+    let workspace = Workspace::from_fixture("affected");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/quick-targets.sh");
+    let output = workspace
+        .command("bash")
+        .arg(script)
+        .args(packages)
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[rstest]
+#[case::the_whole_workspace(&["--workspace"])]
+#[case::one_library(&["-p", "goodfetch-engine"])]
+#[case::a_library_beside_executables(&["-p", "goodfetch-proving-ground", "-p", "goodfetch-frontier"])]
+fn the_quick_suite_builds_libraries_and_executables_when_a_selected_package_has_a_library(
+    #[case] packages: &[&str],
+) {
+    assert_eq!(quick_targets(packages), ["--lib", "--bins"]);
+}
+
+/// Cargo refuses `--lib` when no selected package has a library.
+#[test]
+fn the_quick_suite_builds_executables_alone_when_no_selected_package_has_a_library() {
+    assert_eq!(
+        quick_targets(&["-p", "goodfetch-proving-ground", "-p", "goodfetch-sink-s3"]),
+        ["--bins"]
+    );
 }

@@ -464,9 +464,13 @@ test suite *packages:
       quick)
         # In-process tests only (nextest's quick profile); snapshots are
         # checked, never written. Unreferenced snapshots are judged only
-        # when every test runs, in the Pre-merge suite.
+        # when every test runs, in the Pre-merge suite. Only the targets
+        # those tests are in are built (ci/quick-targets.sh): no `tests/`
+        # binary or example, which the profile never runs.
         if $rust; then
-          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check \
+          targets=$(ci/quick-targets.sh "${packages[@]}")
+          mapfile -t quick_targets <<< "$targets"
+          NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" "${quick_targets[@]}" --check \
             --test-runner nextest --nextest-profile quick --profile {{ test_profile }} \
             --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
         fi

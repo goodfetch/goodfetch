@@ -1,6 +1,6 @@
 # Which of goodfetch-extractor's top-level modules may import which (ADR 0126).
 [modules]
-blocks = []
+blocks = ["extractor"]
 character_references = []
 contacts = ["social"]
 extractor = []

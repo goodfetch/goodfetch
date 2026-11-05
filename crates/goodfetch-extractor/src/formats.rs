@@ -2,26 +2,25 @@
 //! tier calls with the document it holds, and the composition of the
 //! main-content step and the converters behind it.
 
-use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
 
-use crate::blocks::{body, fit, text};
+use crate::blocks::{PageLists, fit, text};
 use crate::contacts::contacts;
-use crate::extractor::{BuiltIn, Extractor};
+use crate::extractor::{Article, BuiltIn, Extractor};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
 use crate::plan::{Demand, Plan, Reader};
-use crate::references::{Head, References, references};
-use crate::shadow::composed;
+use crate::references::{Head, References, assets, references};
+use crate::shadow::compose_in_place;
 use crate::structured_data::{json_ld, microdata};
 use crate::tables::tables;
+use dom_query::NodeRef;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::page::{
-    Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
-    MarkdownOptions, Metadata, PageFormats,
+    Asked, Contacts, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent,
+    MarkdownFormat, MarkdownOptions, Metadata, MicrodataItem, PageFormats, Table,
 };
-use scraper::Html;
 use url::Url;
 
 /// A page's document as a tier serialized it: its HTML as text, decoded
@@ -124,84 +123,98 @@ pub struct Measured {
 /// them, and the length of the main content they were read from, so that a
 /// caller measuring what the Clean-up rules took of it (ADR 0047) runs no
 /// second main-content step on the document they left.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
+///
+/// Every format is read from at most one tree of the page (ADR 0138), its
+/// readers in their order: those of the page as it stands (`html.raw`,
+/// links, the head), streamed; the clean-up, in place; the readers of the
+/// cleaned page as it stands (`html.cleaned`, images and media); its shadow
+/// roots composed, in place; the readers of the whole page as a person
+/// sees it (full Markdown, tables, structured data, contacts, the lists
+/// "fit" compares); then the main-content step, which consumes the tree;
+/// then the readers of its answer's tree (`html.main`, text, Markdown and
+/// "fit"). The tree is serialized only for `html.cleaned`, and only when
+/// the rules changed it.
 pub fn measured_formats(
     document: &Document<'_>,
     request: &FormatsRequest,
     context: &Context<'_>,
 ) -> Measured {
+    let work = &context.work;
     // The demand plan runs only the readers the request reads from (ADR
-    // 0138): `html.raw`, links and the head read `document.html` as it
-    // stands; every other format reads it once the cosmetic rules took
-    // their elements out, and the Markdown and text then as a person sees
-    // it. A request that reads nothing of the cleaned page runs no rule.
+    // 0138). A request that reads nothing of the cleaned page runs no rule.
     let plan = Plan::of(&Demand {
         formats: request,
         learning: false,
     });
-    // The clean-up removes in place on one tree of the page, serialized only
-    // when it removed something, for the readers that read the cleaned page
-    // as text (ADR 0138).
-    let (tree, cleaned) = match context.clean_up.filter(|_| plan.runs(Reader::CleanUp)) {
-        Some(clean_up) => {
-            let tree = context.work.parse_html(Row::PageParses, document.html);
-            let cleaned = clean_up
-                .remove(&tree, document.url)
-                .then(|| tree.html().to_string());
-            (Some(tree), cleaned)
-        }
-        None => (None, None),
+    let clean_up = context.clean_up.filter(|_| plan.runs(Reader::CleanUp));
+    let full_markdown = request
+        .markdown
+        .is_some_and(|format| format.content() == MarkdownContent::Full);
+    // One tree of the page, when a reader reads one or the rules run.
+    let mut tree = (clean_up.is_some()
+        || full_markdown
+        || plan.runs(Reader::CleanedTree)
+        || plan.runs(Reader::MainContent))
+    .then(|| work.parse_html(Row::PageParses, document.html));
+    let removed = match (clean_up, &tree) {
+        (Some(clean_up), Some(tree)) => clean_up.remove(tree, document.url),
+        _ => false,
     };
-    let cleaned = cleaned.as_deref().unwrap_or(document.html);
-    let seen = if plan.runs(Reader::CleanUp) {
-        composed(cleaned)
-    } else {
-        Cow::Borrowed(cleaned)
-    };
-    // The main-content step runs only for a format read from its answer
-    // (story 8): outside, none read; inside, none found. It reads the clean-up's
-    // tree, last, as it consumes it, when composing the shadow roots left the
-    // cleaned page as it was; else one tree of the page as a person sees it.
-    let read_main = plan.runs(Reader::MainContent).then(|| {
-        let tree = match (tree, &seen) {
-            (Some(tree), Cow::Borrowed(_)) => tree,
-            _ => context.work.parse_html(Row::PageParses, &seen),
-        };
-        main_content(tree, document.url, context.extractor, &context.work)
-    });
-    let main = read_main.as_ref().and_then(Option::as_ref);
-    let main_html = main.map(|(html, _)| html.as_str());
-    let of_main = |read: fn(&str) -> String| main_html.map(read).unwrap_or_default();
-    // One streaming pass over the document as it stands, its shadow roots'
-    // templates included, for its links and head; images and media are
-    // extracted content, read after the Clean-up rules (ADR 0047), by a
-    // second pass only when the rules changed the document.
-    let raw_read = plan.runs(Reader::Untouched);
-    let assets_read = plan.runs(Reader::CleanedAssets);
-    let untouched = cleaned == document.html;
+    let (cleaned, references) = as_it_stands(document, request, plan, tree.as_ref(), removed);
     let References {
         links,
-        mut images,
-        mut media,
+        images,
+        media,
         head,
-    } = if raw_read || (assets_read && untouched) {
-        references(document.html, document.base_url)
-    } else {
-        References::default()
-    };
-    if assets_read && !untouched {
-        let after_rules = references(cleaned, document.base_url);
-        (images, media) = (after_rules.images, after_rules.media);
+    } = references;
+    // The page as a person sees it: its shadow roots composed, in place, and
+    // its text nodes merged as a parse of it would hold them.
+    if let Some(tree) = &tree
+        && (compose_in_place(tree, work) || removed)
+    {
+        merge_texts(tree);
     }
-    // One tree of the document as a person sees it, for the formats a
-    // tree reads.
-    let tree = plan
-        .runs(Reader::CleanedTree)
-        .then(|| Html::parse_document(&seen));
-    let tree = tree.as_ref();
+    let Whole {
+        full,
+        tables,
+        structured,
+        contacts,
+        lists,
+    } = tree
+        .as_ref()
+        .map(|tree| Whole::read(tree, request, document.base_url, work))
+        .unwrap_or_default();
+    // The main-content step runs only for a format read from its answer
+    // (story 8): outside, none read; inside, none found. It consumes the
+    // tree, its last reader.
+    let read_main = plan
+        .runs(Reader::MainContent)
+        .then(|| tree.take())
+        .flatten()
+        .map(|tree| main_content(tree, document.url, context.extractor, work));
+    let main = read_main
+        .as_ref()
+        .and_then(Option::as_ref)
+        .map(|(article, _)| article);
+    // Its readers, "fit" last, as it takes blocks out of its tree.
+    let main_html = request
+        .html
+        .filter(|format| format.kind() == HtmlKind::Main)
+        .map(|_| main.map(Article::html).unwrap_or_default());
+    let main_text = request.text.map(|Asked| {
+        main.map(|article| text(article.nodes()))
+            .unwrap_or_default()
+    });
+    let markdown = request.markdown.map(|format| match format.content() {
+        MarkdownContent::Main => main
+            .map(|article| markdown(article.nodes()))
+            .unwrap_or_default(),
+        MarkdownContent::Full => full.unwrap_or_default(),
+        MarkdownContent::Fit => match (main, &lists) {
+            (Some(article), Some(lists)) if fit(article, lists, work) => markdown(article.nodes()),
+            _ => String::new(),
+        },
+    });
     let formats = PageFormats {
         url: document.url.to_owned(),
         base_url: document.base_url.to_owned(),
@@ -212,31 +225,22 @@ pub fn measured_formats(
                 MainContent::None
             }
         }),
-        markdown: request.markdown.map(|format| match format.content() {
-            MarkdownContent::Main => of_main(markdown),
-            MarkdownContent::Full => markdown(&body(&seen)),
-            MarkdownContent::Fit => main_html
-                .map(|main| markdown(&fit(main, &seen, document.base_url)))
-                .unwrap_or_default(),
-        }),
+        markdown,
         html: request.html.map(|format| match format.kind() {
             HtmlKind::Raw => document.serialization.as_content(document.html),
-            HtmlKind::Cleaned => document.serialization.as_content(cleaned),
-            HtmlKind::Main => main_html.map(ToOwned::to_owned).unwrap_or_default(),
+            HtmlKind::Cleaned => document
+                .serialization
+                .as_content(cleaned.as_deref().unwrap_or(document.html)),
+            HtmlKind::Main => main_html.unwrap_or_default(),
         }),
-        text: request.text.map(|Asked| of_main(text)),
+        text: main_text,
         links: request.links.map(|Asked| links),
         images: request.images.map(|Asked| images),
         media: request.media.map(|Asked| media),
-        tables: request.tables.and(tree).map(tables),
-        metadata: request
-            .metadata
-            .and(tree)
-            .map(|tree| metadata(head, tree, document.base_url)),
-        contacts: request
-            .contacts
-            .and(tree)
-            .map(|tree| contacts(tree, document.base_url)),
+        tables,
+        metadata: structured
+            .map(|(json_ld, microdata)| metadata(head, json_ld, microdata, document.base_url)),
+        contacts,
     };
     Measured {
         formats,
@@ -244,10 +248,116 @@ pub fn measured_formats(
     }
 }
 
+/// What the readers of the page as it stands read: `html.cleaned`, its
+/// serialization when the rules changed its tree, and the streaming pass's
+/// links and head of the page as served, with the images and media of the
+/// cleaned page, its shadow roots' templates included. When the rules
+/// removed nothing the cleaned page is the page as served, which the one
+/// streaming pass reads; else its images and media are read from its tree.
+fn as_it_stands(
+    document: &Document<'_>,
+    request: &FormatsRequest,
+    plan: Plan,
+    tree: Option<&ParsedHtml>,
+    removed: bool,
+) -> (Option<String>, References) {
+    let cleaned = tree
+        .filter(|_| {
+            removed
+                && request
+                    .html
+                    .is_some_and(|format| format.kind() == HtmlKind::Cleaned)
+        })
+        .map(|tree| tree.html().to_string());
+    let assets_read = plan.runs(Reader::CleanedAssets);
+    let mut references = if plan.runs(Reader::Untouched) || (assets_read && !removed) {
+        references(document.html, document.base_url)
+    } else {
+        References::default()
+    };
+    if let Some(tree) = tree.filter(|_| assets_read && removed) {
+        (references.images, references.media) = assets(tree, document.base_url);
+    }
+    (cleaned, references)
+}
+
+/// What the readers of the whole page as a person sees it read, before
+/// the main-content step consumes its tree.
+#[derive(Default)]
+struct Whole {
+    /// Its Markdown, of its whole body.
+    full: Option<String>,
+    tables: Option<Vec<Table>>,
+    /// Its JSON-LD and microdata.
+    structured: Option<(Vec<serde_json::Value>, Vec<MicrodataItem>)>,
+    contacts: Option<Contacts>,
+    /// The lists "fit" compares the main content's to.
+    lists: Option<PageLists>,
+}
+
+impl Whole {
+    /// What `request` reads of `tree`, the page whose base URL is
+    /// `base_url`.
+    fn read(
+        tree: &ParsedHtml,
+        request: &FormatsRequest,
+        base_url: &str,
+        work: &CountedWork,
+    ) -> Self {
+        let asks = |content| {
+            request
+                .markdown
+                .is_some_and(|format| format.content() == content)
+        };
+        Self {
+            full: asks(MarkdownContent::Full).then(|| {
+                tree.body()
+                    .map(|body| markdown(body.children_it(false)))
+                    .unwrap_or_default()
+            }),
+            tables: request.tables.map(|Asked| tables(tree, work)),
+            structured: request
+                .metadata
+                .map(|Asked| (json_ld(tree), microdata(tree, base_url))),
+            contacts: request.contacts.map(|Asked| contacts(tree, base_url)),
+            lists: asks(MarkdownContent::Fit).then(|| PageLists::of(tree, base_url, work)),
+        }
+    }
+}
+
+/// Merges each run of adjacent text nodes of `tree` into one, as a parse of
+/// its serialization holds them, once a removal or a composition left some
+/// side by side; by hand, as a page's tree can be deeper than a thread's
+/// stack allows a recursion.
+fn merge_texts(tree: &ParsedHtml) {
+    let mut next = vec![tree.root()];
+    while let Some(node) = next.pop() {
+        let mut previous: Option<NodeRef<'_>> = None;
+        for child in node.children_it(false).collect::<Vec<_>>() {
+            if child.is_text() {
+                if let Some(text) = previous.filter(NodeRef::is_text) {
+                    let joined = format!("{}{}", text.text(), child.text());
+                    text.set_text(joined);
+                    child.remove_from_parent();
+                    continue;
+                }
+            } else if child.is_element() {
+                next.push(child);
+            }
+            previous = Some(child);
+        }
+    }
+}
+
 /// The document's metadata: its head's, read by the streaming pass, and
-/// its structured data, read from `tree`, its canonical URL and microdata
-/// URLs resolved against `base_url`.
-fn metadata(head: Head, tree: &Html, base_url: &str) -> Metadata {
+/// its structured data, read from its tree, its canonical URL resolved
+/// against `base_url`.
+fn metadata(
+    head: Head,
+    json_ld: Vec<serde_json::Value>,
+    microdata: Vec<MicrodataItem>,
+    base_url: &str,
+) -> Metadata {
     let Head {
         title,
         description,
@@ -270,8 +380,8 @@ fn metadata(head: Head, tree: &Html, base_url: &str) -> Metadata {
         lang,
         open_graph,
         twitter,
-        json_ld: json_ld(tree),
-        microdata: microdata(tree, base_url),
+        json_ld,
+        microdata,
         meta,
     }
 }
@@ -297,7 +407,10 @@ pub fn main_content_length(
     extractor: &dyn Extractor,
     work: &CountedWork,
 ) -> usize {
-    let tree = work.parse_html(Row::PageParses, &composed(document.html));
+    let tree = work.parse_html(Row::PageParses, document.html);
+    if compose_in_place(&tree, work) {
+        merge_texts(&tree);
+    }
     main_text_length(tree, document.url, extractor, work)
 }
 

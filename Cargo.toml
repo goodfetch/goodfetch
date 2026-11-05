@@ -94,13 +94,14 @@ htmd = { version = "0.5.6", default-features = false }
 # (ADR 0119); the version dom_query already links.
 html5ever = { version = "0.39.0", default-features = false }
 markup5ever_rcdom = { version = "0.38.0", default-features = false }
+# The names of markup5ever_rcdom's tree, into which the Markdown converter
+# walks the page's own tree for htmd (ADR 0138); the version htmd links.
+markup5ever_htmd = { package = "markup5ever", version = "0.38.0", default-features = false }
 # The page formats' streaming pass over a document for its links, images and
 # media (spec #580; ADR 0007): no tree, one pass.
 lol_html = { version = "3.0.2", default-features = false }
-# The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
+# An html5ever tree with CSS selectors, which Foxhound's own readers use.
 scraper = { version = "0.27.0", default-features = false }
-# scraper's tree, whose node IDs the microdata reader keys on (#787).
-ego-tree = { version = "0.11.1", default-features = false }
 # The other built-in main-content step, `content.extractor = "trafilatura"`
 # (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
 # (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning

@@ -6,18 +6,25 @@
 //! with a row header (`<th>` beside `<td>`) keeps every cell, where htmd
 //! drops each row's `<td>`s or its `<th>`s. A third keeps a heading
 //! with a `<br>` whole, where htmd cuts it in two.
+//!
+//! The converter is built once, and reads the page's own tree (ADR 0138):
+//! the nodes to write are walked into the html5ever tree `markup5ever_rcdom`
+//! holds, which htmd's non-parsing entry reads, so no HTML is serialized or
+//! parsed for it.
 
 use std::rc::Rc;
+use std::sync::LazyLock;
 
+use dom_query::{NodeData as PageData, NodeRef};
 use htmd::element_handler::{HandlerResult, Handlers};
 use htmd::options::{BulletListMarker, Options};
 use htmd::{Element, HtmlToMarkdown};
+use markup5ever_htmd::{Attribute, QualName, local_name, ns};
 use markup5ever_rcdom::{Node, NodeData};
 
-/// `html` as Markdown, ending with one newline; empty for HTML with no
-/// text.
-pub(crate) fn markdown(html: &str) -> String {
-    let converter = HtmlToMarkdown::builder()
+/// The converter, built once for the engine.
+static CONVERTER: LazyLock<HtmlToMarkdown> = LazyLock::new(|| {
+    HtmlToMarkdown::builder()
         .options(Options {
             bullet_list_marker: BulletListMarker::Dash,
             ul_bullet_spacing: 1,
@@ -27,15 +34,115 @@ pub(crate) fn markdown(html: &str) -> String {
         .add_handler(vec!["h1", "h2", "h3", "h4", "h5", "h6"], heading)
         .add_handler(vec!["pre"], pre)
         .add_handler(vec!["table"], table)
-        .build();
-    let written = converter
-        .convert(html)
-        .expect("invariant: htmd reads from a string, which never fails");
+        .build()
+});
+
+/// The nodes `nodes` of a page's tree, in order, as Markdown, ending with
+/// one newline; empty when they hold no text. They are written as the body
+/// of a document of their own, as a parse of their HTML would hold them.
+pub(crate) fn markdown<'a>(nodes: impl IntoIterator<Item = NodeRef<'a>>) -> String {
+    let body = element(
+        QualName::new(None, ns!(html), local_name!("body")),
+        Vec::new(),
+    );
+    for node in nodes {
+        copy(node, &body);
+    }
+    let html = element(
+        QualName::new(None, ns!(html), local_name!("html")),
+        Vec::new(),
+    );
+    append(
+        &html,
+        element(
+            QualName::new(None, ns!(html), local_name!("head")),
+            Vec::new(),
+        ),
+    );
+    append(&html, body);
+    let document = Node::new(NodeData::Document);
+    append(&document, html);
+    let written = CONVERTER.tree_to_markdown(&document);
     let written = written.trim_matches('\n');
     if written.is_empty() {
         String::new()
     } else {
         format!("{written}\n")
+    }
+}
+
+/// An element of `markup5ever_rcdom`'s tree, with no children yet.
+fn element(name: QualName, attrs: Vec<Attribute>) -> Rc<Node> {
+    Node::new(NodeData::Element {
+        name,
+        attrs: attrs.into(),
+        template_contents: None.into(),
+        mathml_annotation_xml_integration_point: false,
+    })
+}
+
+/// Appends `child` to `parent`'s children, its last.
+fn append(parent: &Rc<Node>, child: Rc<Node>) {
+    child.parent.set(Some(Rc::downgrade(parent)));
+    parent.children.borrow_mut().push(child);
+}
+
+/// Appends to `parent` the copy of `node` and of its descendants, by hand
+/// rather than by recursion, as a page's tree can be deeper than a thread's
+/// stack allows one. Text beside text is one text node, as a parse makes
+/// it; a comment is kept, and what htmd never reads (a doctype, a template's
+/// contents, which are no child of it) is not.
+fn copy(node: NodeRef<'_>, parent: &Rc<Node>) {
+    let mut next = vec![(node, Rc::clone(parent))];
+    while let Some((node, parent)) = next.pop() {
+        let copied = node.query(|tree_node| match &tree_node.data {
+            PageData::Text { contents } => {
+                let children = parent.children.borrow();
+                if let Some(NodeData::Text { contents: last }) =
+                    children.last().map(|last| &last.data)
+                {
+                    last.borrow_mut().push_tendril(contents);
+                    return None;
+                }
+                drop(children);
+                Some(Node::new(NodeData::Text {
+                    contents: contents.clone().into(),
+                }))
+            }
+            PageData::Comment { contents } => Some(Node::new(NodeData::Comment {
+                contents: contents.clone(),
+            })),
+            PageData::Element(page_element) => Some(element(
+                QualName::new(
+                    page_element.name.prefix.clone(),
+                    page_element.name.ns.clone(),
+                    page_element.name.local.clone(),
+                ),
+                page_element
+                    .attrs
+                    .iter()
+                    .map(|attribute| Attribute {
+                        name: QualName::new(
+                            attribute.name.prefix.clone(),
+                            attribute.name.ns.clone(),
+                            attribute.name.local.clone(),
+                        ),
+                        value: attribute.value.clone(),
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        });
+        let Some(copied) = copied.flatten() else {
+            continue;
+        };
+        append(&parent, Rc::clone(&copied));
+        if node.is_element() {
+            next.extend(
+                node.children_it(true)
+                    .map(|child| (child, Rc::clone(&copied))),
+            );
+        }
     }
 }
 

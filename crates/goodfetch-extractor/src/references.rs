@@ -5,12 +5,16 @@
 //! (the `url` crate, ADR 0120's parser), a value that does not parse kept
 //! as written with no URL. The pass reads the HTML it is given as it
 //! stands, so a shadow root a browser serialized as a
-//! `<template shadowrootmode>` is read with its host's page.
+//! `<template shadowrootmode>` is read with its host's page. The images
+//! and media of a page the Clean-up rules changed are read from its tree
+//! instead, as the pass would read its serialization (ADR 0138).
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use dom_query::NodeRef;
+use goodfetch_counted_work::ParsedHtml;
 use goodfetch_protocol::page::{Image, Link, Media, MediaKind, MetaTag};
 use lol_html::html_content::{Element, TextChunk, TextType};
 use lol_html::{AsciiCompatibleEncoding, HandlerResult, HtmlRewriter, Settings, element, text};
@@ -395,4 +399,123 @@ fn attribute(html: &str, element: &Element<'_, '_>, name: &str) -> Option<String
         .and_then(|location| html.get(location.bytes()))
         .map_or_else(|| attribute.value(), ToOwned::to_owned);
     Some(decode(&value, Place::Attribute))
+}
+
+/// The images and media of `tree`, whose base URL is `base_url`, in
+/// document order, as [`references`] reads them from its serialization: a
+/// `<template>`'s contents in its place, an `<img src>` an image, and a
+/// `<video src>` or `<audio src>`, or a `<source src>` inside either, a
+/// medium of its kind.
+pub(crate) fn assets(tree: &ParsedHtml, base_url: &str) -> (Vec<Image>, Vec<Media>) {
+    let base = Url::parse(base_url).ok();
+    let resolve = |value: &str| {
+        base.as_ref()
+            .and_then(|base| base.join(value).ok())
+            .map(String::from)
+    };
+    let (mut images, mut media) = (Vec::new(), Vec::new());
+    // Depth first, by hand, as a page's tree can be deeper than a thread's
+    // stack allows a recursion: each element with the `<video>` and
+    // `<audio>` elements open around it.
+    let mut next: Vec<Visit<'_>> = tree.root().children_it(true).map(Visit::Enter).collect();
+    let mut open = Open::default();
+    while let Some(visit) = next.pop() {
+        let node = match visit {
+            Visit::Enter(node) => node,
+            Visit::Leave(kind) => {
+                open.leave(kind);
+                continue;
+            }
+        };
+        if !node.is_element() {
+            continue;
+        }
+        let name = node
+            .node_name()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        let src = node.attr("src").map(|src| src.to_string());
+        if let Some(src) = &src {
+            let source = name == "source";
+            if name == "img" {
+                images.push(Image {
+                    url: resolve(src),
+                    src: src.clone(),
+                    alt: node.attr("alt").map(|alt| alt.to_string()),
+                });
+            }
+            for (kind, element, inside) in [
+                (MediaKind::Video, "video", open.videos > 0),
+                (MediaKind::Audio, "audio", open.audios > 0),
+            ] {
+                if name == element || (source && inside) {
+                    media.push(Media {
+                        url: resolve(src),
+                        src: src.clone(),
+                        kind,
+                        media_type: node.attr("type").map(|kind| kind.to_string()),
+                    });
+                }
+            }
+        }
+        let kind = match name.as_str() {
+            "video" => Some(MediaKind::Video),
+            "audio" => Some(MediaKind::Audio),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            open.enter(kind);
+            next.push(Visit::Leave(kind));
+        }
+        next.extend(children(&node).into_iter().rev().map(Visit::Enter));
+    }
+    (images, media)
+}
+
+/// A step of [`assets`]' walk.
+enum Visit<'a> {
+    /// Into a node.
+    Enter(NodeRef<'a>),
+    /// Out of a `<video>` or an `<audio>`.
+    Leave(MediaKind),
+}
+
+/// The `<video>` and `<audio>` elements open around the walk.
+#[derive(Default)]
+struct Open {
+    videos: usize,
+    audios: usize,
+}
+
+impl Open {
+    fn enter(&mut self, kind: MediaKind) {
+        match kind {
+            MediaKind::Video => self.videos += 1,
+            MediaKind::Audio => self.audios += 1,
+        }
+    }
+
+    fn leave(&mut self, kind: MediaKind) {
+        match kind {
+            MediaKind::Video => self.videos -= 1,
+            MediaKind::Audio => self.audios -= 1,
+        }
+    }
+}
+
+/// The children of `node` in order, a `<template>`'s being its contents',
+/// as its serialization writes them.
+fn children<'a>(node: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
+    let contents = node
+        .query(|tree_node| {
+            tree_node
+                .as_element()
+                .and_then(|element| element.template_contents)
+        })
+        .flatten();
+    let mut children: Vec<NodeRef<'a>> = node.children_it(false).collect();
+    if let Some(contents) = contents.and_then(|id| node.tree.get(&id)) {
+        children.extend(contents.children_it(false));
+    }
+    children
 }

@@ -10,11 +10,14 @@
 //! rs-trafilatura reads its serialization until its vendored fork gains a
 //! document entry (#1916).
 
+use std::fmt::{self, Debug, Formatter};
+
+use dom_query::{NodeId, NodeRef};
 use dom_smoothie::Readability;
 use goodfetch_counted_work::ParsedHtml;
 
 /// A main-content step: the document's tree in, which it consumes, its
-/// main content out as HTML and as text.
+/// main content out as a tree and as text.
 pub trait Extractor: Sync {
     /// The main content of `document`, the tree of the page at `url`; none
     /// when the step finds none. A document with no text outside its
@@ -23,30 +26,110 @@ pub trait Extractor: Sync {
     fn main_content(&self, document: ParsedHtml, url: &str) -> Option<Found>;
 }
 
-/// The main content a step found: its HTML, and its text as a tree of
-/// that HTML holds it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The main content a step found: its tree, which the formats read (its
+/// Markdown, text and "fit"), its HTML as the step wrote it, when it wrote
+/// it, and its text.
 pub struct Found {
-    /// Its HTML.
-    pub html: String,
+    /// Its tree.
+    pub(crate) article: Article,
     /// Its text, white space as the HTML holds it.
-    pub text: String,
+    pub(crate) text: String,
 }
 
 impl Found {
-    /// The main content `html`, its text read from a tree of it: what a
-    /// step that answers HTML alone answers.
+    /// The main content `html`, read from a tree of it: what a step that
+    /// answers HTML alone answers, its HTML kept as it wrote it.
     #[must_use]
     #[expect(
         clippy::disallowed_types,
         reason = "ADR 0140: a raw parse of a step's answer, no page's; an Extractor Plugin's answer parses on its own row (F1.plugin_answer_parses)"
     )]
     pub fn of_html(html: String) -> Self {
-        let text = dom_query::Document::fragment(html.as_str())
-            .root()
-            .text()
-            .to_string();
-        Self { html, text }
+        let tree = dom_query::Document::fragment(html.as_str());
+        let root = tree.root();
+        // A fragment's nodes are the children of the `<html>` its parse
+        // puts them in.
+        let root = root
+            .element_children()
+            .into_iter()
+            .find(|child| child.has_name("html"))
+            .unwrap_or(root)
+            .id;
+        let text = tree.root().text().to_string();
+        Self {
+            article: Article {
+                tree,
+                root,
+                whole: false,
+                html: Some(html),
+            },
+            text,
+        }
+    }
+
+    /// Its text, white space as the HTML holds it.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+impl Debug for Found {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Found")
+            .field("text", &self.text)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The tree a main content is read from: an element of a tree, and the
+/// main content that element itself, or its children alone.
+pub(crate) struct Article {
+    /// The tree that holds it.
+    pub(crate) tree: ParsedHtml,
+    /// The element in it.
+    pub(crate) root: NodeId,
+    /// Whether the main content is that element, rather than its children.
+    pub(crate) whole: bool,
+    /// Its HTML as a step wrote it; none when it wrote none.
+    pub(crate) html: Option<String>,
+}
+
+impl Article {
+    /// The main content's tree, the copy of a page's tree the landmarks
+    /// were taken out of: the children of `root`, its body.
+    pub(crate) fn children_of(tree: ParsedHtml, root: NodeId) -> Self {
+        Self {
+            tree,
+            root,
+            whole: false,
+            html: None,
+        }
+    }
+
+    /// The element it is read from.
+    pub(crate) fn root(&self) -> NodeRef<'_> {
+        NodeRef::new(self.root, &self.tree.tree)
+    }
+
+    /// Its nodes, in order: its element, or the element's children.
+    pub(crate) fn nodes(&self) -> Vec<NodeRef<'_>> {
+        let root = self.root();
+        if self.whole {
+            vec![root]
+        } else {
+            root.children_it(false).collect()
+        }
+    }
+
+    /// Its HTML: as the step wrote it, else its tree serialized.
+    pub(crate) fn html(&self) -> String {
+        match &self.html {
+            Some(html) => html.clone(),
+            None if self.whole => self.root().html().to_string(),
+            None => self.root().inner_html().to_string(),
+        }
     }
 }
 
@@ -93,16 +176,30 @@ impl Extractor for DomSmoothie {
         let url = Readability::with_document(ParsedHtml::default(), Some(url), None)
             .is_ok()
             .then_some(url);
-        let article = Readability::with_document(document, url, None)
-            .ok()?
-            .parse()
-            .ok()?;
+        let mut readability = Readability::with_document(document, url, None).ok()?;
+        let article = readability.parse().ok()?;
+        // The step's answer is its element `#readability-page-1`, the first
+        // of that ID, in the tree it leaves.
+        let root = readability
+            .doc
+            .root()
+            .descendants_it()
+            .find(|node| node.is_element() && node.id_attr().as_deref() == Some(ARTICLE_ID))?
+            .id;
         Some(Found {
-            html: article.content.to_string(),
+            article: Article {
+                tree: readability.doc,
+                root,
+                whole: true,
+                html: Some(article.content.to_string()),
+            },
             text: article.text_content.to_string(),
         })
     }
 }
+
+/// The ID of the element dom-smoothie answers its main content in.
+const ARTICLE_ID: &str = "readability-page-1";
 
 /// rs-trafilatura's step, keeping what the Markdown converter writes:
 /// tables, images, links and inline formatting. Its fallback is off, and

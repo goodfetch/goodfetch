@@ -87,19 +87,13 @@ pub(crate) fn matched_in(
     matcher: &dom_query::Matcher,
     controls: &dom_query::Matcher,
 ) -> Vec<Matched> {
-    // The ids an element names in `aria-controls`: what a button or a tab
-    // shows and hides.
-    let controlled: HashSet<String> = document
-        .select_matcher(controls)
-        .nodes()
-        .iter()
-        .filter_map(|control| control.attr("aria-controls"))
-        .flat_map(|ids| {
-            ids.split_ascii_whitespace()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let controlled = controlled_ids(
+        document
+            .select_matcher(controls)
+            .nodes()
+            .iter()
+            .filter_map(|control| control.attr("aria-controls")),
+    );
     let selection = document.select_matcher(matcher);
     selection
         .nodes()
@@ -113,29 +107,87 @@ pub(crate) fn matched_in(
                         .node_name()
                         .map(|name| name.to_ascii_lowercase())
                         .unwrap_or_default(),
-                    attributes: attributes(&element),
                     controlled: element
                         .attr("id")
                         .is_some_and(|id| controlled.contains(id.as_ref())),
+                    attributes: attributes(&element),
                 })
                 .collect();
-            let markup = Seen::in_markup(chain.iter().map(|held| Markup {
-                name: &held.name,
-                attributes: &held.attributes,
-                controlled: held.controlled,
-            }));
-            Matched {
-                href: node.attr("href").map(|href| href.to_string()),
-                text: node.text().to_string(),
-                attributes: chain
-                    .into_iter()
-                    .next()
-                    .map(|own| own.attributes)
-                    .unwrap_or_default(),
-                sight: Sight::Markup(markup),
-            }
+            judged(
+                chain,
+                node.attr("href").map(|href| href.to_string()),
+                node.text().to_string(),
+            )
         })
         .collect()
+}
+
+/// Each element of `matched`, which the streaming path read, as
+/// [`matched_in`] reads it on the tree, `controls` being what
+/// [`CONTROLS`] matched.
+pub(crate) fn matched_streamed(
+    matched: Vec<goodfetch_extractor::Streamed>,
+    controls: &[goodfetch_extractor::Streamed],
+) -> Vec<Matched> {
+    let controlled = controlled_ids(
+        controls
+            .iter()
+            .filter_map(|control| control.held.first()?.attr("aria-controls")),
+    );
+    matched
+        .into_iter()
+        .map(|streamed| {
+            let href = streamed
+                .held
+                .first()
+                .and_then(|own| own.attr("href"))
+                .map(str::to_owned);
+            let chain = streamed
+                .held
+                .into_iter()
+                .map(|held| Held {
+                    controlled: held.attr("id").is_some_and(|id| controlled.contains(id)),
+                    name: held.name,
+                    attributes: held.attributes,
+                })
+                .collect();
+            judged(chain, href, streamed.text)
+        })
+        .collect()
+}
+
+/// The ids elements name in `aria-controls`, each of `named`: what a
+/// button or a tab shows and hides.
+fn controlled_ids<T: AsRef<str>>(named: impl Iterator<Item = T>) -> HashSet<String> {
+    named
+        .flat_map(|ids| {
+            ids.as_ref()
+                .split_ascii_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The element `chain` starts, then each element holding it outward, with
+/// its `href` and text, and what its markup states of whether a person
+/// sees it.
+fn judged(chain: Vec<Held>, href: Option<String>, text: String) -> Matched {
+    let markup = Seen::in_markup(chain.iter().map(|held| Markup {
+        name: &held.name,
+        attributes: &held.attributes,
+        controlled: held.controlled,
+    }));
+    Matched {
+        href,
+        text,
+        attributes: chain
+            .into_iter()
+            .next()
+            .map(|own| own.attributes)
+            .unwrap_or_default(),
+        sight: Sight::Markup(markup),
+    }
 }
 
 /// One element of a served document as its markup states it: its tag name,
@@ -311,6 +363,17 @@ pub(crate) fn first_elements_in(
             })
         })
         .collect()
+}
+
+/// The field element the streaming path read as `streamed`, as
+/// [`first_elements_in`] reads one on the tree.
+pub(crate) fn field_streamed(streamed: goodfetch_extractor::Streamed) -> Option<FieldElement> {
+    let own = streamed.held.into_iter().next()?;
+    Some(FieldElement {
+        tag: own.name,
+        text: streamed.text,
+        attributes: own.attributes,
+    })
 }
 
 /// What a browser page answered [`FIELDS_READ`]: its base URL, and the

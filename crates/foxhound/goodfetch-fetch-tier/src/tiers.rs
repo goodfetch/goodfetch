@@ -292,8 +292,16 @@ struct Decoded {
     read: Option<Read>,
     /// Its text: empty for a response holding no document.
     html: String,
-    /// The tree of `html`, the one parse of the document.
-    tree: goodfetch_counted_work::ParsedHtml,
+    /// What the readers of its untouched page read it on.
+    untouched: Untouched,
+}
+
+/// What the readers of a document's untouched page read it on.
+enum Untouched {
+    /// The tree of its text, the one parse of the document.
+    Tree(goodfetch_counted_work::ParsedHtml),
+    /// What they read of it in one streaming pass, with no tree.
+    Streamed(untouched::StreamRead),
 }
 
 impl Decoded {
@@ -301,8 +309,13 @@ impl Decoded {
     /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
-    /// document.
-    fn of(run: &Run, fetched: &crate::driver::Fetched, forced: Option<&'static Encoding>) -> Self {
+    /// document. `readers` read it in one streaming pass when they can,
+    /// else on its tree.
+    fn of(
+        run: &Run,
+        fetched: &crate::driver::Fetched,
+        (forced, readers): (Option<&'static Encoding>, &UntouchedReaders),
+    ) -> Self {
         let url = fetched.url.as_str();
         let header = fetched
             .headers
@@ -333,16 +346,20 @@ impl Decoded {
                 encoding_rs::UTF_8,
             ),
         };
-        let tree = run
-            .metrics()
-            .counted_work()
-            .parse_html(Row::PageParses, &html);
+        let untouched = match readers.stream(&html) {
+            Some(streamed) => Untouched::Streamed(streamed),
+            None => Untouched::Tree(
+                run.metrics()
+                    .counted_work()
+                    .parse_html(Row::PageParses, &html),
+            ),
+        };
         Self {
             not_document,
             encoding,
             read,
             html,
-            tree,
+            untouched,
         }
     }
 
@@ -358,7 +375,10 @@ impl Decoded {
         if self.not_document.is_some() {
             return crate::refresh::in_markup(&fetched.url, &fetched.body, work);
         }
-        readers.refresh(&fetched.url, &self.tree)
+        match &self.untouched {
+            Untouched::Tree(tree) => readers.refresh(&fetched.url, tree),
+            Untouched::Streamed(streamed) => streamed.refresh(&fetched.url),
+        }
     }
 
     /// The served page's read of this document, which `fetched` answered
@@ -377,32 +397,46 @@ impl Decoded {
             encoding,
             read,
             html,
-            tree,
+            untouched,
         } = self;
         let url = fetched.url.to_string();
-        let base_url = goodfetch_frontier::document_base(&url, readers.base_href(&tree).as_deref())
+        let base_href = match &untouched {
+            Untouched::Tree(tree) => readers.base_href(tree),
+            Untouched::Streamed(streamed) => streamed.base_href(),
+        };
+        let base_url = goodfetch_frontier::document_base(&url, base_href.as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
-        let use_signals = readers.use_signals(
-            UseSignals::of(&fetched.headers),
-            (&html, &tree),
-            &fetched.url,
-        );
-        let untouched = if own {
-            let work = run.metrics().counted_work();
-            readers.read(tree, (&url, &base_url), |tree| {
-                goodfetch_extractor::page_signature_of(
-                    tree,
-                    &goodfetch_extractor::Document {
-                        html: &html,
-                        url: &url,
-                        base_url: &base_url,
-                        serialization: goodfetch_extractor::Serialization::Served,
-                    },
-                    work,
-                )
-            })
-        } else {
-            untouched::Read::default()
+        let signals = UseSignals::of(&fetched.headers);
+        let (use_signals, untouched) = match untouched {
+            Untouched::Tree(tree) => {
+                let use_signals = readers.use_signals(signals, (&html, &tree), &fetched.url);
+                let untouched = if own {
+                    let work = run.metrics().counted_work();
+                    readers.read(tree, (&url, &base_url), |tree| {
+                        goodfetch_extractor::page_signature_of(
+                            tree,
+                            &goodfetch_extractor::Document {
+                                html: &html,
+                                url: &url,
+                                base_url: &base_url,
+                                serialization: goodfetch_extractor::Serialization::Served,
+                            },
+                            work,
+                        )
+                    })
+                } else {
+                    untouched::Read::default()
+                };
+                (use_signals, untouched)
+            }
+            Untouched::Streamed(streamed) => (
+                UntouchedReaders::streamed_use_signals(signals, &fetched.url),
+                if own {
+                    readers.read_streamed(streamed, &url)
+                } else {
+                    untouched::Read::default()
+                },
+            ),
         };
         let links = fetched
             .headers
@@ -438,7 +472,7 @@ impl Opened {
         (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
         (readers, own): (&UntouchedReaders, bool),
     ) -> Self {
-        Decoded::of(run, fetched, forced).opened(run, fetched, (extractor, readers, own))
+        Decoded::of(run, fetched, (forced, readers)).opened(run, fetched, (extractor, readers, own))
     }
 }
 
@@ -460,7 +494,7 @@ impl Reading for OpenedReading {
         fetched: &crate::driver::Fetched,
         follows: &dyn Fn(&crate::refresh::Refresh) -> bool,
     ) -> HopRead<Opened> {
-        let decoded = Decoded::of(&self.run, fetched, self.forced);
+        let decoded = Decoded::of(&self.run, fetched, (self.forced, &self.readers));
         let work = self.run.metrics().counted_work();
         if let Some(refresh) = decoded
             .refresh(fetched, &self.readers, work)

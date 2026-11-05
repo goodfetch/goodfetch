@@ -261,6 +261,17 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 }
 
+/// A crawl that needs no tree, asking for no format with learning off,
+/// reads each page's links and fields in one streaming pass: it parses no
+/// page (#1911).
+#[test]
+fn a_crawl_that_needs_no_tree_parses_no_page() {
+    assert_eq!(
+        parses(&json!({ "frontier": { "learning": false } }), false),
+        0
+    );
+}
+
 /// The parses of a crawl with `settings` and, when `planted`, one more parse
 /// per page served through the one counted function, each on its own engine.
 fn parses(settings: &Value, planted: bool) -> u64 {

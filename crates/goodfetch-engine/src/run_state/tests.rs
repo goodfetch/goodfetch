@@ -17,7 +17,7 @@ use rusqlite::Connection;
 
 use super::{
     DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions,
-    RunStateTables, Syncing, open_reader,
+    RunStateTables, Syncing, open_reader, unclean,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -156,6 +156,91 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     });
 
     assert_eq!(pragmas, ("wal".to_owned(), "1".to_owned()));
+}
+
+/// `run_state.durability = off` syncs nothing but its "unclean" mark (ADR
+/// 0138): the writer commits with `synchronous=OFF`, the file holds the mark
+/// while the writer runs, and its clean stop, the writer's last write,
+/// clears it.
+///
+/// Covers: story:3-27, setting:run_state.durability
+#[test]
+fn a_run_file_at_off_commits_unsynced_and_holds_its_unclean_mark_until_its_clean_stop() {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        durability: Durability::Off,
+        ..RunStateOptions::default()
+    };
+    let path = env.folder().join("run.sqlite");
+    let marked = || unclean(&path, None, Durability::Off).unwrap();
+
+    let (synchronous, running) = with_writer_options(&env, &options, async |state| {
+        let synchronous = state.write(pragma("synchronous")).await.unwrap();
+        let running = marked();
+        state.write_last(insert(1)).await.unwrap();
+        (synchronous, running)
+    });
+
+    assert_eq!(
+        (synchronous.as_str(), running, marked()),
+        ("0", true, false)
+    );
+}
+
+/// A writer at `off` that ends without its clean stop, as a crash ends it,
+/// leaves the mark; a file below `off` never holds it (ADR 0138).
+///
+/// Covers: story:3-27
+#[rstest::rstest]
+#[case::off(Durability::Off, true)]
+#[case::full(Durability::Full, false)]
+#[case::fast(Durability::Fast, false)]
+fn a_writer_that_ends_without_its_clean_stop_leaves_the_mark_only_at_off(
+    #[case] durability: Durability,
+    #[case] left: bool,
+) {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        durability,
+        ..RunStateOptions::default()
+    };
+
+    with_writer_options(&env, &options, async |state| {
+        state.write(insert(1)).await.unwrap();
+    });
+
+    assert_eq!(
+        unclean(&env.folder().join("run.sqlite"), None, durability),
+        Ok(left)
+    );
+}
+
+/// `run_state.durability = periodic` commits as `fast` does, and syncs one
+/// group once `run_state.commit_interval` passed: an idle writer's timer
+/// syncs what it committed, and the next write commits unsynced again
+/// (ADR 0138).
+///
+/// Covers: story:3-27, setting:run_state.durability, setting:run_state.commit_interval
+#[test]
+fn at_periodic_commits_sync_once_the_interval_passed_even_with_the_writer_idle() {
+    let interval = Duration::from_secs(5);
+    let added = with_counted_writer(Durability::Periodic { interval }, async |state, vfs| {
+        let mut added = Vec::new();
+        for value in [1, 2] {
+            let before = vfs.syncs();
+            state.write(insert(value)).await.unwrap();
+            added.push(vfs.syncs() - before);
+        }
+        let before = vfs.syncs();
+        tokio::time::sleep(interval + interval / 2).await;
+        added.push(vfs.syncs() - before);
+        let before = vfs.syncs();
+        state.write(insert(3)).await.unwrap();
+        added.push(vfs.syncs() - before);
+        added
+    });
+
+    assert_eq!(added, vec![0, 0, 1, 0]);
 }
 
 /// The writer's page cache is bounded at `PAGE_CACHE_KIB`, so a Frontier

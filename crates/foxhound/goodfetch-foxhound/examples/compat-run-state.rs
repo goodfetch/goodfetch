@@ -43,8 +43,10 @@
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
-//! only argument: `crawl.sql`, `code-free.sql`, `aborted.sql` and
-//! `paused.sql`; and the
+//! only argument: `crawl.sql`, `code-free.sql`, `aborted.sql`,
+//! `paused.sql` and `unclean.sql`, a Run at `off` whose writer then opens
+//! its file again and ends as a crash ends it, without clearing its
+//! "unclean" mark; and the
 //! pause's real Checkpoint file, `checkpoint.sqlite`, as SQL text too,
 //! `checkpoint.sql`, which alone holds the chunks of a kept file, with the
 //! Checkpoint the pause reported, `checkpoint.json`, its location the file's name
@@ -64,9 +66,9 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::run_files::FileKind;
 use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
-use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::run_state::{Durability, RunState, RunStateOptions};
 use goodfetch_engine::runs::{EndedBy, Start, Started};
-use goodfetch_engine::tasks::BlockingPolicy;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
@@ -188,6 +190,12 @@ fn scenario() -> Vec<Value> {
                 "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
                 "extraction": { "formats": { "markdown": true }, "follow": "none" },
             }),
+        ),
+        // A Run at `off`, whose file the writer reopens below.
+        call(
+            17,
+            "run.start",
+            json!({ "run_id": "unclean", "settings": { "run_state": { "durability": "off" } } }),
         ),
         call(5, "compat.bound", json!({})),
         call(
@@ -680,6 +688,33 @@ fn line(message: &Value) -> Result<Vec<u8>, serde_json::Error> {
     Ok(line)
 }
 
+/// Opens the run file at `path` at `off` again and ends its writer without
+/// its clean stop, as a crash ends it: the file keeps its "unclean" mark
+/// (ADR 0138).
+async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let options = RunStateOptions {
+        durability: Durability::Off,
+        ..RunStateOptions::default()
+    };
+    let writer = RunState::open(path.to_owned(), &options, Vec::new(), 1, &owner).await?;
+    drop(writer);
+    owner.wait().await;
+    Ok(())
+}
+
+/// Writes each Run's file in `runs`, as SQL text, into `folder`.
+fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    for run_id in ["crawl", "code-free", "aborted", "paused", "unclean"] {
+        let connection = rusqlite::Connection::open(runs.join(run_id).join("run.sqlite"))?;
+        std::fs::write(
+            folder.join(format!("{run_id}.sql")),
+            goodfetch_test_support::sql_dump(&connection)?,
+        )?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder = PathBuf::from(
         std::env::args_os()
@@ -761,13 +796,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         talked
     })?;
     let runs = home.path().join("0.0").join("runs");
-    for run_id in ["crawl", "code-free", "aborted", "paused"] {
-        let connection = rusqlite::Connection::open(runs.join(run_id).join("run.sqlite"))?;
-        std::fs::write(
-            folder.join(format!("{run_id}.sql")),
-            goodfetch_test_support::sql_dump(&connection)?,
-        )?;
-    }
+    runtime.block_on(leave_unclean(&runs.join("unclean").join("run.sqlite")))?;
+    dump_run_files(&runs, &folder)?;
     std::fs::copy(
         runs.join("paused").join("checkpoint.sqlite"),
         folder.join("checkpoint.sqlite"),

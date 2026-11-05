@@ -6672,6 +6672,17 @@
       ]
     },
     {
+      "id": "setting:extraction.removal_share",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:fetch.coalesce",
       "kind": "setting",
       "area": 3,

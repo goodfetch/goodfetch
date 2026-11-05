@@ -75,8 +75,8 @@ use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
-    BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
-    PageResponse, SessionId,
+    BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
+    PageId, PageResponse, SessionId,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -406,6 +406,7 @@ impl Decoded {
                         base_url: &base_url,
                         serialization: goodfetch_extractor::Serialization::Served,
                     },
+                    chosen_extractor(run, extractor).extractor(),
                     work,
                 )
             })
@@ -1249,6 +1250,7 @@ impl FetchTiers {
         let served = ServedDocument::clone(&served);
         let run = served.run.clone();
         let work = run.metrics().counted_work().clone();
+        let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
             .analysis(move || {
@@ -1259,6 +1261,7 @@ impl FetchTiers {
                         base_url: &served.base_url,
                         serialization: goodfetch_extractor::Serialization::Served,
                     },
+                    extractor.extractor(),
                     &work,
                 );
                 let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
@@ -2464,4 +2467,18 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
             retry_after,
         },
     )
+}
+
+/// The Extractor a page of `run` is signed with, as its formats read its
+/// main content: its Label's `content.extractor`, `label`, else the Run's;
+/// dom-smoothie without either (ADR 0138).
+fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
+    label
+        .or_else(|| {
+            run.settings()
+                .map(|settings| settings.resolved().value(CONTENT_EXTRACTOR.name))
+                .and_then(serde_json::Value::as_str)
+                .and_then(BuiltIn::named)
+        })
+        .unwrap_or_default()
 }

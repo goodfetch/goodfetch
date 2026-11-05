@@ -145,15 +145,16 @@ pub fn measured_formats(
     // The clean-up removes in place on one tree of the page, serialized only
     // when it removed something, for the readers that read the cleaned page
     // as text (ADR 0138).
-    let cleaned = context
-        .clean_up
-        .filter(|_| plan.runs(Reader::CleanUp))
-        .and_then(|clean_up| {
+    let (tree, cleaned) = match context.clean_up.filter(|_| plan.runs(Reader::CleanUp)) {
+        Some(clean_up) => {
             let tree = context.work.parse_html(Row::PageParses, document.html);
-            clean_up
+            let cleaned = clean_up
                 .remove(&tree, document.url)
-                .then(|| tree.html().to_string())
-        });
+                .then(|| tree.html().to_string());
+            (Some(tree), cleaned)
+        }
+        None => (None, None),
+    };
     let cleaned = cleaned.as_deref().unwrap_or(document.html);
     let seen = if plan.runs(Reader::CleanUp) {
         composed(cleaned)
@@ -161,10 +162,16 @@ pub fn measured_formats(
         Cow::Borrowed(cleaned)
     };
     // The main-content step runs only for a format read from its answer
-    // (story 8): outside, none read; inside, none found.
-    let read_main = plan
-        .runs(Reader::MainContent)
-        .then(|| main_content(&seen, document.url, context.extractor, &context.work));
+    // (story 8): outside, none read; inside, none found. It reads the clean-up's
+    // tree, last, as it consumes it, when composing the shadow roots left the
+    // cleaned page as it was; else one tree of the page as a person sees it.
+    let read_main = plan.runs(Reader::MainContent).then(|| {
+        let tree = match (tree, &seen) {
+            (Some(tree), Cow::Borrowed(_)) => tree,
+            _ => context.work.parse_html(Row::PageParses, &seen),
+        };
+        main_content(tree, document.url, context.extractor, &context.work)
+    });
     let main = read_main.as_ref().and_then(Option::as_ref);
     let main_html = main.map(|(html, _)| html.as_str());
     let of_main = |read: fn(&str) -> String| main_html.map(read).unwrap_or_default();
@@ -281,14 +288,17 @@ impl Serialization {
 
 /// The length of the text of the main content `extractor` finds in
 /// `document`, white space aside, in characters, its shadow roots' text
-/// included; 0 when it has none: how a caller measures what
-/// extraction-side removal took of it (ADR 0047).
+/// included; 0 when it has none: how a caller measures exactly what
+/// extraction-side removal took of it (ADR 0047's share under
+/// `extraction.removal_share: exact`), at the cost of one parse and one run
+/// of the step, on `F1.share_readability_runs`.
 pub fn main_content_length(
     document: &Document<'_>,
     extractor: &dyn Extractor,
     work: &CountedWork,
 ) -> usize {
-    main_text_length(&composed(document.html), document.url, extractor, work)
+    let tree = work.parse_html(Row::PageParses, &composed(document.html));
+    main_text_length(tree, document.url, extractor, work)
 }
 
 /// The fuzz target of the HTML entry point (ADR 0067): reads `data` as a

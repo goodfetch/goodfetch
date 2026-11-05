@@ -54,6 +54,12 @@ pub enum Row {
     PagePluginSerializations,
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
     PagePluginAnswerParses,
+    /// `F1.tree_copies`: a copy of a fetched page's tree, made for a reader
+    /// after a step that consumes it.
+    PageTreeCopies,
+    /// `F1.share_readability_runs`: a run of the main-content step on a
+    /// fetched page as served, for ADR 0047's exact share.
+    PageShareReadabilityRuns,
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies,
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
@@ -274,7 +280,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 97] = [
+    pub const ALL: [Self; 99] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -282,6 +288,8 @@ impl Row {
         Self::PageLocaleFormBuilds,
         Self::PagePluginSerializations,
         Self::PagePluginAnswerParses,
+        Self::PageTreeCopies,
+        Self::PageShareReadabilityRuns,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
         Self::HookMessagesNoHook,
@@ -386,7 +394,9 @@ impl Row {
             | Self::PageFileOpens
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
-            | Self::PagePluginAnswerParses => "page_analysis",
+            | Self::PagePluginAnswerParses
+            | Self::PageTreeCopies
+            | Self::PageShareReadabilityRuns => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
@@ -487,6 +497,8 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
+            Self::PageTreeCopies => "tree_copies",
+            Self::PageShareReadabilityRuns => "share_readability_runs",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
@@ -569,6 +581,10 @@ impl Row {
     /// for a hop's, a sitemap's or a Payload's own count of a row that has
     /// several outcomes, the row with its outcome (`F3.compilations.hop`).
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm a row, each the Quality register's name of it: a list read at a glance"
+    )]
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
@@ -578,6 +594,8 @@ impl Row {
             Self::PageLocaleFormBuilds => "F1.locale_form_builds",
             Self::PagePluginSerializations => "F1.plugin_serializations",
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
+            Self::PageTreeCopies => "F1.tree_copies",
+            Self::PageShareReadabilityRuns => "F1.share_readability_runs",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
             Self::HookMessagesNoHook => "F5.messages_no_hook",
@@ -721,6 +739,14 @@ impl CountedWork {
     pub fn parse_html(&self, row: Row, html: &str) -> ParsedHtml {
         self.count(row);
         dom_query::Document::from(html)
+    }
+
+    /// A copy of the tree `tree`, counted on `row`: the one function a parsed
+    /// tree is copied through (ADR 0138), never a parse.
+    #[must_use]
+    pub fn copy_tree(&self, row: Row, tree: &ParsedHtml) -> ParsedHtml {
+        self.count(row);
+        tree.clone()
     }
 
     /// `selector` compiled, counted on `row`, none when it is no selector: the

@@ -59,7 +59,7 @@ fn a_compilation_or_an_opening_counts_one_on_its_row_and_answers_as_the_raw_call
 }
 
 /// Each row's name, in `Row::ALL`'s order.
-const NAMES: [&str; 97] = [
+const NAMES: [&str; 99] = [
     "F1.parses",
     "F1.selector_compilations",
     "F1.readability_runs",
@@ -67,6 +67,8 @@ const NAMES: [&str; 97] = [
     "F1.locale_form_builds",
     "F1.plugin_serializations",
     "F1.plugin_answer_parses",
+    "F1.tree_copies",
+    "F1.share_readability_runs",
     "E1.deep_copies",
     "E1.encodes",
     "F5.messages_no_hook",

@@ -6,7 +6,10 @@
 //! converter only. Each call is a Provenance entry of the Run trace: the
 //! version of the rules applied, what they removed and, when the call read
 //! the main content, the share of its text the removal took, flagged above
-//! a fifth (G6).
+//! a fifth (G6), and how that share was measured: `estimate` by default, an
+//! upper bound read from what the removal took, or `exact` under
+//! `extraction.removal_share: exact`, one more main-content step on the page
+//! as served (ADR 0138).
 
 use std::cell::RefCell;
 
@@ -16,7 +19,9 @@ use goodfetch_engine::settings::{Resolved, Values};
 use goodfetch_extractor::{
     BuiltIn, CleanUp, Context, Demand, Document, Extractor, Measured, Plan, Reader, Serialization,
 };
-use goodfetch_protocol::page::{CONTENT_EXTRACTOR, FormatsRequest, PageFormats, PageId, SessionId};
+use goodfetch_protocol::page::{
+    CONTENT_EXTRACTOR, EXTRACTION_REMOVAL_SHARE, FormatsRequest, PageFormats, PageId, SessionId,
+};
 use serde_json::{Value, json};
 
 use crate::driver::SerializedDocument;
@@ -33,6 +38,44 @@ pub(super) struct FormatsRead {
     /// What the removal took of the main content's text; none when it took
     /// nothing.
     share: Option<Share>,
+    /// How the share was measured.
+    measure: ShareMeasure,
+}
+
+/// How a call measures ADR 0047's share, as `extraction.removal_share`
+/// chooses (ADR 0138).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ShareMeasure {
+    /// The text removed over that text plus the main content's text left:
+    /// an upper bound of the exact share, so it never misses a removal the
+    /// exact one flags, read with no second main-content step.
+    #[default]
+    Estimate,
+    /// The main content's text of the page as served against the cleaned
+    /// page's: one more main-content step.
+    Exact,
+}
+
+impl ShareMeasure {
+    /// The measure the Run's resolved settings `run` choose; the estimate
+    /// without any.
+    pub(super) fn of(run: Option<&Resolved>) -> Self {
+        match run
+            .map(|run| run.value(EXTRACTION_REMOVAL_SHARE.name))
+            .and_then(Value::as_str)
+        {
+            Some("exact") => Self::Exact,
+            _ => Self::Estimate,
+        }
+    }
+
+    /// Its name, as the setting and Provenance write it.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Estimate => "estimate",
+            Self::Exact => "exact",
+        }
+    }
 }
 
 impl FormatsRead {
@@ -57,6 +100,7 @@ impl FormatsRead {
             "removed_text": self.removed_text,
             "main_content": self.share.map(|share| json!({ "before": share.before, "after": share.after })),
             "share": share.taken(),
+            "share_measure": self.measure.name(),
             "flagged": share.flagged(),
         })
     }
@@ -127,14 +171,15 @@ pub(super) fn extractor(
 /// The formats `request` names, read from `document`, serialized as
 /// `serialization` says, its main content found by `extractor`, the
 /// cosmetic rules `cosmetic` holds and the runner's rules of the selectors
-/// `hidden` applied before its main content, and what they did; none when
-/// the request reads nothing of the cleaned page, so that no rule ran and
-/// Provenance has no line of it (ADR 0138).
+/// `hidden` applied before its main content, and what they did, its share
+/// measured as `measure` says; none when the request reads nothing of the
+/// cleaned page, so that no rule ran and Provenance has no line of it
+/// (ADR 0138).
 pub(super) fn read(
     document: &SerializedDocument,
     serialization: Serialization,
     request: FormatsRequest,
-    extractor: &dyn Extractor,
+    (extractor, measure): (&dyn Extractor, ShareMeasure),
     (cosmetic, hidden): (Option<&Cosmetic>, &[String]),
     work: &CountedWork,
 ) -> (PageFormats, Option<FormatsRead>) {
@@ -163,13 +208,20 @@ pub(super) fn read(
     let (removed, removed_text, share) = match removal {
         Some(removal) if !removal.removed.is_empty() => {
             // The formats read the main content of the document the rules
-            // left; the share needs the served one's too. A call that read
-            // no main content measures no share (story 8).
+            // left. The estimate takes the text they removed as what the
+            // main content lost; the exact share reads the served
+            // document's main content too. A call that read no main content
+            // measures no share (story 8).
             let share = main_content_length.map(|after| {
-                Share::of(
-                    goodfetch_extractor::main_content_length(&of(&document.html), extractor, work),
-                    after,
-                )
+                let before = match measure {
+                    ShareMeasure::Estimate => removal.removed_text + after,
+                    ShareMeasure::Exact => goodfetch_extractor::main_content_length(
+                        &of(&document.html),
+                        extractor,
+                        work,
+                    ),
+                };
+                Share::of(before, after)
             });
             (removal.removed, removal.removed_text, share)
         }
@@ -186,6 +238,7 @@ pub(super) fn read(
         removed,
         removed_text,
         share,
+        measure,
     });
     (formats, read)
 }

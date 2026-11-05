@@ -93,6 +93,8 @@ fn counted(row: Row, options: Options) -> u64 {
 #[case::locale_form_builds(Row::PageLocaleFormBuilds)]
 #[case::plugin_serializations(Row::PagePluginSerializations)]
 #[case::plugin_answer_parses(Row::PagePluginAnswerParses)]
+#[case::tree_copies(Row::PageTreeCopies)]
+#[case::share_readability_runs(Row::PageShareReadabilityRuns)]
 fn a_planted_unit_of_a_page_analysis_row_adds_one_a_page(#[case] row: Row) {
     let default = counted(row, Options::default());
     let metrics = Metrics::none();

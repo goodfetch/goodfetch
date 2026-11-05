@@ -1039,6 +1039,26 @@ fn dom_smoothie() -> serde_json::Value {
     serde_json::Value::String("dom_smoothie".to_owned())
 }
 
+/// The values `extraction.removal_share` takes (ADR 0138).
+pub const REMOVAL_SHARES: &[&str] = &["estimate", "exact"];
+
+/// `extraction.removal_share` (ADR 0138): how a `page.formats` call
+/// measures ADR 0047's share of its main content the Clean-up rules took.
+pub const EXTRACTION_REMOVAL_SHARE: Setting = Setting {
+    name: "extraction.removal_share",
+    description: "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+    kind: ValueKind::Choice(REMOVAL_SHARES),
+    default: estimate,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn estimate() -> serde_json::Value {
+    serde_json::Value::String("estimate".to_owned())
+}
+
 /// The name the Run trace's request log records a service worker's own
 /// request under, beside its pages' events (ADR 0121): no page sent it, so
 /// no page's event reports it.
@@ -1752,6 +1772,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_SERVICE_WORKERS,
         LIVE_VIEW_HIDING,
         CONTENT_EXTRACTOR,
+        EXTRACTION_REMOVAL_SHARE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

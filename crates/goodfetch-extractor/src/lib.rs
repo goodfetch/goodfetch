@@ -24,7 +24,7 @@ mod social;
 mod structured_data;
 mod tables;
 
-pub use extractor::{BuiltIn, Extractor};
+pub use extractor::{BuiltIn, Extractor, Found};
 pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
     main_content_length, measured_formats,

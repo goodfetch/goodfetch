@@ -12,6 +12,7 @@ mod metadata;
 mod properties;
 mod references;
 mod tables;
+mod tree;
 mod unicode;
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};

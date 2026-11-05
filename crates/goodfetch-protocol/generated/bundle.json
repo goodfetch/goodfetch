@@ -18549,6 +18549,19 @@
                 },
                 "type": "object"
               },
+              "extraction": {
+                "additionalProperties": false,
+                "properties": {
+                  "removal_share": {
+                    "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+                    "enum": [
+                      "estimate",
+                      "exact"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "fetch": {
                 "additionalProperties": false,
                 "properties": {
@@ -21188,6 +21201,19 @@
                       }
                     },
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "extraction": {
+                "additionalProperties": false,
+                "properties": {
+                  "removal_share": {
+                    "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+                    "enum": [
+                      "estimate",
+                      "exact"
+                    ]
                   }
                 },
                 "type": "object"
@@ -23847,6 +23873,19 @@
                       }
                     },
                     "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "extraction": {
+                "additionalProperties": false,
+                "properties": {
+                  "removal_share": {
+                    "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+                    "enum": [
+                      "estimate",
+                      "exact"
+                    ]
                   }
                 },
                 "type": "object"

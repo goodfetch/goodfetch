@@ -16,6 +16,20 @@ fn each_parse_counts_once_on_every_clone_and_no_other_value() {
     );
 }
 
+/// A parsed tree is `Send` (dom_query's `atomic` tendrils), so a page's one
+/// tree can move to the task that keeps it and be read there (#2109, #1918).
+#[test]
+fn a_parsed_tree_is_send_so_one_task_can_keep_it_and_read_it() {
+    fn moved<T: Send>(value: T) -> T {
+        value
+    }
+    let work = CountedWork::default();
+    let parsed = moved(work.parse_html(Row::PageParses, "<p class=one>one</p>"));
+
+    let paragraph = work.literal_selector(Row::PageSelectorCompilations, "p.one");
+    assert_eq!(parsed.select_matcher(&paragraph).text().as_ref(), "one");
+}
+
 #[test]
 fn a_row_is_named_as_the_register_names_it() {
     assert_eq!(Row::PageParses.name(), "F1.parses");

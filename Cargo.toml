@@ -85,7 +85,9 @@ expectrl = { version = "0.9.0", default-features = false }
 # Carried as Goodfetch's fork (the `[patch.crates-io]` below).
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
-dom_query = { version = "0.28.0", default-features = false }
+# `atomic`: its tendrils are atomic, so a page's tree is `Send` and can live
+# on one owner task (#1918; #2109).
+dom_query = { version = "0.28.0", default-features = false, features = ["atomic"] }
 # Its CSS tokenizer, on which the fetch tiers find the selector extensions
 # dom_query reads and a browser refuses; the version dom_query links.
 cssparser = { version = "0.37.0", default-features = false }

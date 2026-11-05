@@ -288,6 +288,7 @@ tier_race = true
 light_browser = true
 encoding = "example"
 coalesce = true
+block_classification = true
 
 [settings.fetch.sample]
 count = 4
@@ -342,6 +343,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.provenance]
+log = true
+
+[settings.dataset]
+records = true
 
 [settings.dataset.query]
 memory_limit = 4

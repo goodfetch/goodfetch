@@ -407,14 +407,14 @@ fn cells() -> [Cell; 10] {
             handler: false,
             limit: false,
         },
-        // robots.txt off and Politeness off take none of E6's work away yet:
-        // ADR 0138's "cost nothing" is the Shared paths spec's, and X19 waives
-        // it meanwhile, so neither cell removes a row.
+        // robots.txt off reads and parses no robots.txt (#1919). Politeness
+        // off takes none of E6's other work away yet: ADR 0138's "cost
+        // nothing" is the Shared paths spec's, and X19 waives it meanwhile.
         Cell {
             name: "robots_txt_off",
             settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
             frontier: None,
-            removes: &[],
+            removes: &[Row::RobotsParses, Row::RobotsReads],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -426,7 +426,7 @@ fn cells() -> [Cell; 10] {
                 "site_preferences": { "respect_robots_txt": false },
             }),
             frontier: None,
-            removes: &[],
+            removes: &[Row::RobotsParses, Row::RobotsReads],
             removes_syncs: false,
             handler: false,
             limit: false,

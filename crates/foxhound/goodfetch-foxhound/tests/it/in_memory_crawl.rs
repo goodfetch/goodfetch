@@ -212,9 +212,11 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     // The crawl asks for no format, so the demand plan runs no Clean-up and
     // its rules compile none of their 613 selectors, with the Filter lists on
     // or off (ADR 0138's demand plan, #1909). The untouched page's readers
-    // compile their 10 once a Run, and 4 still compile on every page (#1910).
-    // The Run holds its Provenance log's file, so no page opens one. #1577
-    // lowers the rest, and writes its figures here.
+    // compile their 9 once a Run (#1910; `base[href]`, which two of them
+    // read, once), and the main-content step's 5 and a handler's markup
+    // waits' 2 with them, into the engine's cache, which every page then
+    // reads: no page compiles any (#1912). The Run holds its Provenance log's
+    // file, so no page opens one.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
@@ -224,12 +226,13 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (pages, 10 + 4 * pages, 10 + 4 * pages, 0, 0, 1)
+        (pages, 16, 16, 0, 0, 1)
     );
 }
 
 /// A handler on a document tier waits on each page, which the tier answers from
-/// the page's own document: each wait counts its parse and its selector.
+/// the page's own document: each wait counts its parse, and its selector comes
+/// from the engine's cache, compiled once for the crawl.
 #[test]
 fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     let env = TestEnv::new();
@@ -248,16 +251,19 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // Two parses and four compilations of a page's three and eight are its
-    // waits', and the untouched page's readers compile 8 once a Run (#1910):
-    // #1577 lowers the rest, and writes its figures here.
+    // Two parses of a page's three are its waits' (#1918 lowers them). The
+    // untouched page's readers compile 7 once a Run (#1910; `base[href]`,
+    // which two of them read, once), and the main-content step's and the
+    // markup waits' 7 with them. The handler's own `h1` compiles once, at its
+    // first wait, into the engine's cache, which every later wait reads
+    // (#1912).
     assert_eq!(
         (
             crawled.handled,
             work.read(Row::PageParses),
             work.read(Row::PageSelectorCompilations),
         ),
-        (pages, 3 * pages, 8 + 8 * pages)
+        (pages, 3 * pages, 15)
     );
 }
 

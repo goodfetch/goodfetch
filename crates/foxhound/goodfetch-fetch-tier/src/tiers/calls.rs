@@ -87,7 +87,7 @@ use crate::served_calls::{Row, Verdict, verdict};
 use markup::{Shown, shown};
 use navigation::{Step, navigate};
 
-mod markup;
+pub(crate) mod markup;
 mod navigation;
 mod replayed;
 
@@ -414,7 +414,7 @@ pub(crate) fn matches(html: &str, selector: &str, work: &CountedWork) -> Option<
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = work.compile_selector(CountedRow::PageSelectorCompilations, selector)?;
+    let matcher = work.selector(CountedRow::PageSelectorCompilations, selector)?;
     let document = work.parse_html(CountedRow::PageParses, html);
     u64::try_from(document.select_matcher(&matcher).length()).ok()
 }

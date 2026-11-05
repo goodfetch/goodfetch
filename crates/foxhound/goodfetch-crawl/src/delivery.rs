@@ -615,6 +615,7 @@ impl Untouched {
     /// Run's, and the Page signature while the Run learns.
     fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
         let work = run.metrics().counted_work();
+        goodfetch_fetch_tier::compile_served_call_selectors(work);
         let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
         let demand = |page_check: Option<PageCheck>| UntouchedDemand {
             links: links.clone(),

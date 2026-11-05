@@ -164,7 +164,7 @@ pub(crate) fn matcher(
 ) -> Result<dom_query::Matcher, SelectorInvalid> {
     let invalid = || SelectorInvalid(selector.to_owned());
     let matcher = work
-        .compile_selector(Row::PageSelectorCompilations, selector)
+        .selector(Row::PageSelectorCompilations, selector)
         .ok_or_else(invalid)?;
     let mut input = cssparser::ParserInput::new(selector);
     if extended(&mut cssparser::Parser::new(&mut input)) {

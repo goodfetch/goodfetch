@@ -97,9 +97,13 @@ impl Attempt<'_> {
 
 /// The elements `locator` matches on the page a tier served, with the
 /// base URL their links resolve against.
-async fn served(tiers: &FetchTiers, locator: &Locator) -> Result<(ServedLinks, Url), CallError> {
+async fn served(
+    tiers: &FetchTiers,
+    locator: &Locator,
+    work: &CountedWork,
+) -> Result<(ServedLinks, Url), CallError> {
     let served = tiers
-        .links(&locator.page_id, &locator.selector)
+        .links(&locator.page_id, &locator.selector, work)
         .await
         .ok_or_else(|| {
             CallError::new(
@@ -152,7 +156,7 @@ async fn links(
     if holds.is_none() {
         return Err(attempt.ended());
     }
-    let (served, base) = served(&tiers, &params.locator).await?;
+    let (served, base) = served(&tiers, &params.locator, run.metrics().counted_work()).await?;
     Ok(CrawlRequestLinks {
         links: served
             .elements
@@ -203,7 +207,7 @@ pub(crate) async fn enqueue_links(
     for _ in params.include.iter().chain(&params.exclude) {
         work.count(Row::BatchCompilations);
     }
-    let (served, base) = served(&tiers, &params.locator).await?;
+    let (served, base) = served(&tiers, &params.locator, &work).await?;
     payloads_fit(&params, served.elements.len())?;
     let links: Vec<Link> = served
         .elements

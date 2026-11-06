@@ -270,8 +270,8 @@ impl Durability {
 
     /// The `synchronous` pragma of its checkpointer's connection: synced
     /// below `full` too, so a checkpoint's pages reach the disk before the
-    /// WAL frames they came from are written over, and a clean stop leaves
-    /// a whole file at every level, `off`'s included.
+    /// WAL frames they came from are written over. A clean stop runs no
+    /// checkpoint (#2117): the file reads whole with the `-wal` beside it.
     fn checkpoint_synchronous(self) -> &'static str {
         match self {
             Self::Full => "FULL",
@@ -698,6 +698,26 @@ impl RunState {
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
         self.queue(work, Job::Write, syncing).await
+    }
+
+    /// Runs `work` as [`RunState::write_with`] does, its commit deferred
+    /// and charging nothing of the Usage ledger: for a write whose answer
+    /// promises nothing outside, which the next synced commit covers.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s.
+    pub async fn write_deferred<T, F>(&self, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.write_with(Syncing::Deferred { charged: 0 }, work)
+            .await
     }
 
     /// Runs `work` as [`RunState::write`] does, as the writer's last write:

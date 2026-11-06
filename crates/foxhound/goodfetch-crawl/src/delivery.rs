@@ -81,7 +81,7 @@ use goodfetch_engine::local_addresses::{
 };
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
-use goodfetch_engine::run_state::{RunStateError, Syncing};
+use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
@@ -1139,9 +1139,7 @@ async fn drained(
         // write commits after the close.
         match run
             .state()
-            .write_with(Syncing::Deferred { charged: 0 }, move |connection| {
-                intake.close_if_drained(connection)
-            })
+            .write_deferred(move |connection| intake.close_if_drained(connection))
             .await
         {
             Ok(true) => {}
@@ -1553,9 +1551,7 @@ async fn key(
     // claims the item syncs them, and a power cut that takes them leaves
     // the items unkeyed, which the next look keys again.
     run.state()
-        .write_with(Syncing::Deferred { charged: 0 }, move |connection| {
-            work_items::set_keys(connection, &keys)
-        })
+        .write_deferred(move |connection| work_items::set_keys(connection, &keys))
         .await?;
     for waiting in keyed {
         admission.enqueue(waiting);
@@ -1720,10 +1716,7 @@ async fn journal(run: &Run, admission: &mut Admission) {
             .state()
             // A domain's hold or backoff joins the next group that syncs
             // (ADR 0138's note of #1926).
-            .write_with(
-                goodfetch_engine::run_state::Syncing::Deferred { charged: 0 },
-                move |connection| journal(connection),
-            )
+            .write_deferred(move |connection| journal(connection))
             .await
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's per-domain queues were not journaled");

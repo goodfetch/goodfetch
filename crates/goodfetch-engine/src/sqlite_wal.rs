@@ -61,10 +61,12 @@ fn switch(connection: &Connection) -> rusqlite::Result<()> {
         reason = "this module is where a file switches to WAL, waiting while it is busy"
     )]
     let switched = connection.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()));
-    if let Some(level) = level {
-        connection.pragma_update(None, "synchronous", level)?;
-    }
-    switched
+    // The switch's own error comes first: a restore that also failed must
+    // not hide it, nor a busy file that `enter` waits on.
+    let restored = level.map_or(Ok(()), |level| {
+        connection.pragma_update(None, "synchronous", level)
+    });
+    switched.and(restored)
 }
 
 /// Has `connection` leave the write-ahead log as it is when it closes,

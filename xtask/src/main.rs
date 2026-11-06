@@ -69,6 +69,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod sweep_target;
 mod targets;
 mod telemetry;
 mod test_tools;
@@ -332,6 +333,10 @@ enum Command {
         #[command(subcommand)]
         command: stress::Command,
     },
+    /// Removes the dead build units of a Cargo target folder, those whose
+    /// fingerprint no build has read for `--unused-hours`, and keeps whole
+    /// every unit a build read, which the next build reuses.
+    SweepTarget(sweep_target::Arguments),
     /// The Performance targets report (ADR 0134): each target's figure on
     /// this machine, met or missed, never published and gating nothing.
     Targets {
@@ -540,6 +545,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::SweepTarget(arguments) => sweep_target::run(&arguments, environment),
         Command::Targets { command } => targets::run(command, environment),
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),

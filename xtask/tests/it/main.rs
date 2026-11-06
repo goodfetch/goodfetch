@@ -86,6 +86,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod sweep_target;
 mod targets;
 mod telemetry;
 mod test_tools;

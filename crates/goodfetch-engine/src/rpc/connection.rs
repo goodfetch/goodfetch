@@ -851,13 +851,19 @@ impl Session<'_> {
     /// on a private endpoint.
     async fn open(&mut self, request: Request) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let (hello, meta) = match trace_context(request.params) {
-            Ok((params, meta)) => (
-                serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
-                    |error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()),
-                ),
-                meta,
-            ),
+        let work = &self.dispatch.work;
+        let (hello, meta) = match trace_context(request.params, work) {
+            Ok((params, meta)) => {
+                work.count(Row::MessageDecodes);
+                (
+                    serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
+                        |error| {
+                            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+                        },
+                    ),
+                    meta,
+                )
+            }
             Err(error) => (Err(error), None),
         };
         if let Some(expected) = self.access.token() {
@@ -980,7 +986,7 @@ impl Session<'_> {
                 Some(person_required(&method))
             } else {
                 let handler = handler.clone();
-                match trace_context(params) {
+                match trace_context(params, &self.dispatch.work) {
                     Ok((params, meta)) => {
                         self.call(id, &handler, params, meta.as_ref());
                         return Flow::Continue;

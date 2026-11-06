@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use goodfetch_counted_work::Row;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 
 use crate::message_scenario::{self as scenario, Logs, Plant, Sent, Traffic};
@@ -15,9 +15,8 @@ const TRAFFIC: Traffic = Traffic {
     plugin: 2,
 };
 
-/// What one run counted: its deep copies, its encodes and what left the
-/// engine.
-fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
+/// What one run counted and what left the engine.
+fn counted(logs: Logs, planted: Option<Row>) -> (CountedWork, Sent) {
     let home = tempfile::tempdir().unwrap();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -26,6 +25,13 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
         Arc::new(move |_: &serde_json::Value| work.count(row)) as Plant
     });
     let sent = scenario::run(TRAFFIC, logs, metrics, plant, home.path());
+    (work, sent)
+}
+
+/// What one run counted: its deep copies, its encodes and what left the
+/// engine.
+fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
+    let (work, sent) = counted(logs, planted);
     (
         work.read(Row::MessageDeepCopies),
         work.read(Row::MessageEncodes),
@@ -57,4 +63,20 @@ fn the_messages_count_their_copies_and_encodes_a_plant_adds_one_a_call_and_log_o
     assert_eq!(encodes_planted - encodes, calls);
     assert_eq!(copies_off, copies);
     assert!(encodes_off < encodes, "{encodes_off} off, {encodes} on");
+}
+
+/// Each request counts its decodes, `hello`'s and `events.subscribe`'s
+/// included, and no other message counts one: a Plugin's replies and
+/// `$/credit` are no requests. A plant adds one for each call that went
+/// through a handler.
+#[test]
+fn each_request_counts_its_decodes_and_a_plant_adds_one_a_call() {
+    let requests = u64::try_from(TRAFFIC.requests()).unwrap();
+    let calls = u64::try_from(1 + TRAFFIC.small + TRAFFIC.large + TRAFFIC.plugin).unwrap();
+    let decodes = |planted| counted(Logs::On, planted).0.read(Row::MessageDecodes);
+
+    let (unplanted, planted) = (decodes(None), decodes(Some(Row::MessageDecodes)));
+
+    assert!(unplanted >= requests, "{unplanted} for {requests} requests");
+    assert_eq!(planted - unplanted, calls);
 }

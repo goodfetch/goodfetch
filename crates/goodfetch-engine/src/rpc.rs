@@ -28,6 +28,7 @@ mod websocket;
 
 pub use self::stream::send_events;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{
@@ -146,9 +147,10 @@ fn line(message: &impl serde::Serialize) -> Vec<u8> {
 /// its handler without it: none when they hold no `_meta`, and
 /// `invalid_params` when their `_meta` holds a key other than
 /// `traceparent` and `tracestate` or a value that is no string (ADRs 0077
-/// and 0132).
+/// and 0132). Its decode counts on `work` (ADR 0140's E1).
 fn trace_context(
     params: Option<Value>,
+    work: &CountedWork,
 ) -> Result<(Option<Value>, Option<TraceContext>), CallError> {
     let mut members = match params {
         Some(Value::Object(members)) => members,
@@ -169,6 +171,7 @@ fn trace_context(
     if !meta.is_object() {
         return Err(refused("it is no object".to_owned()));
     }
+    work.count(Row::MessageDecodes);
     let meta =
         serde_json::from_value::<TraceContext>(meta).map_err(|error| refused(error.to_string()))?;
     Ok((Some(Value::Object(members)), Some(meta)))

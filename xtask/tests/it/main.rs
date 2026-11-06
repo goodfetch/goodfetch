@@ -45,6 +45,7 @@ mod floor_guard;
 mod gate;
 mod gate_backstop;
 mod head_order;
+mod ignored_sources;
 mod image_pins;
 mod ingest;
 mod journey_selection;

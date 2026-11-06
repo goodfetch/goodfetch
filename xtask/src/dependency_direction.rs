@@ -10,6 +10,10 @@
 //!   `goodfetch-protocol` (and `goodfetch-test-support` for its tests): the
 //!   harness tests only through the interface.
 //!
+//!
+//! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
+//! code, so no rule counts it as a Goodfetch crate.
+//!
 //! The workspace-wide direction of ADR 0087 is cargo-deny's (`deny.toml`).
 
 use std::ffi::OsStr;
@@ -23,6 +27,7 @@ use crate::metadata::{self, Dependency, Package};
 const TEST_SUPPORT: &str = "goodfetch-test-support";
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
+const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
 /// The Proving ground's manifest, from the workspace's root (ADR 0032).
 const PROVING_GROUND_MANIFEST: &str = "proving-ground/Cargo.toml";
 
@@ -32,9 +37,10 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
     let is_member = |dependency: &Dependency| {
-        packages
-            .iter()
-            .any(|package| package.name == dependency.name)
+        dependency.name != WORKSPACE_HACK
+            && packages
+                .iter()
+                .any(|package| package.name == dependency.name)
     };
     let mut findings = Vec::new();
     for package in &packages {

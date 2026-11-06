@@ -6,3 +6,6 @@ publish = false
 
 [dev-dependencies]
 goodfetch-test-support = { path = "../crates/goodfetch-test-support" }
+
+[dependencies]
+goodfetch-workspace-hack = { path = "../crates/goodfetch-workspace-hack" }

@@ -25,6 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "sync", "m
 tokio-tungstenite.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 # The Cloud-readiness conformance suite's gateway cases, which its tests run

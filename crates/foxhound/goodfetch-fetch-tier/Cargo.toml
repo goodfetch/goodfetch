@@ -50,6 +50,7 @@ wreq.workspace = true
 wreq-proto.workspace = true
 wreq-util.workspace = true
 zstd.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

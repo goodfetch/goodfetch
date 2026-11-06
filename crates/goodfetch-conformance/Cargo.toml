@@ -30,6 +30,7 @@ url.workspace = true
 webpki-roots.workspace = true
 # The Proving ground's HTTP API.
 ureq.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

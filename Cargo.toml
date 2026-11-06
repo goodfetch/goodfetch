@@ -174,6 +174,9 @@ goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
+# One feature resolution of the build side for every package selection
+# (ADR 0094, #2089); every member takes it, `ci/workspace-hack.sh` writes it.
+goodfetch-workspace-hack = { path = "crates/goodfetch-workspace-hack" }
 # ADR 0071; its runner, gungraun-runner, is installed at the same version.
 # Its benchmark API sits behind its `default` feature, named explicitly.
 gungraun = { version = "=0.20.0", default-features = false, features = ["default"] }
@@ -456,6 +459,15 @@ wreq-util = { path = "vendor/wreq-util" }
 # but for SHA-256: every launch checks its browser build's digest, some
 # 400 MB, which unoptimized takes tens of seconds and optimized well under
 # one (#695).
+#
+# Debug information stays in the object files, beside the executables
+# (`.dwo` on Linux, the `.o` files on macOS), instead of being linked into
+# each test binary: backtraces still read file and line from them, and the
+# links write and the target holds less (#2089). `ci-test` turns it off
+# below, since its archived test binaries run away from the objects.
+[profile.dev]
+split-debuginfo = "unpacked"
+
 [profile.dev.package.sha2]
 opt-level = 3
 
@@ -572,6 +584,7 @@ lto = "thin"
 [profile.ci-test]
 inherits = "test"
 debug = "line-tables-only"
+split-debuginfo = "off"
 
 # Their dependencies optimized once, as on 2026-10-23's hosted Release run the
 # Proving ground's tests spent most of the Rust step in unoptimized

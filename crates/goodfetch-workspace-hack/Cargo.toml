@@ -1,0 +1,89 @@
+# The workspace-hack (ADR 0094's note of 2026-11-06, #2089): every member
+# depends on it, so every package selection builds the build side (build
+# scripts and proc-macros) with one feature set per shared dependency, and a
+# `-sys` crate's C or C++ compiles once per profile, whatever `-p` selects.
+# `ci/workspace-hack.sh generate` writes the section below with cargo-hakari
+# (.config/hakari.toml); `just lint` checks it is current. Never edit the
+# section by hand.
+[package]
+name = "goodfetch-workspace-hack"
+description = "One feature resolution of the build side for every package selection (ADR 0094); written by ci/workspace-hack.sh."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+### BEGIN HAKARI SECTION
+[build-dependencies]
+anyhow = { version = "1" }
+bitflags = { version = "2", default-features = false, features = ["serde"] }
+cc = { version = "1", default-features = false, features = ["parallel"] }
+crc32fast = { version = "1", default-features = false, features = ["std"] }
+derive_more = { version = "2", features = ["add", "add_assign", "deref", "deref_mut"] }
+derive_more-impl = { version = "2", features = ["add", "add_assign", "as_ref", "deref", "deref_mut"] }
+digest-93f6ce9d446188ac = { package = "digest", version = "0.10" }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "oid"] }
+either = { version = "1", default-features = false, features = ["use_std"] }
+flatbuffers = { version = "25" }
+flate2 = { version = "1" }
+i18n-embed = { version = "0.15", features = ["filesystem-assets", "fluent-system"] }
+icu_locale_core = { version = "2", default-features = false, features = ["zerovec"] }
+icu_provider = { version = "2", default-features = false, features = ["baked"] }
+idna = { version = "1" }
+memchr = { version = "2" }
+minimal-lexical = { version = "0.2", default-features = false, features = ["std"] }
+nom = { version = "7", default-features = false, features = ["std"] }
+percent-encoding = { version = "2" }
+phf_shared = { version = "0.11" }
+postcard = { version = "1", features = ["use-std"] }
+potential_utf = { version = "0.1", default-features = false, features = ["zerovec"] }
+proc-macro2 = { version = "1" }
+psl = { version = "2" }
+quote = { version = "1" }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", default-features = false, features = ["small_rng"] }
+regex = { version = "1" }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-syntax = { version = "0.8" }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
+serde_json = { version = "1" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
+smallvec = { version = "1", default-features = false, features = ["const_generics"] }
+stable_deref_trait = { version = "1" }
+syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
+tar = { version = "0.4" }
+thiserror = { version = "2" }
+tinystr = { version = "0.8", features = ["zerovec"] }
+toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
+toml_parser = { version = "1", default-features = false, features = ["std"] }
+typenum = { version = "1", default-features = false, features = ["const-generics"] }
+unic-langid = { version = "0.9", features = ["serde"] }
+unic-langid-impl = { version = "0.9", default-features = false, features = ["serde"] }
+url = { version = "2" }
+yoke = { version = "0.8", default-features = false, features = ["derive"] }
+zerofrom = { version = "0.1", default-features = false, features = ["derive"] }
+zerotrie = { version = "0.2", default-features = false, features = ["yoke", "zerofrom"] }
+zerovec = { version = "0.11", default-features = false, features = ["alloc", "derive", "yoke"] }
+zstd-safe = { version = "8", default-features = false, features = ["std"] }
+zstd-sys = { version = "2", default-features = false, features = ["std"] }
+
+[target.x86_64-unknown-linux-gnu.build-dependencies]
+bitflags = { version = "2", default-features = false, features = ["std"] }
+libc = { version = "0.2" }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
+winnow = { version = "1" }
+
+[target.aarch64-apple-darwin.build-dependencies]
+bitflags = { version = "2", default-features = false, features = ["std"] }
+errno = { version = "0.3", default-features = false, features = ["std"] }
+libc = { version = "0.2" }
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
+
+### END HAKARI SECTION

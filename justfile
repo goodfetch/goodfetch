@@ -98,6 +98,8 @@ lint: lint-documents
     ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
     ci/tool.sh cargo-shear cargo shear
+    # The workspace-hack is current and every member takes it (ADR 0094).
+    ci/tool.sh cargo-hakari ci/workspace-hack.sh check
     cargo run --quiet --bin xtask -- self-hosted check
     cargo run --quiet --bin xtask -- egress check
     cargo run --quiet --bin xtask -- os-services workflows

@@ -13,6 +13,7 @@ goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true

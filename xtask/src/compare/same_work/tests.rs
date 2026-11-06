@@ -200,6 +200,10 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
             ),
             (
                 "different_bytes",
+                "durable foxhound fast trial 3".to_owned()
+            ),
+            (
+                "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
         ]

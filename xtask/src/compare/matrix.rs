@@ -231,7 +231,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 21] = [
+pub(crate) const CELLS: [Cell; 22] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -292,6 +292,20 @@ pub(crate) const CELLS: [Cell; 21] = [
         pending: &[],
         status: Status::Measured(Config::Foxhound {
             durability: "full",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Foxhound,
+        name: "foxhound fast",
+        mapping: "scenario 1's settings with `run_state.durability: fast`: no outcome synced, \
+                  so a power cut can lose recent commits while a process kill loses none, and \
+                  `dataset.records` on; beside `foxhound full`, the gap the default costs \
+                  (ADR 0138)",
+        pending: &[],
+        status: Status::Measured(Config::Foxhound {
+            durability: "fast",
             commit_interval: None,
         }),
     },

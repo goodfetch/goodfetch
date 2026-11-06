@@ -19,12 +19,13 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 17] = [
+const CELLS: [(&str, &str, &str); 18] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("durable", "foxhound full", "foxhound"),
+    ("durable", "foxhound fast", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
@@ -554,7 +555,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 51 timed trials started above a 1-minute load of 4.",
+        "1 of the 54 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

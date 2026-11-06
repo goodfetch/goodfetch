@@ -13,6 +13,7 @@ use anyhow::{Context as _, Result};
 use serde::Serialize;
 
 use crate::rss::platform::Platform;
+use crate::test_tools::shipped_target;
 
 use super::measured::Measured;
 use super::startup::{RUNS, WARMUP};
@@ -25,6 +26,9 @@ struct Report<'a> {
     published: bool,
     adr: &'static str,
     platform: &'static str,
+    /// The Rust target `just targets` builds for, when not the host's own:
+    /// the static musl one on Linux (ADR 0024).
+    build_target: Option<String>,
     rows: &'a [Row],
 }
 
@@ -37,6 +41,7 @@ pub(crate) fn write(folder: &Path, rows: &[Row], measured: &Measured) -> Result<
         published: false,
         adr: "0134",
         platform,
+        build_target: shipped_target(),
         rows,
     };
     std::fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
@@ -50,12 +55,16 @@ pub(crate) fn write(folder: &Path, rows: &[Row], measured: &Measured) -> Result<
 }
 
 fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
+    let build = shipped_target().map_or_else(
+        || "this host's own Rust target, the one the Products ship for here".to_owned(),
+        |target| format!("`{target}`, the static binary the Products ship (ADR 0024)"),
+    );
     let mut text = format!(
         "# Performance targets\n\n\
          `local-controlled`, never published (ADR 0076): measured on {platform}, on the builds \
-         `just targets` makes with the release profile. The targets are ADR 0134's; a target never fails a change, \
+         `just targets` makes with the release profile for {build}. The targets are ADR 0134's; a target never fails a change, \
          and the owner weighs each miss at the owner test.\n\n\
-         | Target | Product | Figure | Target value | Verdict | Gap |\n|---|---|---:|---:|---|---:|\n"
+         | Target | Product | Figure | Executable's pages | Target value | Verdict | Gap |\n|---|---|---:|---:|---:|---|---:|\n"
     );
     for row in rows {
         let verdict = match row.verdict {
@@ -65,10 +74,11 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
         };
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {} | {verdict} | {} |",
+            "| {} | {} | {} | {} | {} | {verdict} | {} |",
             row.title,
             row.product,
             row.figure.as_deref().unwrap_or("–"),
+            row.executable_pages.as_deref().unwrap_or("–"),
             row.value,
             row.gap.as_deref().unwrap_or("–"),
         );
@@ -102,7 +112,10 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
         "\nStartup to `hello` is hyperfine's median after {WARMUP} warm-up runs and {RUNS} runs, \
          each from the engine's start to its exit once `hello` on its input is answered and its \
          input ends. Every resident-memory figure, idle and the crawl's peak, is the median of \
-         the resident-memory check's scenario's peaks (`xtask rss measure`). Only the crawl's \
+         the resident-memory check's scenario's peaks (`xtask rss measure`); its executable's \
+         pages are the median of the highest samples, on Linux, of the measured executable's own \
+         file-backed resident pages (its mappings' `Rss` less `Anonymous` in `/proc/<pid>/smaps`), \
+         the part of the figure that is its code and read-only data rather than what it allocated. Only the crawl's \
          pages per second is Foxhound's median in scenario 1 of the latest `just compare` report{}.\n",
         if measured.spider.is_some() {
             ""

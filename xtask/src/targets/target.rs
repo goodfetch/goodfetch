@@ -104,6 +104,10 @@ pub(crate) struct Row {
     pub(crate) value: String,
     /// The measured figure, absent when not measured.
     pub(crate) figure: Option<String>,
+    /// For a resident-memory target, how much of its figure is the
+    /// executable's own file-backed pages: the median of the peaks' samples,
+    /// absent where they were not sampled (outside Linux).
+    pub(crate) executable_pages: Option<String>,
     pub(crate) verdict: Verdict,
     /// For a miss, how far the figure is from its target.
     pub(crate) gap: Option<String>,
@@ -244,6 +248,13 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
     }
 }
 
+/// The median of the executable's own pages of `target`'s peaks on
+/// `product`, for a resident-memory target whose peaks sampled them.
+fn executable_pages(target: Target, product: Product, measured: &Measured) -> Option<String> {
+    let scenario = target.scenario()?;
+    median(measured.executable_bytes(scenario, product)).map(mebibytes)
+}
+
 /// Every target's row on each Product it is measured on.
 pub(crate) fn rows(measured: &Measured) -> Vec<Row> {
     let mut rows = Vec::new();
@@ -268,6 +279,7 @@ pub(crate) fn rows(measured: &Measured) -> Vec<Row> {
                     .as_ref()
                     .map_or_else(|| target.stated(), Figure::value),
                 figure: figure.as_ref().map(Figure::figure),
+                executable_pages: executable_pages(target, product, measured),
                 verdict,
                 gap,
                 write_up,

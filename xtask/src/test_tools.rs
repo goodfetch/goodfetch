@@ -10,7 +10,9 @@
 //! 0094's note).
 //! Each Product's executable embeds its Console build, which it builds
 //! first (`xtask console build`, ADR 0057). `just test` runs it before any
-//! runner starts.
+//! runner starts. With `--shipped-target`, it builds for the Rust target
+//! the Products ship for on this host, the static musl one on Linux (ADR
+//! 0024), so `just targets` and `just rss` measure what users run.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -45,8 +47,13 @@ pub(crate) struct Arguments {
     #[arg(long)]
     cargo_profile: String,
     /// The Rust target the tests build for, when they build for one.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "shipped_target")]
     target: Option<String>,
+    /// Builds for the Rust target the Products ship for on this host:
+    /// `<arch>-unknown-linux-musl` on Linux (ADR 0024), the host's own
+    /// elsewhere.
+    #[arg(long)]
+    shipped_target: bool,
     /// Where to write the manifest.
     #[arg(long)]
     out: PathBuf,
@@ -66,7 +73,26 @@ struct Target {
     kind: Vec<String>,
 }
 
+/// The Rust target the Products ship for on `os` and `arch`, as
+/// `std::env::consts` name them, when it is not the host's own build: on
+/// Linux the static musl binary (ADR 0024); macOS and Windows ship the
+/// host's own target.
+pub(crate) fn shipped_target_of(os: &str, arch: &str) -> Option<String> {
+    (os == "linux").then(|| format!("{arch}-unknown-linux-musl"))
+}
+
+/// The Rust target the Products ship for on this host, as
+/// [`shipped_target_of`] gives it.
+pub(crate) fn shipped_target() -> Option<String> {
+    shipped_target_of(std::env::consts::OS, std::env::consts::ARCH)
+}
+
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    let target = if arguments.shipped_target {
+        shipped_target()
+    } else {
+        arguments.target.clone()
+    };
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
     let mut binaries = Vec::new();
     let mut features = std::collections::BTreeSet::new();
@@ -100,12 +126,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
         command
             .args(["build", "--message-format", "json-render-diagnostics"])
             .args(["--profile", &arguments.cargo_profile])
-            .args(
-                arguments
-                    .target
-                    .iter()
-                    .flat_map(|target| ["--target", target]),
-            )
+            .args(target.iter().flat_map(|target| ["--target", target]))
             .args(binaries.iter().flat_map(|binary| ["--bin", binary]))
             .args(
                 (!features.is_empty())
@@ -159,3 +180,6 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     std::fs::write(&out, text).with_context(|| format!("writing {}", out.display()))?;
     Ok(ExitCode::SUCCESS)
 }
+
+#[cfg(test)]
+mod tests;

@@ -380,16 +380,46 @@ fn the_peak_reader_returns_a_known_allocations_order_of_magnitude(
     let outcome = workspace.xtask(&arguments);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let peak: u64 = outcome
-        .stdout
-        .trim()
-        .strip_prefix("peak-bytes=")
-        .unwrap()
-        .parse()
-        .unwrap();
+    let peak = probed(&outcome, "peak-bytes").unwrap();
     assert!(
         (at_least..under).contains(&peak),
         "{peak} bytes, outside {at_least}..{under}"
+    );
+}
+
+/// The figure the probe printed as `<name>=<n>`.
+fn probed(outcome: &Outcome, name: &str) -> Option<u64> {
+    outcome
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+        .map(|figure| figure.parse().unwrap())
+}
+
+/// Seam B on Linux: beside the peak, the probe reads the executable's own
+/// file-backed pages from the child's mappings while it runs: some, and
+/// far fewer than a peak that allocated 64 MiB.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_probe_reads_the_executables_own_pages_apart_from_the_peak() {
+    let workspace = Workspace::from_fixture("empty");
+    // `dd` holds its 64 MiB block for the time it takes to read it; `sh`
+    // keeps it alive for the sampler to read it once in between.
+    let outcome = workspace.xtask(&[
+        "rss",
+        "probe",
+        "--",
+        "sh",
+        "-c",
+        "dd if=/dev/zero of=/dev/null count=1 bs=67108864 && sleep 0.3",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let peak = probed(&outcome, "peak-bytes").unwrap();
+    let executable = probed(&outcome, "executable-bytes").unwrap();
+    assert!(
+        executable > 0 && executable < 8 * MIB && peak >= 64 * MIB,
+        "{executable} of {peak} bytes"
     );
 }
 

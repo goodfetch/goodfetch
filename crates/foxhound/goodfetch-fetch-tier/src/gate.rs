@@ -843,7 +843,7 @@ impl ChainGate {
         // A hop's check-and-set answers the chain, not the outside: the
         // attempt's outcome syncs it (ADR 0138's note of #1926).
         run.state()
-            .write_with(goodfetch_engine::run_state::Syncing::Deferred { charged: 0 }, move |connection| {
+            .write_deferred(move |connection| {
                 goodfetch_frontier::admit_hop(
                     connection,
                     &work,
@@ -959,18 +959,15 @@ impl HopGate for ChainGate {
             let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
             let recorded = run
                 .state()
-                .write_with(
-                    goodfetch_engine::run_state::Syncing::Deferred { charged: 0 },
-                    move |connection| {
-                        goodfetch_frontier::redirect_reached(
-                            connection,
-                            &id,
-                            &url,
-                            &method,
-                            body.as_deref(),
-                        )
-                    },
-                )
+                .write_deferred(move |connection| {
+                    goodfetch_frontier::redirect_reached(
+                        connection,
+                        &id,
+                        &url,
+                        &method,
+                        body.as_deref(),
+                    )
+                })
                 .await;
             match recorded {
                 Ok(goodfetch_frontier::Hop::Duplicate) => Err(Stop::Skipped(Skip {

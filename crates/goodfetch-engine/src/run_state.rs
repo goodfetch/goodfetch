@@ -700,6 +700,26 @@ impl RunState {
         self.queue(work, Job::Write, syncing).await
     }
 
+    /// Runs `work` as [`RunState::write_with`] does, its commit deferred
+    /// and charging nothing of the Usage ledger: for a write whose answer
+    /// promises nothing outside, which the next synced commit covers.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s.
+    pub async fn write_deferred<T, F>(&self, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.write_with(Syncing::Deferred { charged: 0 }, work)
+            .await
+    }
+
     /// Runs `work` as [`RunState::write`] does, as the writer's last write:
     /// once its commit ends, the writer stops, though other handles still
     /// hold it, and every write queued after it, through any handle,

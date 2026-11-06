@@ -252,6 +252,7 @@ const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
         "matches",
         "answers",
         "entries",
+        "decodes",
     ],
 };
 

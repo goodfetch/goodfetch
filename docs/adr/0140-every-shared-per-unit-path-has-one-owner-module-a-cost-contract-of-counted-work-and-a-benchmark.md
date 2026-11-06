@@ -282,6 +282,11 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > - **The Valgrind rows keep #1870's figures:** `just counts --valgrind` on this head read each within 0.2 % of them, under the row's 0.5 %.
 > - **`coverage.project`'s first figure, 88.61 % of 171,035 lines, is a local run's,** as `coverage.yml` is disabled (#2047): `just coverage all` at `bd3b2cafe`, its Vitest, Playwright and pytest runs, which nextest's two failures had skipped, run after it on the same instrumented executables, then `xtask register coverage --write`. One profile of the Rust run's 14,680 was corrupt and was left out.
 
+> Note (agent decisions of #2066, pending owner review), 2026-11-06, on `E1.decodes`:
+> - **A decode is one pass of serde over what a request carries,** from its line's bytes or from a `Value` decoded from them: the line's parse and its envelope's in the framing, its Trace context's when its params hold `_meta`, and its params' into the handler's type (`hello`'s at the Connection, every other through `Handler::new`). Counted at each seam with `work.count`, as E1's other rows are.
+> - **Only requests count,** as the row's unit is the request: the framing counts its two decodes on a request's branch alone, so a notification's or a reply's parse adds none. Their decodes sit outside the contract, which names requests.
+> - **The first figure is 3 per request,** over the contract of 1, recorded as X37, to this spec: a first measure's adoption, beside X14's other E1 rows. B3's plant decodes the call's params once more with no copy.
+
 ## Considered Options
 
 - **A review rule only, with no counted contracts:** rejected. Strand E's 17 cases each passed review, because no reviewer could see the sum.

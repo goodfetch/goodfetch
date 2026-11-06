@@ -445,6 +445,7 @@ impl Handler {
             // is read, so what it does before its future (arming a route or
             // a waiter, ADR 0080) is done in the Connection's arrival order.
             let work = context.connection.work.clone();
+            work.count(Row::MessageDecodes);
             let answering = params::read::<P>(params)
                 .map(|params| handle(params, context))
                 .map_err(|error| {

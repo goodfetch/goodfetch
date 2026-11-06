@@ -354,6 +354,7 @@ const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not
      |---|---|---|---|---|---|---|---|\n\
      | `E1.deep_copies` | deep copies per incoming message | 0 | 1.1 | B3 | must not grow | `xtask counts` | implementer done |\n\
      | `E1.encodes` | encodes per answer or event | 1 | 2 | B3 | must not grow | `xtask counts` | implementer done |\n\
+     | `E1.decodes` | decodes per request, straight into typed params | 1 | 3 | B3 | must not grow | `xtask counts` | implementer done |\n\
      | `E1.instructions` | instructions per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.instructions_large` | instructions per message, large params | 1.10 × the figure after #1577 (ADR 0134) | 5000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
      | `E1.allocations` | allocations per message, small params | 1.10 × the figure after #1577 (ADR 0134) | 1000 | B3 | must not grow (0.5 %) | `xtask counts --valgrind` | merge gate |\n\
@@ -403,7 +404,7 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"requests\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E1.decodes\":30,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
@@ -463,7 +464,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"requests\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E1.decodes\":30,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[

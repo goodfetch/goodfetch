@@ -130,7 +130,9 @@ impl DecodeError {
 }
 
 /// Decodes one line into a request or a notification, counting on `work`
-/// each whole copy of what it carries (ADR 0140's E1).
+/// each whole copy of what it carries and, for a request, its two decodes:
+/// the line's parse into a `Value` and the envelope's out of it (ADR 0140's
+/// E1).
 pub fn decode(line: &[u8], work: &CountedWork) -> Result<Incoming, DecodeError> {
     if nesting_exceeds(line, MAX_DEPTH) {
         return Err(DecodeError::new(
@@ -179,6 +181,7 @@ pub fn decode(line: &[u8], work: &CountedWork) -> Result<Incoming, DecodeError> 
     };
     work.count(Row::MessageDeepCopies);
     if has_id {
+        work.count_many(Row::MessageDecodes, 2);
         serde_json::from_value(value.clone())
             .map(Incoming::Request)
             .map_err(invalid)

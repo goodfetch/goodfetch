@@ -110,6 +110,12 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
             work.count(Row::MessageEncodes);
             drop(serde_json::to_vec(params));
         }),
+        // A decode of the params again, as a handler's typed params are, with
+        // no copy.
+        "E1.decodes" => Arc::new(move |params: &Value| {
+            work.count(Row::MessageDecodes);
+            drop(<Value as serde::Deserialize>::deserialize(params));
+        }),
         other => panic!("no plant for the row {other}"),
     }
 }
@@ -320,6 +326,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
         ("outgoing_messages", count(sent.outgoing)),
+        ("requests", count(TRAFFIC.requests())),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),

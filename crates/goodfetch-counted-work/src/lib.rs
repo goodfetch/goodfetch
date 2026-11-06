@@ -56,6 +56,10 @@ pub enum Row {
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
     MessageEncodes,
+    /// `E1.decodes`: a decode of what a request carries, from its line's
+    /// bytes or from a `Value` decoded from them: the line's parse, its
+    /// envelope's, its Trace context's and its handler's typed params'.
+    MessageDecodes,
     /// `F5.messages_no_hook`: a message or its formatting for a stage with no
     /// Hook on it.
     HookMessagesNoHook,
@@ -271,7 +275,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 97] = [
+    pub const ALL: [Self; 98] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -281,6 +285,7 @@ impl Row {
         Self::PagePluginAnswerParses,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
+        Self::MessageDecodes,
         Self::HookMessagesNoHook,
         Self::HookCalls,
         Self::HookBuilds,
@@ -384,7 +389,9 @@ impl Row {
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
             | Self::PagePluginAnswerParses => "page_analysis",
-            Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
+            Self::MessageDeepCopies | Self::MessageEncodes | Self::MessageDecodes => {
+                "json_rpc_message"
+            }
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
             Self::RecordDeclarationReads
@@ -485,6 +492,7 @@ impl Row {
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
+            Self::MessageDecodes => "decodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
             Self::InterceptedFetchMessages => "fetch_messages_no_rule",
@@ -577,6 +585,7 @@ impl Row {
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
+            Self::MessageDecodes => "E1.decodes",
             Self::HookMessagesNoHook => "F5.messages_no_hook",
             Self::HookCalls => "F5.calls",
             Self::HookBuilds => "F5.builds",

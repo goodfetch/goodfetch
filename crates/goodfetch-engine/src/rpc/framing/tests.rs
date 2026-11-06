@@ -70,6 +70,24 @@ fn a_message_decodes_as_its_kind(#[case] line: &[u8], #[case] kind: &str) {
     assert_eq!(decoded_kind, kind);
 }
 
+/// The framing decodes a request twice, its line's parse and its
+/// envelope's, and counts no decode of a notification or a reply: E1's
+/// decodes are per request (ADR 0140).
+#[rstest]
+#[case::request(br#"{"jsonrpc":"2.0","id":1,"method":"engine.info","params":{}}"#, 2)]
+#[case::notification(br#"{"jsonrpc":"2.0","method":"$/cancel","params":{"id":1}}"#, 0)]
+#[case::reply(br#"{"jsonrpc":"2.0","id":7,"result":{"records":[]}}"#, 0)]
+fn the_framing_counts_a_requests_two_decodes(#[case] line: &[u8], #[case] decodes: u64) {
+    let work = goodfetch_counted_work::CountedWork::default();
+
+    super::decode(line, &work).unwrap();
+
+    assert_eq!(
+        work.read(goodfetch_counted_work::Row::MessageDecodes),
+        decodes
+    );
+}
+
 #[rstest]
 #[case::not_json(b"{not json", ProtocolFailure::ParseError, None)]
 #[case::batch(

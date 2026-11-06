@@ -2,7 +2,8 @@
 //! Goodfetch crate and is only ever a dev-dependency (ADR 0062); the Proving
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
-//! `goodfetch-protocol` (ADR 0032, STYLE.md).
+//! `goodfetch-protocol` (ADR 0032, STYLE.md). The fixture's members all take
+//! `goodfetch-workspace-hack`, which no rule counts (ADR 0094).
 //! Covers: story:1-107
 //! Covers: story:1-67
 

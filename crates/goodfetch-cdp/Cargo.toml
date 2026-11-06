@@ -17,6 +17,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "sync", "time", "macros"] }
 tracing.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

@@ -55,6 +55,7 @@ opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true, features = ["logs", "metrics"] }
 prometheus = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
+goodfetch-workspace-hack.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).

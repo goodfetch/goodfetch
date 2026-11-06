@@ -37,6 +37,7 @@ sha2.workspace = true
 tracing.workspace = true
 # The zstd form of an Export (ADR 0103).
 zstd.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

@@ -46,6 +46,7 @@ tungstenite.workspace = true
 # `JourneyRun` submits a tool's result to the Proving ground's oracle, and
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 # `NoExec`'s seccomp filter and its child's start (ADR 0067), and the
 # process's peak resident memory (`peak_resident_bytes`).

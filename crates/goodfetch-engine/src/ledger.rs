@@ -331,16 +331,18 @@ impl Ledger {
         self.vfs.is_some() || matches!(self.path.try_exists(), Ok(false))
     }
 
-    /// Connects to the file read-write, with `extra` flags: one counted open,
-    /// and a commit hook that counts what no wrapper sees, each transaction
-    /// the connection commits, its set-up's among them (ADR 0140).
+    /// Connects to the file read-write, with `extra` flags: one counted open
+    /// once it opened, as a read of a ledger no engine created opens none
+    /// (#2110), and a commit hook that counts what no wrapper sees, each
+    /// transaction the connection commits, its set-up's among them (ADR
+    /// 0140).
     fn connect(&self, extra: OpenFlags) -> rusqlite::Result<Connection> {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX | extra;
-        self.work.count(CountedRow::ChargeOpens);
         let connection = match &self.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
             None => Connection::open_with_flags(&self.path, flags),
         }?;
+        self.work.count(CountedRow::ChargeOpens);
         let work = self.work.clone();
         connection.commit_hook(Some(move || {
             work.count(CountedRow::ChargeTransactions);
@@ -360,6 +362,7 @@ impl Ledger {
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;
+        crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(|error| failed(&error))?;
         if cfg!(target_os = "macos") {
             connection
                 .pragma_update(None, "fullfsync", "ON")
@@ -494,13 +497,17 @@ impl Ledger {
         Ok(id)
     }
 
-    /// Every Limit row, in the order they were added.
+    /// Every Limit row, in the order they were added; none in a ledger no
+    /// engine created yet, which a read leaves uncreated, so a run no Limit
+    /// holds syncs none of it (#2110).
     ///
     /// # Errors
     ///
     /// When the ledger cannot be read.
     pub fn limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
-        let connection = self.open()?;
+        let Some(connection) = self.open_existing()? else {
+            return Ok(Vec::new());
+        };
         stored_limits(&connection).map_err(|error| self.failed(&error))
     }
 
@@ -508,6 +515,9 @@ impl Ledger {
     /// connection its caller keeps between reads, opened now when it holds
     /// none and let go when a read fails, so the next one opens afresh
     /// (the deep review's 599-12: a run's every charge reopened the file).
+    /// A ledger no engine created yet holds no Limit, and stays uncreated:
+    /// the next read tries again, so a Limit set meanwhile holds the next
+    /// charge.
     ///
     /// # Errors
     ///
@@ -516,7 +526,10 @@ impl Ledger {
         self.work.count(CountedRow::ChargeStatements);
         let read = match kept {
             Some(connection) => stored_limits(connection),
-            None => stored_limits(kept.insert(self.open()?)),
+            None => match self.open_existing()? {
+                Some(connection) => stored_limits(kept.insert(connection)),
+                None => return Ok(Vec::new()),
+            },
         };
         read.map_err(|error| {
             *kept = None;
@@ -571,7 +584,9 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     pub fn left(&self, stored: &StoredLimit, now: Timestamp) -> Result<u64, LedgerError> {
-        let connection = self.open()?;
+        let Some(connection) = self.open_existing()? else {
+            return Ok(stored.amount);
+        };
         let (key, _) = stored.period_key(now);
         let (charged, held) =
             counted(&connection, stored.id, &key).map_err(|error| self.failed(&error))?;

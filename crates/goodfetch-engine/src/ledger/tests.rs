@@ -320,6 +320,101 @@ fn reclaiming_a_ledger_no_engine_created_leaves_it_uncreated() {
     );
 }
 
+/// A run that no Limit holds reads the ledger as it starts, as it charges
+/// and as it ends, and never writes it: a ledger no engine created stays
+/// uncreated, so the run syncs none of it (#2110).
+#[test]
+fn a_run_no_limit_holds_leaves_a_ledger_no_engine_created_uncreated() {
+    let env = TestEnv::new();
+    let ledger = ledger(&env);
+    let mut run = charging(&env, "crawl");
+
+    let may_start = Charging::may_start(&ledger, &placement(Product::Collie), now());
+    let charged = run.charge("requests", 1, now()).unwrap();
+    let applied = run.applied(now()).unwrap();
+    run.give_back().unwrap();
+
+    assert_eq!(
+        (may_start, charged.used, applied, ledger.path().exists()),
+        (Ok(()), Vec::new(), Vec::new(), false)
+    );
+}
+
+/// A run's ledger syncs are its Slice's take and its give back: each
+/// charge out of the Slice reads the Limits and writes nothing, and closing
+/// a connection leaves the synced write-ahead log as it is rather than
+/// syncing it again into the file (#2110).
+#[test]
+fn a_run_syncs_the_ledger_once_to_take_its_slice_and_once_to_give_it_back() {
+    let env = TestEnv::new();
+    let name = env.unique_name("ledger-syncs");
+    let vfs = goodfetch_test_support::CrashVfs::register(&name, env.seed()).unwrap();
+    let ledger = Ledger::at(
+        env.home().join("usage-ledger.sqlite"),
+        Some(vfs.name().to_owned()),
+    );
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000_000), now())
+        .unwrap();
+    let before = vfs.syncs();
+    let mut run = Charging::new(
+        ledger.clone(),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+
+    Charging::may_start(&ledger, &placement(Product::Collie), now()).unwrap();
+    for _ in 0..13 {
+        run.charge("requests", 1, now()).unwrap();
+    }
+    let taken = vfs.syncs() - before;
+    run.give_back().unwrap();
+    drop(run);
+
+    assert_eq!((taken, vfs.syncs() - before), (1, 2));
+}
+
+/// A Slice taken and given back stays so through a power cut once its
+/// connection closed, though closing it no longer copies the write-ahead
+/// log into the file: each commit synced it (ADR 0041, #2110).
+#[rstest]
+#[case::taken(false)]
+#[case::given_back(true)]
+fn a_slice_survives_a_power_cut_after_its_connection_closed(#[case] given_back: bool) {
+    let env = TestEnv::new();
+    let name = env.unique_name("ledger-power-cut");
+    let vfs = goodfetch_test_support::CrashVfs::register(&name, env.seed()).unwrap();
+    let ledger = Ledger::at(
+        env.home().join("usage-ledger.sqlite"),
+        Some(vfs.name().to_owned()),
+    );
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = Charging::new(
+        ledger.clone(),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+    run.charge("requests", 4, now()).unwrap();
+    if given_back {
+        run.give_back().unwrap();
+    }
+    drop(run);
+
+    vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
+    goodfetch_test_support::after_crash(&vfs, &ledger.path().to_string_lossy()).unwrap();
+
+    let expected = if given_back {
+        (4, 0, 996)
+    } else {
+        (0, 10, 990)
+    };
+    assert_eq!(counted(&ledger), expected);
+}
+
 #[test]
 fn a_slice_reclaimed_before_its_run_gives_it_back_is_charged_once() {
     let env = TestEnv::new();
@@ -429,7 +524,7 @@ fn a_paid_fetch_limit_is_foxhounds(
 /// Writes a ledger whose format row says `version`.
 fn ledger_at_version(env: &TestEnv, version: &str) -> Ledger {
     let ledger = ledger(env);
-    ledger.limits().unwrap();
+    ledger.usage(Product::Collie, now()).unwrap();
     let connection = rusqlite::Connection::open(ledger.path()).unwrap();
     connection
         .execute("UPDATE format SET version = ?1", [version])
@@ -464,7 +559,7 @@ fn a_ledger_of_another_major_is_refused() {
 fn a_ledger_keeps_the_columns_a_newer_minor_added() {
     let env = TestEnv::new();
     let ledger = ledger(&env);
-    ledger.limits().unwrap();
+    ledger.usage(Product::Collie, now()).unwrap();
     let connection = rusqlite::Connection::open(ledger.path()).unwrap();
     connection
         .execute_batch("ALTER TABLE limits ADD COLUMN note TEXT NOT NULL DEFAULT 'kept'")

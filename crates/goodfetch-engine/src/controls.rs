@@ -26,7 +26,7 @@ use goodfetch_protocol::settings::WeakenedSetting;
 use jiff::Timestamp;
 use serde_json::{Value, json};
 
-use crate::audit::{AuditError, AuditLog, Origin};
+use crate::audit::{AuditError, AuditLog, NewEntry, Origin};
 use crate::settings::Resolved;
 
 /// How a registered key's weakening value is recorded.
@@ -151,18 +151,20 @@ impl SwitchedOff {
 
     /// Reports each one for the new Run `run_id`, once: a chained entry in
     /// `audit`, recorded at `now`, and, for a switched-off control, a
-    /// warning through the host's logging. Blocks on the Audit log.
+    /// warning through the host's logging. Blocks on the Audit log, which
+    /// appends the entries together, in one commit with one sync (#2110).
     ///
     /// # Errors
     ///
-    /// When `audit` cannot be written; the switches recorded until then
-    /// stay.
+    /// When `audit` cannot be written; none of the switches is recorded
+    /// then.
     pub fn report(
         &self,
         audit: &AuditLog,
         run_id: &RunId,
         now: Timestamp,
     ) -> Result<(), AuditError> {
+        let mut entries = Vec::with_capacity(self.0.len());
         for (switched, control) in &self.0 {
             let origin = Origin {
                 actor: Actor::Engine,
@@ -171,12 +173,12 @@ impl SwitchedOff {
                 run_id: Some(run_id.clone()),
             };
             if switched.key == EGRESS_PRIVATE_RANGES.name {
-                audit.record_chained(
-                    &origin,
-                    &PRIVATE_ADDRESSES_ALLOWED,
-                    json!({ "setting": switched.key, "ranges": switched.value }),
-                    now,
-                )?;
+                entries.push(NewEntry {
+                    origin,
+                    kind: &PRIVATE_ADDRESSES_ALLOWED,
+                    details: json!({ "setting": switched.key, "ranges": switched.value }),
+                    always_chained: true,
+                });
                 continue;
             }
             if let Some(Control {
@@ -195,12 +197,12 @@ impl SwitchedOff {
                     switched.key,
                     switched.value,
                 );
-                audit.record(
-                    &origin,
+                entries.push(NewEntry {
+                    origin,
                     kind,
-                    json!({ "setting": switched.key, "value": switched.value, "default": default }),
-                    now,
-                )?;
+                    details: json!({ "setting": switched.key, "value": switched.value, "default": default }),
+                    always_chained: false,
+                });
                 continue;
             }
             tracing::warn!(
@@ -211,13 +213,13 @@ impl SwitchedOff {
                 switched.key,
                 switched.layer.as_str(),
             );
-            audit.record_chained(
-                &origin,
-                &SECURITY_SWITCH_TURNED_OFF,
-                json!({ "setting": switched.key, "value": switched.value }),
-                now,
-            )?;
+            entries.push(NewEntry {
+                origin,
+                kind: &SECURITY_SWITCH_TURNED_OFF,
+                details: json!({ "setting": switched.key, "value": switched.value }),
+                always_chained: true,
+            });
         }
-        Ok(())
+        audit.record_together(entries, now).map(drop)
     }
 }

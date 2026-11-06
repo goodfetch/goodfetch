@@ -54,6 +54,7 @@ mod journeys_report;
 mod junit_summary;
 mod lazyfs_build;
 mod merge_cap;
+mod merge_pr;
 mod minute_ceiling;
 mod mocking_lockfile;
 mod modules;

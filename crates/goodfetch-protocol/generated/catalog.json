@@ -1838,7 +1838,8 @@
             "fetch_messages_no_rule",
             "matches",
             "answers",
-            "entries"
+            "entries",
+            "decodes"
           ]
         }
       ],

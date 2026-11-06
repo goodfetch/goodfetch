@@ -269,6 +269,23 @@ impl Subject {
                 &self.owner,
             ))
             .unwrap();
+        // The Run's row, as a Run's start commits it, synced. Each group's
+        // commit moves the row's journal position, so a group with no write
+        // of its own, the idle timer's at `periodic`, still writes and
+        // syncs what came before it; with no row it wrote nothing, and
+        // SQLite synced nothing.
+        self.runtime
+            .block_on(state.write(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
+                         VALUES ('model', 'crawl', 'foxhound', 'os_user', 1, '{}', 'running', 't')
+                         ON CONFLICT DO NOTHING",
+                        [],
+                    )
+                    .map(drop)
+            }))
+            .unwrap();
         self.state = Some(state);
     }
 

@@ -138,6 +138,20 @@ impl Subject {
                 &owner,
             ))
             .unwrap();
+        // The Run's start, as the engine's commits it: the first synced
+        // commit, which covers the opening's tables, committed unsynced
+        // (#2117). A crash before it leaves no Run to resume.
+        runtime
+            .block_on(state.write(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
+                         VALUES ('order', 'crawl', 'foxhound', 'os_user', 1, '{}', 'running', '2026-01-05T09:00:00Z')",
+                        [],
+                    )
+                    .map(drop)
+            }))
+            .unwrap();
         Self {
             runtime,
             _env: env,

@@ -280,21 +280,26 @@ fn no_endpoint_token_reaches_the_daemons_log_or_the_audit_log() {
     daemon.terminate();
 
     let home = Home::new(env.home().to_path_buf());
-    // The entries a closed connection left in the write-ahead log (#2110).
+    // The entries a closed connection left in the write-ahead log (#2110),
+    // when one is left: the last connection to close may copy it into the
+    // file and remove it, as SQLite does on a clean close.
     let mut wal = home.audit_log().into_os_string();
     wal.push("-wal");
+    let wal = std::path::PathBuf::from(wal);
+    let (audit_log, audit_log_head) = (home.audit_log(), home.audit_log_head());
     let stdout = daemon.logged.join("\n");
-    let leaks = canaries
-        .leaks(&[
-            Output::Bytes {
-                name: "the Daemon's log",
-                bytes: stdout.as_bytes(),
-            },
-            Output::Path(&home.audit_log()),
-            Output::Path(std::path::Path::new(&wal)),
-            Output::Path(&home.audit_log_head()),
-        ])
-        .unwrap();
+    let mut outputs = vec![
+        Output::Bytes {
+            name: "the Daemon's log",
+            bytes: stdout.as_bytes(),
+        },
+        Output::Path(&audit_log),
+        Output::Path(&audit_log_head),
+    ];
+    if wal.exists() {
+        outputs.push(Output::Path(&wal));
+    }
+    let leaks = canaries.leaks(&outputs).unwrap();
     assert_eq!(
         (
             ran,

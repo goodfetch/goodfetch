@@ -89,3 +89,14 @@ mod use_signals;
 mod waiting;
 mod workers;
 mod writer_lock;
+
+/// Whether the Run warning `code` is the one a Run carries while it holds
+/// to Clean-up rules older than 14 days: every Run that holds to the
+/// embedded part carries it from 14 days after the part's date on, and a
+/// test of the executable runs on the real calendar, which no build lets
+/// it set (TESTING.md › Time). A test that is not about the Clean-up rules
+/// compares the other warnings, so its outcome never depends on the date
+/// it runs on; Collie's `clean_up_rules` tests prove the rule itself.
+fn on_the_calendar(code: &str) -> bool {
+    code == goodfetch_protocol::run::warning::CLEAN_UP_RULES_STALE
+}

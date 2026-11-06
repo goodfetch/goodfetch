@@ -223,6 +223,7 @@ fn with_learning_off_no_rule_is_learned_and_the_report_says_so() {
         .into_iter()
         .flatten()
         .map(|warning| &warning["code"])
+        .filter(|code| !code.as_str().is_some_and(crate::on_the_calendar))
         .collect();
     let weakened: Vec<&Value> = crawled.report["weakened"]
         .as_array()

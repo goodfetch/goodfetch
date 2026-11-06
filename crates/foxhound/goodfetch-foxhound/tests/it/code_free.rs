@@ -625,7 +625,10 @@ fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothi
             records.len(),
             received.len(),
             marks,
-            codes("warnings", "code"),
+            codes("warnings", "code")
+                .into_iter()
+                .filter(|code| !crate::on_the_calendar(code))
+                .collect::<BTreeSet<_>>(),
             codes("weakened", "key"),
             switched_off_in_audit_log(&env),
             log.exists(),

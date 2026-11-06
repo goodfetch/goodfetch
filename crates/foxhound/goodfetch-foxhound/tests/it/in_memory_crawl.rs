@@ -222,8 +222,9 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     // compile their 9 once a Run (#1910; `base[href]`, which two of them
     // read, once), and the main-content step's 5 and a handler's markup
     // waits' 2 with them, into the engine's cache, which every page then
-    // reads: no page compiles any (#1912). The Run holds its Provenance log's
-    // file, so no page opens one.
+    // reads: no page compiles any (#1912). The streaming pass of the AI-use
+    // signals' markup compiles its 4 once a Run (#1917). The Run holds its
+    // Provenance log's file, so no page opens one.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
@@ -233,7 +234,7 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (pages, 16, 16, 0, 0, 1)
+        (pages, 20, 20, 0, 0, 1)
     );
 }
 

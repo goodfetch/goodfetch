@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
 
-use super::RepoPath;
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
+use super::{ChangedParts, RepoPath};
 use crate::{counts, foxhound_side, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
@@ -431,7 +431,7 @@ fn names<'a>(crates: impl IntoIterator<Item = &'a &'a Crate>) -> BTreeSet<String
     crates.into_iter().map(|krate| krate.name.clone()).collect()
 }
 
-pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
+pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedParts) -> Selection {
     let products = products(paths);
     let Changed {
         mut jobs,
@@ -502,10 +502,11 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
         })
         .collect();
     // `xtask counts`, in the perf job, holds the counted rows to the
-    // register's limits, so a changed register is counted at once.
-    let register_moved = paths
-        .iter()
-        .any(|path| path.as_str() == counts::REGISTER_FILE);
+    // register's limits, so a changed register is counted at once; a
+    // change to another part of its file is not one to the register.
+    let register_moved = paths.iter().any(|path| {
+        path.as_str() == counts::REGISTER_FILE && parts.reaches(path, counts::REGISTER_SECTION)
+    });
     if !bench_targets.is_empty() || register_moved {
         jobs.insert(Job::Perf);
     }

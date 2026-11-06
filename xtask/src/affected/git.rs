@@ -48,6 +48,34 @@ pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>>
     Ok(paths.into_iter().map(RepoPath::new).collect())
 }
 
+/// The text of `path` at the change's base, the merge base, and at its
+/// head, the head commit or the working tree; `None` for a side where it
+/// does not exist or is no UTF-8 text.
+pub(crate) fn versions(
+    root: &Path,
+    range: &Range,
+    path: &RepoPath,
+) -> Result<(Option<String>, Option<String>)> {
+    let at =
+        |revision: &str| run(root, &["show"], &[&format!("{revision}:{}", path.as_str())]).ok();
+    Ok(match range {
+        Range::Commits { base, head } => {
+            let merge_base = run(root, &["merge-base"], &[base, head])?;
+            (at(merge_base.trim()), at(head))
+        }
+        Range::WorkingTree { since } => {
+            let since = since.as_deref().unwrap_or(LOCAL_BASE);
+            let merge_base = run(root, &["merge-base"], &[since, "HEAD"])?;
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+            )]
+            let head = std::fs::read_to_string(root.join(path.as_str())).ok();
+            (at(merge_base.trim()), head)
+        }
+    })
+}
+
 /// The entries of a `-z` output.
 fn entries(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split('\0')

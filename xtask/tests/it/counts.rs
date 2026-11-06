@@ -87,6 +87,28 @@ fn a_figure_at_its_limit_passes_and_is_printed() {
     );
 }
 
+/// The register is found by its heading line, the part `xtask affected`
+/// reads it as: prose that quotes the heading earlier in the file is no
+/// register.
+#[test]
+fn the_register_is_found_by_its_heading_line_not_a_quote_of_it() {
+    let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
+    let quoted = register("8").replace(
+        "# Testing\n\n",
+        "# Testing\n\n## Commands\n\nA reader names `\"## Quality register\"`.\n\n",
+    );
+    workspace.write("TESTING.md", quoted.as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+}
+
 #[test]
 fn a_planted_parse_fails_naming_the_row_its_figure_and_its_limit() {
     let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));

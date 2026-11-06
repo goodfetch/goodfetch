@@ -1,0 +1,14 @@
+# Cargo's settings for every build in this repository: `just`, the gate, a
+# bare `cargo` or `cargo nextest`, the Kennel's workspace and CI all read
+# this file, so the one place a build's environment is set for all of them
+# is here.
+#
+# CMake's C and C++ compiler launcher, which CMake reads from the
+# environment: BoringSSL's CMake build (`btls-sys`) then compiles through
+# sccache wherever the Rust compiler wrapper is sccache, as the `cc` crate
+# already compiles DuckDB's C++, and directly elsewhere
+# (ci/compiler-launcher.sh; TESTING.md, Compiler cache). A variable already
+# in the environment wins over these.
+[env]
+CMAKE_C_COMPILER_LAUNCHER = { value = "ci/compiler-launcher.sh", relative = true }
+CMAKE_CXX_COMPILER_LAUNCHER = { value = "ci/compiler-launcher.sh", relative = true }

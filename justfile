@@ -1376,6 +1376,14 @@ commit-messages base="" head="HEAD":
     cargo run --quiet --bin xtask -- commit-messages --base "$base" --head "{{ head }}" \
       --since "{{ conventional_commits_since }}"
 
+# Whether this checkout's builds reuse the C and C++ objects other checkouts
+# compiled (TESTING.md, Compiler cache): where the Rust compiler wrapper is
+# sccache, it fails when sccache's base directories do not list this checkout
+# or CMake's compiler launcher bypasses sccache; elsewhere it is skipped.
+# `just quick` and `just merge` run it before any build.
+compiler-cache:
+    ci/compiler-cache.sh
+
 # The floor guard (ADR 0140; TESTING.md, Quality register): what the change
 # since the merge base with `base` does to the bar. A flagged change passes only
 # when a `Quality-change: <file or row>: <reason>` trailer of the change names it.

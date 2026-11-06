@@ -47,90 +47,117 @@ fmt:
     pnpm exec oxfmt .
     uv run ruff format .
 
-# Checks formatting only (the pre-commit hook).
+# Checks formatting only (the pre-commit hook). Each check runs even after
+# one failed, and the run ends with the list of those that failed, each with
+# its log under target/steps/ (ci/keep-going.sh), as in `lint-documents`
+# and `lint`.
 fmt-check:
-    cargo fmt --all --check
-    cd kennel && cargo fmt --check
-    pnpm exec oxfmt --check .
-    uv run ruff format --check .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin fmt-check
+    step cargo-fmt 'cargo fmt --all --check'
+    step kennel-fmt 'cd kennel && cargo fmt --check'
+    step oxfmt 'pnpm exec oxfmt --check .'
+    step ruff-format 'uv run ruff format --check .'
+    steps_end
 
 # The checks of `just lint` that read documents: formatting, typos, the
 # Quality register, the Feature and Journey checks, the wording and the
 # repository's policy files. The docs gate runs them alone for a change of
-# documents (`xtask affected`'s `gate=docs`, ADR 0135).
-lint-documents: fmt-check
-    ci/tool.sh typos typos
-    cargo run --quiet --bin xtask -- register check
-    cargo run --quiet --bin xtask -- features check
-    cargo run --quiet --bin xtask -- wording
-    cargo run --quiet --bin xtask -- journeys check
-    ci/repository-files.sh
+# documents (`xtask affected`'s `gate=docs`, ADR 0135). Every check runs
+# even after one failed; the `xtask` checks come after xtask's build, and are
+# skipped, named so, when it fails.
+lint-documents:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint-documents
+    step fmt-check '{{ just_executable() }} fmt-check'
+    step typos 'ci/tool.sh typos typos'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after xtask xtask-register 'cargo run --quiet --bin xtask -- register check'
+    step --after xtask xtask-features 'cargo run --quiet --bin xtask -- features check'
+    step --after xtask xtask-wording 'cargo run --quiet --bin xtask -- wording'
+    step --after xtask xtask-journeys 'cargo run --quiet --bin xtask -- journeys check'
+    step repository-files 'ci/repository-files.sh'
+    steps_end
 
 # Formatting checks and the checks that read documents, then every linter and
-# the repository's own static checks.
-lint: lint-documents
-    ci/ignored-sources.sh
-    cargo metadata --locked --format-version 1 > /dev/null
-    cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
-    ci/fuzz-check.sh locked
-    pnpm install --lockfile-only --frozen-lockfile
-    uv lock --check
-    {{ just_executable() }} console-build
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
-    pnpm exec tsc -p tsconfig.json
-    pnpm -r --if-present run typecheck
-    ci/console-messages.sh
-    pnpm exec oxlint
-    uv run ruff check .
-    uv run pyright
-    uv run mypy .
-    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
-    ci/tool.sh actionlint actionlint
-    ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push
-    ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
-    ci/tool.sh cargo-deny ci/deny/products.sh
+# the repository's own static checks. Every check runs even after one failed,
+# and the run ends with the list of those that failed, each with its log
+# under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
+# one's output comes after it and is skipped, named so, when it failed:
+# Clippy after the lockfile check, the TypeScript checks after the Console's
+# build, the `xtask` checks after xtask's build.
+lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint
+    step lint-documents '{{ just_executable() }} lint-documents'
+    step ignored-sources 'ci/ignored-sources.sh'
+    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
+    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
+    step fuzz-lock 'ci/fuzz-check.sh locked'
+    step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
+    step uv-lock 'uv lock --check'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after xtask console-build '{{ just_executable() }} console-build'
+    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    step --after console-build tsc 'pnpm exec tsc -p tsconfig.json'
+    step --after console-build pnpm-typecheck 'pnpm -r --if-present run typecheck'
+    step console-messages 'ci/console-messages.sh'
+    step oxlint 'pnpm exec oxlint'
+    step ruff 'uv run ruff check .'
+    step pyright 'uv run pyright'
+    step mypy 'uv run mypy .'
+    step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
+    step actionlint 'ci/tool.sh actionlint actionlint'
+    step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
+    step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # Spider's side of `just compare`, no workspace member, which no
     # gate builds: its lock's licenses, its `chrome` feature's included,
     # read without a build (ADR 0134).
-    ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+    step cargo-deny-spider 'ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's and Scrapy's sides, no workspace member either: their locks'
     # licenses against the same allowlist, read from what their frozen
     # installs leave beside them, with each side's own exceptions (ADR 0138).
-    pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
-    uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy
+    step compare-crawlee-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee'
+    step compare-scrapy-install 'uv sync --frozen --quiet --directory xtask/compare-scrapy'
+    step --after xtask --after compare-crawlee-install --after compare-scrapy-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy'
     # The Kennel's workspace (ADR 0141), read without a build: its lock's
     # licenses against the root allowlist, its bans and sources with its own
     # deny.toml.
-    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses
-    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
-    ci/tool.sh cargo-shear cargo shear
+    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     # The workspace-hack is current and every member takes it (ADR 0094).
-    ci/tool.sh cargo-hakari ci/workspace-hack.sh check
-    cargo run --quiet --bin xtask -- self-hosted check
-    cargo run --quiet --bin xtask -- egress check
-    cargo run --quiet --bin xtask -- os-services workflows
-    cargo run --quiet --bin xtask -- fixture-size
-    cargo run --quiet --bin xtask -- image-pins
-    cargo run --quiet --bin xtask -- output-scans
-    cargo run --quiet --bin xtask -- screenshots check
-    cargo run --quiet --bin xtask -- dependency-direction
-    cargo run --quiet --bin xtask -- package-dependencies
-    cargo run --quiet --bin xtask -- mocking-lockfile
-    cargo run --quiet --bin xtask -- telemetry
-    cargo run --quiet --bin xtask -- no-retry
-    cargo run --quiet --bin xtask -- received-requests
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      cargo run --quiet --bin xtask -- axe-exceptions check
-    cargo run --quiet --bin xtask -- modules
-    cargo run --quiet --bin xtask -- codegen --check
-    cargo run --quiet --bin xtask -- clients check
-    cargo run --quiet --bin xtask -- compat check
-    cargo run --quiet --bin xtask -- containment
-    ci/tool-versions.sh
+    step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'
+    step --after xtask xtask-self-hosted 'cargo run --quiet --bin xtask -- self-hosted check'
+    step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
+    step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
+    step --after xtask xtask-fixture-size 'cargo run --quiet --bin xtask -- fixture-size'
+    step --after xtask xtask-image-pins 'cargo run --quiet --bin xtask -- image-pins'
+    step --after xtask xtask-output-scans 'cargo run --quiet --bin xtask -- output-scans'
+    step --after xtask xtask-screenshots 'cargo run --quiet --bin xtask -- screenshots check'
+    step --after xtask xtask-dependency-direction 'cargo run --quiet --bin xtask -- dependency-direction'
+    step --after xtask xtask-package-dependencies 'cargo run --quiet --bin xtask -- package-dependencies'
+    step --after xtask xtask-mocking-lockfile 'cargo run --quiet --bin xtask -- mocking-lockfile'
+    step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
+    step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
+    step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
+    step --after xtask xtask-axe-exceptions 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- axe-exceptions check'
+    step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
+    step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
+    step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
+    step tool-versions 'ci/tool-versions.sh'
+    steps_end
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
 # Schema bundle and catalog, each Product's projection, the names only
@@ -861,16 +888,18 @@ quick-steps:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
+    echo "# Every step runs even after one failed; the run ends with the list of those that failed (ci/keep-going.sh)."
     echo "# First, always:"
+    echo "just compiler-cache"
     echo "just floor-guard"
     echo "just commit-leaks"
     echo "# The change's gate, its gate= line:"
     echo "cargo run --quiet --locked --bin xtask -- affected --local"
-    echo "# gate=docs: just lint-documents (fmt-check, then its own lines), and nothing after it."
-    echo "# Any other gate: just lint (fmt-check, lint-documents, then its own lines), then the Quick suite."
+    echo "# gate=docs: just lint-documents, and nothing after it."
+    echo "# Any other gate: just lint, then the Quick suite, which runs after a red lint too."
     for recipe in fmt-check lint-documents lint; do
       echo "# just $recipe:"
-      "$just" --show "$recipe" | sed -n 's/^    //p'
+      GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
     echo "# The Quick suite over what changed:"
     echo "just test-affected quick --local"

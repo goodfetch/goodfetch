@@ -18,9 +18,22 @@
 # the push's remote ref holds), else the branch's upstream off `main` (the
 # integration branch a ticket goes into), else `origin/main`.
 #
+# Every step runs even after one failed (ci/keep-going.sh), the lints' own
+# steps included, so one run reports every failure at once; the run then
+# lists each failed step with its log under target/steps/quick/ and fails.
+# The Quick suite runs after a red lint too: a lint failure (formatting,
+# Clippy, a drift check, a document check) leaves the tests' build and
+# results as meaningful as before, and a test failure then shows in the same
+# round instead of the next one. A compile error fails both, which costs the
+# suite's build once more and reports nothing new, a smaller cost than one
+# more round for every ticket whose tests fail beside a red lint. Only
+# `xtask affected` ends the run early, since without its `gate=` line the
+# tier cannot tell which checks the change takes.
+#
 # A green run on a clean checkout records its tree in the repository's
 # common folder, shared by its worktrees, and the pre-push hook skips a push
-# of a recorded tree: `just quick` never runs twice on one tree.
+# of a recorded tree: `just quick` never runs twice on one tree. A tree is
+# recorded only when every step passed.
 #
 # Every step runs through the `just` on PATH, where the recipe puts its own.
 # It keeps to bash 3.2, which stock macOS runs.
@@ -51,11 +64,15 @@ record_green() {
   echo "\`just quick\` passed on tree $tree: the pre-push hook skips a push of it."
 }
 
+# shellcheck source=ci/keep-going.sh
+source "$(dirname "${BASH_SOURCE[0]}")/keep-going.sh"
+
 rm -f target/skipped.txt
 trap 'just _skips-report' EXIT
-just compiler-cache
-just floor-guard
-just commit-leaks
+steps_begin quick
+step compiler-cache 'just compiler-cache'
+step floor-guard 'just floor-guard'
+step commit-leaks 'just commit-leaks'
 
 if [[ -z $all ]]; then
   change=(--local)
@@ -68,19 +85,26 @@ if [[ -z $all ]]; then
   fi
   [[ -z $base ]] || change+=(--since "$base")
   echo "The change: the working tree against its merge base with ${base:-origin/main}."
-  gate=$(cargo run --quiet --locked --bin xtask -- affected "${change[@]}" | sed -n 's/^gate=//p')
+  if ! selection=$(cargo run --quiet --locked --bin xtask -- affected "${change[@]}"); then
+    echo "error: \`xtask affected\` failed, so no lint and no Quick suite ran: the tier cannot tell which checks the change takes" >&2
+    steps_end || true
+    exit 1
+  fi
+  gate=$(printf '%s\n' "$selection" | sed -n 's/^gate=//p')
   if [[ $gate == docs ]]; then
     echo "The change is documents alone (xtask affected's gate=docs), so the pre-push tier runs the docs gate's checks: \`just lint-documents\`; the code lints and the Quick suite do not run, as at the merge (ADR 0135)."
-    just lint-documents
-    record_green
-    exit 0
+    step lint-documents 'just lint-documents'
+  else
+    step lint 'just lint'
+    suite=$(printf ' %q' "${change[@]}")
+    step quick-suite "just test-affected quick$suite"
   fi
+else
+  step lint 'just lint'
+  step quick-suite 'just _suite quick all'
 fi
 
-just lint
-if [[ -n $all ]]; then
-  just _suite quick all
-else
-  just test-affected quick "${change[@]}"
+if ! steps_end; then
+  exit 1
 fi
 record_green

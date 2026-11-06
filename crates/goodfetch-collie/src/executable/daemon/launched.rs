@@ -36,7 +36,7 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{
     ConsoleListener, DaemonListener, Network, activated_console, listen_console,
 };
-use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::console::{
@@ -206,17 +206,13 @@ pub(in crate::executable) fn launched(
             idle_timeout,
             keep_alive: keep_alive || activated || installed,
             holds: Holds::new(),
-            succession: Arc::new(OnTheMachine {
-                files: files.clone(),
-                home: machine.home.clone(),
-                cache: machine.cache(),
-                product: identity.product,
-                version: identity.product_version.clone(),
-                max_unused_age: machine.max_unused_age(),
-                clock: machine.clock,
+            succession: Arc::new(OnTheMachine::of(
+                machine,
+                identity,
+                files.clone(),
                 pid,
-                keeps_socket: activated,
-            }),
+                activated,
+            )),
             console,
             drain: None,
             install,
@@ -596,6 +592,30 @@ struct OnTheMachine {
     pid: u32,
     /// Whether its socket is the service manager's, which stays.
     keeps_socket: bool,
+}
+
+impl OnTheMachine {
+    /// The pick and handover of the Daemon `pid` that `identity` runs on
+    /// `machine`, whose runtime files are `files`.
+    fn of(
+        machine: &Machine<'_>,
+        identity: &Identity,
+        files: DaemonFiles,
+        pid: u32,
+        keeps_socket: bool,
+    ) -> Self {
+        Self {
+            files,
+            home: machine.home.clone(),
+            cache: machine.cache(),
+            product: identity.product,
+            version: identity.product_version.clone(),
+            max_unused_age: machine.max_unused_age(),
+            clock: machine.clock,
+            pid,
+            keeps_socket,
+        }
+    }
 }
 
 impl Succession for OnTheMachine {

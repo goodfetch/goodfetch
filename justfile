@@ -99,6 +99,8 @@ lint: lint-documents
     ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
     ci/tool.sh cargo-shear cargo shear
+    # The workspace-hack is current and every member takes it (ADR 0094).
+    ci/tool.sh cargo-hakari ci/workspace-hack.sh check
     cargo run --quiet --bin xtask -- self-hosted check
     cargo run --quiet --bin xtask -- egress check
     cargo run --quiet --bin xtask -- os-services workflows
@@ -1397,6 +1399,16 @@ commit-messages base="" head="HEAD":
     [[ -n "$base" ]] || base=$(git merge-base origin/main "{{ head }}")
     cargo run --quiet --bin xtask -- commit-messages --base "$base" --head "{{ head }}" \
       --since "{{ conventional_commits_since }}"
+
+# Whether this checkout's builds reuse the C and C++ objects other checkouts
+# compiled (TESTING.md, Compiler cache): where the Rust compiler wrapper is
+# sccache, it reports sccache's base directories not listing this checkout, or
+# CMake's compiler launcher bypassing sccache, and fails on them only where
+# COMPILER_CACHE_REQUIRED=1 (the shared build server, `just merge`); where no
+# build uses sccache it is skipped. `just quick` and `just merge` run it
+# before any build.
+compiler-cache:
+    ci/compiler-cache.sh
 
 # The floor guard (ADR 0140; TESTING.md, Quality register): what the change
 # since the merge base with `base` does to the bar. A flagged change passes only

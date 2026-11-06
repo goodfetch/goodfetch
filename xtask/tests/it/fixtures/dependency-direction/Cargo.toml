@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "proving-ground"]
+members = ["crates/*", "proving-ground", "xtask"]

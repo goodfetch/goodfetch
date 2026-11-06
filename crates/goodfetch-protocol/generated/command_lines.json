@@ -1,0 +1,776 @@
+{
+  "collie": {
+    "commands": [
+      {
+        "commands": [],
+        "name": "attached-engine"
+      },
+      {
+        "commands": [],
+        "name": "command-line"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "install"
+          },
+          {
+            "commands": [],
+            "name": "clean"
+          }
+        ],
+        "name": "browser"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "export"
+          },
+          {
+            "commands": [],
+            "name": "verify"
+          }
+        ],
+        "name": "audit"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "accept"
+          },
+          {
+            "commands": [],
+            "name": "forget"
+          }
+        ],
+        "name": "certs"
+      },
+      {
+        "commands": [],
+        "name": "console"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "explain"
+          }
+        ],
+        "name": "config"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "stop"
+          },
+          {
+            "commands": [],
+            "name": "restart"
+          },
+          {
+            "commands": [],
+            "name": "status"
+          },
+          {
+            "commands": [],
+            "name": "health"
+          },
+          {
+            "commands": [],
+            "name": "install"
+          },
+          {
+            "commands": [],
+            "name": "uninstall"
+          },
+          {
+            "commands": [],
+            "name": "rotate-token"
+          },
+          {
+            "commands": [],
+            "name": "http-listener-token"
+          },
+          {
+            "commands": [],
+            "name": "run"
+          },
+          {
+            "commands": [],
+            "name": "launched"
+          }
+        ],
+        "name": "daemon"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "reindex"
+          }
+        ],
+        "name": "runs"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "set"
+          },
+          {
+            "commands": [],
+            "name": "raise"
+          }
+        ],
+        "name": "usage"
+      },
+      {
+        "commands": [],
+        "name": "upgrade-files"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "info"
+          }
+        ],
+        "name": "engine"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "subscribe"
+          }
+        ],
+        "name": "events"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "dismiss"
+          }
+        ],
+        "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "new-page"
+          },
+          {
+            "commands": [],
+            "name": "new-session"
+          },
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "finish"
+          },
+          {
+            "commands": [],
+            "name": "stop"
+          },
+          {
+            "commands": [],
+            "name": "abort"
+          },
+          {
+            "commands": [],
+            "name": "usage"
+          },
+          {
+            "commands": [],
+            "name": "progress"
+          },
+          {
+            "commands": [],
+            "name": "report"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "checkpoint"
+          },
+          {
+            "commands": [],
+            "name": "pause"
+          },
+          {
+            "commands": [],
+            "name": "migrate"
+          },
+          {
+            "commands": [],
+            "name": "resume"
+          }
+        ],
+        "name": "run"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "new-page"
+          },
+          {
+            "commands": [],
+            "name": "close"
+          },
+          {
+            "commands": [],
+            "name": "pages"
+          }
+        ],
+        "name": "session"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "goto"
+          },
+          {
+            "commands": [],
+            "name": "reload"
+          },
+          {
+            "commands": [],
+            "name": "go-back"
+          },
+          {
+            "commands": [],
+            "name": "go-forward"
+          },
+          {
+            "commands": [],
+            "name": "formats"
+          },
+          {
+            "commands": [],
+            "name": "body"
+          },
+          {
+            "commands": [],
+            "name": "close"
+          }
+        ],
+        "name": "page"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "click"
+          },
+          {
+            "commands": [],
+            "name": "fill"
+          },
+          {
+            "commands": [],
+            "name": "press"
+          }
+        ],
+        "name": "locator"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "body"
+          }
+        ],
+        "name": "response"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "set"
+          },
+          {
+            "commands": [],
+            "name": "get-bytes"
+          },
+          {
+            "commands": [],
+            "name": "set-bytes"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          },
+          {
+            "commands": [],
+            "name": "keys"
+          }
+        ],
+        "name": "key-value-store"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "echo"
+          }
+        ],
+        "name": "sample"
+      }
+    ],
+    "name": "goodfetch-collie"
+  },
+  "foxhound": {
+    "commands": [
+      {
+        "commands": [],
+        "name": "attached-engine"
+      },
+      {
+        "commands": [],
+        "name": "command-line"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "install"
+          },
+          {
+            "commands": [],
+            "name": "clean"
+          }
+        ],
+        "name": "browser"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "export"
+          },
+          {
+            "commands": [],
+            "name": "verify"
+          }
+        ],
+        "name": "audit"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "accept"
+          },
+          {
+            "commands": [],
+            "name": "forget"
+          }
+        ],
+        "name": "certs"
+      },
+      {
+        "commands": [],
+        "name": "console"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "explain"
+          }
+        ],
+        "name": "config"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "stop"
+          },
+          {
+            "commands": [],
+            "name": "restart"
+          },
+          {
+            "commands": [],
+            "name": "status"
+          },
+          {
+            "commands": [],
+            "name": "health"
+          },
+          {
+            "commands": [],
+            "name": "install"
+          },
+          {
+            "commands": [],
+            "name": "uninstall"
+          },
+          {
+            "commands": [],
+            "name": "rotate-token"
+          },
+          {
+            "commands": [],
+            "name": "http-listener-token"
+          },
+          {
+            "commands": [],
+            "name": "run"
+          },
+          {
+            "commands": [],
+            "name": "launched"
+          }
+        ],
+        "name": "daemon"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "reindex"
+          }
+        ],
+        "name": "runs"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "set"
+          },
+          {
+            "commands": [],
+            "name": "raise"
+          }
+        ],
+        "name": "usage"
+      },
+      {
+        "commands": [],
+        "name": "upgrade-files"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "info"
+          }
+        ],
+        "name": "engine"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "subscribe"
+          }
+        ],
+        "name": "events"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "dismiss"
+          }
+        ],
+        "name": "needs-you"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "new-page"
+          },
+          {
+            "commands": [],
+            "name": "new-session"
+          },
+          {
+            "commands": [],
+            "name": "start"
+          },
+          {
+            "commands": [],
+            "name": "finish"
+          },
+          {
+            "commands": [],
+            "name": "stop"
+          },
+          {
+            "commands": [],
+            "name": "abort"
+          },
+          {
+            "commands": [],
+            "name": "usage"
+          },
+          {
+            "commands": [],
+            "name": "progress"
+          },
+          {
+            "commands": [],
+            "name": "report"
+          },
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "checkpoint"
+          },
+          {
+            "commands": [],
+            "name": "pause"
+          },
+          {
+            "commands": [],
+            "name": "migrate"
+          },
+          {
+            "commands": [],
+            "name": "resume"
+          },
+          {
+            "commands": [],
+            "name": "seeds"
+          },
+          {
+            "commands": [],
+            "name": "add-seed"
+          },
+          {
+            "commands": [],
+            "name": "add-seeds"
+          },
+          {
+            "commands": [],
+            "name": "records"
+          },
+          {
+            "commands": [],
+            "name": "export"
+          },
+          {
+            "commands": [],
+            "name": "outcomes"
+          },
+          {
+            "commands": [],
+            "name": "failed-requests"
+          },
+          {
+            "commands": [],
+            "name": "retry-failed"
+          },
+          {
+            "commands": [],
+            "name": "rejected-records"
+          }
+        ],
+        "name": "run"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "new-page"
+          },
+          {
+            "commands": [],
+            "name": "close"
+          },
+          {
+            "commands": [],
+            "name": "pages"
+          }
+        ],
+        "name": "session"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "goto"
+          },
+          {
+            "commands": [],
+            "name": "reload"
+          },
+          {
+            "commands": [],
+            "name": "go-back"
+          },
+          {
+            "commands": [],
+            "name": "go-forward"
+          },
+          {
+            "commands": [],
+            "name": "formats"
+          },
+          {
+            "commands": [],
+            "name": "body"
+          },
+          {
+            "commands": [],
+            "name": "close"
+          }
+        ],
+        "name": "page"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "click"
+          },
+          {
+            "commands": [],
+            "name": "fill"
+          },
+          {
+            "commands": [],
+            "name": "press"
+          }
+        ],
+        "name": "locator"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "body"
+          }
+        ],
+        "name": "response"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "get"
+          },
+          {
+            "commands": [],
+            "name": "set"
+          },
+          {
+            "commands": [],
+            "name": "get-bytes"
+          },
+          {
+            "commands": [],
+            "name": "set-bytes"
+          },
+          {
+            "commands": [],
+            "name": "delete"
+          },
+          {
+            "commands": [],
+            "name": "keys"
+          }
+        ],
+        "name": "key-value-store"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "echo"
+          },
+          {
+            "commands": [],
+            "name": "crawl"
+          }
+        ],
+        "name": "sample"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "start"
+          }
+        ],
+        "name": "crawl"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "page"
+          },
+          {
+            "commands": [],
+            "name": "query"
+          }
+        ],
+        "name": "dataset"
+      }
+    ],
+    "name": "goodfetch-foxhound"
+  }
+}

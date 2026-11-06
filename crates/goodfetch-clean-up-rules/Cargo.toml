@@ -16,6 +16,7 @@ goodfetch-counted-work.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 zstd.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [build-dependencies]
 # The embedded rules are compiled with the binary's own `adblock` version

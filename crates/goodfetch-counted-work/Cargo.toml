@@ -12,6 +12,7 @@ publish.workspace = true
 dom_query.workspace = true
 glob.workspace = true
 regex.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

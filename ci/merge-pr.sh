@@ -56,6 +56,8 @@ if ! git merge-base --is-ancestor "origin/$base" "$head"; then
   exit 1
 fi
 
+# This checkout's compiler cache check, which the gate runs in its own.
+compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # One worktree for every gate, locked and held by one gate at a time, reset
 # to the exact head (ci/gate-worktree.sh).
 # shellcheck source=ci/gate-worktree.sh
@@ -127,6 +129,10 @@ started=$(date -u +%s)
 status=0
 (
   cd "$worktree"
+  # Before any build: whether the gate's checkout reuses the C and C++
+  # objects other checkouts compiled (TESTING.md, Compiler cache); a gap
+  # fails the gate.
+  COMPILER_CACHE_REQUIRED=1 "$compiler_cache"
   just fetch
   if [[ $gate == quick || $gate == docs ]]; then
     just pre-merge "$gate"

@@ -24,6 +24,8 @@ mod codegen;
 mod commit_messages;
 mod compare_spider;
 mod compat;
+#[cfg(unix)]
+mod compiler_cache;
 mod console;
 mod containment;
 #[cfg(unix)]

@@ -23,7 +23,7 @@ RUN apt-get update \
 RUN cargo install --locked --root /usr/local \
       just@1.46.0 cargo-nextest@0.9.149 cargo-deny@0.20.2 cargo-insta@1.49.0 \
       cargo-shear@1.14.0 typos-cli@1.50.3 zizmor@1.30.1 \
-      cargo-audit@0.22.0 cargo-hack@0.6.45 \
+      cargo-audit@0.22.0 cargo-hack@0.6.45 cargo-hakari@0.9.39 \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 
 # `xtask perf`'s tools (ADR 0071): Valgrind, and gungraun's runner at the

@@ -81,13 +81,13 @@ keep_failed_gate() {
 
 # After the gate, pass or fail, and before the lock is released: the build
 # units no gate read since the day before this gate started go, which
-# `relatime` keeps telling apart (xtask/src/sweep_target.rs). A head from
-# before the command only warns.
+# `relatime` keeps telling apart (xtask/src/sweep_target.rs). The sweep takes
+# the start itself, so the gate's own reads stay however long it ran. A head
+# from before the command only warns.
 started=""
 on_exit() {
   if [[ -n $started ]]; then
-    local hours=$((($(date -u +%s) - started + 3599) / 3600 + 25))
-    (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --unused-hours "$hours") ||
+    (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --read-since "$started") ||
       echo "warning: the gate's target/ was not swept" >&2
   fi
   rm -f "$gate_log"

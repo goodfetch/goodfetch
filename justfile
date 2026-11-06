@@ -1409,8 +1409,10 @@ merge number *override:
     ci/merge-pr.sh {{ number }} {{ override }}
 
 # Removes a Cargo target folder's dead units, which no build has read for
-# `--unused-hours` (48 by default, at least 25), and keeps whole each unit a
-# build read: `just sweep-target --target <folder> [--dry-run]`.
+# `--unused-hours` (48 by default, at least 25) or since the day before the
+# Unix time `--read-since` gives (`just merge` passes its gate's start), and
+# keeps whole each unit a build read:
+# `just sweep-target --target <folder> [--dry-run]`.
 sweep-target *args:
     cargo run --quiet --bin xtask -- sweep-target {{ args }}
 

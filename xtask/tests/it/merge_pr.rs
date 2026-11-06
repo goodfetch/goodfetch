@@ -3,7 +3,8 @@
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
 //! sweeps the gate's `target/` after each gate, still holding its lock. `gh`,
-//! `cargo` and `just` are stand-ins that record each call. The local gate is
+//! `cargo` and `just` are stand-ins that record each call, and `date` one
+//! that gives the gate's start as [`STARTED`]. The local gate is
 //! repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
@@ -15,7 +16,12 @@ use crate::workspace::Workspace;
 
 const NUMBER: &str = "7";
 
-/// Stand-ins for `gh`, `cargo` and `just` that append each call to `calls`.
+/// The Unix time the `date` stand-in gives for `date -u +%s`.
+const STARTED: &str = "1800000000";
+
+/// Stand-ins for `gh`, `cargo` and `just` that append each call to `calls`,
+/// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
+/// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`; `cargo
 /// run … affected` prints `gate=quick`; `just pre-merge` writes a JUnit
 /// file and, while `failing` exists, fails with status 3.
@@ -50,6 +56,12 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                  fi\n",
                 calls = calls.display(),
                 failing = folder.join("failing").display(),
+            ),
+        ),
+        (
+            "date",
+            format!(
+                "#!/bin/sh\nif [ \"$*\" = '-u +%s' ]; then echo {STARTED}; else exec /bin/date \"$@\"; fi\n"
             ),
         ),
     ];
@@ -160,8 +172,8 @@ fn a_gate_refuses_to_start_while_its_target_file_system_is_short_of_space() {
 }
 
 /// A green gate merges, then sweeps the gate's `target/` before it lets
-/// the lock go: units unread over the gate's hours, rounded up (none for
-/// the stand-ins' instant gate), and the 25 hours `relatime` may lag.
+/// the lock go, keeping every unit read since the gate started, however
+/// long it ran.
 #[test]
 fn after_a_green_gate_the_target_is_swept_under_the_gates_lock() {
     let (workspace, head) = pull_request();
@@ -180,7 +192,7 @@ fn after_a_green_gate_the_target_is_swept_under_the_gates_lock() {
     );
     assert!(
         run.calls[sweep].ends_with(&format!(
-            "sweep-target --unused-hours 25 in {}",
+            "sweep-target --read-since {STARTED} in {}",
             gate_worktree(&workspace).display()
         )),
         "{}",

@@ -780,6 +780,7 @@ dependencies = [
  "potential_utf",
  "proc-macro2",
  "psl",
+ "quick-xml",
  "quote",
  "rand",
  "regex",

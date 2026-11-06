@@ -9,7 +9,7 @@ use goodfetch_test_support::{
 };
 use serde_json::Value;
 
-use crate::{TEST_ENV, get, manifest, manifest_with, schema_errors};
+use crate::{TEST_ENV, get, manifest, manifest_with, requested_from, schema_errors, still_answers};
 
 /// Starts `goodfetch-test-env` with these arguments.
 fn start(env: &TestEnv, arguments: &[&str]) -> Process {
@@ -210,16 +210,14 @@ fn closing_stdin_stops_the_proving_ground() {
         .as_str()
         .unwrap_or_else(|| panic!("no Proving ground: {line}"))
         .to_owned();
+    let source = requested_from(&address);
 
     let status = process.close_stdin_and_wait().unwrap();
 
-    #[expect(
-        clippy::disallowed_types,
-        reason = "the test checks that nothing answers on the address any more"
-    )]
-    let connected = std::net::TcpStream::connect(&address).map_err(|error| error.kind());
+    // Another program may have bound the port it freed (#2038): what
+    // answers there now is judged by its connection record.
     assert!(status.success());
-    assert_eq!(connected.err(), Some(std::io::ErrorKind::ConnectionRefused));
+    assert!(!still_answers(&address, source));
 }
 
 #[test]

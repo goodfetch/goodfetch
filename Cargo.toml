@@ -459,6 +459,15 @@ wreq-util = { path = "vendor/wreq-util" }
 # but for SHA-256: every launch checks its browser build's digest, some
 # 400 MB, which unoptimized takes tens of seconds and optimized well under
 # one (#695).
+#
+# Debug information stays in the object files, beside the executables
+# (`.dwo` on Linux, the `.o` files on macOS), instead of being linked into
+# each test binary: backtraces still read file and line from them, and the
+# links write and the target holds less (#2089). `ci-test` turns it off
+# below, since its archived test binaries run away from the objects.
+[profile.dev]
+split-debuginfo = "unpacked"
+
 [profile.dev.package.sha2]
 opt-level = 3
 
@@ -575,6 +584,7 @@ lto = "thin"
 [profile.ci-test]
 inherits = "test"
 debug = "line-tables-only"
+split-debuginfo = "off"
 
 # Their dependencies optimized once, as on 2026-10-23's hosted Release run the
 # Proving ground's tests spent most of the Rust step in unoptimized

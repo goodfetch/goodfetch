@@ -44,6 +44,7 @@ postcard = { version = "1", features = ["use-std"] }
 potential_utf = { version = "0.1", default-features = false, features = ["zerovec"] }
 proc-macro2 = { version = "1" }
 psl = { version = "2" }
+quick-xml = { version = "0.41" }
 quote = { version = "1" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", default-features = false, features = ["small_rng"] }
 regex = { version = "1" }

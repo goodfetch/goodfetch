@@ -5,12 +5,14 @@
 //! batch processor, the metrics' periodic reader), which waits on each
 //! export, each bounded by [`EXPORT_TIMEOUT`] over a runtime of its own.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::otlp::Collector;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 
 /// How long one export to the collector may take.
 pub(super) const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -26,9 +28,16 @@ impl ToCollector {
     /// A client to the collector the machine's `settings` configure, whose
     /// every export ends within [`EXPORT_TIMEOUT`], and which hands the
     /// exporter every status the collector answers.
+    ///
+    /// The export's own thread waits on each export, so the collector's
+    /// blocking work, reading `tls.trusted_cas`, runs inline on it.
     pub(super) fn new(settings: &Resolved, clock: Clock) -> Self {
         Self {
-            collector: Collector::of(settings, clock),
+            collector: Collector::of(
+                settings,
+                clock,
+                Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+            ),
             clock,
         }
     }

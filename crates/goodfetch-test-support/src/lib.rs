@@ -5,7 +5,7 @@
 //! certificate authority and network fixtures, the
 //! test tool manifest, `JourneyRun`, which runs a Rust Journey variant and
 //! writes its result document through the constructor its test passes, the
-//! paused runtime, proptest's configuration, the
+//! paused runtime, the runtime whose blocking pool is held, proptest's configuration, the
 //! test `tracing` subscriber and `logged`, which captures what `tracing`
 //! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
@@ -176,7 +176,7 @@ pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use received_requests::{OWN_TARGETS, ReceivedRequests, robots_txt_read, robots_txt_readings};
 pub use resident::{peak_resident_bytes, peak_resident_bytes_of, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
-pub use runtime::{proptest_config, proptest_config_for, runtime};
+pub use runtime::{proptest_config, proptest_config_for, runtime, with_the_blocking_pool_held};
 pub use runtime_file::{
     ConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,

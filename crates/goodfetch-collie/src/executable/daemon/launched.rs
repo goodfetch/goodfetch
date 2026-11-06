@@ -181,7 +181,7 @@ pub(in crate::executable) fn launched(
     let runtime = multi_thread_runtime();
     let ended = runtime.block_on(async {
         let (listener, endpoint, token, activated) =
-            take_listener(machine, &files, &socket, service).await?;
+            take_listener(machine, &files, &socket, service)?;
         let (console, console_state) = if engine.serves_console() {
             console_of_launch(machine, activated, &console_address, settings.as_ref()).await
         } else {
@@ -512,7 +512,7 @@ async fn console_of_launch(
 /// manager handed over, with the persistent token, when `service` and one
 /// did (`true`), otherwise a socket of its own at `socket`, with a token
 /// of this launch.
-async fn take_listener(
+fn take_listener(
     machine: &Machine<'_>,
     files: &DaemonFiles,
     socket: &Path,
@@ -533,7 +533,6 @@ async fn take_listener(
     }
     let (listener, endpoint) = Network::Os
         .listen(socket)
-        .await
         .map_err(unavailable("the Daemon cannot listen"))?;
     let token = new_token().map_err(|error| {
         Failure::Unavailable(format!("the OS generator gave no token: {error}"))

@@ -24,6 +24,57 @@ pub fn runtime() -> tokio::runtime::Runtime {
         .unwrap_or_else(|error| panic!("the test runtime cannot start: {error}"))
 }
 
+/// How long [`with_the_blocking_pool_held`] lets its work run.
+const HELD_POOL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What the future `work` makes answers on a current-thread Tokio runtime
+/// whose only blocking thread another job holds, or `None` when it has not
+/// answered within 5 seconds of the real clock: work that waits on the
+/// runtime's own blocking pool, such as a `tokio::fs` call, never answers,
+/// while work run inline, as the engine's inline blocking policy runs it,
+/// does (ADR 0060). The clock is the real one, since a held blocking thread
+/// keeps a paused clock from advancing.
+///
+/// # Panics
+///
+/// If Tokio cannot build the runtime, or the job holding its blocking
+/// thread panics.
+pub fn with_the_blocking_pool_held<W, F>(work: W) -> Option<F::Output>
+where
+    W: FnOnce() -> F,
+    F: std::future::Future,
+{
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test helpers build the tests' runtime (ADR 0060)"
+    )]
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap_or_else(|error| panic!("the test runtime cannot start: {error}"));
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (holding, holds) = std::sync::mpsc::channel::<()>();
+    runtime.block_on(async {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the helper's one job holds the runtime's only blocking thread, outside any owner"
+        )]
+        let pool = tokio::runtime::Handle::current().spawn_blocking(move || {
+            let _ = holding.send(());
+            let _ = held.recv();
+        });
+        holds
+            .recv()
+            .unwrap_or_else(|error| panic!("the blocking thread never started: {error}"));
+        let answered = tokio::time::timeout(HELD_POOL_WAIT, work()).await.ok();
+        let _ = release.send(());
+        pool.await
+            .unwrap_or_else(|error| panic!("the job holding the blocking thread failed: {error}"));
+        answered
+    })
+}
+
 /// Proptest's configuration for the running test: [`proptest_config_for`]
 /// its suite and seed. `PROPTEST_CASES` is never set (ADR 0060).
 ///

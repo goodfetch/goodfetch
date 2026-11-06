@@ -114,7 +114,6 @@ where
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
-            .await
             .unwrap();
         tokio::join!(
             engine.run_daemon(listener, dependencies, options),

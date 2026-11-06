@@ -86,6 +86,36 @@ disallowed-methods = [
   { path = "tokio::fs::File::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::File::create", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::create_dir_all", reason = "create through CountedWork::create_dir_all on a blocking owner (ADR 0140)", allow-invalid = true },
+  # `tokio::fs` runs on the runtime's own blocking pool, outside the owner's
+  # blocking policy, so under its inline policy a run's interleaving would
+  # hang on the host's load: call `std::fs` as the owner's blocking work
+  # (STYLE.md). `File`, `OpenOptions` and `DirBuilder` are under
+  # `disallowed-types`.
+  { path = "tokio::fs::canonicalize", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::copy", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::create_dir", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::hard_link", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::metadata", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::read", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::read_dir", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::read_link", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::read_to_string", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::remove_dir", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::remove_dir_all", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::remove_file", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::rename", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::set_permissions", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::symlink", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::symlink_dir", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::symlink_file", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::symlink_metadata", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::try_exists", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::write", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::File::create_new", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::File::from_std", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::File::options", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::OpenOptions::new", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::DirBuilder::new", reason = "tokio::fs runs outside the owner's blocking policy: call std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
   # A validator build goes through one counted function (ADR 0140).
   { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
@@ -116,6 +146,11 @@ disallowed-types = [
   # `From::from`, which Clippy cannot single out, and naming the type catches
   # it. A signature names it `goodfetch_counted_work::ParsedHtml`.
   { path = "dom_query::Document", reason = "parse through CountedWork::parse_html and name the tree ParsedHtml (ADR 0140)", allow-invalid = true },
+  # `tokio::fs`'s handles, whose every call runs outside the owner's
+  # blocking policy; its functions are under `disallowed-methods`.
+  { path = "tokio::fs::File", reason = "tokio::fs runs outside the owner's blocking policy: use std::fs::File as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::OpenOptions", reason = "tokio::fs runs outside the owner's blocking policy: use std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
+  { path = "tokio::fs::DirBuilder", reason = "tokio::fs runs outside the owner's blocking policy: use std::fs as TaskOwner::blocking work (STYLE.md)", allow-invalid = true },
   # Sockets are opened only in goodfetch-engine's transport module (ADR 0060).
   { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },

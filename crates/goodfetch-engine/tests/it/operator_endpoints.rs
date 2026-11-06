@@ -10,10 +10,12 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::otlp::{Collector, ExportFailure};
 use goodfetch_engine::settings::{Layers, Policy, Resolved, Values, resolve};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_protocol::settings::SettingsLayer;
@@ -30,6 +32,11 @@ use serde_json::{Map, Value, json};
 use crate::egress::{at_port, table_rule, target_connections};
 
 const SEED: u64 = 627;
+
+/// An owner whose blocking work runs inline, as in the Simulation.
+fn inline() -> Arc<TaskOwner> {
+    Arc::new(TaskOwner::root(BlockingPolicy::Inline))
+}
 
 /// The Proving ground's watched target, which answers any plain HTTP
 /// request and whose every connection the record lists.
@@ -116,6 +123,7 @@ fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private
     let collector = Collector::of(
         &machine_settings(no_private_endpoints(refused), json!({})),
         Clock::system(),
+        inline(),
     );
 
     let exported = export(&collector, &url);
@@ -155,8 +163,13 @@ fn an_endpoints_reply_past_network_max_body_size_is_too_long() {
     let limited = Collector::of(
         &machine_settings(json!({}), json!({ "network": { "max_body_size": 1 } })),
         Clock::system(),
+        inline(),
     );
-    let unlimited = Collector::of(&machine_settings(json!({}), json!({})), Clock::system());
+    let unlimited = Collector::of(
+        &machine_settings(json!({}), json!({})),
+        Clock::system(),
+        inline(),
+    );
 
     let cut = export(&limited, &url);
     let whole = export(&unlimited, &url);
@@ -194,6 +207,7 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase, refusing: bool) -> 
             json!({ "network": { "resolve": resolve } }),
         ),
         Clock::system(),
+        inline(),
     );
     let url = at_port(&case.url, target.port());
     // A URL no URI holds is no endpoint a collector can be given: nothing
@@ -333,6 +347,44 @@ fn authority(proving_ground: &ProvingGround) -> String {
         .to_string()
 }
 
+/// Under `BlockingPolicy::Inline`, the Simulation's, an Operator-configured
+/// endpoint's `tls.trusted_cas` files are read with no thread of the
+/// runtime's blocking pool, here held by another job: work on such a
+/// thread lets the other tasks run for as long as the thread takes, so a
+/// run's interleaving would hang on the host's load.
+#[test]
+fn an_endpoints_trusted_authorities_are_read_under_inline_blocking_with_no_thread_of_the_runtime() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let tls = json!({ "trusted_cas": { "catalog.test": [authority(&proving_ground)] } });
+    let collector = Collector::of(
+        &machine_settings(json!({}), at_catalog(&proving_ground, &tls)),
+        Clock::system(),
+        inline(),
+    );
+    let request = Request::post(format!(
+        "https://catalog.test:{}/v1/traces",
+        proving_ground.address().port()
+    ))
+    .header("content-type", "application/x-protobuf")
+    .body(Bytes::new())
+    .unwrap();
+
+    let exported = goodfetch_test_support::with_the_blocking_pool_held(|| async {
+        collector
+            .send(request)
+            .await
+            .map(drop)
+            .map_err(|failure| failure.to_string())
+    });
+
+    assert_eq!(
+        exported,
+        Some(Ok(())),
+        "the export waited for the blocking pool"
+    );
+}
+
 /// Story 4-41 (ADR 0042): a domain `tls.accept_invalid_certs` lists, for
 /// trust on first use or with `any`, makes no exception for the
 /// Operator-configured endpoint at that domain, whose unknown issuer is
@@ -358,6 +410,7 @@ fn an_endpoint_takes_its_own_trusted_authority_and_no_certificate_exception(
     let collector = Collector::of(
         &machine_settings(json!({}), at_catalog(&proving_ground, &tls)),
         Clock::system(),
+        inline(),
     );
     let url = format!(
         "https://catalog.test:{}/v1/traces",

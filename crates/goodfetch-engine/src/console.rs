@@ -564,20 +564,28 @@ impl Site {
         None
     }
 
-    /// The bytes of `file`, if its Run holds it.
+    /// The bytes of `file`, if its Run holds it, read as the engine's
+    /// blocking work.
     async fn read(&self, file: &ContentFile) -> Option<Vec<u8>> {
         let path = self.file(&file.run_id, &file.body).await?;
-        tokio::fs::read(path).await.ok()
+        self.runs
+            .limits()
+            .owner
+            .blocking(move || read_body(&path))
+            .await
+            .ok()
     }
 
-    /// The path of the body `body` of the Run `run_id`, if it holds one.
+    /// The path of the body `body` of the Run `run_id`, if it holds one,
+    /// looked for as the engine's blocking work.
     async fn file(&self, run_id: &RunId, body: &str) -> Option<std::path::PathBuf> {
         let folder = self.runs.folder(run_id.clone()).await.ok()?;
         let path = crate::body::file(&folder, body)?;
-        tokio::fs::try_exists(&path)
+        self.runs
+            .limits()
+            .owner
+            .blocking(move || matches!(path.try_exists(), Ok(true)).then_some(path))
             .await
-            .ok()
-            .and_then(|exists| exists.then_some(path))
     }
 
     /// An answer with no body, under the Console's headers.
@@ -966,6 +974,16 @@ pub fn build_file(
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     production_headers(response, policy)
+}
+
+/// The bytes of the body file at `path`; it blocks, so its caller runs it
+/// as its owner's blocking work.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its caller runs it as its owner's blocking work"
+)]
+fn read_body(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
 }
 
 /// An answer with no body.

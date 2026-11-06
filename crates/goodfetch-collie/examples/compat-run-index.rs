@@ -311,8 +311,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     runtime.block_on(async {
         let (network, dialer) = transport::in_memory();
         let (listener, endpoint) = Network::InMemory(network)
-            .listen(Path::new("daemon.sock"))
-            .await?;
+            .listen(Path::new("daemon.sock"))?;
         let options = DaemonOptions {
             token: TOKEN.to_owned(),
             endpoint,

@@ -407,11 +407,22 @@ async fn kept_export(
         .await
         .map_err(failed)?;
     let file = export_file(&folder, sha256).ok_or_else(|| no_export(export_id))?;
-    let size = tokio::fs::metadata(&file)
+    let measured = file.clone();
+    let size = reader
+        .blocking(move || file_size(&measured))
         .await
-        .map_err(|_| no_export(export_id))?
-        .len();
+        .map_err(|_| no_export(export_id))?;
     Ok((folder, file, size, sha256.to_owned()))
+}
+
+/// The size of the file at `path`; it blocks, so its caller runs it as the
+/// engine's blocking work.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its caller runs it as the engine's blocking work"
+)]
+fn file_size(path: &std::path::Path) -> std::io::Result<u64> {
+    std::fs::metadata(path).map(|metadata| metadata.len())
 }
 
 async fn save_as(

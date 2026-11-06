@@ -410,3 +410,34 @@ fn a_host_reached_through_an_exception_gets_no_client_certificate() {
     assert_eq!(reached, 200);
     assert_eq!(fixture.seen(), (json!([MUTUAL]), vec![json!(MUTUAL)]));
 }
+
+/// Under `BlockingPolicy::Inline`, the Simulation's and the Compatibility
+/// corpus writers', a listed certificate's file is read at the handshake
+/// with no thread of the runtime's blocking pool, here held by another
+/// job: work on such a thread lets the other tasks run for as long as the
+/// thread takes, so a run's interleaving would hang on the host's load.
+#[test]
+fn a_listed_certificate_loads_under_inline_blocking_with_no_thread_of_the_runtime() {
+    let fixture = fixture(true);
+    let certificates = ClientCertificates::listed(
+        &fixture.client_certificates(&[MUTUAL]),
+        fixture.run_secrets(),
+        Some(SettingsLayer::Run),
+        Some(RunId::parse("mutual").unwrap()),
+    )
+    .unwrap();
+
+    let loaded = goodfetch_test_support::with_the_blocking_pool_held(|| async {
+        certificates
+            .for_host(MUTUAL)
+            .await
+            .map(|loaded| loaded.is_some())
+            .map_err(|error| error.to_string())
+    });
+
+    assert_eq!(
+        loaded,
+        Some(Ok(true)),
+        "the load waited for the blocking pool"
+    );
+}

@@ -280,12 +280,17 @@ impl ClientCertificates {
             layer: self.layer,
             reason,
         };
-        let file = tokio::fs::read(&entry.certificate).await.map_err(|error| {
-            unusable(format!(
-                "its certificate file `{}` cannot be read: {error}",
-                entry.certificate
-            ))
-        })?;
+        let certificate = std::path::PathBuf::from(&entry.certificate);
+        let file = secrets
+            .owner()
+            .blocking(move || read_certificate_file(&certificate))
+            .await
+            .map_err(|error| {
+                unusable(format!(
+                    "its certificate file `{}` cannot be read: {error}",
+                    entry.certificate
+                ))
+            })?;
         let chain = read_certificates(&file).map_err(|error| {
             unusable(format!(
                 "its certificate file `{}`: {error}",
@@ -349,4 +354,14 @@ impl ResolvesClientCert for Presenting {
     fn has_certs(&self) -> bool {
         true
     }
+}
+
+/// The bytes of the certificate file at `path`; it blocks, so its caller
+/// runs it as its owner's blocking work.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its caller runs it as its owner's blocking work"
+)]
+fn read_certificate_file(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
 }

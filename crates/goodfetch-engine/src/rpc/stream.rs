@@ -5,6 +5,8 @@
 //! call of another module that sends its own events, such as `page.on`,
 //! sends them with [`send_events`].
 
+use std::sync::Arc;
+
 use goodfetch_protocol::events::{
     EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope, EventsSubscribeParams, SubscriptionEnded,
 };
@@ -14,7 +16,7 @@ use goodfetch_protocol::page::{
 
 use super::record_event;
 use crate::body;
-use crate::composition::{CallContext, CallError, CallStream, Handler};
+use crate::composition::{CallContext, CallError, CallStream, Handler, open_to_send};
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;
@@ -69,10 +71,6 @@ pub async fn send_events(stream: &CallStream, events: Vec<EventEnvelope>) -> boo
     stream.notify(EVENTS, &batch).await
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 async fn read_body(
     params: PageBodyParams,
     context: CallContext,
@@ -96,12 +94,14 @@ async fn read_body(
         .await
         .map_err(|_| not_found())?;
     let file = body::file(&folder, &params.body).ok_or_else(not_found)?;
-    let mut file = tokio::fs::File::open(&file)
+    let owner = Arc::clone(&context.runs().limits().owner);
+    let file = owner
+        .blocking(move || open_to_send(&file))
         .await
         .map_err(|_| not_found())?;
     let size = context
         .stream()
-        .send_file(&mut file)
+        .send_file(&owner, file)
         .await
         .map_err(|error| {
             CallError::protocol(

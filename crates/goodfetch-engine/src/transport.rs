@@ -157,21 +157,22 @@ impl Network {
     /// on a port the OS chooses on Windows; in memory, every Connection the
     /// dialer opens. Answers the endpoint a runtime file names.
     ///
+    /// It blocks on the file system, so it runs as its owner's blocking
+    /// work ([`crate::tasks::TaskOwner::blocking`]), in the runtime's
+    /// context, which registers the listener: inline under
+    /// [`crate::tasks::BlockingPolicy::Inline`], so a run replays from its
+    /// seed whatever the host's load.
+    ///
     /// # Errors
     ///
     /// When the OS refuses the socket, such as a path too long for it.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future leaves at most a socket file that the next
-    /// listener at its path replaces.
-    pub async fn listen(self, socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+    pub fn listen(self, socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
         match self {
             Self::InMemory(network) => Ok((
                 DaemonListener(Listening::InMemory(network)),
                 DaemonEndpoint::Unix(socket.to_owned()),
             )),
-            Self::Os => listen_os(socket).await,
+            Self::Os => listen_os(socket),
         }
     }
 
@@ -380,9 +381,13 @@ pub fn activated_console(
 }
 
 #[cfg(unix)]
-async fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "it runs as its owner's blocking work (`Network::listen`)"
+)]
+fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
     use std::os::unix::fs::PermissionsExt as _;
-    match tokio::fs::remove_file(socket).await {
+    match std::fs::remove_file(socket) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
@@ -392,7 +397,7 @@ async fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)
         reason = "the transport module is the one place that opens sockets (ADR 0060)"
     )]
     let listener = tokio::net::UnixListener::bind(socket)?;
-    tokio::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).await?;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
     Ok((
         DaemonListener(Listening::Unix(listener)),
         DaemonEndpoint::Unix(socket.to_owned()),
@@ -400,12 +405,18 @@ async fn listen_os(socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)
 }
 
 #[cfg(not(unix))]
-async fn listen_os(_socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
+fn listen_os(_socket: &Path) -> io::Result<(DaemonListener, DaemonEndpoint)> {
     #[expect(
         clippy::disallowed_types,
         reason = "the transport module is the one place that opens sockets (ADR 0060)"
     )]
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+    listener.set_nonblocking(true)?;
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let listener = tokio::net::TcpListener::from_std(listener)?;
     let address = listener.local_addr()?;
     Ok((
         DaemonListener(Listening::Tcp(listener)),

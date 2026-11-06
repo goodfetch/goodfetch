@@ -18,6 +18,10 @@ const ROUTES: &str = "routes.json";
 /// # Errors
 ///
 /// When the folder cannot be read or holds no `index.html.br`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the Stub gateway is a test-only stand-in that no Run's blocking policy governs, never shipped (ADR 0096)"
+)]
 pub(crate) async fn read(folder: &Path) -> io::Result<&'static ConsoleBuild> {
     let mut found = Vec::new();
     let mut folders = vec![PathBuf::new()];
@@ -63,6 +67,10 @@ pub(crate) async fn read(folder: &Path) -> io::Result<&'static ConsoleBuild> {
 }
 
 /// The routes `routes.json` lists, `{ "routes": ["/settings", …] }`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the Stub gateway is a test-only stand-in that no Run's blocking policy governs, never shipped (ADR 0096)"
+)]
 async fn routes(folder: &Path) -> io::Result<Vec<String>> {
     let text = tokio::fs::read_to_string(folder.join(ROUTES)).await?;
     let listed: serde_json::Value = serde_json::from_str(&text)?;

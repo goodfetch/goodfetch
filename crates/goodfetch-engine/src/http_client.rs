@@ -52,7 +52,6 @@ use std::collections::BTreeMap;
 use std::future::ready;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -78,6 +77,7 @@ use crate::response_limits::{
 };
 use crate::run_trace::RequestLog;
 use crate::settings::Resolved;
+use crate::tasks::TaskOwner;
 use crate::tls::{
     self, CertificateChanged, CertificateExceptions, CertificateInvalid, ClientCertificateFailure,
     ClientCertificates, ExceptionUsed, Trust,
@@ -699,7 +699,10 @@ impl ConfiguredEndpoint<'_> {
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
     resolve: Resolve,
-    authorities: Vec<(String, Vec<PathBuf>)>,
+    /// `tls.trusted_cas`, whose files each send reads.
+    trusted_cas: serde_json::Value,
+    /// The owner whose blocking policy reads them.
+    owner: Arc<TaskOwner>,
     clock: Clock,
     delays: Delays,
     max_body_size: u64,
@@ -719,33 +722,20 @@ pub(crate) enum WholeFailure {
 }
 
 impl EndpointSettings {
-    /// The settings `settings`, the machine's resolved ones, give.
-    pub(crate) fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// The settings `settings`, the machine's resolved ones, give, whose
+    /// certificate authorities each send reads as `owner`'s blocking work.
+    pub(crate) fn of(settings: &Resolved, clock: Clock, owner: Arc<TaskOwner>) -> Self {
         let resolve = settings
             .hosts(NETWORK_RESOLVE.name)
             .into_iter()
             .fold(Resolve::new(), |mapping, (host, addresses)| {
                 mapping.with(host, addresses)
             });
-        let authorities = settings
-            .value(TLS_TRUSTED_CAS.name)
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(domain, files)| {
-                let files = files
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|file| file.as_str().map(PathBuf::from))
-                    .collect();
-                (domain.clone(), files)
-            })
-            .collect();
         Self {
             policy: EndpointPolicy::of(settings),
             resolve,
-            authorities,
+            trusted_cas: settings.value(TLS_TRUSTED_CAS.name).clone(),
+            owner,
             clock,
             delays: Delays::of(settings),
             max_body_size: Limits::of(settings).max_body_size,
@@ -804,34 +794,11 @@ impl EndpointSettings {
     }
 
     /// The trust of the endpoint's certificate: the authorities
-    /// `tls.trusted_cas` lists for each domain, read now; a file that
-    /// cannot be read is logged and trusts nothing.
+    /// `tls.trusted_cas` lists for each domain, read now as the owner's
+    /// blocking work; a file that cannot be read is logged and trusts
+    /// nothing.
     async fn trust(&self) -> Trust {
-        let mut trust = Trust::default_roots();
-        for (domain, files) in &self.authorities {
-            let mut authorities = Vec::new();
-            for file in files {
-                let read = tokio::fs::read(file)
-                    .await
-                    .map_err(|error| error.to_string())
-                    .and_then(|bytes| {
-                        tls::read_certificates(&bytes).map_err(|error| error.to_string())
-                    });
-                match read {
-                    Ok(read) => authorities.extend(read),
-                    Err(error) => tracing::warn!(
-                        %error,
-                        file = %file.display(),
-                        "a certificate authority of `tls.trusted_cas` cannot be read"
-                    ),
-                }
-            }
-            match trust.clone().with_trusted_cas(domain, authorities) {
-                Ok(with) => trust = with,
-                Err(error) => tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host"),
-            }
-        }
-        trust
+        tls::trusted_cas(&self.trusted_cas, &self.owner).await
     }
 }
 

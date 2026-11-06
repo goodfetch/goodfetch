@@ -47,7 +47,7 @@ use goodfetch_protocol::run::RunKind;
 use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
-pub(crate) use call_streams::{CallNotifier, InputSender};
+pub(crate) use call_streams::{CallNotifier, InputSender, open_to_send};
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.

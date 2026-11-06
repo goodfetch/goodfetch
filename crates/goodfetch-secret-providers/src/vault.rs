@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::sync::Arc;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
@@ -22,6 +23,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SECRET_PROVIDERS_VAULT_ADDRESS;
 use hyper::Request;
@@ -54,10 +56,13 @@ impl Vault {
     /// The provider `secret_providers.vault.address` configures in
     /// `resolved`, which also gives how the server is reached, signed in by
     /// the token in the engine's `environment`.
+    ///
+    /// Its endpoint reads `tls.trusted_cas` as `owner`'s blocking work.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        owner: Arc<TaskOwner>,
     ) -> Self {
         Self::new(
             resolved
@@ -65,7 +70,7 @@ impl Vault {
                 .as_str()
                 .map(str::to_owned),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, owner),
         )
     }
 

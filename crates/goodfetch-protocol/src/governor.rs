@@ -91,6 +91,10 @@ fn ninety_five() -> serde_json::Value {
     serde_json::json!(95)
 }
 
+fn on() -> serde_json::Value {
+    serde_json::Value::Bool(true)
+}
+
 fn one_second() -> serde_json::Value {
     serde_json::json!(1000)
 }
@@ -217,6 +221,18 @@ pub const CRITICAL: Setting = Setting {
     description: "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
     kind: ValueKind::Count,
     default: ninety_five,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.host_memory` (ADR 0040).
+pub const HOST_MEMORY: Setting = Setting {
+    name: "governor.host_memory",
+    description: "Whether the engine's Resource governor also judges the host's own memory, its memory in use against `governor.pressure` and `governor.critical` and the operating system's memory-pressure signal, and treats its pressure as the engine's: on. Off, the engine's own memory against its Memory allowance alone sets the level, as on a host whose other workloads are not the engine's to answer for.",
+    kind: ValueKind::Boolean,
+    default: on,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
@@ -567,7 +583,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
 };
 
 /// Every setting of the governor, each under `governor.`.
-pub const SETTINGS: [Setting; 17] = [
+pub const SETTINGS: [Setting; 18] = [
     HTTP_FLOOR,
     HTTP_CEILING,
     BROWSER_PAGE_FLOOR,
@@ -577,6 +593,7 @@ pub const SETTINGS: [Setting; 17] = [
     MEMORY_ALLOWANCE,
     PRESSURE,
     CRITICAL,
+    HOST_MEMORY,
     SAMPLE_INTERVAL,
     LAST_RESORT_AFTER,
     RUN_SHARE,

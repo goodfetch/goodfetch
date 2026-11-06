@@ -86,6 +86,7 @@ impl Proc {
             memory_allowance: setting,
             pressure: 85,
             critical: 95,
+            host_memory: true,
         })
     }
 }
@@ -177,6 +178,7 @@ fn a_limit_changed_since_the_last_sample_is_seen() {
         memory_allowance: None,
         pressure: 85,
         critical: 95,
+        host_memory: true,
     };
     let before = system.read(&inputs).allowance;
 

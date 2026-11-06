@@ -131,6 +131,68 @@ fn get(address: &str, host: &str, target: &str) -> Answer {
     }
 }
 
+/// How long [`still_answers`] waits for whatever accepted its connection to
+/// answer before it judges that it is no Proving ground.
+const IDENTIFY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Sends `GET /tasks` to the Proving ground at `address`, and returns the
+/// address the request left from, which its connection record lists from
+/// then on.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the tests reach a Proving ground over a plain socket, as any client of it does"
+)]
+fn requested_from(address: &str) -> std::net::SocketAddr {
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    let source = stream.local_addr().unwrap();
+    write!(
+        stream,
+        "GET /tasks HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    stream.read_to_end(&mut Vec::new()).unwrap();
+    source
+}
+
+/// Whether the Proving ground that recorded a connection from `source`
+/// still answers at `address`, as its own connection record shows: nothing
+/// accepting there is none of it, and neither is another program that bound
+/// the port it freed, which lists no such connection (#2038).
+#[expect(
+    clippy::disallowed_types,
+    reason = "the tests reach a Proving ground over a plain socket, as any client of it does"
+)]
+fn still_answers(address: &str, source: std::net::SocketAddr) -> bool {
+    let Ok(mut stream) = std::net::TcpStream::connect(address) else {
+        return false;
+    };
+    let mut response = Vec::new();
+    let read = stream
+        .set_read_timeout(Some(IDENTIFY_DEADLINE))
+        .and_then(|()| {
+            write!(
+                stream,
+                "GET /observations HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+            )
+        })
+        .and_then(|()| stream.read_to_end(&mut response));
+    if read.is_err() {
+        return false;
+    }
+    let response = String::from_utf8_lossy(&response);
+    let observations: Value = response
+        .split_once("\r\n\r\n")
+        .and_then(|(_, body)| serde_json::from_str(body).ok())
+        .unwrap_or_default();
+    observations["connections"]
+        .as_array()
+        .is_some_and(|connections| {
+            connections
+                .iter()
+                .any(|connection| connection["source"] == json!(source.to_string()))
+        })
+}
+
 /// Lets its owner run the file at `path`, a script a test wrote.
 #[cfg(unix)]
 fn make_executable(path: &Path) {

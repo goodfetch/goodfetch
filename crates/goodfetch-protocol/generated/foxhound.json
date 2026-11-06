@@ -19906,6 +19906,23 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
+      "default": true,
+      "description": "Whether the engine's Resource governor also judges the host's own memory, its memory in use against `governor.pressure` and `governor.critical` and the operating system's memory-pressure signal, and treats its pressure as the engine's: on. Off, the engine's own memory against its Memory allowance alone sets the level, as on a host whose other workloads are not the engine's to answer for.",
+      "name": "governor.host_memory",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
       "default": 200,
       "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
       "name": "governor.http.ceiling",

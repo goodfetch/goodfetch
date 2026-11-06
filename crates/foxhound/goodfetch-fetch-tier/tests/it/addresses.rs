@@ -485,10 +485,13 @@ fn a_mapped_answer_to_a_private_address_is_refused_unless_its_host_or_range_is_l
 /// Rebinding end to end (ADR 0067): this test binary runs again in a
 /// `DnsNamespace` whose resolver is the Proving ground's DNS fixture, and
 /// there sends, on each transport with the system's resolver
-/// configuration, a name that answers `127.0.0.2`, which stands for a
-/// public address its Session lists, and then `127.0.0.1`. The first
-/// reaches its server; the second is refused, naming `127.0.0.1`, and
-/// nothing connects to the server listening there.
+/// configuration, a name that answers a loopback address other than
+/// `127.0.0.1`, which stands for a public address its Session lists, and
+/// then `127.0.0.1`. The first reaches its server; the second is refused,
+/// naming `127.0.0.1`, and nothing connects to the server listening there.
+/// The transports run at once, each on a name of its own: the fixture
+/// keeps one turn per name, so two cases sharing one took each other's
+/// turns and a first send went to `127.0.0.1` (#2108).
 #[cfg(target_os = "linux")]
 #[expect(
     clippy::disallowed_types,
@@ -507,10 +510,9 @@ mod linux {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use url::Url;
 
-    use super::{SEED, built, every_host, policy};
+    use super::{SEED, built, every_host, label, policy};
     use crate::{Stack, running_clock_runtime};
 
-    const NAME: &str = "127-0-0-2.127-0-0-1.alternating.dns.test";
     const CHILD: &str = "addresses::linux::in_the_namespace_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection";
 
     /// Covers: story:4-102
@@ -549,15 +551,17 @@ mod linux {
             .unwrap();
     }
 
-    /// The child, which runs only inside the namespace, on each transport.
+    /// The child, which runs only inside the namespace, on each transport
+    /// with its own stand-in for a public address.
     #[rstest]
-    #[case::reqwest(Stack::Reqwest)]
-    #[case::wreq(Stack::Wreq)]
+    #[case::reqwest(Stack::Reqwest, Ipv4Addr::new(127, 0, 0, 2))]
+    #[case::wreq(Stack::Wreq, Ipv4Addr::new(127, 0, 0, 3))]
     #[ignore = "run as a child by addresses::linux::on_linux_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection"]
     fn in_the_namespace_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection(
         #[case] stack: Stack,
+        #[case] public: Ipv4Addr,
     ) {
-        let public = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+        let public = IpAddr::V4(public);
         let server = TcpListener::bind(SocketAddr::new(public, 0)).unwrap();
         let port = server.local_addr().unwrap().port();
         let private =
@@ -577,20 +581,22 @@ mod linux {
                 local: None,
             },
         );
-        let hop = Hop::get(Url::parse(&format!("http://{NAME}:{port}/")).unwrap());
+        let name = format!("{}.127-0-0-1.alternating.dns.test", label(public));
+        let hop = Hop::get(Url::parse(&format!("http://{name}:{port}/")).unwrap());
 
         let (first, second) = running_clock_runtime().block_on(async {
             server.set_nonblocking(true).unwrap();
             let server = tokio::net::TcpListener::from_std(server).unwrap();
-            let (first, ()) = tokio::join!(
-                async {
-                    transport
-                        .send(&hop, Reuse::Never)
-                        .await
-                        .map(|sent| sent.status)
-                },
-                answer_once(&server),
-            );
+            let sent = transport.send(&hop, Reuse::Never);
+            let answered = answer_once(&server);
+            tokio::pin!(sent, answered);
+            // A first send that never connects to the server ends the case
+            // with its failure, rather than leaving it waiting on `accept`.
+            let first = tokio::select! {
+                sent = &mut sent => sent,
+                () = &mut answered => sent.await,
+            }
+            .map(|sent| sent.status);
             let second = transport.send(&hop, Reuse::Never).await.map(|_| ());
             (first, second)
         });

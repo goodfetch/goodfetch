@@ -289,6 +289,11 @@ pub enum Syncing {
     /// acknowledges: the default.
     #[default]
     Required,
+    /// As `Required`, its group also declaring [`DEFERRED_CHARGES`] at
+    /// `full` when the file does not yet: the start of a Run whose claims
+    /// defer their charges, so that no claim's group syncs to declare it
+    /// (#2117).
+    Declaring,
     /// Committed without a sync of its own at `full`: a power cut before
     /// the next synced commit may take it, as it may an attempt's claim.
     Deferred {
@@ -822,15 +827,21 @@ struct Planned {
 }
 
 impl Deferral {
-    /// How `group` commits: synced when any of its writes needs it, when it
+    /// How `group` commits: synced when any of its writes needs it, and
+    /// declaring the bound when one of them asks to; synced too when it
     /// charges before the file declares the bound, which it then declares,
     /// or when it would pass the bound; else on the deferring connection.
     fn plan(&self, group: &[Queued]) -> Planned {
         let mut required = false;
+        let mut declaring = false;
         let mut charged = 0_u64;
         for queued in group {
             match queued.syncing {
                 Syncing::Required => required = true,
+                Syncing::Declaring => {
+                    required = true;
+                    declaring = true;
+                }
                 Syncing::Deferred { charged: more } => charged = charged.saturating_add(more),
             }
         }
@@ -839,8 +850,10 @@ impl Deferral {
             declare,
             charged,
         };
-        if !self.deferring || required {
+        if !self.deferring {
             synced(false)
+        } else if required {
+            synced(declaring && !self.declared)
         } else if charged == 0 {
             Planned {
                 synced: false,

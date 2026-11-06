@@ -5141,8 +5141,15 @@ impl Registry {
         };
         let tags = start.tags.clone();
         let initialize = start.initialize;
+        // A crawl's claims defer their charges (ADR 0138's note of #1926),
+        // so its start declares their bound in its own synced commit rather
+        // than its first claim's (#2117); another Run declares none.
+        let syncing = match start.kind {
+            RunKind::Crawl => Syncing::Declaring,
+            RunKind::Collie => Syncing::Required,
+        };
         state
-            .write(move |connection| {
+            .write_with(syncing, move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(

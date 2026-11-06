@@ -20,6 +20,10 @@
 //! is of the Usage ledger's family: its major never changes and a newer
 //! minor only adds. Its calls block: callers run them under their owner's
 //! blocking policy.
+//!
+//! Size: one concern, the one store's hash chain, written by the append and
+//! the prune and read by the verify and the export, so the chain's rules
+//! read side by side.
 
 #![expect(
     clippy::disallowed_types,

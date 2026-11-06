@@ -1,5 +1,6 @@
 //! `xtask sweep-target` removes a Cargo target folder's dead units, those
-//! whose fingerprint no build has read for `--unused-hours`, with every file
+//! whose fingerprint no build has read for `--unused-hours` or since the day
+//! before `--read-since`, with every file
 //! carrying their hash, and keeps whole each unit a build read, so the next
 //! build reuses it (TESTING.md, Commands). The fixture target is written by
 //! hand, with its files' access and modification times set back.
@@ -149,6 +150,51 @@ fn unused_hours_set_how_long_unread_a_unit_is_dead() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert!(recent.iter().all(|file| exists(&workspace, file)));
     assert!(older.iter().all(|file| !exists(&workspace, file)));
+}
+
+/// `--read-since` keeps every unit read since that Unix time, less the day
+/// `relatime` may lag: the gate's sweep passes the gate's start.
+#[test]
+fn read_since_keeps_what_was_read_since_the_day_before_it() {
+    let workspace = Workspace::from_fixture("empty");
+    let since = SystemTime::now() - Duration::from_hours(6);
+    let recent = library(&workspace, "target/debug", "recent", LIVE, 29);
+    let older = library(&workspace, "target/debug", "older", DEAD, 31);
+    let seconds = since
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+
+    let outcome = sweep(&workspace, &["--read-since", &seconds]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(recent.iter().all(|file| exists(&workspace, file)));
+    assert!(older.iter().all(|file| !exists(&workspace, file)));
+}
+
+/// A time to come would put the cutoff inside the day `relatime` lags.
+#[test]
+fn a_read_since_after_now_is_refused() {
+    let workspace = Workspace::from_fixture("empty");
+    let unit = library(&workspace, "target/debug", "old", DEAD, 72);
+    let later = (SystemTime::now() + Duration::from_hours(48))
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+
+    let outcome = sweep(&workspace, &["--read-since", &later]);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains(&format!("--read-since {later} is after now")),
+        "{}",
+        outcome.stderr
+    );
+    assert!(unit.iter().all(|file| exists(&workspace, file)));
 }
 
 /// Under `relatime` a read moves the access time only once it is a day old,

@@ -20,7 +20,10 @@
 //! `relatime`, a read updates a file's access time when it is a day old or
 //! older than its last change, so a unit read in the last
 //! `unused-hours - 24` hours is always kept; the default 48 hours keeps
-//! every unit any build of the last day read, a gate's included. On a file
+//! every unit any build of the last day read. `--read-since` takes a Unix
+//! time instead and keeps every unit read since then, the cutoff falling a
+//! day before it: the gate's sweep passes the gate's start, so whatever the
+//! gate read stays however long it ran, with no rounding to hours. On a file
 //! system that records no access time (`noatime`) the sweep removes nothing
 //! and fails. Each profile is swept holding Cargo's own locks of it, so a
 //! build running beside the sweep keeps its profile whole. Symbolic links
@@ -65,6 +68,10 @@ pub(crate) struct Arguments {
     /// `relatime`'s day-long resolution keeps what was read.
     #[arg(long, default_value_t = 48, value_parser = clap::value_parser!(u64).range(25..))]
     unused_hours: u64,
+    /// Removes what no build has read since this Unix time, in seconds, or
+    /// in the day before it, which `relatime` may lag; not after now.
+    #[arg(long, conflicts_with = "unused_hours")]
+    read_since: Option<u64>,
     /// Lists what would go, removing nothing.
     #[arg(long)]
     dry_run: bool,
@@ -87,9 +94,28 @@ pub(crate) struct Swept {
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let target = environment.path(&arguments.target);
-    let cutoff = SystemTime::now()
-        .checked_sub(Duration::from_hours(arguments.unused_hours))
-        .context("the cutoff precedes the clock's range")?;
+    let now = SystemTime::now();
+    let (cutoff, unread) = match arguments.read_since {
+        Some(seconds) => {
+            let since = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds);
+            if since > now {
+                bail!(
+                    "--read-since {seconds} is after now: the cutoff would fall within the day `relatime` lags, and a unit read today could go"
+                );
+            }
+            (
+                since
+                    .checked_sub(Duration::from_hours(24))
+                    .context("the cutoff precedes the clock's range")?,
+                format!("since the day before {seconds}"),
+            )
+        }
+        None => (
+            now.checked_sub(Duration::from_hours(arguments.unused_hours))
+                .context("the cutoff precedes the clock's range")?,
+            format!("for {} h", arguments.unused_hours),
+        ),
+    };
     let swept = sweep(&target, cutoff, arguments.dry_run)?;
     for (profile, reason) in &swept.skipped {
         output::line(&format!("{}: left whole, {reason}", profile.display()));
@@ -101,12 +127,11 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     };
     let tenths_of_gb = swept.bytes / 100_000_000;
     output::line(&format!(
-        "Swept {}: {verb} {}.{} GB, {} units no build read for {} h and {} other paths; kept {} units",
+        "Swept {}: {verb} {}.{} GB, {} units no build read {unread} and {} other paths; kept {} units",
         target.display(),
         tenths_of_gb / 10,
         tenths_of_gb % 10,
         swept.units,
-        arguments.unused_hours,
         swept.removed.len().saturating_sub(swept.units),
         swept.kept,
     ));

@@ -81,7 +81,7 @@ use goodfetch_engine::local_addresses::{
 };
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
-use goodfetch_engine::run_state::RunStateError;
+use goodfetch_engine::run_state::{RunStateError, Syncing};
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
@@ -1134,9 +1134,14 @@ async fn drained(
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
         let intake = arrivals.intake.clone();
+        // Its answer promises nothing outside (#2117): the Run's end, which
+        // follows it, syncs, and so does a later call's refusal, as its own
+        // write commits after the close.
         match run
             .state()
-            .write(move |connection| intake.close_if_drained(connection))
+            .write_with(Syncing::Deferred { charged: 0 }, move |connection| {
+                intake.close_if_drained(connection)
+            })
             .await
         {
             Ok(true) => {}
@@ -1544,8 +1549,13 @@ async fn key(
         .iter()
         .map(|waiting| (waiting.id.clone(), waiting.key.clone()))
         .collect();
+    // Keys promise nothing outside (#2117): the outcome of the attempt that
+    // claims the item syncs them, and a power cut that takes them leaves
+    // the items unkeyed, which the next look keys again.
     run.state()
-        .write(move |connection| work_items::set_keys(connection, &keys))
+        .write_with(Syncing::Deferred { charged: 0 }, move |connection| {
+            work_items::set_keys(connection, &keys)
+        })
         .await?;
     for waiting in keyed {
         admission.enqueue(waiting);

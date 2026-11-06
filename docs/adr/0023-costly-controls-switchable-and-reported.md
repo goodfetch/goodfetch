@@ -23,6 +23,18 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
 
+> Note (agent decision, pending owner review), 2026-11-06, [#1577](https://github.com/goodfetch/goodfetch/issues/1577) ([ADR 0138](0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)): switching a control off removes its work as well as its effect. As built, the table gains these rows:
+>
+> | Control | When switched off |
+> | --- | --- |
+> | Durability of run state (ADR 0002), `run_state.durability` below `full` | the run report's `weakened` and `config explain` name the level: `fast` and `periodic` may lose recent commits to a power cut, and `off` discards the run file a crash leaves ([#1927](https://github.com/goodfetch/goodfetch/issues/1927)) |
+> | Learned URL rules and the Page signature (ADR 0005), `frontier.learning: false` | no rule is learned, so the Run report's `learned_rules` is empty, with the warning `learning_off` ([#1909](https://github.com/goodfetch/goodfetch/issues/1909)) |
+> | Foxhound's Provenance log (ADR 0047), `provenance.log: false` | the Run trace holds no Provenance log, with the warning `provenance_off`; each Record keeps its own Provenance ([#1921](https://github.com/goodfetch/goodfetch/issues/1921)) |
+> | Foxhound's Records (ADR 0103), `dataset.records: false` | no Record is kept: each succeeded request's outcome says `records_off`, with the warning `records_off` ([#1921](https://github.com/goodfetch/goodfetch/issues/1921)) |
+> | Foxhound's Block classification (ADR 0035), `fetch.block_classification: false` | no request moves to the browser for a Challenge or ends `blocked`, with the warning `block_classification_off` ([#1921](https://github.com/goodfetch/goodfetch/issues/1921)) |
+>
+> Each of the last four is recorded in the Audit log, `frontier.learning` as `learning_switched_off` and the other three as `feature_switched_off`, with its value and its default, and listed in the report's `weakened`. A Durability level below `full` writes no Audit log entry.
+
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.
 - Later decisions that add a costly control state its switch and its mark.

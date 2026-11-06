@@ -1,3 +1,9 @@
+//! A call's file sends under the inline blocking policy (ADR 0060).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the file it sends itself"
+)]
+
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_test_support::{TestEnv, with_the_blocking_pool_held};

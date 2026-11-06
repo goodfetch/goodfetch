@@ -19,9 +19,8 @@ use super::files::{Kind, Status};
 /// Foxhound's executable carries.
 pub(crate) const SECTION: &str = "commands";
 
-/// A command and those under it, as clap's `Command` holds them; for a
-/// workspace `xtask` was not built from, as Collie's `commands` example
-/// writes it.
+/// A command and those under it, as clap's `Command` holds them and the
+/// executable's hidden `command-line` command prints them.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CommandTree {
@@ -32,13 +31,6 @@ pub(crate) struct CommandTree {
 }
 
 impl CommandTree {
-    pub(crate) fn of(command: &clap::Command) -> Self {
-        Self {
-            name: command.get_name().to_owned(),
-            commands: command.get_subcommands().map(Self::of).collect(),
-        }
-    }
-
     /// The paths of the commands below this executable's root.
     fn paths(&self) -> BTreeSet<String> {
         fn walk(tree: &CommandTree, prefix: &str, paths: &mut BTreeSet<String>) {

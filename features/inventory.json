@@ -165,6 +165,17 @@
       ]
     },
     {
+      "id": "command:command-line",
+      "kind": "command",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:config.explain",
       "kind": "command",
       "area": 3,

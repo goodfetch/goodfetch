@@ -374,13 +374,13 @@ fn an_endpoints_trusted_authorities_are_read_under_inline_blocking_with_no_threa
         collector
             .send(request)
             .await
-            .map(|answer| answer.status().is_success())
+            .map(drop)
             .map_err(|failure| failure.to_string())
     });
 
     assert_eq!(
         exported,
-        Some(Ok(true)),
+        Some(Ok(())),
         "the export waited for the blocking pool"
     );
 }

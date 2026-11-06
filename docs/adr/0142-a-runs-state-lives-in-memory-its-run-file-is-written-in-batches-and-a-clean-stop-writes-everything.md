@@ -121,4 +121,4 @@ How other crawlers keep this state ([the frontier persistence survey](../../rnd/
 - **`GLOSSARY.md`:** the Durability level's definition becomes `full`, `batch` or `off`. **Run-state batch** joins it: the changes to a Run's state since the last batch, written to its run file in one transaction. _Avoid_: flush, journal (an Effect journal is another thing), snapshot.
 - **The comparison matrix:** scenario 1's Foxhound cell runs at the default level, `batch`. Scenario 2's `periodic` cell at 60 s becomes `batch` with `run_state.batch.interval: 60s`, the like-for-like cell against Crawlee's `persistStorage`.
 - **Contracts change in place:** `run_state.durability`'s values and the new settings `run_state.batch.pages`, `.interval`, `.bytes`, `.sync` and `run_state.memory.budget` are added to `goodfetch-protocol`'s types and regenerated with `xtask codegen`.
-- **Implemented by** the spec "Memory-first Run state", which follows spec #1577.
+- **Implemented by** spec [#2138](https://github.com/goodfetch/goodfetch/issues/2138), which follows spec #1577.

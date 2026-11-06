@@ -37,6 +37,30 @@ fn empty_list_passes() {
     assert_eq!(outcome.code, 0);
 }
 
+/// An empty list runs no runner, so `just lint` builds no test binary for
+/// it; a listed nextest test needs Cargo for its listing (a Cargo that
+/// cannot start fails the check), which shows the empty list's pass ran none.
+#[test]
+fn an_empty_list_runs_no_runner_and_builds_nothing() {
+    let workspace = Workspace::from_fixture("quarantine");
+    let github = GitHub::serving(&[(ISSUE, OPEN_FLAKY_TEST_ISSUE)]);
+    let no_cargo = workspace.path().join("no-cargo-here");
+    let with_no_cargo = |workspace: &Workspace| {
+        workspace
+            .xtask_with_env(
+                &["quarantine", "check", "--api-url", github.url()],
+                &[("CARGO", no_cargo.as_os_str())],
+            )
+            .code
+    };
+
+    let empty = with_no_cargo(&workspace);
+    quarantine(&workspace, "nextest", "sample tests::flaky");
+    let listed = with_no_cargo(&workspace);
+
+    assert_eq!((empty, listed == 0), (0, false));
+}
+
 #[rstest]
 #[case::nextest("nextest", "sample tests::flaky")]
 #[case::vitest("vitest", "sample > flaky")]

@@ -842,6 +842,27 @@ test-affected suite *change:
 quick *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
+# Prints the commands `just quick` runs, in its order (ci/quick.sh), the
+# lints read from their recipes, so an implementer can run by name the ones
+# its change reaches before its one final `just quick` (TESTING.md, Commands).
+quick-steps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    echo "# First, always:"
+    echo "just floor-guard"
+    echo "just commit-leaks"
+    echo "# The change's gate, its gate= line:"
+    echo "cargo run --quiet --locked --bin xtask -- affected --local"
+    echo "# gate=docs: just lint-documents (fmt-check, then its own lines), and nothing after it."
+    echo "# Any other gate: just lint (fmt-check, lint-documents, then its own lines), then the Quick suite."
+    for recipe in fmt-check lint-documents lint; do
+      echo "# just $recipe:"
+      "$just" --show "$recipe" | sed -n 's/^    //p'
+    done
+    echo "# The Quick suite over what changed:"
+    echo "just test-affected quick --local"
+
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'
 # proofs (`all`: the whole workspace). The checks that need Linux run beside

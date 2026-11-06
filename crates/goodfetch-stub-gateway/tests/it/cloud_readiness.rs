@@ -204,14 +204,14 @@ fn testing_md_lists_every_cloud_readiness_case_with_its_covers() {
     let testing =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../TESTING.md"))
             .unwrap();
-    let section = testing
-        .split("### The Cloud-readiness conformance suite")
-        .nth(1)
-        .and_then(|rest| rest.split("\n## ").next())
-        .and_then(|rest| rest.split("\n### ").next())
-        .expect("TESTING.md has the subsection");
+    // Found by its heading line, the part `xtask affected` reads it as.
+    let mut section = testing.lines();
+    assert!(
+        section.any(|line| line.trim_end() == "### The Cloud-readiness conformance suite"),
+        "TESTING.md has the subsection"
+    );
     let lines: Vec<&str> = section
-        .lines()
+        .take_while(|line| !line.starts_with("## ") && !line.starts_with("### "))
         .filter(|line| line.starts_with("- `"))
         .collect();
 

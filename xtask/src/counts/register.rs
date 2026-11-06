@@ -19,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 pub(crate) const TESTING: &str = "TESTING.md";
 
 /// The section and header the table is found by.
-const SECTION: &str = "## Quality register";
+pub(crate) const SECTION: &str = "## Quality register";
 const HEADER_START: &str = "| Row |";
 
 /// The thousandths a limit and a figure are compared in: every figure in the
@@ -112,10 +112,16 @@ pub(super) fn read(root: &Path) -> Result<Register> {
 /// Every table of rows in the register: the Enforced section's counted work
 /// and the Measured table.
 fn parse(text: &str) -> Result<Register> {
-    let Some((_, section)) = text.split_once(SECTION) else {
+    // Found by its heading line, the part `xtask affected` reads it as, so
+    // prose quoting the heading is no register.
+    let mut lines = text.lines();
+    if !lines.any(|line| line.trim_end() == SECTION) {
         bail!("{TESTING} has no \"{SECTION}\" section");
-    };
-    let section = section.split("\n## ").next().unwrap_or(section);
+    }
+    let section = lines
+        .take_while(|line| !line.starts_with("## "))
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut register = Register {
         limits: BTreeMap::new(),
         rows: Vec::new(),

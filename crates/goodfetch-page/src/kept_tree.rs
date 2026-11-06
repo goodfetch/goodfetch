@@ -34,7 +34,7 @@ pub const READS_QUEUED: usize = 8;
 type Job = Box<dyn FnOnce(&ParsedHtml) + Send>;
 
 /// What a page's tree is kept from.
-pub enum Kept {
+pub enum KeptFrom {
     /// Its untouched tree, parsed already.
     Tree(ParsedHtml),
     /// Its HTML, parsed at the first read, on `F1.parses`.
@@ -58,7 +58,7 @@ impl KeptTree {
     /// Keeps the tree `kept` gives for `run`'s page served from it. Its
     /// owner is a task of the Run's, which ends with the last handle, or
     /// as the Run stops.
-    pub fn keep(run: &Run, kept: Kept) -> Self {
+    pub fn keep(run: &Run, kept: KeptFrom) -> Self {
         let (reads, mut mailbox) = mpsc::channel::<Job>(READS_QUEUED);
         let owner = run.clone();
         run.owner().spawn(async move {
@@ -71,11 +71,11 @@ impl KeptTree {
                     .owner()
                     .analysis(move || {
                         let tree = match held? {
-                            Kept::Tree(tree) => tree,
-                            Kept::Html(html) => work.parse_html(Row::PageParses, &html),
+                            KeptFrom::Tree(tree) => tree,
+                            KeptFrom::Html(html) => work.parse_html(Row::PageParses, &html),
                         };
                         read(&tree);
-                        Some(Kept::Tree(tree))
+                        Some(KeptFrom::Tree(tree))
                     })
                     .await;
             }

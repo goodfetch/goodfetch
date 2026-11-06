@@ -1550,7 +1550,7 @@ impl Pages {
             .owner()
             .analysis(move || {
                 clean_up::read(
-                    &document,
+                    (&document, None),
                     Serialization::Dom,
                     request,
                     (extractor.extractor(), measure),

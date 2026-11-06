@@ -51,8 +51,8 @@ use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Kept, KeptTree, Observer, PageValue, PooledSession, ProgramPages,
-    Reader, ServedDocument,
+    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
+    ProgramPages, Reader, ServedDocument,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
@@ -438,7 +438,7 @@ impl Decoded {
                 } else {
                     (untouched::Read::default(), Some(tree))
                 };
-                (use_signals, untouched, kept.map(Kept::Tree))
+                (use_signals, untouched, kept.map(KeptFrom::Tree))
             }
             Untouched::Streamed(streamed) => (
                 UntouchedReaders::streamed_use_signals(signals, &fetched.url),
@@ -455,7 +455,7 @@ impl Decoded {
         let tree = (readers.keeps() && not_document.is_none()).then(|| {
             KeptTree::keep(
                 run,
-                kept.unwrap_or_else(|| Kept::Html(Arc::from(html.as_str()))),
+                kept.unwrap_or_else(|| KeptFrom::Html(Arc::from(html.as_str()))),
             )
         });
         let links = fetched

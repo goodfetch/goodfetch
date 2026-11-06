@@ -171,7 +171,7 @@ fn a_browser_pages_formats_read_parses_its_serialization_once_with_every_format(
     let hidden = [".ad-slot".to_owned()];
 
     let (formats, done) = read(
-        &document,
+        (&document, None),
         Serialization::Dom,
         request,
         (BuiltIn::default().extractor(), ShareMeasure::default()),

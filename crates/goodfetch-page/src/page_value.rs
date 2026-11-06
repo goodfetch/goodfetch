@@ -56,7 +56,7 @@ use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
 
 use crate::blocks::Block;
-pub use crate::kept_tree::{Kept, KeptTree};
+pub use crate::kept_tree::{KeptFrom, KeptTree};
 use crate::url_pattern::UrlPattern;
 
 /// A boxed future of [`BrowserPages`]'s.

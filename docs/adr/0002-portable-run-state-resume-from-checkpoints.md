@@ -4,7 +4,7 @@ Each run keeps its state (frontier, staged results, sessions, effect journal, us
 
 > Amended by [ADR 0103](0103-a-handler-pushes-records-staged-with-its-attempt-into-datasets-its-crawl-declares-and-a-reader-never-slows-the-crawl.md): a Checkpoint also holds each Dataset's name, key and schema hash, which a resume checks before any work: a Dataset holding Records that the crawl no longer declares fails it with `dataset_unknown`, and a changed key with `dataset_key_invalid`.
 
-> Amended by [ADR 0142](0142-a-runs-state-lives-in-memory-its-run-file-is-written-in-batches-and-a-clean-stop-writes-everything.md), proposed and pending the owner's reading: a Foxhound Run's state lives in memory and its run file is written in Run-state batches; the default Durability level becomes `batch`, every existing level stays as a preset of the batch settings, and "an acknowledged commit survives a power cut" holds at `full`. The portable file, the single writer, Checkpoints and resume elsewhere are unchanged.
+> Amended by [ADR 0142](0142-a-runs-state-lives-in-memory-its-run-file-is-written-in-batches-and-a-clean-stop-writes-everything.md): a Foxhound Run's state lives in memory and its run file is written in Run-state batches; the default Durability level becomes `batch`, every existing level stays as a preset of the batch settings, and "an acknowledged commit survives a power cut" holds at `full`. The portable file, the single writer, Checkpoints and resume elsewhere are unchanged.
 
 ## Considered Options
 

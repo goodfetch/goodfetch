@@ -114,11 +114,14 @@ fn one_tree_reads_what_each_reader_read_of_its_own_parse(#[case] html: &str) {
     );
     let check = demand.page_check.as_ref().unwrap();
     let (verdict, robots) = read.judged(check).unwrap();
-    assert_eq!(verdict, judge(check, URL, html, &alone));
     let headers = std::collections::BTreeMap::new();
     assert_eq!(
-        goodfetch_page::noindex::marked(&headers, robots),
-        expected_page::noindex(&headers, html)
+        (
+            verdict,
+            verdict == expected_page::Verdict::NotExpected
+                && goodfetch_page::noindex::marked(&headers, robots)
+        ),
+        judge(check, URL, html, &headers, &alone)
     );
     let canonical = crate::canonical::canonical(html, &[], &url, &url, &alone);
     assert_eq!(read.signed(), Some(([7; 32], canonical.as_ref())));

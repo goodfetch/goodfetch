@@ -1567,11 +1567,7 @@ impl FetchTiers {
             let work = run.metrics().counted_work().clone();
             run.owner()
                 .analysis(move || {
-                    let verdict =
-                        expected_page::judge(&check, &document.url, &document.html, &work);
-                    let noindex = verdict == Verdict::NotExpected
-                        && expected_page::noindex(&headers, &document.html);
-                    (verdict, noindex)
+                    expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
         };

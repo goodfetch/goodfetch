@@ -28,6 +28,7 @@ mod certs;
 mod checkpoint;
 mod clean_up_rules;
 mod client_conformance;
+mod command_line;
 mod commands;
 mod config;
 mod console;

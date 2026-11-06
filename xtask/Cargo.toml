@@ -14,11 +14,10 @@ brotli.workspace = true
 clap.workspace = true
 flate2.workspace = true
 glob.workspace = true
-# The namespaces of the generated commands, which `xtask codegen` writes.
-goodfetch-cli.workspace = true
-# Both Products' command lines, built in process for the `command:`
-# Features (ADR 0072).
-goodfetch-collie = { workspace = true, features = ["executable"] }
+# The only Goodfetch crate it builds: the contract types `xtask codegen`
+# emits in process. No engine crate (ADR 0072, `xtask
+# dependency-direction`): the Products' command lines come from their
+# executables' `command-line`.
 goodfetch-protocol.workspace = true
 jiff.workspace = true
 jsonschema.workspace = true

@@ -8207,8 +8207,6 @@ dependencies = [
  "clap",
  "flate2",
  "glob",
- "goodfetch-cli",
- "goodfetch-collie",
  "goodfetch-counted-work",
  "goodfetch-protocol",
  "goodfetch-test-support",

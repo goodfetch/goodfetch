@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::{
     ContentOrigin, DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession,
@@ -46,7 +47,7 @@ use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, DaemonToken,
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
-use super::{Failure, Machine, multi_thread_runtime, now, per_install, unavailable};
+use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
 use goodfetch_cli::output;
 
 use crate::executable::browsers;
@@ -212,6 +213,7 @@ pub(in crate::executable) fn launched(
                 product: identity.product,
                 version: identity.product_version.clone(),
                 max_unused_age: machine.max_unused_age(),
+                clock: machine.clock,
                 pid,
                 keeps_socket: activated,
             }),
@@ -590,6 +592,7 @@ struct OnTheMachine {
     product: Product,
     version: goodfetch_protocol::connection::ProductVersion,
     max_unused_age: MaxUnusedAge,
+    clock: Clock,
     pid: u32,
     /// Whether its socket is the service manager's, which stays.
     keeps_socket: bool,
@@ -603,7 +606,14 @@ impl Succession for OnTheMachine {
             .map(|entry| Seen::look(entry, &self.cache))
             .collect();
         let floor = stores_floor(&self.home, &self.version);
-        pick(&seen, &self.version, floor, now(), self.max_unused_age).is_none_or(|picked| {
+        pick(
+            &seen,
+            &self.version,
+            floor,
+            now_of(self.clock),
+            self.max_unused_age,
+        )
+        .is_none_or(|picked| {
             picked.product == self.product && picked.product_version == self.version
         })
     }

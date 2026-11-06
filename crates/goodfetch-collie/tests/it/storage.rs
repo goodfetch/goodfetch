@@ -47,6 +47,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
+use crate::clean_up_rules::calendar_free;
 use crate::daemon::RawClient;
 use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
@@ -187,12 +188,13 @@ fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     env.home().join("0.0").join("runs").join(run_id)
 }
 
-/// The codes of `report`'s warnings.
+/// The codes of `report`'s warnings, but the calendar's
+/// ([`calendar_free`]).
 fn warnings(report: &Value) -> Vec<Value> {
     report["warnings"]
         .as_array()
         .map(|warnings| {
-            warnings
+            calendar_free(warnings)
                 .iter()
                 .map(|warning| warning["code"].clone())
                 .collect()

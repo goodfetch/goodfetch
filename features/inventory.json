@@ -6946,6 +6946,17 @@
       ]
     },
     {
+      "id": "setting:governor.host_memory",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:governor.http.ceiling",
       "kind": "setting",
       "area": 3,

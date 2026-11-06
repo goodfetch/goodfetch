@@ -30,8 +30,9 @@ use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::governor::{
-    CRITICAL, Concurrency, CpuReading, GovernorLevel, KindConcurrency, LAST_RESORT_AFTER,
-    MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
+    CRITICAL, Concurrency, CpuReading, GovernorLevel, HOST_MEMORY, KindConcurrency,
+    LAST_RESORT_AFTER, MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo,
+    WorkKind,
 };
 use goodfetch_protocol::storage::StorageLevel;
 use tokio::sync::watch;
@@ -318,6 +319,7 @@ impl Sampler {
                 memory_allowance: settings.count(MEMORY_ALLOWANCE.name),
                 pressure: limits.pressure,
                 critical: limits.critical,
+                host_memory: settings.boolean(HOST_MEMORY.name).unwrap_or(true),
             };
             let system = self.system.clone();
             let processes = self.shares.browsers().processes();

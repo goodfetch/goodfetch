@@ -935,6 +935,10 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "host_memory": {
+                "description": "Whether the engine's Resource governor also judges the host's own memory, its memory in use against `governor.pressure` and `governor.critical` and the operating system's memory-pressure signal, and treats its pressure as the engine's: on. Off, the engine's own memory against its Memory allowance alone sets the level, as on a host whose other workloads are not the engine's to answer for.",
+                "type": "boolean"
+              },
               "http": {
                 "additionalProperties": false,
                 "properties": {

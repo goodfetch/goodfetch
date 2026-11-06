@@ -65,9 +65,14 @@ const LAZYFS_PARENT: &str = "/tmp";
 /// (`log.file.max_files`): a process other than the Daemon keeps only its
 /// executable's newest sets at its start, and the test's exercise record
 /// reads every engine's log when the test ends, so a test that starts more
-/// processes than the default 5 would lose the first ones' records.
-pub const TEST_SETTINGS: &str =
-    "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
+/// processes than the default 5 would lose the first ones' records. The
+/// Resource governor judges the engine's own memory alone
+/// (`governor.host_memory`): the host's pressure comes from whatever else
+/// runs beside the test, and once critical it sheds the Run's browsers, so
+/// a test's browsers would come and go with the host's load (#2115,
+/// #2116). The governor's host rules are tested on a `/proc` the test
+/// writes.
+pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\nlog.file.max_files = 10000\ngovernor.host_memory = false\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";

@@ -48,6 +48,8 @@ pub(crate) struct Inputs {
     pub(crate) pressure: u64,
     /// `governor.critical`, in percent.
     pub(crate) critical: u64,
+    /// `governor.host_memory`: whether the host's own memory is judged.
+    pub(crate) host_memory: bool,
 }
 
 /// What one reading found.
@@ -128,7 +130,11 @@ impl System {
             allowance,
             allowance_source,
             used: found.used,
-            host: found.host,
+            host: if inputs.host_memory {
+                found.host
+            } else {
+                GovernorLevel::Normal
+            },
             cpu_time: found.cpu_time,
         }
     }

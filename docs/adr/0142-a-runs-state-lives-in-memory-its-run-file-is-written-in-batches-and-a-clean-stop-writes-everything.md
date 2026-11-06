@@ -36,36 +36,64 @@ How other crawlers keep this state ([the frontier persistence survey](../../rnd/
   - `run_state.batch.pages`, 1,000 attempts ended by default;
   - `run_state.batch.interval`, 1 s by default, read on the `Clock` (ADR 0059);
   - `run_state.batch.bytes`, 8 MiB of rows by default.
+
+  Each threshold also takes `none`, which never seals a batch.
 - **One batch is written at a time.** While the writer writes one batch, the next keeps filling. The channel to the writer holds one sealed batch. When a second batch is sealed before the first is written, admission waits, which is backpressure, so the changes not yet written stay bounded.
-- **`run_state.batch.sync`,** true by default, syncs each batch. A batch is one sync, so syncing costs about one `fsync` a second.
+- **`run_state.batch.per_attempt`,** false by default. When true, each claim is a batch of its own, written before its fetch, and each outcome is a batch of its own, written before anything is told outside. The writer still groups them across pages, as ADR 0138 decides. This is today's per-page path, and the thresholds are then unused.
+- **`run_state.batch.sync`** decides which batches are synced:
+  - `each`, the default: every batch is synced, so syncing costs about one `fsync` a second at the default thresholds;
+  - `interval`: one batch is synced every `run_state.commit_interval`, 5 s by default, and an idle writer syncs once that interval ends, as #1927 built it;
+  - `never`: no batch is synced.
+- **The "unclean" mark.** When every threshold is `none` and `per_attempt` is false, nothing is written during the crawl. The run file then carries the "unclean" mark, and a crash discards it, as ADR 0138's `off` decides.
+- **Every key here is a per-Run setting.** Like `run_state.durability`, any layer may set it: the Run's own settings, user configuration, or an Operator policy, which may lock it (ADR 0028). It is read when the Run opens and when it resumes. `config explain` shows each key's value and where that value came from: a layer, or the preset of the Run's Durability level (below).
 - **A batch is all or nothing.** The run file holds the Run as of one batch boundary, never half of a page. ADR 0138's savepoint per page leaves the batch path, since a batch is built from changes memory already accepted.
 - **The run file keeps its tables and its format.** A batch writes the same rows that today's commits write, so Checkpoints, `run.resume`, `run.records`, the kept read-only connections, Sinks and the per-install layout read it unchanged. This keeps ADR 0002's portable file and rejects a second, log-shaped format.
 
 ### Durability levels
 
-`run_state.durability` takes three values. A page never waits on the run file at `batch` or `off`.
+`run_state.durability` names a **preset** of the batch settings. Its five values are the four that exist today and `batch`, so no setting value that is valid today becomes invalid. A key set in any layer overrides the preset's value for that key.
 
-| Level | When the run file is written | After a process crash | After a power cut |
+| Level | Preset | When the run file is written | After a process crash | After a power cut |
+|---|---|---|---|---|
+| `full` (opt-in: absolute protection) | `per_attempt: true`, `sync: each` | each claim before its fetch, and each outcome synced before anything is told outside, grouped across pages | only attempts in flight are redone | only attempts in flight are redone |
+| `fast` | `per_attempt: true`, `sync: never` | as `full`, with no sync | only attempts in flight are redone | recent commits may roll back, without corruption |
+| `periodic` | `per_attempt: true`, `sync: interval`, `commit_interval: 5s` | as `fast`, with one synced commit per `run_state.commit_interval` | only attempts in flight are redone | at most one `run_state.commit_interval` is redone, without corruption |
+| `batch` (the default) | `per_attempt: false`, `pages: 1000`, `interval: 1s`, `bytes: 8MiB`, `sync: each` | one batch per threshold | at most one batch and the attempts in flight are redone | the same |
+| `off` | `per_attempt: false`, `pages: none`, `interval: none`, `bytes: none`, `sync: never` | nothing until a clean stop, except what a spill writes | the run file carries the "unclean" mark, is discarded, and the Run starts again from nothing | the same |
+
+- **One model serves every level.** Memory is the truth at every level, and a level only decides when the writer writes.
+- **`full`, `fast` and `periodic` keep ADR 0138's guarantees and costs.** `full` makes at most 2 run-file transactions and 1 sync an attempt.
+- **The default becomes `batch`.** It loses at most about one second of work to a crash. Spider, Scrapy without `JOBDIR`, and Colly lose the whole crawl, and Crawlee and Scrapy with `JOBDIR` sync nothing. `full` is one setting away.
+- **What an acknowledgement means.** ADR 0002's "an acknowledged commit survives a power cut" holds at `full`. At `batch`, an acknowledgement means the batch that holds it was written (below).
+- **`weakened` is read against the default** (ADR 0028). The run report's `weakened` and `config explain` label each of these:
+  - `off`;
+  - a `run_state.batch.sync` other than `each`, which covers `fast` and `periodic`;
+  - a threshold above its default, or `none`.
+
+  `full`, and any threshold below its default, are recorded as chosen.
+- **Nothing is published,** so no format changes version (ADR 0066).
+
+### Nothing removed
+
+Each behaviour available before this ADR has a setting that gives it back:
+
+| Behaviour today | Setting that gives it back | After a process crash | After a power cut |
 |---|---|---|---|
-| `full` (opt-in: absolute protection) | each attempt's claim before its fetch, and its outcome synced before anything is told outside, grouped across pages as ADR 0138 decides | only attempts in flight are redone | only attempts in flight are redone |
-| `batch` (the default) | one batch per threshold, synced unless `run_state.batch.sync` is false | at most one batch and the attempts in flight are redone | the same when synced; unsynced, recent batches may roll back, without corruption |
-| `off` | nothing until a clean stop, except what a spill writes | the run file carries the "unclean" mark, is discarded, and the Run starts again from nothing | the same |
-
-- **`full` keeps every guarantee of ADR 0138's `full`, with the same model.** Memory is still the truth, and the writer is told to write each claim and each outcome as a batch of its own. What `full` costs and keeps is ADR 0138's: at most 2 run-file transactions and 1 sync an attempt.
-- **`fast` and `periodic` leave.** Each still commits every page, so it pays the per-page cost without `full`'s protection. `batch` covers what each offered:
-  - `fast`: a process crash loses about one page with `run_state.batch.pages: 1` and `run_state.batch.sync: false`;
-  - `periodic`: `run_state.batch.interval` bounds a power cut's loss, as `run_state.commit_interval` did, and that setting leaves.
-
-  Nothing is published, so no format changes version (ADR 0066).
-- **The default becomes `batch`.** It loses at most about one second of work to a crash, where Spider, Scrapy without `JOBDIR`, and Colly lose the whole crawl, and Crawlee and Scrapy with `JOBDIR` sync nothing. `full` is one setting away and recorded as a choice. ADR 0002's "an acknowledged commit survives a power cut" now holds at `full`. At `batch`, an acknowledgement means the batch that holds it was written (below).
-- **`off` weakens a guarantee against the default** (ADR 0028). The run report's `weakened` and `config explain` label it.
+| `full`, the old default | `run_state.durability: full` | only attempts in flight are redone | only attempts in flight are redone |
+| `fast` | `run_state.durability: fast` | only attempts in flight are redone | recent commits may roll back |
+| `periodic` | `run_state.durability: periodic` | only attempts in flight are redone | at most one `run_state.commit_interval` |
+| `off` | `run_state.durability: off` | the Run starts again from nothing | the same |
+| `run_state.commit_interval` | unchanged: the interval of `run_state.batch.sync: interval`, which `periodic` sets | as the level | as the level |
+| the file-first Frontier: the visited set and pending work items read from the run file, with only bounded caches in memory | `run_state.memory.budget: 0`, with any level | as the level | as the level |
+| the run-private Politeness (`politeness.sharing: run`) | the same setting: the same caps, delays, backoff and 429 halving, held in memory rather than in an in-memory SQLite file | nothing is lost: the Permits were never in the run file | the same |
+| the shared Politeness: the per-user file (`shared`, `per_daemon`) and the Politeness store | unchanged: `politeness.sharing: shared` or `per_daemon`, with the store set as ADR 0053 decides | unchanged, as ADR 0053 decides | unchanged |
 
 ### What the outside is told, at `batch`
 
 - **`run.finish`'s answer, a Checkpoint and a clean stop's answer come only after the last batch is written and synced.**
 - **A Record becomes readable through `run.records`, a Sink or the SQL tab once its batch is written,** at most one `run_state.batch.interval` after its page ended. A reader never forces a batch (ADR 0103: a reader never slows the crawl).
 - **An enqueue's answer to a handler, `run.progress` counts and a Provenance line** are told from memory, as early as today. Each promises nothing about a crash, as ADR 0138's note already says.
-- **An Effect's journal entry is a barrier at every level** (ADRs 0003 and 0010). The batch that holds it is sealed and written before the Effect happens, and it is synced except at `off`. An Effect never happens twice after a resume.
+- **An Effect's journal entry is a barrier at every level** (ADRs 0003 and 0010). The batch that holds it is sealed and written before the Effect happens, and it is synced unless `run_state.batch.sync` is `never`. An Effect never happens twice after a resume.
 - **The Usage ledger** keeps its own file and syncs (ADR 0138's note of #2110). After an unclean end below `full`, its reclaim charges each Slice whole, as ADR 0138's note of #1930 already decides. The bound of 64 deferred charges that forces a sync applies at `full` only.
 
 ### A clean stop writes everything
@@ -77,7 +105,7 @@ How other crawlers keep this state ([the frontier persistence survey](../../rnd/
 
 ### Memory stays bounded: the spill
 
-- **`run_state.memory.budget`** is the most memory a Run's in-memory state may hold: 64 MiB by default. The actor counts the bytes it holds as it inserts and removes, and the ops listener exposes the count (ADR 0050).
+- **`run_state.memory.budget`** is the most memory a Run's in-memory state may hold: 64 MiB by default. It is a per-Run setting, like the batch keys, and an Operator policy may cap or lock it. The actor counts the bytes it holds as it inserts and removes, and the ops listener exposes the count (ADR 0050).
 - **Past the budget, the Run spills.** It removes from memory the visited-set entries and pending work items that a written batch already holds, coldest first. It keeps what it needs at once:
   - every Lease and change not yet written;
   - the head of each per-domain queue, up to ADR 0138's 64;
@@ -102,7 +130,7 @@ How other crawlers keep this state ([the frontier persistence survey](../../rnd/
 - **Keep the file-first design and optimize it** (spec #1838's tickets): rejected as the whole answer. The measurement puts raw at about 1.8 M instructions a page after them, about 4.5 times Spider's, with the serial actor chain unchanged. Those tickets stay useful, and this ADR builds on them.
 - **Memory-first only at `off`, with `full` and `fast` file-first as before:** rejected. It keeps two models of the Frontier, each with its own tests, and leaves the default as slow as today.
 - **A separate append-only log as the journal, with the run file rebuilt from it** (rqlite's design, rejected in ADR 0002): rejected again. It brings a second format to every reader, Checkpoint and import. Batches of the same tables give the same grouping.
-- **Keeping `fast` and `periodic` beside `batch`:** rejected. Each pays a transaction a page for less than `full`, and `batch`'s settings reach what each offered.
+- **Dropping `fast` and `periodic`, with `batch`'s settings covering them:** not adopted. The owner said on 2026-11-06 that no feature regresses, and that a feature may at most move under a setting the user can set. Each level now names a preset of the batch settings. Dropping them stays an alternative in spec #2138's open decisions.
 - **Spider's thresholds: 15,000 links, and 50 % and 80 % of host memory:** rejected. A count of links ignores how large each entry is, and host memory overshoots a container's limit (ADR 0040). A byte budget and the governor's levels bound the same thing more exactly.
 - **A Bloom filter in front of the spilled visited set:** not adopted now. It would keep the check exact, since a "no" is certain and a "maybe" reads the file. But it adds memory of its own, and no measurement yet shows spilled lookups to be the cost. Left to a measurement.
 - **Forcing a batch when `run.records` reads:** rejected. It lets a reader slow the crawl, against ADR 0103.
@@ -112,13 +140,13 @@ How other crawlers keep this state ([the frontier persistence survey](../../rnd/
 ## Consequences
 
 - **Amends ADR 0002.** Run state lives in memory, and the run file is written in Run-state batches. "An acknowledged commit survives a power cut" holds at `full`. The default is `batch`. The portable file, the single writer, Checkpoints and resume elsewhere are unchanged.
-- **Amends ADR 0138's Durability levels.** The levels are `full`, `batch` and `off`. `fast`, `periodic` and `run_state.commit_interval` leave. `off` writes nothing during the crawl. ADR 0138's grouping, two writer connections and checkpointer stay for `full` and serve batches.
+- **Amends ADR 0138's Durability levels.** `run_state.durability` names a preset of the batch settings and gains `batch`, the new default. `full`, `fast`, `periodic` and `run_state.commit_interval` keep their meaning. `off` now writes nothing during the crawl. ADR 0138's grouping, two writer connections and checkpointer serve every level.
 - **Note on ADR 0003.** At `batch` and `off`, a Lease lives in memory. A late commit is refused against it, as today, and the run epoch still fences another engine. The run fencing model's TLA+ variables and `goodfetch::lease` events are unchanged. The model gains the batch boundary as the state a crash returns to.
 - **Note on ADR 0053.** A run-private Politeness keeps its Permits in memory, with no SQLite.
 - **Note on ADR 0060.** The delivery actor is a task of the Run's owner, and the writer stays its dedicated thread through `tasks`. The batch timer reads the `Clock`. Spilled reads run on the owner's blocking threads. No runtime, thread or socket is added outside the rules. The crash VFS and LazyFS layers gain each level's crash point: inside a batch, between batches, and inside a clean stop's last batch.
 - **ADR 0134's ceiling of 8 heap bytes per URL in the Frontier, at 100,000 URLs, needs the owner.** A Run holds up to its budget in memory before it spills, so the figure at 100,000 URLs is the budget over the URLs. The spec proposes measuring the ceiling at `run_state.memory.budget: 0`, and measuring growth past the budget as a new row. Only the owner moves a ceiling.
 - **`STYLE.md`'s rule "The Frontier keeps in memory only bounded caches" changes** once the owner accepts this ADR. It becomes: the Frontier's memory is bounded by `run_state.memory.budget`, and the duplicate check stays exact.
-- **`GLOSSARY.md`:** the Durability level's definition becomes `full`, `batch` or `off`. **Run-state batch** joins it: the changes to a Run's state since the last batch, written to its run file in one transaction. _Avoid_: flush, journal (an Effect journal is another thing), snapshot.
-- **The comparison matrix:** scenario 1's Foxhound cell runs at the default level, `batch`. Scenario 2's `periodic` cell at 60 s becomes `batch` with `run_state.batch.interval: 60s`, the like-for-like cell against Crawlee's `persistStorage`.
-- **Contracts change in place:** `run_state.durability`'s values and the new settings `run_state.batch.pages`, `.interval`, `.bytes`, `.sync` and `run_state.memory.budget` are added to `goodfetch-protocol`'s types and regenerated with `xtask codegen`.
+- **`GLOSSARY.md`:** the Durability level's definition gains `batch`, and each value is a preset of the batch settings. **Run-state batch** joins it: the changes to a Run's state since the last batch, written to its run file in one transaction. _Avoid_: flush, journal (an Effect journal is another thing), snapshot.
+- **The comparison matrix:** scenario 1's Foxhound cell runs at the default level, `batch`. Scenario 2 keeps its `full` cell and its `periodic` cell at 60 s, the like-for-like cell against Crawlee's `persistStorage`. It gains a `batch` cell at the default settings.
+- **Contracts change in place:** `run_state.durability` gains `batch`, its new default, and the new per-Run settings `run_state.batch.per_attempt`, `.pages`, `.interval`, `.bytes`, `.sync` and `run_state.memory.budget` are added to `goodfetch-protocol`'s types and regenerated with `xtask codegen`.
 - **Implemented by** spec [#2138](https://github.com/goodfetch/goodfetch/issues/2138), which follows spec #1577.

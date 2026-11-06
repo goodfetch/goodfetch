@@ -1239,13 +1239,17 @@ fn run_valgrind_target(
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let report = out.join(format!("{}-{target}.jsonl", family.name));
     std::fs::File::create(&report).with_context(|| format!("creating {}", report.display()))?;
+    // Absolute: `cargo bench` runs the benchmark in its package's folder,
+    // where a relative path would make a `target/` of the package's own.
+    let gungraun_home =
+        std::path::absolute(out.join("gungraun")).context("resolving gungraun's folder")?;
     let mut command = Command::new(&environment.cargo);
     command
         .args(["bench", "--locked", "--package", family.package])
         .args(["--bench", target, "--"])
         .arg(format!("*::{}::*", benchmark.function))
         .current_dir(&environment.root)
-        .env("GUNGRAUN_HOME", out.join("gungraun"))
+        .env("GUNGRAUN_HOME", &gungraun_home)
         .stderr(Stdio::inherit());
     if let Some(plant) = plant {
         command.env(PLANT_VARIABLE, plant);

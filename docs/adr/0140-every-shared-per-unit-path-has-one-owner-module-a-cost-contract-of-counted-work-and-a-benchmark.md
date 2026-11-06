@@ -285,7 +285,7 @@ These are recorded here, and each blocks only the tickets that would extend its 
 > Note (agent decisions of #2066, pending owner review), 2026-11-06, on `E1.decodes`:
 > - **A decode is one pass of serde over what a request carries,** from its line's bytes or from a `Value` decoded from them: the line's parse and its envelope's in the framing, its Trace context's when its params hold `_meta`, and its params' into the handler's type (`hello`'s at the Connection, every other through `Handler::new`). Counted at each seam with `work.count`, as E1's other rows are.
 > - **Only requests count,** as the row's unit is the request: the framing counts its two decodes on a request's branch alone, so a notification's or a reply's parse adds none. Their decodes sit outside the contract, which names requests.
-> - **The first figure is 3 per request,** over the contract of 1, recorded under X14 beside E1's other rows, to this spec. B3's plant decodes the call's params once more with no copy.
+> - **The first figure is 3 per request,** over the contract of 1, recorded as X37, to this spec: a first measure's adoption, beside X14's other E1 rows. B3's plant decodes the call's params once more with no copy.
 
 ## Considered Options
 

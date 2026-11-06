@@ -81,7 +81,7 @@ impl Body for Whole {
 }
 
 /// A call of the handler on the page `page`, under the ID `id`.
-fn call(id: &str, method: &str, params: Value) -> Value {
+fn call(id: &str, method: &str, params: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
@@ -94,17 +94,17 @@ fn at_once(page: &Value) -> Vec<Value> {
         call(
             "heading",
             "locator.wait_for",
-            json!({ "locator": locator("h1"), "state": "visible" }),
+            &json!({ "locator": locator("h1"), "state": "visible" }),
         ),
         call(
             "links",
             "locator.wait_for_count",
-            json!({ "locator": locator("nav a"), "count": { "min": 1 } }),
+            &json!({ "locator": locator("nav a"), "count": { "min": 1 } }),
         ),
         call(
             "formats",
             "page.formats",
-            json!({ "page_id": page, "formats": { "markdown": true, "html": { "kind": "main" } } }),
+            &json!({ "page_id": page, "formats": { "markdown": true, "html": { "kind": "main" } } }),
         ),
     ]
 }
@@ -124,6 +124,60 @@ async fn send(writer: &mut ConnectionWriter, message: &Value) {
 struct Handled {
     at_once: Vec<(String, Value)>,
     after: Vec<Value>,
+}
+
+/// Opens the connection and starts the crawl of [`HOST`]'s page.
+async fn start(writer: &mut ConnectionWriter) {
+    send(
+        writer,
+        &call(
+            "hello",
+            "hello",
+            &json!({
+                "protocol_version": "0.1",
+                "surface": "rust",
+                "needs": "foxhound",
+                "product_version": "1.4.0",
+            }),
+        ),
+    )
+    .await;
+    send(
+        writer,
+        &call(
+            "start",
+            "crawl.start",
+            &json!({
+                "run_id": "kites",
+                "seeds": [{ "url": format!("http://{HOST}/delta"), "label": "page" }],
+                "labels": { "page": {} },
+                "settings": {
+                    "fetch": { "tier": "http" },
+                    "politeness": { "domain": { "delay": 0 } },
+                    "network": { "resolve": { HOST: ["127.0.0.1"] } },
+                    "egress": { "private_ranges": [HOST] },
+                    "crawl": { "handler": { "concurrency": 1 } },
+                },
+            }),
+        ),
+    )
+    .await;
+}
+
+/// The engine's dependencies on `env`, its clock paused and its blocking
+/// work inline.
+fn dependencies(env: &TestEnv) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
+        home: Home::new(env.home().to_owned()),
+        clock: Clock::paused(env.start_time()),
+        entropy: Entropy::seeded(env.seed()),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
+    }
 }
 
 /// Crawls the page once on the `http` tier, its handler sending
@@ -150,40 +204,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
         let client = async {
             let (reader, mut writer) = dialer.connect().await.unwrap().split();
             let mut lines = BufReader::new(reader).lines();
-            send(
-                &mut writer,
-                &call(
-                    "hello",
-                    "hello",
-                    json!({
-                        "protocol_version": "0.1",
-                        "surface": "rust",
-                        "needs": "foxhound",
-                        "product_version": "1.4.0",
-                    }),
-                ),
-            )
-            .await;
-            send(
-                &mut writer,
-                &call(
-                    "start",
-                    "crawl.start",
-                    json!({
-                        "run_id": "kites",
-                        "seeds": [{ "url": format!("http://{HOST}/delta"), "label": "page" }],
-                        "labels": { "page": {} },
-                        "settings": {
-                            "fetch": { "tier": "http" },
-                            "politeness": { "domain": { "delay": 0 } },
-                            "network": { "resolve": { HOST: ["127.0.0.1"] } },
-                            "egress": { "private_ranges": [HOST] },
-                            "crawl": { "handler": { "concurrency": 1 } },
-                        },
-                    }),
-                ),
-            )
-            .await;
+            start(&mut writer).await;
             let mut handled = Handled {
                 at_once: Vec::new(),
                 after: Vec::new(),
@@ -208,7 +229,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
                             &call(
                                 "links again",
                                 "locator.wait_for_count",
-                                json!({ "locator": locator("nav a"), "count": { "min": 3, "max": 3 } }),
+                                &json!({ "locator": locator("nav a"), "count": { "min": 3, "max": 3 } }),
                             ),
                         )
                         .await;
@@ -217,7 +238,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
                             &call(
                                 "footer",
                                 "locator.wait_for",
-                                json!({ "locator": locator("footer a"), "state": "attached" }),
+                                &json!({ "locator": locator("footer a"), "state": "attached" }),
                             ),
                         )
                         .await;
@@ -235,7 +256,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
                     assert!(message.get("result").is_some(), "{message}");
                     send(
                         &mut writer,
-                        &call("finish", "run.finish", json!({ "run_id": "kites" })),
+                        &call("finish", "run.finish", &json!({ "run_id": "kites" })),
                     )
                     .await;
                 } else if id == "finish" {
@@ -247,17 +268,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
             while let Ok(Some(_)) = lines.next_line().await {}
             handled
         };
-        let dependencies = Dependencies {
-            environment: std::collections::BTreeMap::new(),
-            keychain: goodfetch_engine::secrets::Keychain::absent(),
-            home: Home::new(env.home().to_owned()),
-            clock: Clock::paused(env.start_time()),
-            entropy: Entropy::seeded(env.seed()),
-            blocking: BlockingPolicy::Inline,
-            run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions::default(),
-            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
-        };
+        let dependencies = dependencies(env);
         let (served, handled) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),
             client

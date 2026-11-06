@@ -134,6 +134,10 @@ pub struct Measured {
 /// then the readers of its answer's tree (`html.main`, text, Markdown and
 /// "fit"). The tree is serialized only for `html.cleaned`, and only when
 /// the rules changed it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: the formats read's one tree, for a caller that kept none of the page's"
+)]
 pub fn measured_formats(
     document: &Document<'_>,
     request: &FormatsRequest,
@@ -430,6 +434,10 @@ impl Serialization {
 /// extraction-side removal took of it (ADR 0047's share under
 /// `extraction.removal_share: exact`), at the cost of one parse and one run
 /// of the step, on `F1.share_readability_runs`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: ADR 0047's exact share, one parse more only under `extraction.removal_share: exact`"
+)]
 pub fn main_content_length(
     document: &Document<'_>,
     extractor: &dyn Extractor,

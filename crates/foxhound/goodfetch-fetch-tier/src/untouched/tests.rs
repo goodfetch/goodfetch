@@ -1,6 +1,10 @@
 //! The readers of the untouched page through their interface: one parse
 //! of a document gives what each reader read of its own parse before
 //! (spec #1577's #1910), and the Page signature consumes the tree last.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;

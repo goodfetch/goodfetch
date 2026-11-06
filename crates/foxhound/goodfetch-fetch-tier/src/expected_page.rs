@@ -70,6 +70,10 @@ pub(crate) fn judge(
 }
 
 /// The tree of `html` that `parsed` keeps, parsed at the first call.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a served page its untouched readers did not judge, parsed once for this call alone, for its check and its `noindex` mark"
+)]
 fn parsed_once<'tree>(
     parsed: &'tree mut Option<ParsedHtml>,
     html: &str,

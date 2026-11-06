@@ -3,6 +3,10 @@
 //! them, with the same text and the same elements holding them, or
 //! answers nothing; and it answers for the documents whose tree it can
 //! vouch for.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;

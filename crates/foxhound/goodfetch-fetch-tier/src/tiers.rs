@@ -320,6 +320,10 @@ impl Decoded {
     /// types it, and one of a type that is no HTML or XHTML holds no
     /// document. `readers` read it in one streaming pass when they can,
     /// else on its tree.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
+    )]
     fn of(
         run: &Run,
         fetched: &crate::driver::Fetched,

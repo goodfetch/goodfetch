@@ -61,6 +61,10 @@ pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refre
 /// HTML document `body` at `url` that parses: a whole parse of the
 /// document, which blocks, for a hop no untouched tree reads (a sitemap's,
 /// or a body whose type sniffs as no document).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a hop no untouched tree reads, a sitemap's or a body that sniffs as no document, parsed for its refresh alone"
+)]
 pub(crate) fn in_markup(url: &Url, body: &[u8], work: &CountedWork) -> Option<Refresh> {
     let document = work.parse_html(Row::PageParses, String::from_utf8_lossy(body).as_ref());
     in_tree(

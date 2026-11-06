@@ -313,7 +313,7 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Durability level**:
-What a run's state survives: a process crash, a power cut, both or neither, chosen per run as `full`, `fast`, `periodic` or `off`.
+What a run's state survives, chosen per run with `run_state.durability`: both a process crash and a power cut at `full`; a process crash, with recent commits lost to a power cut, at `fast`; a process crash, with at most one `run_state.commit_interval` lost to a power cut, at `periodic`; neither at `off`, where a run file a crash left is discarded.
 _Avoid_: persistence mode, sync mode, fsync mode
 
 **Limit**:
@@ -559,7 +559,7 @@ A declaration by a run's code of what an expected page and a login page look lik
 _Avoid_: contract, validator, assertion
 
 **Page analysis**:
-The one step in which a fetched page is parsed and read by every reader its crawl needs, leaving one result that every later step shares.
+The one step in which a fetched page is parsed once, or read in one streaming pass when no reader needs a tree, and read by every reader its crawl or call needs, leaving one result that every later step shares.
 _Avoid_: parse step, pipeline stage, page processing
 
 **Dataset**:

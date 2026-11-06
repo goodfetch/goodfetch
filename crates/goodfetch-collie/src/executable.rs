@@ -144,8 +144,8 @@ enum Command {
     /// included, with the namespaces of the generated commands: what `xtask
     /// codegen` commits (ADR 0072). It starts no engine and reads no
     /// setting.
-    #[command(hide = true)]
-    CommandLine {
+    #[command(hide = true, name = "command-line")]
+    PrintedCommandLine {
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -385,7 +385,7 @@ pub fn main(start: &Start) -> ExitCode {
         Ok(parsed) => parsed,
         Err(exit) => return exit,
     };
-    if let Parsed::HandWritten(Command::CommandLine { .. }) = parsed {
+    if let Parsed::HandWritten(Command::PrintedCommandLine { .. }) = parsed {
         return command_line::print(start.product);
     }
     let environment = with_passed_variables(&start.environment, &parsed);
@@ -622,7 +622,7 @@ fn run(
     };
     match command {
         // Printed before the executable is set up (`main`).
-        Command::CommandLine { .. } => command_line::print(engine.identity().product),
+        Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product),
         Command::AttachedEngine {
             console_address, ..
         } => run_attached(engine, dependencies, &machine, console_address.as_deref()),

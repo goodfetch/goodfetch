@@ -5141,15 +5141,8 @@ impl Registry {
         };
         let tags = start.tags.clone();
         let initialize = start.initialize;
-        // A crawl's claims defer their charges (ADR 0138's note of #1926),
-        // so its start declares their bound in its own synced commit rather
-        // than its first claim's (#2117); another Run declares none.
-        let syncing = match start.kind {
-            RunKind::Crawl => Syncing::Declaring,
-            RunKind::Collie => Syncing::Required,
-        };
         state
-            .write_with(syncing, move |connection| {
+            .write_with(start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(
@@ -6109,6 +6102,17 @@ impl Registry {
         }
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
         self.write_index(row).await;
+    }
+}
+
+/// How a Run of `kind`'s start commits: a crawl's claims defer their
+/// charges (ADR 0138's note of #1926), so its start declares their bound in
+/// its own synced commit rather than its first claim's (#2117); another
+/// Run's declares none.
+fn start_syncing(kind: RunKind) -> Syncing {
+    match kind {
+        RunKind::Crawl => Syncing::Declaring,
+        RunKind::Collie => Syncing::Required,
     }
 }
 

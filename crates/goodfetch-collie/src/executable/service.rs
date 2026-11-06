@@ -176,7 +176,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         &executable,
         identity.product,
         &identity.product_version,
-        now(),
+        machine.now(),
     )
     .map_err(unavailable("the Daemon's versioned copy cannot be made"))?;
     record_copy(machine, &copy.executable, &copy.id)?;
@@ -301,7 +301,7 @@ fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
     files
         .rotate_http_listener_token()
         .map_err(unavailable("the HTTP listener's token cannot be replaced"))?;
-    let rotated_at = now();
+    let rotated_at = machine.now();
     if let Some(mut foreground) = foreground {
         let _: DaemonStopping = foreground.call("daemon.stop", &serde_json::json!({}))?;
         foreground.close();
@@ -388,7 +388,7 @@ fn record_copy(
                 .map(|artifact| artifact.id)
                 .collect(),
             copy: Some(copy.clone()),
-            last_seen: now(),
+            last_seen: machine.now(),
         })
         .map_err(unavailable(
             "the list of installed executables cannot be written",
@@ -519,9 +519,4 @@ fn remove_file(path: &Path) -> Result<(), Failure> {
         )),
         _ => Ok(()),
     }
-}
-
-fn now() -> jiff::Timestamp {
-    let now = std::time::SystemTime::now();
-    jiff::Timestamp::try_from(now).expect("invariant: the system clock reads a representable time")
 }

@@ -76,7 +76,7 @@ pub(super) fn machine_settings(
 
 /// What downloads may do under `settings`: `egress.offline` and the layer
 /// that set it, `network.resolve`'s mapping and the Happy Eyeballs delays.
-fn fetching(settings: &Resolved) -> Fetching {
+fn fetching(settings: &Resolved, clock: Clock) -> Fetching {
     let offline = settings
         .get(EGRESS_OFFLINE.name)
         .filter(|offline| offline.value == serde_json::Value::Bool(true))
@@ -91,7 +91,7 @@ fn fetching(settings: &Resolved) -> Fetching {
         offline,
         resolve: mapping,
         delays: Delays::of(settings),
-        ..Fetching::new(Clock::system())
+        ..Fetching::new(clock)
     }
 }
 
@@ -117,14 +117,10 @@ fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human
     )
 }
 
-/// The time the command runs at.
-fn now() -> jiff::Timestamp {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "main reads the system's wall time once, as the system Clock will (ADR 0059)"
-    )]
-    let now = std::time::SystemTime::now();
-    jiff::Timestamp::try_from(now).expect("invariant: the system clock reads a representable time")
+/// The time the command runs at, on the engine's Clock.
+fn now(clock: Clock) -> jiff::Timestamp {
+    jiff::Timestamp::try_from(clock.wall())
+        .expect("invariant: the system clock reads a representable time")
 }
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -178,6 +174,7 @@ fn pinned_by(identity: &Identity) -> PinnedBy {
 pub(super) fn install(
     identity: &Identity,
     environment: &BTreeMap<OsString, OsString>,
+    clock: Clock,
     json: bool,
     human: &Human,
 ) -> ExitCode {
@@ -195,8 +192,8 @@ pub(super) fn install(
         pinned_by,
         artifacts: crate::pinned_artifacts(),
     };
-    let now = now();
-    let fetching = fetching(&settings);
+    let now = now(clock);
+    let fetching = fetching(&settings, clock);
     let max_unused_age = max_unused_age(&settings);
     let installed = runtime().block_on(async {
         let outcomes = cache
@@ -267,6 +264,7 @@ pub(super) fn install(
 pub(super) fn clean(
     identity: &Identity,
     environment: &BTreeMap<OsString, OsString>,
+    clock: Clock,
     (dry_run, json): (bool, bool),
     human: &Human,
 ) -> ExitCode {
@@ -284,7 +282,7 @@ pub(super) fn clean(
         pinned_by,
         artifacts: crate::pinned_artifacts(),
     };
-    let now = now();
+    let now = now(clock);
     let max_unused_age = max_unused_age(&settings);
     let request = CleanUp {
         kept: kept(&pins, &home, cache.root(), now, max_unused_age),

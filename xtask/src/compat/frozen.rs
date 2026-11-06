@@ -58,6 +58,12 @@ pub(super) fn broken(set: &Tree) -> Vec<String> {
     broken
 }
 
+/// The digest of a whole set: of its `SHA256SUMS`, so one line of a log
+/// tells two runs' sets apart.
+pub(super) fn digest(set: &Tree) -> String {
+    hex(&Sha256::digest(sums(set)))
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut text, byte| {
         let _ = write!(text, "{byte:02x}");

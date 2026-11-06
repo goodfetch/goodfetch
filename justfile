@@ -1378,9 +1378,11 @@ commit-messages base="" head="HEAD":
 
 # Whether this checkout's builds reuse the C and C++ objects other checkouts
 # compiled (TESTING.md, Compiler cache): where the Rust compiler wrapper is
-# sccache, it fails when sccache's base directories do not list this checkout
-# or CMake's compiler launcher bypasses sccache; elsewhere it is skipped.
-# `just quick` and `just merge` run it before any build.
+# sccache, it reports sccache's base directories not listing this checkout, or
+# CMake's compiler launcher bypassing sccache, and fails on them only where
+# COMPILER_CACHE_REQUIRED=1 (the shared build server, `just merge`); where no
+# build uses sccache it is skipped. `just quick` and `just merge` run it
+# before any build.
 compiler-cache:
     ci/compiler-cache.sh
 

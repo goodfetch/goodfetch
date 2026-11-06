@@ -3,7 +3,8 @@
 # objects other checkouts compiled (TESTING.md, Compiler cache). `just quick`
 # and `just merge` run it before any build.
 #
-# Where the Rust compiler wrapper (RUSTC_WRAPPER) is sccache, it fails when:
+# Where the Rust compiler wrapper (RUSTC_WRAPPER) is sccache, it finds a gap
+# when:
 # - sccache's base directories, which its server reads once at its start,
 #   do not list this checkout's folder itself: sccache then keeps the
 #   checkout's path in every C/C++ key (DuckDB's sources and include folders
@@ -13,8 +14,12 @@
 #   takes them from the environment when it sets them, else from
 #   `.cargo/config.toml`'s `[env]`, which names ci/compiler-launcher.sh.
 #
-# Where no build uses sccache (another wrapper or none, or sccache missing),
-# there is no cache to cover: it says so and passes.
+# A host that opts in with COMPILER_CACHE_REQUIRED=1 fails on a gap: the
+# shared build server exports it, and `just merge` sets it for the gate.
+# Elsewhere, as on a contributor's own machine, each gap is a note with its
+# fix, and the check passes. Where no build uses sccache (another wrapper or
+# none, or sccache missing), there is no cache to cover: it says so and
+# passes.
 #
 # It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
@@ -32,9 +37,14 @@ if ! command -v "$wrapper" >/dev/null 2>&1; then
   exit 0
 fi
 
+if [[ ${COMPILER_CACHE_REQUIRED:-} == 1 ]]; then
+  level=error
+else
+  level=note
+fi
 failed=0
 fail() {
-  echo "error[compiler-cache] $1: $2"
+  echo "${level}[compiler-cache] $1: $2"
   failed=1
 }
 
@@ -81,5 +91,8 @@ fi
 
 if [[ $failed -eq 0 ]]; then
   echo "The compiler cache covers this checkout: sccache lists $root among its base directories, and CMake compiles C and C++ through it."
+elif [[ $level == note ]]; then
+  echo "This host has not opted in (COMPILER_CACHE_REQUIRED=1), so the gaps above slow its builds but fail nothing."
+  exit 0
 fi
 exit "$failed"

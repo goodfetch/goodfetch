@@ -78,8 +78,9 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
 (
   cd "$worktree"
   # Before any build: whether the gate's checkout reuses the C and C++
-  # objects other checkouts compiled (TESTING.md, Compiler cache).
-  "$compiler_cache"
+  # objects other checkouts compiled (TESTING.md, Compiler cache); a gap
+  # fails the gate.
+  COMPILER_CACHE_REQUIRED=1 "$compiler_cache"
   just fetch
   if [[ $gate == quick || $gate == docs ]]; then
     just pre-merge "$gate"

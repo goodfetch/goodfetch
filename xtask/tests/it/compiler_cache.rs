@@ -3,8 +3,10 @@
 //! Rust compiler wrapper is sccache, the checkout must be one of sccache's
 //! base directories and `CMake` must compile C and C++ through sccache, or the
 //! C/C++ objects other checkouts compiled (DuckDB, BoringSSL) miss here
-//! (TESTING.md, Compiler cache). Where no build uses sccache, the check is
-//! skipped. And `ci/compiler-launcher.sh`, the `CMake` compiler launcher
+//! (TESTING.md, Compiler cache). A host that opts in with
+//! `COMPILER_CACHE_REQUIRED=1`, as the shared build server and `just merge`
+//! do, fails on a gap; any other host is told the fix and passes. Where no
+//! build uses sccache, the check is skipped. And `ci/compiler-launcher.sh`, the `CMake` compiler launcher
 //! `.cargo/config.toml` sets, compiles through the Rust compiler wrapper when
 //! it is sccache, as the `cc` crate does, and directly otherwise. sccache is a
 //! stand-in that prints the statistics a test gives it. The compiler cache is
@@ -84,6 +86,15 @@ impl Run {
         }
         .findings()
     }
+
+    fn notes(&self) -> Vec<crate::workspace::Finding> {
+        crate::workspace::Outcome {
+            code: self.code.unwrap_or(-1),
+            stdout: self.stdout.clone(),
+            stderr: String::new(),
+        }
+        .notes()
+    }
 }
 
 /// Runs `ci/compiler-cache.sh` in the workspace with `PATH` = `folder`, then
@@ -103,6 +114,9 @@ fn compiler_cache(workspace: &Workspace, folder: &Path, variables: &[(&str, &str
 }
 
 const SCCACHE: (&str, &str) = ("RUSTC_WRAPPER", "sccache");
+
+/// The opt-in that turns a gap into a failure.
+const REQUIRED: (&str, &str) = ("COMPILER_CACHE_REQUIRED", "1");
 
 #[rstest]
 #[case::the_checkout_alone(false)]
@@ -139,7 +153,7 @@ fn a_checkout_sccache_does_not_list_fails(#[case] with_parent: bool) {
     let listed: Vec<&Path> = if with_parent { vec![&parent] } else { vec![] };
     let folder = stand_in_sccache(&workspace, &stats_with(&listed));
 
-    let run = compiler_cache(&workspace, &folder, &[SCCACHE]);
+    let run = compiler_cache(&workspace, &folder, &[SCCACHE, REQUIRED]);
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert_eq!(
@@ -154,7 +168,7 @@ fn an_sccache_without_base_directories_fails() {
     workspace.write(".cargo/config.toml", CONFIG.as_bytes());
     let folder = stand_in_sccache(&workspace, "{\"stats\":{},\"version\":\"0.7.0\"}");
 
-    let run = compiler_cache(&workspace, &folder, &[SCCACHE]);
+    let run = compiler_cache(&workspace, &folder, &[SCCACHE, REQUIRED]);
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert_eq!(
@@ -180,7 +194,7 @@ fn a_launcher_that_bypasses_sccache_fails(#[case] config: bool, #[case] value: O
     }
     let root = checkout(&workspace);
     let folder = stand_in_sccache(&workspace, &stats_with(&[&root]));
-    let mut variables = vec![SCCACHE];
+    let mut variables = vec![SCCACHE, REQUIRED];
     if let Some(value) = value {
         variables.push(("CMAKE_C_COMPILER_LAUNCHER", value));
         variables.push(("CMAKE_CXX_COMPILER_LAUNCHER", value));
@@ -195,6 +209,43 @@ fn a_launcher_that_bypasses_sccache_fails(#[case] config: bool, #[case] value: O
             finding("compiler-cache", "CMAKE_C_COMPILER_LAUNCHER"),
             finding("compiler-cache", "CMAKE_CXX_COMPILER_LAUNCHER"),
         ]
+    );
+}
+
+/// A contributor's machine, such as one with sccache but no base
+/// directories, has not opted in: each gap is a note with its fix, and the
+/// check passes, so `just quick` goes on.
+#[rstest]
+#[case::checkout_not_listed(true, &[], &[])]
+#[case::launcher_bypasses_sccache(false, &["checkout"], &[("CMAKE_C_COMPILER_LAUNCHER", "ccache")])]
+fn a_host_that_has_not_opted_in_is_told_the_fix_and_passes(
+    #[case] config: bool,
+    #[case] listed: &[&str],
+    #[case] extra: &[(&str, &str)],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    if config {
+        workspace.write(".cargo/config.toml", CONFIG.as_bytes());
+    }
+    let root = checkout(&workspace);
+    let basedirs: Vec<&Path> = listed.iter().map(|_| root.as_path()).collect();
+    let folder = stand_in_sccache(&workspace, &stats_with(&basedirs));
+    let mut variables = vec![SCCACHE];
+    variables.extend_from_slice(extra);
+
+    let run = compiler_cache(&workspace, &folder, &variables);
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.findings(), vec![]);
+    let subject = if config {
+        root.display().to_string()
+    } else {
+        "CMAKE_C_COMPILER_LAUNCHER".to_owned()
+    };
+    assert!(
+        run.notes().contains(&finding("compiler-cache", &subject)),
+        "{}",
+        run.stdout
     );
 }
 

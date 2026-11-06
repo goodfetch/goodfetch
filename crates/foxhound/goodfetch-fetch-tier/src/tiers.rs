@@ -320,6 +320,10 @@ impl Decoded {
     /// types it, and one of a type that is no HTML or XHTML holds no
     /// document. `readers` read it in one streaming pass when they can,
     /// else on its tree.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
+    )]
     fn of(
         run: &Run,
         fetched: &crate::driver::Fetched,
@@ -1567,11 +1571,7 @@ impl FetchTiers {
             let work = run.metrics().counted_work().clone();
             run.owner()
                 .analysis(move || {
-                    let verdict =
-                        expected_page::judge(&check, &document.url, &document.html, &work);
-                    let noindex = verdict == Verdict::NotExpected
-                        && expected_page::noindex(&headers, &document.html);
-                    (verdict, noindex)
+                    expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
         };

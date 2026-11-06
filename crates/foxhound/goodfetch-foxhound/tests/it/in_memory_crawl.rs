@@ -3,6 +3,10 @@
 //! test seam fetches each page of the site once, and the body bytes the
 //! site sent are those `benches/pages.source.toml` records, which `xtask
 //! perf` divides the crawl's total bytes by.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use std::collections::BTreeSet;
 use std::path::Path;

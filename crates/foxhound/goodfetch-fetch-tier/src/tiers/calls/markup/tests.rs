@@ -1,4 +1,8 @@
 //! Covers: story:6-259
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use super::{Shown, shown};
 

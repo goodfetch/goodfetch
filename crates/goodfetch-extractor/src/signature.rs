@@ -19,6 +19,10 @@ use crate::main_content::title_and_main_text_of;
 /// content, which neither holds, so text moved from one to the other makes
 /// another signature. A document with no main content is signed by its
 /// title alone.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: the Page signature of a served page with no untouched tree of its own, parsed for it alone"
+)]
 pub fn page_signature(
     document: &Document<'_>,
     extractor: &dyn Extractor,

@@ -11,6 +11,10 @@ use url::Url;
 /// as its canonical; `None` when they name none that parses. `html` is
 /// parsed for this call alone; a crawl request's own document is read
 /// once, by [`in_head`] on its untouched tree.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a document no untouched tree read, parsed for this call alone"
+)]
 pub(crate) fn canonical(
     html: &str,
     headers: &[(String, String)],

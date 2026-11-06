@@ -408,6 +408,10 @@ fn waited(
 /// reads the page (ADR 0138), else a parse of its HTML for this read
 /// alone, on the CPU pool; none once the kept tree's owner is gone, as its
 /// Run stops.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a served page with no kept tree, a code-free crawl's, parsed for this read alone"
+)]
 pub(in crate::tiers) async fn on_tree<T, F>(document: &Arc<ServedDocument>, read: F) -> Option<T>
 where
     F: FnOnce(&ParsedHtml) -> T + Send + 'static,

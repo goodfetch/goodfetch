@@ -35,6 +35,7 @@ use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
 use crate::metrics::{METER, Metrics};
 use crate::run_state::{RunStateOptions, RunStateTables};
+use crate::tasks::BlockingPolicy;
 
 const MB: u64 = 1_000_000;
 
@@ -114,6 +115,52 @@ fn a_run_on_a_filesystem_past_critical_stops_resumably_and_resumes_once_space_is
             &json!("finished"),
         ),
         "{stopped}"
+    );
+}
+
+/// A sample read while the filesystem was at `critical` that arrives after
+/// space was freed and the Run resumed, its resume having read the
+/// filesystem afresh, does not stop it again: the Run finishes (ADR 0122).
+/// The governor reads on blocking threads, as in a Product, so the test
+/// can hold that sample's read past the resume.
+///
+/// Covers: row:RT-03, setting:storage.critical_free, operation:run.resume
+#[test]
+fn a_sample_read_before_a_resume_read_afresh_does_not_stop_the_resumed_run() {
+    let env = TestEnv::new();
+    configure(&env, LEVELS);
+    let view = DiskView::default();
+    let disk = view.mount(env.home(), 100 * MB, 50 * MB);
+    let filled = view.clone();
+
+    let on_threads = || Dependencies {
+        blocking: BlockingPolicy::Threads,
+        ..dependencies(&env)
+    };
+    let (resumed, finished) = attached_with(&viewed(&view), on_threads, |mut client| async move {
+        opened(&mut client).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "filled" })).await;
+        filled.set_free(disk, MB / 2);
+        samples().await;
+        call(&mut client, 2, "run.finish", json!({ "run_id": "filled" })).await;
+        let late = filled.hold_next_read(disk);
+        late.read().await;
+        filled.set_free(disk, 50 * MB);
+        let resumed = call(&mut client, 3, "run.resume", json!({ "run_id": "filled" })).await;
+        late.release();
+        samples().await;
+        let finished = call(&mut client, 4, "run.finish", json!({ "run_id": "filled" })).await;
+        (resumed, finished)
+    });
+
+    assert_eq!(
+        (
+            &resumed["result"]["started_as"],
+            &finished["result"]["lifecycle"],
+            &finished["result"]["stop_reason"],
+        ),
+        (&json!("resumed"), &json!("finished"), &Value::Null),
+        "{finished}"
     );
 }
 

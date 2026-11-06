@@ -24,6 +24,13 @@ number = 1
 kind = "setting"
 prefix = "sample."
 
+# The hidden command both executables print their command line with, which
+# `xtask codegen` commits (ADR 0072).
+[[area]]
+number = 1
+kind = "command"
+prefix = "command-line"
+
 [[area]]
 number = 1
 kind = "setting"

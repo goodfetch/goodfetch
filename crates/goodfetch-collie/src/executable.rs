@@ -2,7 +2,8 @@
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
-//! entry, which an SDK starts, `browser install`, `browser clean`,
+//! entry, which an SDK starts, the hidden `command-line`, which prints the
+//! command line for `xtask codegen` (ADR 0072), `browser install`, `browser clean`,
 //! `console`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
@@ -10,8 +11,9 @@
 //! from the catalog for every other namespace, such as `run start` and
 //! `engine info`, and `--color auto|always|never` on every command; the CLI's
 //! other commands join with area 11. Every
-//! command but `daemon launched` first records the executable in the list
-//! of installed executables (ADR 0098).
+//! command but `daemon launched` and `command-line` first records the
+//! executable in the list of installed executables (ADR 0098);
+//! `command-line` runs before any of the executable's set-up.
 //!
 //! An executable more than three months past its release date prints the
 //! age notice on stderr before its command, once a day, unless
@@ -72,11 +74,14 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use identity::{Refused, identity, refuse};
 
+pub use command_line::printed_command_line;
+
 mod allocator;
 mod audit;
 mod audit_events;
 mod browsers;
 mod certs;
+mod command_line;
 mod config;
 mod console;
 mod daemon;
@@ -133,6 +138,15 @@ enum Command {
         /// port. None by default: an Attached engine serves no Console.
         #[arg(long, value_name = "ADDRESS")]
         console_address: Option<String>,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Prints this executable's command line as JSON, hidden commands
+    /// included, with the namespaces of the generated commands: what `xtask
+    /// codegen` commits (ADR 0072). It starts no engine and reads no
+    /// setting.
+    #[command(hide = true, name = "command-line")]
+    PrintedCommandLine {
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -373,6 +387,9 @@ pub fn main(start: &Start) -> ExitCode {
         Ok(parsed) => parsed,
         Err(exit) => return exit,
     };
+    if let Parsed::HandWritten(Command::PrintedCommandLine { .. }) = parsed {
+        return command_line::print(start.product);
+    }
     let environment = with_passed_variables(&start.environment, &parsed);
     let human = Human::new(colour, &environment);
     let home = home(&environment);
@@ -415,7 +432,7 @@ pub fn main(start: &Start) -> ExitCode {
         return ExitCode::FAILURE;
     };
     if !launched {
-        age_notice(start.release_date, &home, engine.identity());
+        age_notice(start.release_date, &home, engine.identity(), clock);
     }
     let Ok(entropy) = entropy.inspect_err(|error| {
         tracing::error!(%error, "the engine has no seed for its random choices");
@@ -597,6 +614,7 @@ fn run(
         home: &home,
         environment,
         executable: std::env::current_exe().ok(),
+        clock: dependencies.clock,
     };
     if records_the_executable(&parsed) {
         machine.record();
@@ -606,17 +624,25 @@ fn run(
         Parsed::HandWritten(command) => command,
     };
     match command {
+        // Printed before the executable is set up (`main`).
+        Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product),
         Command::AttachedEngine {
             console_address, ..
         } => run_attached(engine, dependencies, &machine, console_address.as_deref()),
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
-        } => browsers::install(engine.identity(), environment, json, human),
+        } => browsers::install(engine.identity(), environment, machine.clock, json, human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..
-        } => browsers::clean(engine.identity(), environment, (dry_run, json), human),
+        } => browsers::clean(
+            engine.identity(),
+            environment,
+            machine.clock,
+            (dry_run, json),
+            human,
+        ),
         Command::Console {
             no_browser, json, ..
         } => console::open(&machine, no_browser, json, human),
@@ -760,13 +786,13 @@ fn config_explain(
 }
 
 /// Prints the age notice on stderr when it is due for an executable
-/// released on `release_date` (ADR 0030).
-fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity) {
+/// released on `release_date` (ADR 0030), at the time `clock` reads.
+fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, clock: Clock) {
     let Some(released) = release_date.and_then(|date| date.parse::<jiff::civil::Date>().ok())
     else {
         return;
     };
-    match AgeNotice::new(home, identity.clone()).due(released, Clock::system().wall()) {
+    match AgeNotice::new(home, identity.clone()).due(released, clock.wall()) {
         Ok(Some(line)) => output::note(&line),
         Ok(None) => {}
         Err(error) => tracing::debug!(%error, "the age notice was not recorded"),

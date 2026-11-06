@@ -411,3 +411,39 @@ fn an_undeclared_import_of_a_member_reaches_the_importer() {
         )
     );
 }
+
+const TESTING: &str = "# Testing\n\n## Writing a test\n\nProse.\n\n## Quality register\n\n| Row | Limit |\n|---|---|\n| a | 1 |\n";
+
+/// The fixture with TESTING.md on `origin/main`.
+fn repository_with_testing() -> Workspace {
+    let workspace = repository();
+    workspace.write("TESTING.md", TESTING.as_bytes());
+    commit_all(&workspace, "Add TESTING.md");
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    workspace
+}
+
+/// The parts of a changed document are read from git, its base's version
+/// against its head's: a prose edit of TESTING.md takes the docs gate, and
+/// an edit of its Quality register runs perf, in either mode (hygiene
+/// backlog E1).
+#[rstest]
+#[case::prose(("Prose.", "Reworded prose."), "docs")]
+#[case::the_quality_register(("| a | 1 |", "| a | 2 |"), "full")]
+fn a_change_to_testing_md_takes_the_gate_of_the_parts_it_changes(
+    #[case] edit: (&str, &str),
+    #[case] gate: &str,
+) {
+    let workspace = repository_with_testing();
+    workspace.write("TESTING.md", TESTING.replace(edit.0, edit.1).as_bytes());
+
+    let local = workspace.xtask(&["affected", "--local"]);
+    commit_all(&workspace, "Edit TESTING.md");
+    let committed = workspace.xtask(&["affected", "--base", "origin/main", "--head", "HEAD"]);
+
+    assert_eq!(local.code, 0, "{}", local.stderr);
+    assert_eq!(
+        (value(&local, "gate"), value(&committed, "gate")),
+        (gate.to_owned(), gate.to_owned())
+    );
+}

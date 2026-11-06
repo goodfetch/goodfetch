@@ -23,7 +23,8 @@ use serde_json::json;
 
 use super::upstream::Fetches;
 use super::{
-    KEPT_VERSIONS, Kept, Sources, Unobtained, Version, Versions, manifest_file, now_of, replace,
+    KEPT_VERSIONS, Kept, STALE_AFTER, Sources, Unobtained, Version, Versions, manifest_file,
+    now_of, replace,
 };
 
 /// Covers: story:5-97
@@ -46,6 +47,30 @@ fn the_sources_state_is_replaced_whole_through_a_partial_file_that_does_not_stay
             "{\"upstream\":2}".to_owned(),
             vec!["clean-up-rules.json".to_owned()]
         )
+    );
+}
+
+/// A version is stale from 14 days after its date on, whatever the
+/// calendar says when the test runs: the rule takes "now" (TESTING.md ›
+/// Time), so the embedded part's date only moves where it goes stale.
+/// Covers: story:5-97
+#[test]
+fn a_version_goes_stale_14_days_after_its_date_on_any_calendar() {
+    let embedded = Version::embedded();
+    let published = embedded.manifest.published_at;
+    let stale_from = published + jiff::SignedDuration::try_from(STALE_AFTER).unwrap();
+    let second = jiff::SignedDuration::from_secs(1);
+
+    assert_eq!(
+        [
+            published - jiff::SignedDuration::from_hours(24),
+            published,
+            stale_from - second,
+            stale_from,
+            jiff::Timestamp::MAX,
+        ]
+        .map(|now| embedded.stale(now)),
+        [false, false, false, true, true]
     );
 }
 

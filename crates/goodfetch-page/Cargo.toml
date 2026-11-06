@@ -64,6 +64,7 @@ tokio-tungstenite.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # The child's descriptors 3 and 4, set between fork and exec (ADR 0017).

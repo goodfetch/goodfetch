@@ -164,6 +164,15 @@ impl Version {
             .expires_at
             .is_some_and(|expires_at| expires_at <= now)
     }
+
+    /// Whether it is older than [`STALE_AFTER`] at `now`, which its Run's
+    /// report warns of.
+    fn stale(&self, now: jiff::Timestamp) -> bool {
+        self.manifest
+            .published_at
+            .checked_add(STALE_AFTER)
+            .is_ok_and(|stale_from| stale_from <= now)
+    }
 }
 
 /// Where a new Run's Clean-up rules come from, as `clean_up.update` says.
@@ -618,11 +627,8 @@ impl Versions {
         if let Some(fallback) = fallback {
             warn_of(run, &fallback).await;
         }
-        let published = version.manifest.published_at;
-        if published
-            .checked_add(STALE_AFTER)
-            .is_ok_and(|stale_from| stale_from <= now)
-        {
+        if version.stale(now) {
+            let published = version.manifest.published_at;
             let warning = RunWarning {
                 code: CLEAN_UP_RULES_STALE.to_owned(),
                 message: format!(

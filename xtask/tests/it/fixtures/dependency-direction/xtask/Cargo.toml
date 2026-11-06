@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-protocol = { path = "../crates/goodfetch-protocol" }
+goodfetch-workspace-hack = { path = "../crates/goodfetch-workspace-hack" }
+
+[dev-dependencies]
+goodfetch-engine = { path = "../crates/goodfetch-engine" }
+goodfetch-test-support = { path = "../crates/goodfetch-test-support" }

@@ -165,6 +165,17 @@
       ]
     },
     {
+      "id": "command:command-line",
+      "kind": "command",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:config.explain",
       "kind": "command",
       "area": 3,
@@ -6977,6 +6988,17 @@
     },
     {
       "id": "setting:governor.critical",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.host_memory",
       "kind": "setting",
       "area": 3,
       "milestone": null,

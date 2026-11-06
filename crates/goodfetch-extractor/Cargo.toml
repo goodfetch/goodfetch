@@ -25,6 +25,7 @@ rs-trafilatura.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 url.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

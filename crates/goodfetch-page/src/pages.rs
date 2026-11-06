@@ -48,7 +48,6 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::ParsedHtml;
 use goodfetch_engine::browser_cache::PinnedArtifact;
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
@@ -311,7 +310,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 move |params: PageOnParams, context: CallContext| {
                     let listened = listening
                         .get(&params.page_id)
-                        .map(|events| events.listen(params.event, Clock::system().wall()));
+                        .map(|events| events.listen(params.event));
                     async move {
                         let (armed, runtime) = listened?;
                         armed.serve(context.stream(), runtime).await?;

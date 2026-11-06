@@ -1,10 +1,10 @@
 //! The pre-push tier (T1), `just quick` (`ci/quick.sh`), which the pre-push
-//! hook runs: the floor guard and the scan of the change's commits first,
-//! then the checks the change's own gate would run at merge. A change of
-//! documents alone (`xtask affected`'s `gate=docs`) takes the docs gate's
-//! checks, as `just merge` does (ADR 0135); any other change, and `all`,
-//! takes every lint and the Quick suite. What changed is read against the
-//! base the hook gives, else the branch's upstream off `main`, else
+//! hook runs: the compiler cache's coverage, the floor guard and the scan of
+//! the change's commits first, then the checks the change's own gate would run
+//! at merge. A change of documents alone (`xtask affected`'s `gate=docs`) takes
+//! the docs gate's checks, as `just merge` does (ADR 0135); any other change,
+//! and `all`, takes every lint and the Quick suite. What changed is read
+//! against the base the hook gives, else the branch's upstream off `main`, else
 //! `origin/main`. A green run on a clean checkout records its tree, and the
 //! hook skips a push of a recorded tree, so `just quick` never runs twice on
 //! one tree (`TESTING.md`, Checks by role). The steps run through a stand-in
@@ -126,6 +126,7 @@ fn a_change_of_documents_alone_runs_the_docs_gates_checks_and_no_code_lint_or_su
     assert_eq!(
         run.calls,
         [
+            "compiler-cache",
             "floor-guard",
             "commit-leaks",
             "lint-documents",
@@ -150,6 +151,7 @@ fn any_other_change_runs_every_lint_and_the_quick_suite_over_what_changed(#[case
     assert_eq!(
         run.calls,
         [
+            "compiler-cache",
             "floor-guard",
             "commit-leaks",
             "lint",
@@ -177,6 +179,7 @@ fn the_change_is_read_against_the_base_the_pre_push_hook_gives() {
     assert_eq!(
         run.calls,
         [
+            "compiler-cache",
             "floor-guard",
             "commit-leaks",
             "lint",
@@ -417,6 +420,7 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
     assert_eq!(
         run.calls,
         [
+            "compiler-cache",
             "floor-guard",
             "commit-leaks",
             "lint",
@@ -428,9 +432,13 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
 }
 
 #[rstest]
-#[case::floor_guard("floor-guard", &["floor-guard", "_skips-report"])]
-#[case::commit_leaks("commit-leaks", &["floor-guard", "commit-leaks", "_skips-report"])]
-fn a_red_commit_check_ends_the_tier_before_any_lint(#[case] failing: &str, #[case] calls: &[&str]) {
+#[case::compiler_cache("compiler-cache", &["compiler-cache", "_skips-report"])]
+#[case::floor_guard("floor-guard", &["compiler-cache", "floor-guard", "_skips-report"])]
+#[case::commit_leaks(
+    "commit-leaks",
+    &["compiler-cache", "floor-guard", "commit-leaks", "_skips-report"]
+)]
+fn a_red_first_check_ends_the_tier_before_any_lint(#[case] failing: &str, #[case] calls: &[&str]) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
     selection(&stand_in, "docs");

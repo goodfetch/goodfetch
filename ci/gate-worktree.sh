@@ -52,13 +52,15 @@ gate_worktree_checkout() {
   shopt -s nullglob
   for entry in "$worktree"/target/*; do
     case ${entry##*/} in
-      # Cargo's build folders (the profiles', the MSRV's and the stress run's
-      # base listing's), the tests' temporary folder with its fixture builds,
-      # the TLA+ tools, each checked against its pinned SHA-256 when used,
+      # Cargo's build folders (the profiles', the MSRV's, perf's base's and
+      # the stress run's base listing's), perf's base worktree, which its next
+      # run moves to the next base (xtask perf build), the tests' temporary
+      # folder with its fixture builds, the TLA+ tools, each checked against
+      # its pinned SHA-256 when used,
       # the listings saved for the base of the next gate (ci/merge-pr.sh),
       # and the results each gate run recorded, which the next run on a
       # descendant head reuses where the change since does not reach them.
-      CACHEDIR.TAG | debug | release | ci-test | msrv | stress-base | tmp | tla-tools | stress-listings | gate-runs) ;;
+      CACHEDIR.TAG | debug | release | ci-test | msrv | perf-base | perf-base-tree | stress-base | tmp | tla-tools | stress-listings | gate-runs) ;;
       *) rm -rf "$entry" ;;
     esac
   done

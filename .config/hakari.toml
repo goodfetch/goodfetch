@@ -1,0 +1,25 @@
+# cargo-hakari's settings for `goodfetch-workspace-hack` (ADR 0094, #2089),
+# which ci/workspace-hack.sh writes and `just lint` checks; of hakari's
+# output it keeps the build-dependency tables only (see the script).
+# https://docs.rs/cargo-hakari/latest/cargo_hakari/config
+hakari-package = "goodfetch-workspace-hack"
+dep-format-version = "4"
+# The workspace's resolver is "3", which hakari reads as "2".
+resolver = "2"
+# The hosts that build: the gate server and the owner's Mac. Each gets the
+# build-side lines only it needs.
+platforms = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+# The build side's own features, without the code side's copied onto it:
+# the code side is not unified (ci/workspace-hack.sh).
+unify-target-host = "none"
+# `goodfetch-workspace-hack.workspace = true` in each member, as every
+# dependency is declared (STYLE.md, Dependencies).
+workspace-hack-line-style = "workspace-dotted"
+# The Kennel's workspace (ADR 0141), with its own lockfile, links
+# `goodfetch-protocol` by path: kept out, so the Kennel takes none of the
+# workspace-hack's lines. It builds no C or C++ of its own.
+[final-excludes]
+workspace-members = ["goodfetch-protocol"]

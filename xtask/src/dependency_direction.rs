@@ -9,6 +9,14 @@
 //! - `goodfetch-conformance` depends on no Goodfetch crate but
 //!   `goodfetch-protocol` (and `goodfetch-test-support` for its tests): the
 //!   harness tests only through the interface.
+//! - `xtask` builds no Goodfetch crate but `goodfetch-protocol`: its
+//!   dependencies and build-dependencies take no engine crate, so building
+//!   it builds no engine, and `xtask codegen` reads the Products'
+//!   executables through what they print (ADR 0072). Its tests may take
+//!   any crate as a dev-dependency.
+//!
+//! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
+//! code, so no rule counts it as a Goodfetch crate.
 //!
 //! The workspace-wide direction of ADR 0087 is cargo-deny's (`deny.toml`).
 
@@ -23,6 +31,8 @@ use crate::metadata::{self, Dependency, Package};
 const TEST_SUPPORT: &str = "goodfetch-test-support";
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
+const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
+const XTASK: &str = "xtask";
 /// The Proving ground's manifest, from the workspace's root (ADR 0032).
 const PROVING_GROUND_MANIFEST: &str = "proving-ground/Cargo.toml";
 
@@ -32,9 +42,10 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
     let is_member = |dependency: &Dependency| {
-        packages
-            .iter()
-            .any(|package| package.name == dependency.name)
+        dependency.name != WORKSPACE_HACK
+            && packages
+                .iter()
+                .any(|package| package.name == dependency.name)
     };
     let mut findings = Vec::new();
     for package in &packages {
@@ -77,6 +88,19 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                 &package.name,
                 format!(
                     "it depends on `{}`; it takes no Goodfetch crate but `{PROTOCOL}`",
+                    dependency.name
+                ),
+            ));
+        }
+        if package.name == XTASK
+            && let Some(dependency) =
+                members().find(|d| d.name != PROTOCOL && d.kind.as_deref() != Some("dev"))
+        {
+            findings.push(Finding::new(
+                "xtask-builds-a-goodfetch-crate",
+                &package.name,
+                format!(
+                    "it builds `{}`; outside `[dev-dependencies]` it takes no Goodfetch crate but `{PROTOCOL}`",
                     dependency.name
                 ),
             ));

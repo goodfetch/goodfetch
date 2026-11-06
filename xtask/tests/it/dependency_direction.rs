@@ -2,7 +2,9 @@
 //! Goodfetch crate and is only ever a dev-dependency (ADR 0062); the Proving
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
-//! `goodfetch-protocol` (ADR 0032, STYLE.md).
+//! `goodfetch-protocol` (ADR 0032, STYLE.md); `xtask` builds no Goodfetch
+//! crate but `goodfetch-protocol` (ADR 0072). The fixture's members all take
+//! `goodfetch-workspace-hack`, which no rule counts (ADR 0094).
 //! Covers: story:1-107
 //! Covers: story:1-67
 
@@ -101,6 +103,25 @@ fn conformance_depending_on_more_than_the_protocol_fails() {
             "conformance-depends-on-more-than-protocol",
             "goodfetch-conformance"
         )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::normal_dependency("xtask-depends-on-engine.toml")]
+#[case::build_dependency("xtask-build-depends-on-engine.toml")]
+fn xtask_building_a_goodfetch_crate_fails(#[case] manifest: &str) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        &format!("dependency-direction-cases/{manifest}"),
+        "xtask/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("xtask-builds-a-goodfetch-crate", "xtask")]
     );
     assert_eq!(outcome.code, 1);
 }

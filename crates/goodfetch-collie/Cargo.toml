@@ -55,6 +55,7 @@ opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true, features = ["logs", "metrics"] }
 prometheus = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
+goodfetch-workspace-hack.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
@@ -126,10 +127,9 @@ name = "goodfetch-collie"
 path = "src/main.rs"
 required-features = ["executable"]
 
-# Both Products' command lines, for `xtask codegen` on a workspace it was not
-# built from (ADR 0072).
+# Both Products' command lines, which `xtask codegen` commits (ADR 0072).
 [[example]]
-name = "commands"
+name = "command-lines"
 required-features = ["executable"]
 
 # ADR 0071: the startup benchmarks of Collie's executable.

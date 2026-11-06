@@ -3,18 +3,13 @@
 //! host names, its certificate authority and its network fixtures, so a
 //! test reaches its pages, its forward proxies and its connection record
 //! with no setup of its own (ADRs 0059 and 0063).
-#![expect(
-    clippy::disallowed_types,
-    reason = "these tests reach the Proving ground over a plain socket, as any client of it does"
-)]
 
-use std::net::TcpStream;
 use std::time::Duration;
 
 use goodfetch_test_support::{ProvingGround, ProvingGroundError, ReportedAddressError, TestEnv};
 use serde_json::Value;
 
-use crate::{get, make_executable};
+use crate::{get, make_executable, requested_from, still_answers};
 
 /// The Proving ground's own task list, which names the seed it serves.
 fn tasks(proving_ground: &ProvingGround) -> Value {
@@ -46,19 +41,19 @@ fn two_proving_grounds_answer_on_different_ports_each_with_its_own_seed() {
     assert_eq!(tasks(&second)["proving_ground"]["seed"], 2);
 }
 
+/// Gone: nothing at its address answers as it, though another program may
+/// have bound the port it freed (#2038).
 #[test]
 fn a_dropped_proving_ground_is_gone() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, 341).unwrap();
-    let address = proving_ground.address();
+    let address = proving_ground.address().to_string();
+    let source = requested_from(&address);
+    let before = still_answers(&address, source);
 
     drop(proving_ground);
 
-    let connected = TcpStream::connect(address);
-    assert_eq!(
-        connected.map_err(|error| error.kind()).err(),
-        Some(std::io::ErrorKind::ConnectionRefused)
-    );
+    assert_eq!((before, still_answers(&address, source)), (true, false));
 }
 
 /// Stopped, it is interrupted as Ctrl-C does, so it ends its connections

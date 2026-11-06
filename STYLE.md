@@ -146,7 +146,7 @@ A crate or package becomes a dependency only when it meets this bar:
 - it supports our MSRV;
 - its build script downloads nothing.
 
-For anything non-trivial, a known and widely used project is preferred to writing it in-house. Versions live in `[workspace.dependencies]` with `default-features = false`, and each crate turns on what it uses. `cargo-deny` and the npm and Python equivalents (ADR 0032) enforce what they can.
+For anything non-trivial, a known and widely used project is preferred to writing it in-house. Versions live in `[workspace.dependencies]` with `default-features = false`, and each crate turns on what it uses. Every member also takes `goodfetch-workspace-hack`, which `ci/workspace-hack.sh generate` writes after a dependency or feature change and `just lint` checks (ADR 0094). `cargo-deny` and the npm and Python equivalents (ADR 0032) enforce what they can.
 
 ### Cargo features
 

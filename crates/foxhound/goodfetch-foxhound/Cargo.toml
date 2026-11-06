@@ -26,6 +26,7 @@ goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
 goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
+goodfetch-workspace-hack.workspace = true
 
 [build-dependencies]
 # Reads the Console build's routes, `routes.json` (ADR 0072).

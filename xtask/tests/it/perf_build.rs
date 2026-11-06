@@ -71,7 +71,7 @@ fn base_measures_a_bench_target_the_head_renamed_in_a_selected_crate() {
 
 /// Another worktree of the repository whose folder `xtask perf` cannot see
 /// (in its container, only the measured worktree is mounted) keeps its
-/// record: perf removes its own base tree and prunes nothing else.
+/// record: perf moves or removes only its own trees and prunes nothing else.
 #[test]
 fn a_worktree_out_of_sight_keeps_its_record() {
     let workspace = Workspace::from_fixture("empty");
@@ -103,9 +103,9 @@ fn a_worktree_out_of_sight_keeps_its_record() {
     );
 }
 
-/// A base tree whose folder was deleted without Git (as the gate's
-/// worktree clears `target/` between gates) leaves a record behind; the
-/// next build checks the base out there again.
+/// A base tree whose folder was deleted without Git (as clearing `target/`
+/// does) leaves a record behind; the next build checks the base out there
+/// again.
 #[test]
 fn a_base_tree_deleted_without_git_is_checked_out_again() {
     let workspace = Workspace::from_fixture("empty");
@@ -113,9 +113,65 @@ fn a_base_tree_deleted_without_git_is_checked_out_again() {
     workspace.commit_all();
     let first = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
     assert_eq!(first.code, 0, "{}", first.stderr);
-    workspace.remove_folder("target/perf");
+    workspace.remove_folder("target/perf-base-tree");
 
     let outcome = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// The base's tree stays between builds, at a path outside the folder each
+/// build clears, and moves to the next base: Git rewrites only the files the
+/// bases differ in, so Cargo, which judges a build by its files' times,
+/// rebuilds only what the base changed (the test-gate audit's F2).
+#[test]
+fn the_bases_tree_is_kept_and_moved_to_the_next_base() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_bench(&workspace, "instructions");
+    let first = workspace.commit_all();
+    workspace.write(
+        "crates/foxhound/goodfetch-frontier/src/lib.rs",
+        b"//! The Frontier, as the next base has it.\n",
+    );
+    let second = workspace.commit_all();
+    let tree = workspace.path().join("target/perf-base-tree");
+    let bench = tree.join("crates/foxhound/goodfetch-frontier/benches/instructions.rs");
+    let built = workspace.xtask(&["perf", "build", "--base", &first]);
+    assert_eq!(built.code, 0, "{}", built.stderr);
+    let kept = std::fs::metadata(&bench).unwrap().modified().unwrap();
+    // A build that checked the base out again would give the file a later time.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let moved = workspace.xtask(&["perf", "build", "--base", &second]);
+
+    assert_eq!(moved.code, 0, "{}", moved.stderr);
+    assert_eq!(std::fs::metadata(&bench).unwrap().modified().unwrap(), kept);
+    assert_eq!(
+        std::fs::read_to_string(tree.join("crates/foxhound/goodfetch-frontier/src/lib.rs"))
+            .unwrap(),
+        "//! The Frontier, as the next base has it.\n"
+    );
+    let head = workspace.git(&["-C", tree.to_str().unwrap(), "rev-parse", "HEAD"]);
+    assert_eq!(head.trim(), second);
+}
+
+/// A file a build of the kept tree left in it, such as a lent Console build
+/// or installed packages, is gone once the tree moves to the next base, so
+/// the base is built from its own files alone.
+#[test]
+fn moving_the_bases_tree_removes_what_an_earlier_build_left_in_it() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_bench(&workspace, "instructions");
+    let base = workspace.commit_all();
+    let built = workspace.xtask(&["perf", "build", "--base", &base]);
+    assert_eq!(built.code, 0, "{}", built.stderr);
+    let left = workspace
+        .path()
+        .join("target/perf-base-tree/left-by-a-build.txt");
+    std::fs::write(&left, b"").unwrap();
+
+    let again = workspace.xtask(&["perf", "build", "--base", &base]);
+
+    assert_eq!(again.code, 0, "{}", again.stderr);
+    assert!(!left.exists());
 }

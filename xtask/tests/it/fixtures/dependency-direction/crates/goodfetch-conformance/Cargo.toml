@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }
 goodfetch-protocol = { path = "../goodfetch-protocol" }
 
 [dev-dependencies]

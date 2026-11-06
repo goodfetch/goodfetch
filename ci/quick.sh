@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # `just quick [all]`: the pre-push tier (T1), which `.githooks/pre-push`
-# runs (TESTING.md, Commands and Checks by role). The floor guard and the
-# scan of the change's commits for secrets come first: they take seconds,
-# and the gate would otherwise first run them at merge. Then the checks the
+# runs (TESTING.md, Commands and Checks by role). The compiler cache's
+# coverage comes first, before the first build (`just compiler-cache`;
+# TESTING.md, Compiler cache). The floor guard and the scan of the change's
+# commits for secrets come next: they take seconds, and the gate would
+# otherwise first run them at merge. Then the checks the
 # change's own gate runs at merge, from `xtask affected`'s `gate=` line, as
 # `just merge` picks its form (ADR 0135): a change of documents alone
 # (`gate=docs`) takes `just lint-documents`, the checks of `just lint` that
@@ -51,6 +53,7 @@ record_green() {
 
 rm -f target/skipped.txt
 trap 'just _skips-report' EXIT
+just compiler-cache
 just floor-guard
 just commit-leaks
 

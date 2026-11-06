@@ -34,7 +34,6 @@
 )]
 
 mod cdp;
-mod cli;
 mod console;
 mod deny;
 mod digest;
@@ -278,7 +277,7 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
-            cli::FOLDER,
+            executables::CLI_FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,
@@ -305,7 +304,9 @@ impl Plan {
     }
 }
 
-fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
+/// Everything `xtask codegen` writes at `root`, with the executables' files
+/// `executables` gives.
+fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<Plan> {
     let emitted = emitter::emit(cargo, root)?;
     let bundle: Value =
         serde_json::from_slice(&emitted.bundle).context("reading the emitted bundle")?;
@@ -329,14 +330,14 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
-    let command_lines = executables::command_lines(cargo, root)?;
+    let command_lines = executables.command_lines()?;
     let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
     files.extend(special_purpose::generate(root)?);
-    files.extend(cli::namespaces(root)?);
+    files.extend(executables.into_files());
     let sources = features::Sources {
         root,
         catalog: &catalog,
@@ -453,7 +454,7 @@ fn json_text(value: &Value) -> Result<Vec<u8>> {
 /// Writes every generated file, removing any other file from the folders
 /// `xtask codegen` owns.
 pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Result<()> {
-    let plan = plan(cargo, root)?;
+    let plan = plan(cargo, root, executables::Files::printed(cargo, root)?)?;
     let written = plan.written();
     for folder in Plan::owned_folders() {
         for file in files_under(root, folder)? {
@@ -480,7 +481,7 @@ pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Resu
 
 /// What `--check` finds: files that differ from what the types generate.
 pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
-    let plan = plan(cargo, root)?;
+    let plan = plan(cargo, root, executables::Files::committed(root))?;
     let mut findings = Vec::new();
     for (path, expected) in &plan.files {
         if std::fs::read(root.join(path)).ok().as_ref() != Some(expected) {
@@ -695,10 +696,12 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         json2ts: arguments.json2ts,
         datamodel_codegen: arguments.datamodel_codegen,
     };
-    let namespaces = cli::written(root);
+    let before = executables::Files::committed(root);
     write(cargo, &generators, root)?;
-    if cli::written(root) != namespaces {
-        cli::rerun(cargo, root, &generators)?;
+    // The executables print the command lines they were built with, so once
+    // the namespaces changed, they print them again built with the new ones.
+    if executables::Files::committed(root).namespaces() != before.namespaces() {
+        write(cargo, &generators, root)?;
     }
     Ok(ExitCode::SUCCESS)
 }

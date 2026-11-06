@@ -27,6 +27,7 @@ use goodfetch_protocol::governor::{
     AllowanceSource, GovernorLevel, PressureSource, SystemInfo, WorkKind,
 };
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -441,13 +442,14 @@ fn the_last_resort_picks_the_largest_run_and_a_persons_run_only_once_handed_back
 
 /// The host's own memory pressure counts as the engine's, though the
 /// engine's own memory has headroom: three Attached engines never each
-/// claim half the machine.
+/// claim half the machine. `governor.host_memory` is on by default; the
+/// tests' configuration turns it off, so this one turns it on again.
 ///
-/// Covers: story:3-57
+/// Covers: story:3-57, setting:governor.host_memory
 #[test]
 fn the_hosts_own_memory_pressure_counts_as_the_engines() {
     let env = TestEnv::new();
-    env.user_configuration(SAMPLED);
+    env.user_configuration(&format!("{SAMPLED}governor.host_memory = true\n"));
     let proc = Proc::new();
     proc.meminfo(GIB / 4);
 
@@ -468,6 +470,34 @@ fn the_hosts_own_memory_pressure_counts_as_the_engines() {
             Some(PressureSource::HostMemory),
             16,
         )
+    );
+}
+
+/// With `governor.host_memory` off, the host's critical pressure, by
+/// `MemAvailable` or by PSI, holds the engine at no level, its own memory
+/// having headroom.
+///
+/// Covers: story:3-57, setting:governor.host_memory
+#[rstest]
+#[case::available_under_the_critical_share(GIB / 4, psi(0.0))]
+#[case::every_task_stalled_on_memory(6 * GIB, "some avg10=50.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=50.00 avg60=0.00 avg300=0.00 total=0\n".to_owned())]
+fn with_the_host_memory_off_the_hosts_pressure_is_not_the_engines(
+    #[case] available: u64,
+    #[case] pressure: String,
+) {
+    let env = TestEnv::new();
+    env.user_configuration(&format!("{SAMPLED}governor.host_memory = false\n"));
+    let proc = Proc::new();
+    proc.meminfo(available);
+    proc.file("pressure/memory", &pressure);
+
+    let info = governed(&env, &proc, async |governor| {
+        Samples::of(&governor).next().await
+    });
+
+    assert_eq!(
+        (info.memory.host, info.level, info.pressure_source),
+        (GovernorLevel::Normal, GovernorLevel::Normal, None)
     );
 }
 

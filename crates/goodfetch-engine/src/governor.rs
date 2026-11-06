@@ -30,8 +30,9 @@ use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::governor::{
-    CRITICAL, Concurrency, CpuReading, GovernorLevel, KindConcurrency, LAST_RESORT_AFTER,
-    MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo, WorkKind,
+    CRITICAL, Concurrency, CpuReading, GovernorLevel, HOST_MEMORY, KindConcurrency,
+    LAST_RESORT_AFTER, MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo,
+    WorkKind,
 };
 use goodfetch_protocol::storage::StorageLevel;
 use tokio::sync::watch;
@@ -71,6 +72,8 @@ pub struct Governor {
     disks: Option<Disks>,
     folders: Folders,
     storage: watch::Receiver<Arc<StorageSample>>,
+    /// How many storage samples it has begun.
+    begun: watch::Receiver<u64>,
     settled: watch::Receiver<Settled>,
     last_resort: watch::Receiver<LastResort>,
 }
@@ -104,6 +107,7 @@ impl Governor {
         let shares = Shares::new([0; 3]);
         let (sender, info) = watch::channel(None);
         let (stored, storage) = watch::channel(Arc::new(StorageSample::default()));
+        let (beginning, begun) = watch::channel(0);
         let (settling, settled) = watch::channel(Settled::built_in());
         let (resorting, last_resort) = watch::channel(LastResort::default());
         let folders = Folders::default();
@@ -118,6 +122,7 @@ impl Governor {
             blocking: owner.child(),
             folders: folders.clone(),
             stored,
+            beginning,
             settling,
             last_resort: resorting,
         };
@@ -134,6 +139,7 @@ impl Governor {
             disks: Some(disks),
             folders,
             storage,
+            begun,
             settled,
             last_resort,
         }
@@ -151,6 +157,7 @@ impl Governor {
             disks: None,
             folders: Folders::default(),
             storage: watch::channel(Arc::new(StorageSample::default())).1,
+            begun: watch::channel(0).1,
             settled: watch::channel(Settled::built_in()).1,
             last_resort: watch::channel(LastResort::default()).1,
         }
@@ -174,6 +181,13 @@ impl Governor {
     /// never samples.
     pub fn storage(&self) -> watch::Receiver<Arc<StorageSample>> {
         self.storage.clone()
+    }
+
+    /// How many storage samples it has begun: a sample numbered up to it
+    /// read the filesystems no later than a read made after this answer
+    /// (ADR 0122); none when it never samples.
+    pub fn storage_samples_begun(&self) -> u64 {
+        *self.begun.borrow()
     }
 
     /// The level now of the filesystem holding `path`, a folder or a file
@@ -290,6 +304,8 @@ struct Sampler {
     folders: Folders,
     /// Where each storage sample goes.
     stored: watch::Sender<Arc<StorageSample>>,
+    /// Where it counts each storage sample as it begins, before it reads.
+    beginning: watch::Sender<u64>,
     /// Where the storage settings of each sample go.
     settling: watch::Sender<Settled>,
     /// Where each sample says whether it is at its last resort.
@@ -318,6 +334,7 @@ impl Sampler {
                 memory_allowance: settings.count(MEMORY_ALLOWANCE.name),
                 pressure: limits.pressure,
                 critical: limits.critical,
+                host_memory: settings.boolean(HOST_MEMORY.name).unwrap_or(true),
             };
             let system = self.system.clone();
             let processes = self.shares.browsers().processes();
@@ -415,9 +432,14 @@ impl Sampler {
         let settled = Settled::of(settings);
         let folders = self.folders.now();
         let disks = self.system.disks.clone();
+        let mut number = 0;
+        self.beginning.send_modify(|begun| {
+            *begun += 1;
+            number = *begun;
+        });
         let sample = self
             .blocking
-            .blocking(move || disks.sample(&folders, &settled))
+            .blocking(move || disks.sample(number, &folders, &settled))
             .await;
         for filesystem in &sample.filesystems {
             let was = before

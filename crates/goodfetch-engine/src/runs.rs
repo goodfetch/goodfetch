@@ -3956,6 +3956,12 @@ struct Live {
     storage: Option<RunStorage>,
     /// The folders whose `low` level its report carries a warning for.
     warned_low: std::collections::BTreeSet<String>,
+    /// How many storage samples the governor had begun when it went live.
+    /// Its start or resume read its filesystems afresh before then (ADR
+    /// 0122), so a sample numbered up to it, read before that, says
+    /// nothing of it: such a sample, read at `critical` and handed over
+    /// after space was freed, would stop the Run its resume let go on.
+    sampled_after: u64,
     /// Its progress, which its readers follow (ADR 0102).
     progress: Progress,
 }
@@ -4389,11 +4395,13 @@ impl Registry {
     /// ledger and the Politeness file in the Goodfetch home) stops at its
     /// next safe point; each Run's progress carries the worst level among
     /// its filesystems when it changes, and its report a `storage_low`
-    /// warning for each folder found at `low` or worse. The runtime's
-    /// metrics record the filesystem of run state (the install database's
-    /// in the per-install layout, the run folders' otherwise), of the
-    /// Goodfetch home and of the temporary folder, each labelled by what it
-    /// holds, so one filesystem holding several gives each its series.
+    /// warning for each folder found at `low` or worse; a Run ignores a
+    /// sample begun before it went live, which its start or resume's fresh
+    /// read supersedes. The runtime's metrics record the filesystem of run
+    /// state (the install database's in the per-install layout, the run
+    /// folders' otherwise), of the Goodfetch home and of the temporary
+    /// folder, each labelled by what it holds, so one filesystem holding
+    /// several gives each its series.
     fn storage(&mut self, sample: &StorageSample) {
         let folders = self.engine_folders();
         self.setup.metrics.storage(
@@ -4420,6 +4428,9 @@ impl Registry {
             let Some(run) = &live.run else {
                 continue;
             };
+            if sample.number <= live.sampled_after {
+                continue;
+            }
             let run_state = install.as_ref().unwrap_or(&live.folder);
             let essential = [run_state, home];
             if let Some(folder) = essential
@@ -5180,6 +5191,7 @@ impl Registry {
             lifecycle: Lifecycle::Running,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
+            sampled_after: self.setup.governor.storage_samples_begun(),
         };
         let row = self.index_row(&live, Lifecycle::Running, None);
         self.write_index(row).await;
@@ -5885,6 +5897,7 @@ impl Registry {
             lifecycle,
             storage: None,
             warned_low: std::collections::BTreeSet::new(),
+            sampled_after: self.setup.governor.storage_samples_begun(),
         };
         let row = self.index_row(&live, lifecycle, None);
         self.write_index(row).await;

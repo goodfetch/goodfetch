@@ -43,6 +43,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 url.workspace = true
 toml.workspace = true
 web-bot-auth.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 data-encoding.workspace = true

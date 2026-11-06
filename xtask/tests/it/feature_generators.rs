@@ -8,7 +8,7 @@
 
 use serde_json::{Value, json};
 
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, finding};
 
 const JSON2TS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/.bin/json2ts");
 const DATAMODEL_CODEGEN: &str = concat!(
@@ -53,10 +53,13 @@ fn foxhound() -> Value {
     json!(["foxhound"])
 }
 
-const COMMANDS_EXAMPLE: &str = "crates/goodfetch-collie/examples/commands.rs";
+const COMMAND_LINES_EXAMPLE: &str = "crates/goodfetch-collie/examples/command-lines.rs";
 
-/// Adds Collie's executable crate to the fixture, whose `commands` example
-/// writes `command_lines` as both executables' command trees.
+/// The namespaces file the stand-in gives.
+const NAMESPACES: &str = "// The fixture's namespaces.\n[]\n";
+
+/// Adds Collie's executable crate to the fixture, whose `command-lines`
+/// example writes `command_lines` as both executables' command trees.
 fn add_executable_crate(workspace: &Workspace, command_lines: &Value) {
     workspace.write(
         "crates/goodfetch-collie/Cargo.toml",
@@ -70,11 +73,14 @@ fn add_executable_crate(workspace: &Workspace, command_lines: &Value) {
 }
 
 fn write_command_lines(workspace: &Workspace, command_lines: &Value) {
+    let printed =
+        |product: &str| json!({ "command_line": command_lines[product], "namespaces": NAMESPACES });
+    let written = json!({ "collie": printed("collie"), "foxhound": printed("foxhound") });
     let source = format!(
-        "fn main() {{\n    let folder = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());\n    std::fs::write(folder.join(\"commands.json\"), {:?}).unwrap();\n}}\n",
-        command_lines.to_string()
+        "fn main() {{\n    let folder = std::path::PathBuf::from(std::env::args_os().nth(1).unwrap());\n    std::fs::write(folder.join(\"command-lines.json\"), {:?}).unwrap();\n}}\n",
+        written.to_string()
     );
-    workspace.write(COMMANDS_EXAMPLE, source.as_bytes());
+    workspace.write(COMMAND_LINES_EXAMPLE, source.as_bytes());
 }
 
 fn tree(name: &str, commands: &[Value]) -> Value {
@@ -145,6 +151,35 @@ fn a_removed_command_leaves_the_inventory() {
             ("command:browsers.install".to_owned(), both()),
         ]
     );
+}
+
+#[test]
+fn the_check_reads_the_committed_command_lines_and_runs_no_example() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_executable_crate(&workspace, &command_lines(true));
+    codegen(&workspace);
+    workspace.write(
+        "crates/goodfetch-protocol/generated/command_lines.json",
+        command_lines(false).to_string().as_bytes(),
+    );
+    workspace.write(
+        COMMAND_LINES_EXAMPLE,
+        b"fn main() {\n    std::process::exit(3);\n}\n",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding(
+                "drift",
+                "crates/goodfetch-protocol/generated/foxhound_names.rs"
+            ),
+            finding("drift", "features/inventory.json"),
+        ]
+    );
+    assert_eq!(outcome.code, 1);
 }
 
 const COLLIE_ROUTES: &str = "console/collie/routes.json";

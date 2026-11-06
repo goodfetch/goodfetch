@@ -103,6 +103,7 @@ webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 # A body under `zstd` (SC-05).
 zstd.workspace = true
+goodfetch-workspace-hack.workspace = true
 
 # Frees the buffer launchd answers the Daemon's activated sockets in, and
 # watches an Attached engine's parent (prctl, kqueue).

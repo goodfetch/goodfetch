@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
@@ -17,9 +18,11 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use super::daemon::{cli_hello, daemon, opened, the_pick};
+use super::disk_view::DiskView;
 use super::events::credit;
 use super::run::call;
 use super::{attached_on, engine, hello};
+use crate::daemon::DaemonOptions;
 use crate::engine::Engine;
 use crate::governor::System;
 use crate::metrics::{METER, Metrics};
@@ -74,8 +77,13 @@ fn configure(env: &TestEnv, settings: &str) {
     .unwrap();
 }
 
-fn governed(engine: Engine, proc: &Path) -> Engine {
-    engine.with_governor(System::linux_files(proc.join("proc")))
+/// `engine`, its governor reading the `/proc` at `proc` and, for the test
+/// home's filesystem, a disk of 1 TiB with half of it free, never the
+/// host's own disk, whose free space would set the storage level.
+fn governed(engine: Engine, env: &TestEnv, proc: &Path) -> Engine {
+    let disks = DiskView::default();
+    disks.mount(env.home(), 1 << 40, 1 << 39);
+    engine.with_governor(System::linux_files(proc.join("proc")).with_filesystems(Arc::new(disks)))
 }
 
 /// A subscription that asks for `engine.system_info` takes each sample
@@ -88,7 +96,7 @@ fn a_subscription_that_asks_takes_the_governors_samples_and_no_other_does() {
     let env = TestEnv::new();
     configure(&env, "governor.sample_interval = 250\n");
     let proc = proc(100 * MIB);
-    let engine = governed(engine(Product::Collie), proc.path());
+    let engine = governed(engine(Product::Collie), &env, proc.path());
 
     let (sample, plain) = attached_on(&engine, &env, |mut client| async move {
         client.send(&[hello("collie", "0.1")]).await;
@@ -192,7 +200,7 @@ fn each_sample_records_the_targets_the_pressure_source_and_the_saturation() {
     let env = TestEnv::new();
     configure(&env, "governor.sample_interval = 250\n");
     let proc = proc(230 * MIB);
-    let engine = governed(engine(Product::Collie), proc.path())
+    let engine = governed(engine(Product::Collie), &env, proc.path())
         .with_metrics(Metrics::new(&provider.meter(METER)));
     let scraped = registry.clone();
 
@@ -239,9 +247,17 @@ fn a_daemon_at_its_governors_last_resort_is_live_and_not_ready() {
          governor.http.ceiling = 1\ngovernor.browser_page.ceiling = 1\ngovernor.model_call.ceiling = 1\n",
     );
     let proc = proc(250 * MIB);
-    let engine = governed(engine(Product::Collie), proc.path());
+    let engine = governed(engine(Product::Collie), &env, proc.path());
 
-    let (_, health) = daemon(&engine, &env, the_pick(), |dialer| async move {
+    // It stops a second after its Client leaves: under its default idle
+    // timeout the governor sampled on through ten paused minutes, each
+    // sample reading its files for real, which took seconds and on a loaded
+    // host passed the test's timeout.
+    let options = DaemonOptions {
+        idle_timeout: Duration::from_secs(1),
+        ..the_pick()
+    };
+    let (_, health) = daemon(&engine, &env, options, |dialer| async move {
         let mut client = opened(&dialer, cli_hello()).await;
         let before = call(&mut client, 1, "daemon.health", json!({})).await;
         tokio::time::sleep(Duration::from_millis(1100)).await;
@@ -274,7 +290,7 @@ fn the_last_resort_stops_one_run_resumably_and_measures_again_before_another() {
          governor.http.ceiling = 1\ngovernor.browser_page.ceiling = 1\ngovernor.model_call.ceiling = 1\n",
     );
     let proc = proc(250 * MIB);
-    let engine = governed(engine(Product::Collie), proc.path());
+    let engine = governed(engine(Product::Collie), &env, proc.path());
     let rollup = proc.path().join("proc/self/smaps_rollup");
 
     let (stopped, other, resumed) = attached_on(&engine, &env, |mut client| async move {

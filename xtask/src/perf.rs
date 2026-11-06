@@ -66,8 +66,9 @@ pub(crate) fn ceilinged_crates() -> std::collections::BTreeSet<&'static str> {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
-    /// Before the deny: checks the base out under target/perf/ and builds
-    /// the base's and the head's (the workspace's) selected bench targets.
+    /// Before the deny: moves the base's kept worktree (target/perf-base-tree)
+    /// to the base, checking it out the first time, and builds the base's and
+    /// the head's (the workspace's) selected bench targets.
     Build {
         /// The base: the merge base locally, the base branch's head in the
         /// pull-request tier, the group's base in the merge queue.
@@ -78,9 +79,9 @@ pub(crate) enum Command {
         #[arg(long, default_value = "")]
         bench_targets: String,
     },
-    /// Under the deny: measures the base, then the head, as `build`
-    /// planned, then compares them like `compare`, saving the head's figures
-    /// and every report into target/junit/.
+    /// Under the deny: measures the base's bench targets at once, then the
+    /// head's, as `build` planned, then compares them like `compare`, saving
+    /// the head's figures and every report into target/junit/.
     Run {
         /// The pull request's acceptance, as `pull-request` saved it.
         #[arg(long)]

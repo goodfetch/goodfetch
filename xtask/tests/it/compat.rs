@@ -68,6 +68,31 @@ fn check_passes_on_a_clean_tree() {
     assert_eq!(outcome.code, 0);
 }
 
+/// A passing check still names, for each format whose writer it ran, the
+/// digest of what both runs wrote, so its log is never empty and two runs'
+/// logs show the output identical across runs (#2109's three runs logged
+/// nothing to compare).
+#[test]
+fn check_notes_the_digest_each_writer_wrote_on_both_runs() {
+    let workspace = Workspace::from_fixture("compat");
+
+    let first = workspace.xtask(&["compat", "check"]);
+    let second = workspace.xtask(&["compat", "check"]);
+
+    assert_eq!(first.code, 0, "{}", first.stderr);
+    assert_eq!(
+        first.notes(),
+        vec![
+            finding("identical", "compat/sample-protocol/head"),
+            finding("identical", "compat/sample-settings/head"),
+            finding("identical", "compat/sample-store/head"),
+        ],
+        "{}",
+        first.stdout
+    );
+    assert_eq!(first.stdout, second.stdout);
+}
+
 fn edit_head(workspace: &Workspace) {
     workspace.edit(
         "compat/sample-store/head/store.sql",
@@ -175,6 +200,38 @@ fn a_failing_writer_fails_the_check_with_its_error() {
         "{}",
         outcome.stderr
     );
+}
+
+/// A writer whose bytes differ between two runs fails the check, even when
+/// its first run matches the committed set: the check runs every writer
+/// twice, so a writer that is right most of the time (#1924's run state, 18
+/// runs in 19) cannot pass by chance.
+#[test]
+fn a_writer_that_differs_between_two_runs_fails_the_check() {
+    let workspace = Workspace::from_fixture("compat");
+    // The first run writes the committed bytes and leaves a mark; the run
+    // after it finds the mark and writes another line.
+    workspace.edit(
+        "crates/goodfetch-sample-formats/examples/compat-sample-store.rs",
+        "std::fs::write(folder.join(\"store.sql\"), DUMP).expect(\"writing store.sql\");",
+        "let mark = std::path::Path::new(\"second-run\");\n    \
+         let dump = if mark.exists() { format!(\"{DUMP}-- again\\n\") } else { DUMP.to_owned() };\n    \
+         std::fs::write(mark, b\"\").expect(\"writing the mark\");\n    \
+         std::fs::write(folder.join(\"store.sql\"), dump).expect(\"writing store.sql\");",
+    );
+
+    let outcome = workspace.xtask(&["compat", "check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "nondeterministic",
+            "compat/sample-store/head/store.sql"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
 }
 
 const SETTINGS_NAME_TYPE: &str =

@@ -42,6 +42,15 @@ Options:
       --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                       Print help
 
+$ goodfetch-collie command-line --help
+Prints this executable's command line as JSON, hidden commands included, with the namespaces of the generated commands: what `xtask codegen` commits (ADR 0072). It starts no engine and reads no setting
+
+Usage: goodfetch-collie command-line [OPTIONS]
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
 $ goodfetch-collie browser --help
 Manages the browser builds this version pins in the Browser cache
 

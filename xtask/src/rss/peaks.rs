@@ -1,5 +1,6 @@
 //! The peaks file: one JSON line per measured peak, its Product, platform,
-//! scenario and bytes. `measure` appends to it; `check` and `propose` read
+//! scenario and bytes, and on Linux how many of them are the executable's
+//! own file-backed pages. `measure` appends to it; `check` and `propose` read
 //! it.
 #![expect(
     clippy::disallowed_methods,
@@ -24,6 +25,10 @@ pub(crate) struct Peak {
     pub(crate) scenario: Scenario,
     /// The peak resident memory, in bytes.
     pub(crate) bytes: u64,
+    /// The executable's own file-backed resident pages, in bytes, the
+    /// highest sample while it ran; absent on an OS without `/proc`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) executable_bytes: Option<u64>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<Vec<Peak>> {

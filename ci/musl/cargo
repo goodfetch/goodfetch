@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Cargo for the static musl build (ADR 0024's note of 2026-11-06): a `build`
+# or `test` runs through cargo-zigbuild, so Zig compiles the C and C++ code
+# (DuckDB, BoringSSL) against musl and links the executable, at the versions
+# ci/musl/toolchain.sh pins; any other command is Cargo's own. `xtask
+# test-tools` runs it for a `*-linux-musl` target, and nextest through
+# `CARGO` (ci/release/cell.sh). Without the install, it names the recipe
+# that makes it.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=ci/musl/toolchain.sh
+source "$here/toolchain.sh"
+
+# The Cargo this one stands in for: the one on PATH, never this script.
+export CARGO=cargo
+# The command is the first argument that is no option: nextest puts
+# `--color=<when>` before it, which cargo-zigbuild takes after it.
+options=()
+while [[ $# -gt 0 && "$1" == -* ]]; do
+  options+=("$1")
+  shift
+done
+case "${1:-}" in
+  build | test)
+    if [[ ! -x "$musl_toolchain/bin/cargo-zigbuild" || ! -x "$musl_toolchain/zig/zig" ]]; then
+      echo "error: the musl toolchain of ci/musl/toolchain.sh is not installed in $musl_toolchain: run \`just musl-toolchain\`" >&2
+      exit 2
+    fi
+    export CARGO_ZIGBUILD_ZIG_PATH="$musl_toolchain/zig/zig"
+    command=$1
+    shift
+    [[ "$command" == build ]] && command=zigbuild
+    exec "$musl_toolchain/bin/cargo-zigbuild" "$command" ${options[@]+"${options[@]}"} "$@"
+    ;;
+  *) exec cargo ${options[@]+"${options[@]}"} "$@" ;;
+esac

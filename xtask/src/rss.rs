@@ -10,6 +10,7 @@
 
 mod ceilings;
 pub(crate) mod crawl;
+mod executable;
 mod measure;
 pub(crate) mod peak;
 pub(crate) mod peaks;
@@ -48,7 +49,8 @@ pub(crate) enum Command {
     /// the ceilings file writes them.
     Propose(ProposeArguments),
     /// Runs one command as this process's only child and prints its peak
-    /// resident memory as `peak-bytes=<n>`; with a scenario, drives the
+    /// resident memory as `peak-bytes=<n>`, and on Linux its executable's
+    /// own file-backed pages as `executable-bytes=<n>`; with a scenario, drives the
     /// child as the scenario says. `measure` runs each scenario through it.
     #[command(hide = true)]
     Probe(ProbeArguments),
@@ -141,13 +143,16 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(check::report(&findings))
         }
         Command::Probe(arguments) => {
-            let bytes = measure::probe(
+            let resident = measure::probe(
                 arguments.scenario.zip(arguments.needs),
                 arguments.address.as_deref(),
                 &arguments.command,
                 &environment.goodfetch_variables,
             )?;
-            output::line(&format!("peak-bytes={bytes}"));
+            output::line(&format!("peak-bytes={}", resident.peak_bytes));
+            if let Some(bytes) = resident.executable_bytes {
+                output::line(&format!("executable-bytes={bytes}"));
+            }
             Ok(ExitCode::SUCCESS)
         }
     }

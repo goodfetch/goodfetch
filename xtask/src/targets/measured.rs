@@ -146,6 +146,16 @@ impl Measured {
             .collect()
     }
 
+    /// The executable's own file-backed pages of each peak of `scenario` on
+    /// `product` that has them, in bytes.
+    pub(crate) fn executable_bytes(&self, scenario: Scenario, product: Product) -> Vec<u64> {
+        self.peaks
+            .iter()
+            .filter(|peak| peak.product == product && peak.scenario == scenario)
+            .filter_map(|peak| peak.executable_bytes)
+            .collect()
+    }
+
     /// The optimization pass's write-up of `target` on `product`.
     pub(crate) fn write_up(&self, target: &str, product: Product) -> Option<&str> {
         self.write_ups

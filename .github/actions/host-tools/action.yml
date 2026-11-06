@@ -76,6 +76,13 @@ runs:
         ARCHITECTURE: ${{ inputs.architecture }}
       run: ci/host/rust.sh
 
+    # The static musl build's toolchain (ADR 0024's note of 2026-11-06):
+    # Zig and cargo-zigbuild at ci/musl/toolchain.sh's versions.
+    - name: Install the static musl toolchain
+      if: endsWith(inputs.target, '-linux-musl')
+      shell: bash
+      run: ci/musl/install.sh
+
     - name: Read the pinned runtimes
       id: runtimes
       shell: bash

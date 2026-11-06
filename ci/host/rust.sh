@@ -51,8 +51,6 @@ else
 fi
 rustup target add --toolchain "$toolchain" "$target"
 
-# musl's C toolchain, for the crates that build C code.
-if [[ "$target" == *-linux-musl ]]; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq musl-tools
-fi
+# A musl target's C and C++ toolchain is Zig's (ci/musl/install.sh, the
+# action's next step), not musl-tools: it has no C++ compiler, which DuckDB
+# and BoringSSL need (ADR 0024's note of 2026-11-06).

@@ -75,9 +75,6 @@ pub(crate) enum CellStatus {
     NotSupported {
         reason: &'static str,
     },
-    Pending {
-        reason: &'static str,
-    },
     /// Its timed trial was stopped twice (see `run::stopped`).
     NotMeasured {
         reason: String,
@@ -527,7 +524,6 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         for cell in CELLS.iter().filter(|cell| cell.scenario == scenario) {
             let status = match cell.status {
                 Status::NotSupported(reason) => CellStatus::NotSupported { reason },
-                Status::Pending(reason) => CellStatus::Pending { reason },
                 Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
                     CellStatus::NotMeasured { reason }
                 }
@@ -765,9 +761,6 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 CellStatus::NotSupported { reason } => {
                     let _ = writeln!(text, "  - not supported: {reason}.");
                 }
-                CellStatus::Pending { reason } => {
-                    let _ = writeln!(text, "  - pending: {reason}.");
-                }
                 CellStatus::NotMeasured { reason } => {
                     let _ = writeln!(text, "  - not measured: {reason}.");
                 }
@@ -789,9 +782,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             .iter()
             .filter_map(|cell| match &cell.status {
                 CellStatus::Measured { metrics, curve, .. } => Some((cell.cell, metrics, curve)),
-                CellStatus::NotSupported { .. }
-                | CellStatus::Pending { .. }
-                | CellStatus::NotMeasured { .. } => None,
+                CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
             })
             .collect();
         if measured.is_empty() {

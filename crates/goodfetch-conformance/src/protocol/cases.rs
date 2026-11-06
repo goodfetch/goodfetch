@@ -777,6 +777,7 @@ fn fabricated_hello(
             .expect("invariant: the workspace's version is a Product version"),
         log_level: None,
         client_surface: None,
+        keep_daemon_alive: false,
     };
     let refused = (|| {
         let id = other.request(

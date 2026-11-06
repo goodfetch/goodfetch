@@ -266,7 +266,11 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","visual","evaluation"]"#)]
 #[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","visual","evaluation"]"#)]
 // The catalog is the docs' reference too (spec #130, Pre-merge suite).
-#[case::evaluation_and_docs_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
+// The Kennel is built on the protocol crate alone (ADR 0141).
+#[case::evaluation_docs_and_kennel_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation","kennel"]"#)]
+// The Kennel's own workspace selects its checks and nothing else (ADR 0141).
+#[case::only_kennel_for_the_kennels_code(&["kennel/crates/goodfetch-kennel/src/state.rs"], r#"["kennel"]"#)]
+#[case::only_kennel_for_the_kennels_lockfile(&["kennel/Cargo.lock", "kennel/deny.toml"], r#"["kennel"]"#)]
 #[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
 #[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
 // The visual job runs when a visual test, a Reference screenshot, a runner's
@@ -292,12 +296,18 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 }
 
 // The local gate runs its quick form only when no test, benchmark, model,
-// container or Evaluation reads the change (ADR 0135).
+// container or Evaluation reads the change, and its docs form when, of
+// those, every path is a document: Markdown the Quick suite alone checks
+// (ADR 0135). Any other file, or no change at all, takes the quick form.
 #[rstest]
-#[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "quick")]
-#[case::an_adr(&["docs/adr/0135-local-gate.md"], "quick")]
+#[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "docs")]
+#[case::an_adr(&["docs/adr/0135-local-gate.md"], "docs")]
+#[case::research_notes(&["rnd/research/2026-11-04-notes.MD", "website/README.md"], "docs")]
 #[case::docs_and_website(&["docs/collie/index.md", "website/index.html"], "quick")]
 #[case::the_lab(&["rnd/lab/src/cli.ts"], "quick")]
+#[case::an_image_beside_the_adrs(&["docs/adr/0135-local-gate.md", "docs/adr/flow.svg"], "quick")]
+#[case::no_change(&[], "quick")]
+#[case::the_quality_register(&["TESTING.md"], "full")]
 #[case::a_crate(&["crates/goodfetch-collie/src/main.rs"], "full")]
 #[case::markdown_a_crate_owns(&["crates/foxhound/README.md"], "full")]
 #[case::a_skill(&["skills/collie/SKILL.md"], "full")]
@@ -305,6 +315,7 @@ fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
 #[case::a_workspace_input(&["Cargo.lock"], "full")]
 #[case::docs_with_a_crate(&["docs/adr/0135-local-gate.md", "crates/goodfetch-collie/src/main.rs"], "full")]
 #[case::a_visual_input(&["ci/visual/image.toml"], "full")]
+#[case::the_kennel(&["kennel/README.md"], "full")]
 fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
     #[case] paths: &[&str],
     #[case] gate: &str,
@@ -337,13 +348,13 @@ fn write(root: &std::path::Path, path: &str, text: &str) {
 #[case::glossary_and_adrs_beside_a_folder_named_by_a_fixture(
     r#"workspace.write("docs/adr/0135-local-gate.md", "");"#,
     &["GLOSSARY.md", "docs/adr/0086-politeness.md", "docs/adr/0138-analysis.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::an_adr_beside_its_folder_as_a_word(
     r#"match segment { "docs" => 1, _ => 0 }"#,
     &["docs/adr/0086-politeness.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::research_beside_its_folder_as_a_word(
@@ -355,13 +366,13 @@ fn write(root: &std::path::Path, path: &str, text: &str) {
 #[case::a_comment_naming_the_file(
     "/// `TESTING.md`'s path traversal cases.\n//! See TESTING.md\".\n",
     &["GLOSSARY.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::a_possessive_in_a_string(
     r#"#[expect(unused, reason = "GLOSSARY.md's terms")]"#,
     &["GLOSSARY.md"],
-    "quick",
+    "docs",
     false
 )]
 #[case::an_adr_the_code_reads(
@@ -405,7 +416,7 @@ fn a_document_is_read_only_where_code_names_the_file_itself(
 /// guard run in the quick gate, or its fixture workspaces' files; its tests
 /// reach the repository's own documents from their folder, through `../`.
 #[rstest]
-#[case::a_fixture_file(r##"workspace.write("NOTES.md", b"# Notes\n");"##, "quick")]
+#[case::a_fixture_file(r##"workspace.write("NOTES.md", b"# Notes\n");"##, "docs")]
 #[case::a_test_reading_the_repository_document(
     r#"const NOTES: &str = include_str!("../../../NOTES.md");"#,
     "full"

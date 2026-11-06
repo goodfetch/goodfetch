@@ -53,13 +53,15 @@ class Site(scrapy.Spider):
 
     name = "site"
 
-    def __init__(self, url: str, scenario: str, **kwargs: Any) -> None:  # noqa: ANN401
+    def __init__(self, url: str, scenario: str) -> None:
         """Starts at `url`.
 
         Scrapy's offsite filter keeps the crawl on its host, but for the
         multi-domain site, whose every page links others on other hosts.
+        `main` passes these two arguments alone, so no other reaches
+        Scrapy's own.
         """
-        super().__init__(**kwargs)
+        super().__init__()
         self.url = url
         self.scenario = scenario
         if scenario != "polite":
@@ -78,7 +80,7 @@ class Site(scrapy.Spider):
     def parse(
         self,
         response: Response,
-        **_kwargs: Any,  # noqa: ANN401
+        **_kwargs: object,
     ) -> Iterator[scrapy.Request | dict[str, str]]:
         """Counts the page, yields its Item in `extraction`, and follows each link."""
         self.pages += 1

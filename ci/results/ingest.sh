@@ -20,6 +20,6 @@ if [[ ! -d "$folder" ]]; then
     echo "Run $run has no JUnit artifact to download."
 fi
 
-cargo run --quiet --locked -p xtask -- results ingest \
+cargo run --quiet --locked --bin xtask -- results ingest \
   --repository "$GITHUB_REPOSITORY" --run-id "$run" --attempt "$attempt" \
   --artifacts "$folder" --store "$store"

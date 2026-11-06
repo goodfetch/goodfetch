@@ -29,25 +29,36 @@ impl Finding {
 /// Writes each finding as a `note[<kind>] <subject>: <message>` line, which
 /// fails nothing.
 pub(crate) fn note(findings: &[Finding]) {
-    for finding in findings {
-        output::line(&format!(
-            "note[{}] {}: {}",
-            finding.kind, finding.subject, finding.message
-        ));
-    }
+    note_to(findings, output::line);
+}
+
+/// [`note`] through `write`: [`output::error`] for a command whose stdout is
+/// its result.
+pub(crate) fn note_to(findings: &[Finding], write: fn(&str)) {
+    write_each("note", findings, write);
 }
 
 /// Writes every finding and returns 1 when there is any, 0 otherwise.
 pub(crate) fn report(findings: &[Finding]) -> ExitCode {
-    for finding in findings {
-        output::line(&format!(
-            "error[{}] {}: {}",
-            finding.kind, finding.subject, finding.message
-        ));
-    }
+    report_to(findings, output::line)
+}
+
+/// [`report`] through `write`: [`output::error`] for a command whose stdout
+/// is its result.
+pub(crate) fn report_to(findings: &[Finding], write: fn(&str)) -> ExitCode {
+    write_each("error", findings, write);
     if findings.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
+    }
+}
+
+fn write_each(level: &str, findings: &[Finding], write: fn(&str)) {
+    for finding in findings {
+        write(&format!(
+            "{level}[{}] {}: {}",
+            finding.kind, finding.subject, finding.message
+        ));
     }
 }

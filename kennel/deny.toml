@@ -1,0 +1,74 @@
+# cargo-deny's configuration for the Kennel's workspace (ADR 0141), whose
+# lockfile is its own. `just lint` checks its bans and sources with this
+# file, and its licenses against the root `deny.toml`'s allowlist, which
+# `xtask codegen` writes from ADR 0018's; `just audit` checks its advisories
+# with this file, through ci/audit.sh. The rules are the root's; the
+# exceptions, none so far, are its own.
+
+[graph]
+all-features = true
+
+[advisories]
+db-path = "${GOODFETCH_ADVISORY_DBS:-target/advisories/rustsec}"
+maximum-db-staleness = "P36500D"
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+# `.cargo/audit.toml` lists the same IDs for cargo-audit. Both come from the
+# GTK 3 bindings (gtk-rs 0.18), which only Linux builds link: `tray-icon`'s
+# default AppIndicator backend and its `muda` menus are GTK 3, and the Tray
+# runs GTK's main loop (#2077). gtk-rs moved to GTK 4 and publishes no GTK 3
+# release past 0.18, and GTK 4 has no tray icon, so no maintained binding
+# replaces them. They leave with the GTK backend: `tray-icon`'s `ksni`
+# backend (StatusNotifierItem over D-Bus, no GTK) removes both, once the
+# Kennel's live menu and its Linux confirmations are checked on it.
+ignore = [
+  # proc-macro-error, unmaintained (no patched version): a proc-macro that
+  # runs only at build time, in glib-macros 0.18, on Linux only. Agent
+  # decision of #2077, pending owner review.
+  { id = "RUSTSEC-2024-0370", reason = "build-time proc-macro only, through glib-macros 0.18 of the Linux-only GTK 3 bindings; removed with tray-icon's GTK backend" },
+  # glib 0.18, unsound `VariantStrIter` (patched in glib 0.20, which no GTK 3
+  # binding takes): the Kennel calls no `Variant` API, and neither
+  # `tray-icon`, `muda` nor `libappindicator` iterates a `Variant`'s
+  # strings. Linux only. Agent decision of #2077, pending owner review.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18's VariantStrIter, which nothing in the Kennel's Linux build calls; no GTK 3 binding takes glib 0.20; removed with tray-icon's GTK backend" },
+]
+
+# Only crates.io, as in the root's.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+# No mocking of owned code (ADR 0062), as in the root's.
+[[bans.deny]]
+crate = "mockall"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "mockito"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "wiremock"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "faux"
+reason = "mocks owned code (ADR 0062)"
+
+[[bans.deny]]
+crate = "mry"
+reason = "mocks owned code (ADR 0062)"
+
+# The Kennel links `goodfetch-protocol` and no engine crate (ADR 0141), and
+# its Client's tests run the Scripted engine as a process, never as a
+# linked crate (ADR 0069).
+[[bans.deny]]
+crate = "goodfetch-engine"
+reason = "the Kennel links no engine crate (ADR 0141)"
+
+[[bans.deny]]
+crate = "goodfetch-test-support"
+reason = "the Kennel's tests run goodfetch-scripted-engine as a process, never as a linked crate (ADRs 0069 and 0141)"

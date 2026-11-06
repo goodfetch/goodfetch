@@ -56,32 +56,61 @@ fn file_at(root: &Path, commit: &str, path: &str) -> Result<Option<String>> {
     git(root, &["show", &object]).map(Some)
 }
 
-/// What the change's trailers name, and a finding for each that names nothing.
-fn trailers(root: &Path, range: &str) -> Result<(BTreeSet<String>, Vec<Finding>)> {
-    let log = git(
-        root,
-        &[
-            "log",
-            "--format=%(trailers:key=Quality-change,valueonly,unfold)",
-            range,
-            "--",
-        ],
-    )?;
-    let mut named = BTreeSet::new();
-    let mut invalid = Vec::new();
-    for trailer in log.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        match trailer.split_once(": ") {
-            Some((name, reason)) if !name.is_empty() && !reason.trim().is_empty() => {
-                named.insert(name.trim().to_owned());
+/// What the `Quality-change` trailers of a change name, and a finding for
+/// each trailer that names nothing. `xtask stress select` judges the tests
+/// its listings show deleted by them too.
+pub(crate) struct Trailers {
+    named: BTreeSet<String>,
+    invalid: Vec<Finding>,
+}
+
+impl Trailers {
+    /// The trailers of every commit in `range` (`<base>..<head>`).
+    pub(crate) fn read(root: &Path, range: &str) -> Result<Self> {
+        let log = git(
+            root,
+            &[
+                "log",
+                "--format=%(trailers:key=Quality-change,valueonly,unfold)",
+                range,
+                "--",
+            ],
+        )?;
+        let mut named = BTreeSet::new();
+        let mut invalid = Vec::new();
+        for trailer in log.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            match trailer.split_once(": ") {
+                Some((name, reason)) if !name.is_empty() && !reason.trim().is_empty() => {
+                    named.insert(name.trim().to_owned());
+                }
+                _ => invalid.push(Finding::new(
+                    "invalid-trailer",
+                    trailer,
+                    "the trailer is `Quality-change: <file or row>: <reason>`",
+                )),
             }
-            _ => invalid.push(Finding::new(
-                "invalid-trailer",
-                trailer,
-                "the trailer is `Quality-change: <file or row>: <reason>`",
-            )),
         }
+        Ok(Self { named, invalid })
     }
-    Ok((named, invalid))
+
+    /// Splits `flagged` into a `quality-change` note for each finding whose
+    /// subject a trailer names, and the findings none names.
+    pub(crate) fn judge(&self, flagged: Vec<Finding>) -> (Vec<Finding>, Vec<Finding>) {
+        let (accepted, refused): (Vec<Finding>, Vec<Finding>) = flagged
+            .into_iter()
+            .partition(|finding| self.named.contains(&finding.subject));
+        let accepted = accepted
+            .into_iter()
+            .map(|finding| {
+                Finding::new(
+                    "quality-change",
+                    finding.subject,
+                    format!("a trailer accepts: {}", finding.kind),
+                )
+            })
+            .collect();
+        (accepted, refused)
+    }
 }
 
 pub(crate) fn run(root: &Path, base: &str, head: &str) -> Result<ExitCode> {
@@ -137,22 +166,10 @@ pub(crate) fn run(root: &Path, base: &str, head: &str) -> Result<ExitCode> {
         lowered.extend(register::findings(base_register, &head_register));
     }
 
-    let (named, mut findings) = trailers(root, &format!("{merge_base}..{head}"))?;
-    let (accepted, refused): (Vec<Finding>, Vec<Finding>) = lowered
-        .into_iter()
-        .partition(|finding| named.contains(&finding.subject));
+    let trailers = Trailers::read(root, &format!("{merge_base}..{head}"))?;
+    let (accepted, refused) = trailers.judge(lowered);
+    let mut findings = trailers.invalid;
     findings.extend(refused);
-    check::note(
-        &accepted
-            .into_iter()
-            .map(|finding| {
-                Finding::new(
-                    "quality-change",
-                    finding.subject,
-                    format!("a trailer accepts: {}", finding.kind),
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
+    check::note(&accepted);
     Ok(check::report(&findings))
 }

@@ -111,7 +111,7 @@ jobs:
         run: ci/vm/start.sh read-only
       - name: Select the jobs and tests the change needs
         run: >-
-          ci/vm/exec.sh bash -c "mkdir -p target && cargo run --quiet -p xtask --
+          ci/vm/exec.sh bash -c "mkdir -p target && cargo run --quiet --bin xtask --
           affected --base HEAD^1 --head HEAD > target/affected.txt"
       - name: Write the selection to the job's outputs
         id: select
@@ -240,14 +240,14 @@ jobs:
         env:
           BENCH_TARGETS: ${{ needs.affected.outputs.bench-targets }}
         run: >-
-          ci/vm/exec.sh cargo run --quiet -p xtask -- perf build --base HEAD^1
+          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf build --base HEAD^1
           --bench-targets "$BENCH_TARGETS"
       - name: Read the pull request's Performance change section
         env:
           GITHUB_TOKEN: ${{ github.token }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: >-
-          ci/vm/exec.sh cargo run --quiet -p xtask -- perf pull-request --number "$NUMBER"
+          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf pull-request --number "$NUMBER"
           --repository "$GITHUB_REPOSITORY" --save target/perf-pull-request.json
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
@@ -255,7 +255,7 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: Measure the base, then the head, against the Performance budget
         run: >-
-          ci/vm/exec.sh cargo run --quiet -p xtask -- perf run
+          ci/vm/exec.sh cargo run --quiet --bin xtask -- perf run
           --pull-request target/perf-pull-request.json --summary target/perf-summary.md
       - name: Check that the deny refused nothing else
         if: always()
@@ -593,7 +593,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          ci/vm/exec.sh cargo run --quiet -p xtask -- all-green --needs needs.json
+          ci/vm/exec.sh cargo run --quiet --bin xtask -- all-green --needs needs.json
           --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
       - name: Destroy the VM
         if: always()

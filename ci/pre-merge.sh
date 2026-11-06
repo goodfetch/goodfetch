@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# `just pre-merge [all|quick]`: the Pre-merge suite on this host (TESTING.md,
-# The three suites), which `just merge` runs before every merge (ADR 0135);
-# `all` runs it over the whole workspace, else over what changed. `quick` is
-# the gate of a change that no test, benchmark, model, container or
-# Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
-# change needs, over the whole workspace.
+# `just pre-merge [all|quick|docs]`: the Pre-merge suite on this host
+# (TESTING.md, The three suites), which `just merge` runs before every merge
+# (ADR 0135); `all` runs it over the whole workspace, else over what changed.
+# `quick` is the gate of a change that no test, benchmark, model, container
+# or Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
+# change needs, over the whole workspace. `docs` is the gate of such a change
+# made of documents alone (`gate=docs`): the checks that read its commits and
+# the bar, then `just lint-documents`, the checks of `just lint` that read
+# documents; no code lint and no suite.
 #
 # The checks that need Linux run beside the host steps, each in its own
 # container, with its lines marked `[<step>]`: `just perf`, the counted
@@ -15,8 +18,10 @@
 # fails, and stops them when a host step fails first, keeping the result of
 # each that had already ended for the gate's record. The host's checks that
 # take seconds and judge the whole change (sign-offs, commit messages, the
-# floor guard, the SDK crates' features, advisories, secrets in commits, the fuzz targets, the
-# proofs) run before the suites; the stress
+# floor guard, secrets in commits, advisories, notices) run first, before the
+# Console build and the steps beside, so a red one ends the gate before perf
+# starts; the other checks of the whole change (lint, the SDK crates'
+# features, the fuzz targets, the proofs) run before the suites; the stress
 # run of the new and changed tests (`just stress`) runs after the Pre-merge
 # suite, whose build its listings reuse.
 #
@@ -46,9 +51,9 @@ timed() {
 
 all=${1:-}
 case "$all" in
-  all | quick | "") ;;
+  all | quick | docs | "") ;;
   *)
-    echo "error: the argument is \`all\` or \`quick\`, not $all" >&2
+    echo "error: the argument is \`all\`, \`quick\` or \`docs\`, not $all" >&2
     exit 2
     ;;
 esac
@@ -71,20 +76,51 @@ os_services() {
   export GOODFETCH_TEST_DNS_NAMESPACE=${GOODFETCH_TEST_DNS_NAMESPACE:-sudo}
 }
 
+# The gate's forms use every thread, whatever the shell that started them
+# capped: a caller's NEXTEST_TEST_THREADS or CARGO_BUILD_JOBS, such as the
+# server's shared settings export for implementers, would cap nextest and
+# Cargo for the whole gate (the test-gate audit's F1). A run over what
+# changed keeps the caller's.
+if [[ $all == all || $all == quick || $all == docs ]]; then
+  removed=()
+  for variable in NEXTEST_TEST_THREADS CARGO_BUILD_JOBS; do
+    if [[ -n ${!variable+set} ]]; then
+      removed+=("$variable=${!variable}")
+      unset "$variable"
+    fi
+  done
+  if [[ ${#removed[@]} -gt 0 ]]; then
+    echo "The gate removed ${removed[*]} from its environment, so every step uses every thread"
+  fi
+fi
+
+# The checks that judge the whole change in seconds, which every form runs
+# first: a red one ends the gate before any build (the test-gate audit's F3).
+# The docs form runs those that read the change's commits and the bar; the
+# advisories and the notices read the lockfiles, which a document never
+# changes.
+of_the_commits=(dco commit-messages floor-guard commit-leaks)
+whole_change=("${of_the_commits[@]}" audit notices)
+
 rm -f target/skipped.txt
+if [[ $all == docs ]]; then
+  trap 'just _skips-report' EXIT
+  echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
+  for step in "${of_the_commits[@]}" lint-documents; do
+    timed "$step" just "$step"
+  done
+  exit 0
+fi
 if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
   os_services
   echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
-  timed dco just dco
-  timed commit-messages just commit-messages
-  timed floor-guard just floor-guard
+  for step in "${whole_change[@]}"; do
+    timed "$step" just "$step"
+  done
   timed lint just lint
-  timed audit just audit
-  timed commit-leaks just commit-leaks
   timed quick just _suite quick all
   timed journeys-tasks just journeys-tasks --check
-  timed notices just notices
   exit 0
 fi
 names=()
@@ -257,19 +293,19 @@ gated() {
 whole() {
   if [[ $(action "$1") == reuse ]]; then reused "$1"; else gated "$@"; fi
 }
+# The whole change's checks before the Console build and before any step
+# beside starts.
+for step in "${whole_change[@]}"; do
+  gated "$step" just "$step"
+done
 # Collie's executable embeds its Console build (ADR 0057), which the steps
 # beside, in their containers, find in the workspace they mount.
 timed console-build just console-build
 for step in perf linux visual; do
   if [[ $(action "$step") == reuse ]]; then reused "$step"; else beside "$step"; fi
 done
-gated dco just dco
-gated commit-messages just commit-messages
-gated floor-guard just floor-guard
 gated lint just lint
 gated feature-combinations just feature-combinations
-gated audit just audit
-gated commit-leaks just commit-leaks
 gated fuzz-check just fuzz-check
 gated proofs just proofs
 # A part reruns every Vitest, Playwright and pytest test, as a full run
@@ -324,9 +360,9 @@ gated journeys-tasks just journeys-tasks --check
 # One invocation, so the listings `journeys-tests` writes serve both.
 gated features-tests just features-tests clients-tests
 whole tlc just _tlc "$all"
+whole kennel just _kennel "$all"
 whole msrv just msrv
 whole miri just miri
-gated notices just notices
 
 status=0
 for i in "${!names[@]}"; do

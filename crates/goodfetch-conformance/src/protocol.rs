@@ -392,6 +392,7 @@ pub(crate) fn hello_as(
             .expect("invariant: the workspace's version is a Product version"),
         log_level: None,
         client_surface: None,
+        keep_daemon_alive: false,
     };
     let params = serde_json::to_value(params).expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| ProtocolSuiteError::HelloUnanswered {

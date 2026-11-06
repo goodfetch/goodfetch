@@ -579,10 +579,15 @@ impl Plan<'_> {
         )
     }
 
-    fn durability(&self) -> &'static str {
+    /// Foxhound's `run_state.durability` and, at `periodic`, its
+    /// `run_state.commit_interval` in milliseconds.
+    fn durability(&self) -> (&'static str, Option<u64>) {
         match self.config {
-            Config::Foxhound { durability } => durability,
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => "",
+            Config::Foxhound {
+                durability,
+                commit_interval,
+            } => (durability, commit_interval),
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => ("", None),
         }
     }
 
@@ -928,7 +933,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        _ => bail!(
+        super::matrix::Status::NotSupported(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),

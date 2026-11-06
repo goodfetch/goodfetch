@@ -13,17 +13,20 @@ use rstest::rstest;
 use crate::workspace::Workspace;
 
 /// Every step of `just pre-merge all`: the host's in the order it runs them,
-/// Collie's Console build first, which the steps beside find in the
-/// workspace they mount, then those beside them.
-const STEPS: [&str; 23] = [
-    "console-build",
+/// the checks that judge the whole change in seconds first, so a red one
+/// ends the gate before anything beside starts, then Collie's Console build,
+/// which the steps beside find in the workspace they mount, then those
+/// beside them.
+const STEPS: [&str; 24] = [
     "dco",
     "commit-messages",
     "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "console-build",
     "lint",
     "feature-combinations",
-    "audit",
-    "commit-leaks",
     "fuzz-check",
     "proofs",
     "_suite quick all",
@@ -33,12 +36,23 @@ const STEPS: [&str; 23] = [
     "journeys-tasks --check",
     "features-tests clients-tests",
     "_tlc all",
+    "_kennel all",
     "msrv",
     "miri",
-    "notices",
     "perf",
     "linux",
     "visual",
+];
+
+/// The checks that judge the whole change in seconds, which run before any
+/// step beside the host's.
+const WHOLE_CHANGE: [&str; 6] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
 ];
 
 /// The steps that need Linux, run beside the host's.
@@ -71,6 +85,7 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
 echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
+echo "$*|${{NEXTEST_TEST_THREADS-unset}}|${{CARGO_BUILD_JOBS-unset}}" >>"{caps}"
 if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
   cat "{plan}"
 fi
@@ -106,6 +121,7 @@ fi
 "#,
         calls = folder.join("calls").display(),
         variables = folder.join("variables").display(),
+        caps = folder.join("caps").display(),
         plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
         statuses = folder.join("statuses").display(),
@@ -255,12 +271,12 @@ const QUICK_STEPS: [&str; 9] = [
     "dco",
     "commit-messages",
     "floor-guard",
-    "lint",
-    "audit",
     "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
     "_suite quick all",
     "journeys-tasks --check",
-    "notices",
 ];
 
 #[test]
@@ -278,6 +294,128 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
         .collect();
     expected.push("_skips-report".to_owned());
     assert_eq!(run.calls, expected);
+}
+
+/// The docs form's steps, in order, for a change of documents alone
+/// (`xtask affected`'s `gate=docs`): the checks that read the change's
+/// commits and the bar, then the checks of `just lint` that read documents;
+/// no code lint, suite, OS service or step beside the host's.
+const DOCS_STEPS: [&str; 5] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "lint-documents",
+];
+
+#[test]
+fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+
+    let run = pre_merge(&workspace, &stand_in, &["docs"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut expected: Vec<String> = DOCS_STEPS.iter().map(|step| (*step).to_owned()).collect();
+    expected.push("_skips-report".to_owned());
+    assert_eq!(run.calls, expected);
+}
+
+#[test]
+fn a_red_check_ends_the_docs_form_before_the_document_checks() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), "floor-guard").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["docs"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        ["dco", "commit-messages", "floor-guard", "_skips-report"]
+    );
+}
+
+/// A red check of the whole change ends the gate before the Console build
+/// and before any step beside the host's starts, so a gate that fails in
+/// seconds never starts perf (the test-gate audit's F3).
+#[rstest]
+#[case::dco("dco", &["dco"])]
+#[case::commit_messages("commit-messages", &["dco", "commit-messages"])]
+#[case::floor_guard("floor-guard", &["dco", "commit-messages", "floor-guard"])]
+#[case::commit_leaks(
+    "commit-leaks",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks"]
+)]
+#[case::audit(
+    "audit",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks", "audit"]
+)]
+#[case::notices("notices", &WHOLE_CHANGE)]
+fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
+    #[case] check: &str,
+    #[case] through: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), check).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    for later in BESIDE.iter().chain(&["console-build", "lint"]) {
+        assert!(
+            !run.calls.iter().any(|call| call == later),
+            "{later} started after {check} failed: {:?}",
+            run.calls
+        );
+    }
+    let ran: Vec<&str> = run
+        .calls
+        .iter()
+        .map(String::as_str)
+        .filter(|call| !HOST_SETUP.contains(call) && *call != "_skips-report")
+        .collect();
+    assert_eq!(ran, through);
+}
+
+/// The gate's forms run every step with every thread, whatever thread or job
+/// cap the shell that started them exported, and say which they removed
+/// (the test-gate audit's F1); a run over what changed keeps the caller's.
+#[rstest]
+#[case::all("all", "|unset|unset", true)]
+#[case::quick("quick", "|unset|unset", true)]
+#[case::docs("docs", "|unset|unset", true)]
+#[case::what_changed("", "|4|4", false)]
+fn the_gate_forms_run_without_the_callers_thread_and_job_caps(
+    #[case] form: &str,
+    #[case] seen: &str,
+    #[case] removed: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let args: &[&str] = if form.is_empty() { &[] } else { &[form] };
+
+    let run = pre_merge_with_env(
+        &workspace,
+        &stand_in,
+        args,
+        &[("NEXTEST_TEST_THREADS", "4"), ("CARGO_BUILD_JOBS", "4")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let caps = std::fs::read_to_string(stand_in.join("caps")).unwrap();
+    for call in caps.lines() {
+        assert!(call.ends_with(seen), "{call}");
+    }
+    assert_ne!(caps.lines().count(), 0, "no step ran");
+    assert_eq!(
+        run.stdout
+            .contains("The gate removed NEXTEST_TEST_THREADS=4 CARGO_BUILD_JOBS=4"),
+        removed,
+        "{}",
+        run.stdout
+    );
 }
 
 /// When one step of a gate run started and ended, and its exit status, as
@@ -339,8 +477,8 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
     &[
         "console-build", "perf", "linux", "visual", "dco", "commit-messages", "floor-guard",
         "lint", "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
-        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "msrv", "miri",
-        "notices",
+        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "kennel", "msrv",
+        "miri", "notices",
     ],
 )]
 #[case::quick(
@@ -349,6 +487,10 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
         "dco", "commit-messages", "floor-guard", "lint", "audit", "commit-leaks", "quick",
         "journeys-tasks", "notices",
     ],
+)]
+#[case::docs(
+    "docs",
+    &["dco", "commit-messages", "floor-guard", "commit-leaks", "lint-documents"],
 )]
 fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &[&str]) {
     let workspace = Workspace::from_fixture("empty");
@@ -361,7 +503,8 @@ fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     let (times, unended) = step_times(&run.stdout);
     assert!(unended.is_empty(), "never ended: {unended:?}");
-    let mut expected: Vec<&str> = if cfg!(target_os = "linux") {
+    // The docs form runs no test, so it sets up no OS service.
+    let mut expected: Vec<&str> = if cfg!(target_os = "linux") && form != "docs" {
         vec!["os-services"]
     } else {
         vec![]
@@ -441,7 +584,7 @@ fn a_failed_check_beside_the_host_steps_fails_the_suite(#[case] step: &str) {
         run.stderr
     );
     assert!(
-        run.calls.iter().any(|call| call == "notices"),
+        run.calls.iter().any(|call| call == "miri"),
         "{:?}",
         run.calls
     );
@@ -457,7 +600,7 @@ fn a_failed_stress_run_stops_the_suite_before_the_later_steps() {
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(
-        !run.calls.iter().any(|call| call == "notices"),
+        !run.calls.iter().any(|call| call == "miri"),
         "{:?}",
         run.calls
     );
@@ -595,6 +738,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         "stress",
         "journeys-tasks",
         "features-tests",
+        "kennel",
         "msrv",
         "miri",
         "notices",
@@ -757,6 +901,53 @@ fn after_a_red_nextest_run_the_pre_merge_suite_still_runs_the_doctests(
     );
 }
 
+/// Under `GOODFETCH_TEST_KEEP_GOING`, which `just coverage` sets so one red
+/// test still leaves a figure (ADR 0072), a red nextest run no longer stops
+/// the suite: Vitest, Playwright and pytest still run, the failed runners are
+/// named last, and the suite fails with the first failure's status.
+#[rstest]
+#[case::the_doctests_pass(None, Some(100), &["nextest"])]
+#[case::the_doctests_fail(Some("101"), Some(101), &["doctests", "nextest"])]
+fn under_keep_going_a_red_nextest_run_still_runs_every_other_runner(
+    #[case] doctests: Option<&str>,
+    #[case] code: Option<i32>,
+    #[case] failed: &[&str],
+) {
+    let fixture = crate::head_order::fixture();
+    fixture.fail("insta", "100");
+    if let Some(status) = doctests {
+        fixture.fail("test", status);
+    }
+    fixture.workspace.commit_all();
+
+    let run = fixture.test_with_env(&["pre-merge"], &[("GOODFETCH_TEST_KEEP_GOING", "1")]);
+
+    assert_eq!(run.code, code, "{}", run.output);
+    for runner in [
+        "pnpm exec vitest run",
+        "pnpm exec playwright test",
+        "uv run pytest",
+    ] {
+        assert!(
+            run.calls.iter().any(|call| call.starts_with(runner)),
+            "{runner}: {:?}",
+            run.calls
+        );
+    }
+    let named = run
+        .output
+        .lines()
+        .find_map(|line| line.strip_prefix("Failed runners: "))
+        .unwrap_or_default()
+        .split(", ")
+        .collect::<Vec<_>>();
+    // pytest may fail too: the fixture's `ordered` member fails in about
+    // half the orders a seed gives.
+    for runner in failed {
+        assert!(named.contains(runner), "{runner}: {}", run.output);
+    }
+}
+
 /// A step beside the host's that ended before a host step failed keeps its
 /// result, so the next run reuses it where the change since does not reach
 /// it (the test-gate audit's option 3).
@@ -785,7 +976,7 @@ fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
     assert!(
-        !run.calls.iter().any(|call| call == "notices"),
+        !run.calls.iter().any(|call| call == "miri"),
         "the run went on past lint: {:?}",
         run.calls
     );
@@ -832,6 +1023,7 @@ fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
 #[rstest]
 #[case::what_changed("")]
 #[case::quick("quick")]
+#[case::docs("docs")]
 fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);

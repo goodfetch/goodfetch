@@ -1014,6 +1014,7 @@ fn unavailable(url: &str, request_id: &str, surface: Surface) -> CallError {
         | Surface::Cli
         | Surface::Mcp
         | Surface::Console
+        | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost
         | Surface::Worker => "page.wait_for_request_finished",

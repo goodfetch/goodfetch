@@ -49,6 +49,8 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 | OCI | its image's tags and its Helm chart (below) |
 | Nightly (ADR 0030) | the same on npm `nightly`, the nightly GitHub pre-release, the nightly Python index (one project page per Product) and each image's `nightly` tag |
 
+> Amended by [ADR 0141](0141-the-kennel-is-a-tray-tool-of-its-own-workspace-that-reaches-the-daemon-as-an-observing-person-surface-and-is-published-apart-from-the-products.md): a release also publishes the Kennel's files beside the Products' own, its signed and notarized `.app` and its install script, under the Kennel's own version, not the Products'.
+
 - **What both Products' packages share is published once:** the internal `goodfetch-*` crates, and the Collie client packages through which both Products' SDKs share Collie's code, which [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/goodfetch/issues/458) (ADR 0095) decides.
 - **Debug symbols and the SBOM are per executable.** Each Product's archive has its own debug symbols, named after its executable, signed and attested as ADR 0057 says, as Codex publishes symbols per product and target. Each has its own SBOM, since the two dependency graphs differ.
 - **Both Products' files stay far under GitHub's limit of 1,000 per release;** Codex's largest release had 318.

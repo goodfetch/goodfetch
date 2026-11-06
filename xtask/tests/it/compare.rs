@@ -19,12 +19,13 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 16] = [
+const CELLS: [(&str, &str, &str); 17] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("durable", "foxhound full", "foxhound"),
+    ("durable", "foxhound periodic", "foxhound"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),
@@ -384,8 +385,7 @@ fn a_crawl_shorter_than_the_core_window_gives_no_peak_cores() {
 }
 
 /// The report writes each scenario's mapping: the settings each tool ran
-/// with, the Foxhound values still pending, and the cells a tool cannot
-/// run.
+/// with, and the cells a tool cannot run.
 #[test]
 fn the_report_writes_each_scenarios_mapping() {
     let workspace = Workspace::from_fixture("empty");
@@ -397,20 +397,16 @@ fn the_report_writes_each_scenarios_mapping() {
         (
             &cell(&report, 1, "spider")["status"],
             &cell(&report, 1, "foxhound periodic")["status"],
-            cell(&report, 0, "foxhound")["pending"]
-                .as_array()
-                .unwrap()
-                .len(),
         ),
-        (&json!("not_supported"), &json!("pending"), 1)
+        (&json!("not_supported"), &json!("measured"))
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "## 1. Raw fetch and follow",
         "## 2. Durable and resumable",
-        "`run_state.durability: fast`",
+        "`run_state.durability: off`",
         "`dataset.records: false`",
-        "pending: `run_state.durability: off` (#1927)",
+        "`run_state.durability: periodic` and `run_state.commit_interval: 60s`",
         "- **spider**: none",
         "not supported: Spider keeps no crawl state",
         "| Throughput: pages per second | 500.0 (250.0–1000.0) |",
@@ -558,7 +554,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 48 timed trials started above a 1-minute load of 4.",
+        "1 of the 51 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -919,6 +915,28 @@ fn a_callgrind_run_of_other_pages_fails_the_same_work_check_and_reports_no_figur
         (outcome.findings(), outcome.code),
         (
             vec![finding("different_pages", "raw spider callgrind trial 2")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+#[test]
+fn a_callgrind_run_served_other_bytes_fails_the_same_work_check() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut cell = callgrind();
+    cell["runs"][1]["work"]["bytes"] = json!(600_001);
+    let mut trials = trials();
+    trials["instructions"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("different_bytes", "raw foxhound callgrind trial 2")],
             1
         ),
         "{}",

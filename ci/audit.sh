@@ -41,7 +41,7 @@ rustsec_folder=advisory-db-3157b0e258782691
 fetch() {
   (cd "$repository" &&
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      cargo run --quiet -p xtask -- advisories fetch)
+      cargo run --quiet --bin xtask -- advisories fetch)
 }
 
 # OSV-Scanner over one lockfile, offline, with OSV's pinned database of

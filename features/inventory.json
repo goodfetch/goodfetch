@@ -7534,6 +7534,17 @@
       ]
     },
     {
+      "id": "setting:run_state.commit_interval",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:run_state.durability",
       "kind": "setting",
       "area": 3,

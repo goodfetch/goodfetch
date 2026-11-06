@@ -381,15 +381,22 @@ fn the_register_of_this_repository_passes() {
     );
 }
 
-/// `just lint`, which the merge gate runs, runs the check.
+/// `just lint-documents`, which `just lint` runs first and the docs gate
+/// runs alone, runs the check, so every form of the merge gate does.
 #[test]
 fn just_lint_runs_the_check() {
     let justfile = include_str!("../../../justfile");
-    let lint = justfile
-        .split("\nlint:")
-        .nth(1)
-        .and_then(|recipe| recipe.split("\n\n").next())
-        .unwrap();
+    let recipe = |name: &str| {
+        justfile
+            .split(&format!("\n{name}:"))
+            .nth(1)
+            .and_then(|recipe| recipe.split("\n\n").next())
+            .unwrap()
+            .to_owned()
+    };
+    let lint = recipe("lint");
+    let documents = recipe("lint-documents");
 
-    assert!(lint.contains("xtask -- register check"), "{lint}");
+    assert!(lint.starts_with(" lint-documents\n"), "{lint}");
+    assert!(documents.contains("xtask -- register check"), "{documents}");
 }

@@ -307,6 +307,7 @@ CREATE TABLE trap_link_suspected (
             revealable INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "trap_link_suspected" VALUES('2',0);
+CREATE TABLE unclean (id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1)) STRICT;
 CREATE TABLE url_fragments (
             scope TEXT NOT NULL PRIMARY KEY,
             keeps INTEGER NOT NULL

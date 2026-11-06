@@ -70,7 +70,7 @@ jobs:
           RUN: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results failed --repository "$GITHUB_REPOSITORY"
+          cargo run --quiet --locked --bin xtask -- results failed --repository "$GITHUB_REPOSITORY"
           --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os linux --arch x64
           | tee -a "$GITHUB_OUTPUT"
       - name: Choose the failed tests of the owner's machine
@@ -80,7 +80,7 @@ jobs:
           RUN: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results failed --repository "$GITHUB_REPOSITORY"
+          cargo run --quiet --locked --bin xtask -- results failed --repository "$GITHUB_REPOSITORY"
           --run-id "$RUN" --attempt "$ATTEMPT" --artifacts target/artifacts --os macos
           | tee -a "$GITHUB_OUTPUT"
       # Room for every hosted job's 10-minute timeout, or none starts.
@@ -89,7 +89,7 @@ jobs:
         env:
           HOSTED_COUNT: ${{ steps.hosted.outputs.count }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results ceiling --store test-results
+          cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run diagnostic --jobs "$HOSTED_COUNT" --today "$(date -u +%F)"
           --summary "$GITHUB_STEP_SUMMARY"
           | tee -a "$GITHUB_OUTPUT"

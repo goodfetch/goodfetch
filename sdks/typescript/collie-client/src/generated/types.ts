@@ -49,7 +49,16 @@ export type Actor =
        * Its surface.
        */
       surface:
-        "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+        | "sdk_typescript"
+        | "sdk_python"
+        | "rust"
+        | "cli"
+        | "mcp"
+        | "console"
+        | "kennel"
+        | "cloud"
+        | "browser_host"
+        | "worker";
     }
   | {
       kind: "engine";
@@ -107,7 +116,7 @@ export type RunId = string;
  * via the `definition` "Surface".
  */
 export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "kennel" | "cloud" | "browser_host" | "worker";
 /**
  * A browser family, as ADR 0056 names them.
  *
@@ -1208,7 +1217,16 @@ export interface ExportedAuditEntry {
          * Its surface.
          */
         surface:
-          "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+          | "sdk_typescript"
+          | "sdk_python"
+          | "rust"
+          | "cli"
+          | "mcp"
+          | "console"
+          | "kennel"
+          | "cloud"
+          | "browser_host"
+          | "worker";
       }
     | {
         kind: "engine";
@@ -2982,6 +3000,14 @@ export interface HelloParams {
    */
   form?: Form | null;
   /**
+   * On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the
+   * Connection as a Client that keeps it alive, holding off its idle
+   * stop and a handover to its major's pick as every other surface's
+   * Connection does (ADR 0141). Read only from a `kennel` Connection,
+   * and ignored on any other surface's.
+   */
+  keep_daemon_alive?: boolean;
+  /**
    * The level of the engine's log events the Client receives as `$/log`
    * notifications, until `connection.set_log_level` changes it; none,
    * as `off`, receives none (ADR 0078).
@@ -3003,7 +3029,17 @@ export interface HelloParams {
   /**
    * The surface a `hello` comes from (ADR 0024).
    */
-  surface: "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+  surface:
+    | "sdk_typescript"
+    | "sdk_python"
+    | "rust"
+    | "cli"
+    | "mcp"
+    | "console"
+    | "kennel"
+    | "cloud"
+    | "browser_host"
+    | "worker";
   /**
    * The Daemon's token; an Attached engine needs none.
    */

@@ -78,6 +78,7 @@ impl ToOwner {
             product_version: self.version.clone(),
             log_level: None,
             client_surface: None,
+            keep_daemon_alive: false,
         }
     }
 }

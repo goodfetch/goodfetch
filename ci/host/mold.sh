@@ -6,6 +6,11 @@
 set -euo pipefail
 
 target=${TARGET:?the step sets TARGET}
+# Zig links the static musl build (ADR 0024's note of 2026-11-06, ci/musl/).
+if [[ "$target" == *-linux-musl ]]; then
+  echo "$target links with Zig (ci/musl/cargo), not mold."
+  exit 0
+fi
 variable="CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_RUSTFLAGS"
 echo "$variable=-Clink-arg=-fuse-ld=mold" >>"${GITHUB_ENV:?the runner sets GITHUB_ENV}"
 echo "$target links with $(mold --version)."

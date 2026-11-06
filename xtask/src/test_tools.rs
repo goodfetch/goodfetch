@@ -12,14 +12,18 @@
 //! first (`xtask console build`, ADR 0057). `just test` runs it before any
 //! runner starts. With `--shipped-target`, it builds for the Rust target
 //! the Products ship for on this host, the static musl one on Linux (ADR
-//! 0024), so `just targets` and `just rss` measure what users run.
+//! 0024), so `just targets` and `just rss` measure what users run. A
+//! `*-linux-musl` build runs through [`MUSL_CARGO`], the static musl
+//! toolchain's Cargo (ADR 0024's note of 2026-11-06), as the Release suite's
+//! musl cells build.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
 use anyhow::{Context as _, Result, bail};
@@ -39,6 +43,10 @@ const TOOLS: [(&str, &str); 7] = [
     ("goodfetch-conformance", "conformance"),
     ("goodfetch-stub-gateway", "stub_gateway"),
 ];
+
+/// The Cargo of the static musl build, from the workspace's folder: Zig
+/// through cargo-zigbuild at the versions `ci/musl/toolchain.sh` pins.
+pub(crate) const MUSL_CARGO: &str = "ci/musl/cargo";
 
 /// `xtask test-tools`'s arguments.
 #[derive(clap::Args)]
@@ -87,6 +95,19 @@ pub(crate) fn shipped_target() -> Option<String> {
     shipped_target_of(std::env::consts::OS, std::env::consts::ARCH)
 }
 
+/// The Cargo that builds for `target`: the static musl toolchain's for a
+/// `*-linux-musl` one, else `cargo`.
+fn build_cargo(target: Option<&str>, cargo: &OsStr, root: &Path) -> OsString {
+    if target.is_some_and(|target| target.ends_with("-linux-musl")) {
+        let script = root.join(MUSL_CARGO);
+        std::path::absolute(&script)
+            .unwrap_or(script)
+            .into_os_string()
+    } else {
+        cargo.to_owned()
+    }
+}
+
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let target = if arguments.shipped_target {
         shipped_target()
@@ -122,7 +143,8 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     }
     let mut manifest = BTreeMap::new();
     if !binaries.is_empty() {
-        let mut command = crate::child_cargo::command(cargo);
+        let build = build_cargo(target.as_deref(), cargo, root);
+        let mut command = crate::child_cargo::command(&build);
         command
             .args(["build", "--message-format", "json-render-diagnostics"])
             .args(["--profile", &arguments.cargo_profile])

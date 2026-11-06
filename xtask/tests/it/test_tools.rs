@@ -68,3 +68,35 @@ fn copies_alive_at_once_build_into_target_folders_of_their_own() {
 
     assert_ne!(first_manifest["test_env"], second_manifest["test_env"]);
 }
+
+/// A static musl build runs through the musl toolchain's Cargo,
+/// `ci/musl/cargo` (Zig through cargo-zigbuild, ADR 0024's note), as the
+/// Release suite's musl cells build: here a stand-in that records what it
+/// was asked and fails.
+#[cfg(unix)]
+#[rstest::rstest]
+#[case::named_target(&["--target", "aarch64-unknown-linux-musl"])]
+#[cfg_attr(target_os = "linux", case::shipped_target_on_linux(&["--shipped-target"]))]
+fn a_musl_build_runs_through_the_musl_toolchains_cargo(#[case] target: &[&str]) {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let workspace = Workspace::from_fixture("test-tools");
+    workspace.write(
+        "ci/musl/cargo",
+        b"#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/asked\"\nexit 1\n",
+    );
+    let script = workspace.path().join("ci/musl/cargo");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut arguments = vec!["test-tools", "--cargo-profile", "dev"];
+    arguments.extend_from_slice(target);
+    arguments.extend(["--out", "target/test-tools.json"]);
+
+    let outcome = workspace.xtask(&arguments);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stderr);
+    let asked = workspace.read_text("ci/musl/asked");
+    assert!(
+        asked.starts_with("build ") && asked.contains("-unknown-linux-musl "),
+        "{asked}"
+    );
+}

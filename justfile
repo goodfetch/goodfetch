@@ -86,7 +86,7 @@ lint: lint-documents
     ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
     ci/tool.sh actionlint actionlint
     ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push
+    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
     # Spider's side of `just compare`, no workspace member, which no
@@ -952,6 +952,7 @@ release-ci cells="all" commit="":
 # the results store keeps go to target/junit/.
 # Runs the resident-memory check: `just rss [scenario…]`.
 rss *scenarios:
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/peaks.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
@@ -965,6 +966,7 @@ rss *scenarios:
 # pass (ADR 0134).
 # Proposes this platform's resident-memory ceilings from 20 runs.
 rss-propose *scenarios:
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/propose.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
@@ -1052,6 +1054,15 @@ kennel-release folder="kennel/target/release-files":
     kennel/scripts/release.sh sign "$folder"
     kennel/scripts/release.sh package "$folder" "file://$folder"
 
+# The static musl build's toolchain (ADR 0024's note of 2026-11-06): Zig and
+# cargo-zigbuild at ci/musl/toolchain.sh's versions, Zig checked against its
+# SHA-256, installed once outside the checkout (ci/musl/install.sh). Linux
+# only; `just targets`, `just rss` and the Release suite's musl cells build
+# through it (ci/musl/cargo).
+# Installs the pinned static musl toolchain.
+musl-toolchain:
+    ci/musl/install.sh
+
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build for the Rust target it ships
 # for here (the static musl one on Linux, ADR 0024), its startup to `hello`
@@ -1065,6 +1076,7 @@ kennel-release folder="kennel/target/release-files":
 # `local-controlled`, never published (ADR 0076); it fails on no miss.
 # Writes the Performance targets report on this machine.
 targets:
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo run --quiet --bin xtask -- test-tools --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets

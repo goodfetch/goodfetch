@@ -2,19 +2,22 @@
 //! in two steps so the job can deny outbound traffic between them (ADR
 //! 0043):
 //!
-//! - **build**, before the deny: checks the base out into its own worktree
-//!   under the output folder, fetches what its lockfile needs, builds the
+//! - **build**, before the deny: moves the base's own worktree, which stays
+//!   from one build to the next beside the output folder, to the base, so
+//!   Git rewrites only the files the base changed and Cargo rebuilds only
+//!   what they reach; fetches what its lockfile needs, builds the
 //!   Console of the head and, with its own packages, of the base when each
 //!   has a `.size-limit.json`, which measures it, else lends the base the
 //!   head's Console build when its Collie executable embeds one, and builds the
 //!   head's selected bench targets and every bench target the base has in a
 //!   selected crate, into the one target folder, so the base's dependencies
 //!   come from the same cache;
-//! - **run**, under the deny: runs each base target with
-//!   `--save-baseline=base`, then each head target with `--baseline=base`,
-//!   twenty more runs of each head target holding a benchmark the base lacks
-//!   (its admission), as many processes at once as the host has cores,
-//!   since counts under Callgrind and DHAT do not depend on what else runs,
+//! - **run**, under the deny: runs the base targets with
+//!   `--save-baseline=base`, then the head targets with `--baseline=base`,
+//!   then twenty more runs of each head target holding a benchmark the base
+//!   lacks (its admission), each set as many processes at once as the host
+//!   has cores, since counts under Callgrind and DHAT do not depend on what
+//!   else runs; each side's report keeps the plan's order of targets,
 //!   and size-limit on the base and the head when the head
 //!   has a `.size-limit.json`. It writes every report into the output folder
 //!   and a copy into `target/junit/perf/`, which the job uploads with its
@@ -56,6 +59,8 @@ const JUNIT: &str = "target/junit";
 const SIZE_LIMIT_CONFIG: &str = ".size-limit.json";
 /// The base's target folder, inside the workspace's.
 pub(crate) const BASE_TARGET: &str = "perf-base";
+/// The base's worktree, relative to the repository.
+const BASE_TREE: &str = "target/perf-base-tree";
 /// The reference build's target folder, inside the workspace's, for the
 /// base's reason.
 const REFERENCE_TARGET: &str = "perf-reference";
@@ -113,8 +118,12 @@ fn out(root: &Path) -> PathBuf {
     root.join(OUT)
 }
 
+/// The base's worktree, kept from one build to the next outside the output
+/// folder each build clears: a fresh checkout would give every file a new
+/// time, and Cargo, which judges a build by its files' times, would rebuild
+/// every workspace crate of the base.
 fn base_tree(root: &Path) -> PathBuf {
-    out(root).join("base")
+    root.join(BASE_TREE)
 }
 
 fn reference_tree(root: &Path) -> PathBuf {
@@ -131,14 +140,14 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
                 .with_context(|| format!("resolving the revision {} pins", reference::PIN_FILE))
         })
         .transpose()?;
-    remove_trees(root)?;
+    remove_reference_tree(root)?;
     let out = out(root);
     if out.exists() {
         std::fs::remove_dir_all(&out).with_context(|| format!("removing {}", out.display()))?;
     }
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let tree = base_tree(root);
-    check_out(root, &tree, &commit)?;
+    move_tree(root, &tree, &commit)?;
     // size-limit measures each side's own Console build (ADR 0071).
     if root.join(SIZE_LIMIT_CONFIG).is_file() {
         crate::console::build(root)?;
@@ -223,6 +232,22 @@ fn commit_of(root: &Path, revision: &str) -> Result<String> {
     Ok(commit.trim().to_owned())
 }
 
+/// Moves the kept worktree at `tree` to `commit`, leaving none of an
+/// earlier build's files in it, or checks `commit` out there when no
+/// worktree is (a first build, or a folder deleted without Git).
+fn move_tree(root: &Path, tree: &Path, commit: &str) -> Result<()> {
+    if !tree.join(".git").exists() {
+        return check_out(root, tree, commit);
+    }
+    git(
+        tree,
+        &["checkout", "--force", "--detach", "--quiet"],
+        &[commit],
+    )?;
+    git(tree, &["clean", "-ffdxq"], &[])?;
+    Ok(())
+}
+
 /// Checks `commit` out at `tree`.
 fn check_out(root: &Path, tree: &Path, commit: &str) -> Result<()> {
     // `--force`: a tree whose folder went without Git (a cleared `target/`)
@@ -279,24 +304,20 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
     let head_report = out.join("head.jsonl");
     File::create(&base_report).context("creating base.jsonl")?;
     File::create(&head_report).context("creating head.jsonl")?;
-    for target in &plan.base_targets {
-        measure(
-            cargo_bench(cargo, &tree, &plan.base_target_directory(), target)
-                .env("GUNGRAUN_HOME", &gungraun_home)
-                .args(["--", &format!("--save-baseline={BASELINE}")]),
-            &base_report,
-            &format!("measuring the base's {target}"),
-        )?;
-    }
-    for target in &plan.head_targets {
-        measure(
-            cargo_bench(cargo, root, &plan.target_directory, target)
-                .env("GUNGRAUN_HOME", &gungraun_home)
-                .args(["--", &format!("--baseline={BASELINE}")]),
-            &head_report,
-            &format!("measuring the head's {target}"),
-        )?;
-    }
+    measure_at_once("base", &plan.base_targets, &base_report, |target| {
+        let mut command = cargo_bench(cargo, &tree, &plan.base_target_directory(), target);
+        command
+            .env("GUNGRAUN_HOME", &gungraun_home)
+            .args(["--", &format!("--save-baseline={BASELINE}")]);
+        command
+    })?;
+    measure_at_once("head", &plan.head_targets, &head_report, |target| {
+        let mut command = cargo_bench(cargo, root, &plan.target_directory, target);
+        command
+            .env("GUNGRAUN_HOME", &gungraun_home)
+            .args(["--", &format!("--baseline={BASELINE}")]);
+        command
+    })?;
     let admission = admit(cargo, root, &plan, &head_report)?;
     let reference_report = plan
         .reference
@@ -327,7 +348,7 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         (None, None)
     };
     copy_reports(root)?;
-    remove_trees(root)?;
+    remove_reference_tree(root)?;
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
     Ok(Reports {
         base: relative(&base_report),
@@ -338,6 +359,52 @@ pub(crate) fn run(cargo: &OsStr, root: &Path) -> Result<Reports> {
         reference: reference_report.as_deref().map(relative),
         size_reference: size_reference.as_deref().map(relative),
     })
+}
+
+/// Measures the `side`'s `targets` as many at once as the host has cores, each
+/// into a report of its own, then appends the reports to `report` in the
+/// order of `targets`: concurrent writers to one file could interleave
+/// their summaries. A failed measurement stops the others.
+fn measure_at_once(
+    side: &str,
+    targets: &[String],
+    report: &Path,
+    command: impl Fn(&str) -> Command,
+) -> Result<()> {
+    let folder = report.with_extension("parts");
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder)
+            .with_context(|| format!("removing {}", folder.display()))?;
+    }
+    std::fs::create_dir_all(&folder).with_context(|| format!("creating {}", folder.display()))?;
+    let workers = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
+    let mut parts = Vec::with_capacity(targets.len());
+    let mut runs = Runs::default();
+    for (index, target) in targets.iter().enumerate() {
+        if runs.running.len() >= workers {
+            runs.wait_oldest()?;
+        }
+        let part = folder.join(format!("{index}.jsonl"));
+        File::create(&part).with_context(|| format!("creating {}", part.display()))?;
+        let what = format!("measuring the {side}'s {target}");
+        let child = spawn_measured(&mut command(target), &part, &what)?;
+        runs.running.push_back((child, what));
+        parts.push(part);
+    }
+    while !runs.running.is_empty() {
+        runs.wait_oldest()?;
+    }
+    let mut out = std::fs::OpenOptions::new()
+        .append(true)
+        .open(report)
+        .with_context(|| format!("opening {}", report.display()))?;
+    for part in &parts {
+        let mut input = File::open(part).with_context(|| format!("opening {}", part.display()))?;
+        std::io::copy(&mut input, &mut out)
+            .with_context(|| format!("appending {}", part.display()))?;
+    }
+    std::fs::remove_dir_all(&folder).with_context(|| format!("removing {}", folder.display()))?;
+    Ok(())
 }
 
 /// Measures the reference's targets and returns their report: gungraun's
@@ -521,19 +588,19 @@ fn bench_targets(cargo: &OsStr, root: &Path) -> Result<BTreeSet<String>> {
         .collect())
 }
 
-/// Removes the base's and the reference's worktrees and their records, and
-/// nothing else: never a repository-wide `git worktree prune`, which in the
+/// Removes the reference build's worktree, which each build checks out
+/// afresh, and its record, and nothing else: the base's stays for the next
+/// build, and never a repository-wide `git worktree prune`, which in the
 /// container (where only this worktree is mounted) would drop the record of
 /// every other unlocked worktree, whose folders it cannot see.
-fn remove_trees(root: &Path) -> Result<()> {
-    for tree in [base_tree(root), reference_tree(root)] {
-        if tree.exists() {
-            git(
-                root,
-                &["worktree", "remove", "--force"],
-                &[&tree.to_string_lossy()],
-            )?;
-        }
+fn remove_reference_tree(root: &Path) -> Result<()> {
+    let tree = reference_tree(root);
+    if tree.exists() {
+        git(
+            root,
+            &["worktree", "remove", "--force"],
+            &[&tree.to_string_lossy()],
+        )?;
     }
     Ok(())
 }

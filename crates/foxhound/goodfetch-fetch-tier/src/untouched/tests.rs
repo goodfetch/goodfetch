@@ -1,6 +1,10 @@
 //! The readers of the untouched page through their interface: one parse
 //! of a document gives what each reader read of its own parse before
 //! (spec #1577's #1910), and the Page signature consumes the tree last.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
@@ -114,11 +118,14 @@ fn one_tree_reads_what_each_reader_read_of_its_own_parse(#[case] html: &str) {
     );
     let check = demand.page_check.as_ref().unwrap();
     let (verdict, robots) = read.judged(check).unwrap();
-    assert_eq!(verdict, judge(check, URL, html, &alone));
     let headers = std::collections::BTreeMap::new();
     assert_eq!(
-        goodfetch_page::noindex::marked(&headers, robots),
-        expected_page::noindex(&headers, html)
+        (
+            verdict,
+            verdict == expected_page::Verdict::NotExpected
+                && goodfetch_page::noindex::marked(&headers, robots)
+        ),
+        judge(check, URL, html, &headers, &alone)
     );
     let canonical = crate::canonical::canonical(html, &[], &url, &url, &alone);
     assert_eq!(read.signed(), Some(([7; 32], canonical.as_ref())));

@@ -55,6 +55,14 @@ disallowed-methods = [
   { path = "rusqlite::Connection::pragma_update_and_check", reason = "switch a file to WAL through goodfetch-engine's sqlite_wal::enter: SQLite answers a switch beside another connection busy at once, never waiting its busy timeout (STYLE.md)", allow-invalid = true },
   # An HTML parse goes through one counted function (ADR 0140); `dom_query`'s
   # are under `disallowed-types`.
+  # A page is parsed once, in the Page analysis (ADR 0138): each call of the
+  # counted parse names, in its `#[expect]`, the reader it parses for.
+  { path = "goodfetch_counted_work::CountedWork::parse_html", reason = "a page is parsed once, in the Page analysis: a parse elsewhere is a second one (ADR 0138)", allow-invalid = true },
+  # Each of these builds a tree too: `fragment` through `ParsedHtml`, which
+  # `disallowed-types` does not see, and html5ever's own tree builders.
+  { path = "dom_query::Document::fragment", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  { path = "html5ever::parse_document", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
+  { path = "html5ever::parse_fragment", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "scraper::Html::parse_document", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "scraper::Html::parse_fragment", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "lol_html::rewrite_str", reason = "an HTML parse goes through its one counted function (ADR 0140)", allow-invalid = true },

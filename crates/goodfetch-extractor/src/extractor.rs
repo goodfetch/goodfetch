@@ -42,6 +42,7 @@ impl Found {
     #[must_use]
     #[expect(
         clippy::disallowed_types,
+        clippy::disallowed_methods,
         reason = "ADR 0140: a raw parse of a step's answer, no page's; an Extractor Plugin's answer parses on its own row (F1.plugin_answer_parses)"
     )]
     pub fn of_html(html: String) -> Self {

@@ -1,6 +1,10 @@
 //! The main-content step `content.extractor` chooses (#788): each
 //! built-in by its name, the main content each finds where they differ,
 //! and the rules the composition holds every step to, whichever it is.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::page::{FormatsRequest, MainContent, PageFormats};

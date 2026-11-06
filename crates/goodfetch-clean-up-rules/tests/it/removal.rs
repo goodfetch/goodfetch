@@ -3,6 +3,10 @@
 //! document before any extraction, inside its open and closed shadow roots
 //! too, and the caller learns what went: each element's rule, its text and
 //! the links inside it, which area 6's trap-link judgement leaves out.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use std::sync::LazyLock;
 

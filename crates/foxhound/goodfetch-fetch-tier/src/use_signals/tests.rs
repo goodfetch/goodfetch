@@ -1,6 +1,10 @@
 //! The AI-use signals' judgment as a function of a response's headers,
 //! its document's markup, the files a site declares them in, and the
 //! Purpose (spec #581's pure rules, tested in process).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;

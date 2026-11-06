@@ -4,6 +4,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeMap;
+
+use goodfetch_counted_work::Row;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 use rstest::rstest;
 
@@ -13,6 +16,9 @@ const URL: &str = "http://shop.test/reports/2";
 
 /// An app shell whose content only its script writes.
 const SHELL: &str = r#"<html><body><main id="app"></main><script>document.getElementById("app").innerHTML = "<h1>Reports</h1>";</script></body></html>"#;
+
+/// An app shell marked `noindex` by its robots `meta` element.
+const NOINDEXED: &str = r#"<html><head><meta name="robots" content="noindex"></head><body><main id="app"></main></body></html>"#;
 
 /// A page whose own markup shows its records and a login form.
 const LISTING: &str = r#"<html><body><main id="records"><article>One</article></main><form id="login"></form></body></html>"#;
@@ -72,8 +78,36 @@ fn a_document_is_judged_where_its_markup_decides(
             &check,
             URL,
             html,
+            &BTreeMap::new(),
             &goodfetch_counted_work::CountedWork::default()
-        ),
+        )
+        .0,
         verdict
     );
+}
+
+/// A page that is not its expected page is marked `noindex` by its robots
+/// `meta` element or its `X-Robots-Tag` header, its markup parsed once for
+/// its check and its robots `meta` elements together, and not at all when
+/// neither needs it.
+#[rstest]
+#[case::by_meta_after_a_selector(NOINDEXED, check(None, Some(css("#app h1"))), &[], true, 1)]
+#[case::by_meta_after_a_glob(NOINDEXED, check(None, Some(glob("**/catalog/*"))), &[], true, 1)]
+#[case::not_marked(SHELL, check(None, Some(glob("**/catalog/*"))), &[], false, 1)]
+#[case::by_header(SHELL, check(None, Some(glob("**/catalog/*"))), &[("x-robots-tag", "noindex")], true, 0)]
+#[case::the_expected_page(NOINDEXED, check(None, Some(glob("**/reports/*"))), &[], false, 0)]
+fn a_page_judged_alone_is_parsed_once_for_its_noindex_mark(
+    #[case] html: &str,
+    #[case] check: PageCheck,
+    #[case] headers: &[(&str, &str)],
+    #[case] noindex: bool,
+    #[case] parses: u64,
+) {
+    let work = goodfetch_counted_work::CountedWork::default();
+    let headers = headers
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    assert_eq!(judge(&check, URL, html, &headers, &work).1, noindex);
+    assert_eq!(work.read(Row::PageParses), parses);
 }

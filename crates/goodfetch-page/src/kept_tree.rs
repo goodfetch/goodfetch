@@ -58,6 +58,10 @@ impl KeptTree {
     /// Keeps the tree `kept` gives for `run`'s page served from it. Its
     /// owner is a task of the Run's, which ends with the last handle, or
     /// as the Run stops.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a streamed page's tree, parsed once for its attempt at its handler's first read"
+    )]
     pub fn keep(run: &Run, kept: KeptFrom) -> Self {
         let (reads, mut mailbox) = mpsc::channel::<Job>(READS_QUEUED);
         let owner = run.clone();

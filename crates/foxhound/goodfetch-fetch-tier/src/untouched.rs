@@ -447,6 +447,10 @@ impl UntouchedReaders {
     /// page navigated to, fetched at `url`, carries: read in one streaming
     /// pass when it names one, its tree parsed on `work` only when the pass
     /// cannot vouch for it (ADR 0138).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a handler's navigated document, parsed only when the streaming pass cannot vouch for its use signals"
+    )]
     pub(crate) fn markup_use_signals(
         &self,
         signals: UseSignals,

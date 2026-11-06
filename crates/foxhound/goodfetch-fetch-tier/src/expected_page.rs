@@ -39,19 +39,47 @@ pub(crate) enum Verdict {
     Unjudged,
 }
 
-/// The verdict of `check` on the document `html` reached at `url`: its
-/// login page first, then its expected page; `html` parsed for this call
-/// alone, at its first CSS selector, as a handler's page's check is. A
-/// crawl request's own document is judged once, by [`judge_with`] on its
-/// untouched tree.
-pub(crate) fn judge(check: &PageCheck, url: &str, html: &str, work: &CountedWork) -> Verdict {
+/// The verdict of `check` on the document `html` reached at `url`, answered
+/// with `headers`: its login page first, then its expected page, and, for a
+/// page that is not the expected page, whether it is marked `noindex` (ADR
+/// 0035). `html` is parsed once for this call alone, at its first need, as a
+/// handler's page's check is: the check's CSS selectors and the robots
+/// `meta` elements read one tree. A crawl request's own document is judged
+/// once, by [`judge_with`] on its untouched tree.
+pub(crate) fn judge(
+    check: &PageCheck,
+    url: &str,
+    html: &str,
+    headers: &BTreeMap<String, String>,
+    work: &CountedWork,
+) -> (Verdict, bool) {
     let mut parsed = None;
-    judge_with(check, url, |selector| {
+    let verdict = judge_with(check, url, |selector| {
         let matcher = crate::document::matcher(selector, work).ok()?;
-        let document = parsed.get_or_insert_with(|| work.parse_html(Row::PageParses, html));
         let controls = work.literal_selector(Row::PageSelectorCompilations, CONTROLS);
+        let document = parsed_once(&mut parsed, html, work);
         Some(!matched_in(document, &matcher, &controls).is_empty())
-    })
+    });
+    let noindex = verdict == Verdict::NotExpected
+        && (goodfetch_page::noindex::marked(headers, &[]) || {
+            let named = work.literal_selector(Row::PageSelectorCompilations, ROBOTS);
+            let robots = robots_in(parsed_once(&mut parsed, html, work), &named);
+            goodfetch_page::noindex::marked(headers, &robots)
+        });
+    (verdict, noindex)
+}
+
+/// The tree of `html` that `parsed` keeps, parsed at the first call.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a served page its untouched readers did not judge, parsed once for this call alone, for its check and its `noindex` mark"
+)]
+fn parsed_once<'tree>(
+    parsed: &'tree mut Option<ParsedHtml>,
+    html: &str,
+    work: &CountedWork,
+) -> &'tree ParsedHtml {
+    parsed.get_or_insert_with(|| work.parse_html(Row::PageParses, html))
 }
 
 /// The verdict of `check` on the document reached at `url`, its login page
@@ -105,28 +133,6 @@ fn found(
         PageMatch::Css { selector } => css(selector),
         PageMatch::Xpath { .. } | PageMatch::Text { .. } => None,
     }
-}
-
-/// Whether the document `html`, answered with `headers`, is marked
-/// `noindex` (ADR 0035), `html` parsed for this call alone.
-pub(crate) fn noindex(headers: &BTreeMap<String, String>, html: &str) -> bool {
-    goodfetch_page::noindex::marked(headers, &robots(html))
-}
-
-/// The `content` of each robots `meta` element of `html`.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn robots(html: &str) -> Vec<String> {
-    let document = dom_query::Document::from(html);
-    let named =
-        dom_query::Matcher::new(ROBOTS).expect("invariant: a selector written in the code is CSS");
-    robots_in(&document, &named)
 }
 
 /// What names a document's robots `meta` elements, among others.

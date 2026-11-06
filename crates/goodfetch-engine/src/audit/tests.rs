@@ -331,6 +331,20 @@ fn entries_recorded_together_commit_with_one_sync_chained_in_their_order() {
     );
 }
 
+/// A new log's first entries sync its file's switch to WAL, its rollback
+/// journal once and the file once, and their own commit, which covers the
+/// tables its opening committed unsynced and the WAL's header (#2117).
+#[test]
+fn a_new_logs_first_entries_sync_its_switch_to_wal_and_their_commit() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let log = log_through(&env, vfs.name());
+
+    log.record_together(three_new(), now()).unwrap();
+
+    assert_eq!(vfs.syncs(), 3);
+}
+
 /// Entries recorded, alone or together, are in the log after a power cut
 /// once the call answered, though their connection's close no longer copies
 /// the write-ahead log into the file: each commit synced it (ADR 0016,

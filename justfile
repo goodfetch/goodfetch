@@ -69,6 +69,7 @@ lint-documents: fmt-check
 # Formatting checks and the checks that read documents, then every linter and
 # the repository's own static checks.
 lint: lint-documents
+    ci/ignored-sources.sh
     cargo metadata --locked --format-version 1 > /dev/null
     cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
     ci/fuzz-check.sh locked

@@ -1,7 +1,15 @@
 .DS_Store
 node_modules/
-# Cargo's builds, and every runner's JUnit XML and test output under target/
-target/
+# Cargo's builds, and every runner's JUnit XML and test output under target/;
+# then the builds of the workspaces outside the root one. Only these: a
+# source folder named `target` is tracked (#1761, ci/ignored-sources.sh).
+# The root one without a slash, so a link to a build folder elsewhere counts.
+/target
+/kennel/target/
+/xtask/compare-spider/target/
+/ci/proofs/*/target/
+/crates/**/fuzz/target/
+/rnd/lab/**/target/
 # The folders test support's own tests copy a runner's configuration into
 # (test-support/typescript/tests/runner-project.ts)
 .runner-projects/

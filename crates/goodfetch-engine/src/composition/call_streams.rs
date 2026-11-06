@@ -7,6 +7,8 @@
     reason = "a poll cannot await: one Mutex guards a call's input receiver, held only while one poll of it runs, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
 )]
 
+use std::fs::File;
+use std::io::Read as _;
 use std::sync::{Mutex, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
@@ -14,12 +16,12 @@ use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::page::{CHUNK, CHUNK_BYTES, Chunk};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::CallError;
 use crate::events::Credits;
+use crate::tasks::TaskOwner;
 
 /// The way back to a call's Client: the notifications that name the call,
 /// written as lines on its Connection's writer.
@@ -110,7 +112,10 @@ impl CallStream {
     /// Sends `file`, from where it is to its end, in `$/chunk`
     /// notifications of at most [`CHUNK_BYTES`], one per credit, each with
     /// its offset; answers how many bytes it sent, fewer than the file's
-    /// rest once the Connection's writer is gone.
+    /// rest once the Connection's writer is gone. Each chunk is read as
+    /// `owner`'s blocking work: inline under
+    /// [`crate::tasks::BlockingPolicy::Inline`], so a run replays from its
+    /// seed whatever the host's load.
     ///
     /// # Errors
     ///
@@ -119,11 +124,19 @@ impl CallStream {
     /// # Cancel safety
     ///
     /// Dropping the future stops the chunks; those sent stay sent.
-    pub async fn send_file(&self, file: &mut tokio::fs::File) -> std::io::Result<u64> {
+    pub async fn send_file(&self, owner: &TaskOwner, file: File) -> std::io::Result<u64> {
         let mut offset: u64 = 0;
+        let mut file = file;
         let mut chunk = vec![0; CHUNK_BYTES];
         loop {
-            let read = read_chunk(file, &mut chunk).await?;
+            let read;
+            (file, chunk, read) = owner
+                .blocking(move || {
+                    let read = read_chunk(&mut file, &mut chunk);
+                    (file, chunk, read)
+                })
+                .await;
+            let read = read?;
             if read == 0 {
                 return Ok(offset);
             }
@@ -146,12 +159,26 @@ impl CallStream {
     }
 }
 
+/// The file at `path`, opened to be sent by [`CallStream::send_file`]; it
+/// blocks, so its caller runs it as its owner's blocking work.
+///
+/// # Errors
+///
+/// When the file cannot be opened.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its callers run it as their owner's blocking work; ADR 0140: a file opened on no counted row yet, which the Shared paths audit moves onto its counted function"
+)]
+pub(crate) fn open_to_send(path: &std::path::Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
 /// Fills `chunk` from `file` as far as it goes, and answers how many bytes
 /// it read: fewer than its length only at the file's end.
-async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
+fn read_chunk(file: &mut File, chunk: &mut [u8]) -> std::io::Result<usize> {
     let mut filled = 0;
     while filled < chunk.len() {
-        let read = file.read(&mut chunk[filled..]).await?;
+        let read = file.read(&mut chunk[filled..])?;
         if read == 0 {
             break;
         }
@@ -276,3 +303,6 @@ impl CallInput {
         self.notifier.notify(method, params).await
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -8,6 +8,8 @@
 //! to the authorities `tls.trusted_cas` lists for its own domain, and no
 //! exception of `tls.accept_invalid_certs` lets an invalid one through.
 
+use std::sync::Arc;
+
 use goodfetch_protocol::egress::ConfiguredKind;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
@@ -16,6 +18,7 @@ use crate::clock::Clock;
 use crate::egress::Refused;
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::settings::Resolved;
+use crate::tasks::TaskOwner;
 
 /// The most bytes of a collector's answer an export reads: an answer
 /// carries at most a partial-success message.
@@ -49,10 +52,11 @@ pub enum ExportFailure {
 impl Collector {
     /// The collector the machine's `settings` reach: their
     /// `egress.no_private_endpoints`, `network.resolve` and
-    /// `tls.trusted_cas`.
-    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// `tls.trusted_cas`, whose files each send reads as `owner`'s
+    /// blocking work.
+    pub fn of(settings: &Resolved, clock: Clock, owner: Arc<TaskOwner>) -> Self {
         Self {
-            endpoint: EndpointSettings::of(settings, clock),
+            endpoint: EndpointSettings::of(settings, clock, owner),
         }
     }
 

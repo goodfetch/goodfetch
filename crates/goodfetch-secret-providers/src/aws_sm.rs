@@ -14,6 +14,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use goodfetch_engine::clock::Clock;
@@ -22,6 +23,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AWS_SM_ENDPOINT, SECRET_PROVIDERS_AWS_SM_REGION,
@@ -80,17 +82,20 @@ impl AwsSecretsManager {
     /// The provider `secret_providers.aws_sm.*` configure in `resolved`,
     /// which also gives how the endpoint is reached, signed by the access
     /// key in the engine's `environment`.
+    ///
+    /// Its endpoint reads `tls.trusted_cas` as `owner`'s blocking work.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        owner: Arc<TaskOwner>,
     ) -> Self {
         let text = |name: &str| resolved.value(name).as_str().map(str::to_owned);
         Self::new(
             text(SECRET_PROVIDERS_AWS_SM_REGION.name),
             text(SECRET_PROVIDERS_AWS_SM_ENDPOINT.name),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, owner),
             clock,
         )
     }

@@ -258,6 +258,10 @@ impl Engine {
     ///
     /// When the endpoint cannot be reached, or the engine refuses or
     /// leaves unanswered the `hello`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the Stub gateway is a test-only stand-in that no Run's blocking policy governs, never shipped (ADR 0096)"
+    )]
     pub(crate) async fn link(
         &self,
         relayed: Relayed,

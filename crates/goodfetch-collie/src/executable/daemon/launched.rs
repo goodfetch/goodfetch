@@ -533,7 +533,6 @@ async fn take_listener(
     }
     let (listener, endpoint) = Network::Os
         .listen(socket)
-        .await
         .map_err(unavailable("the Daemon cannot listen"))?;
     let token = new_token().map_err(|error| {
         Failure::Unavailable(format!("the OS generator gave no token: {error}"))

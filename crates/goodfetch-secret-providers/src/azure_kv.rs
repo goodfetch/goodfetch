@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::sync::Arc;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
@@ -22,6 +23,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AZURE_KV_AUTHORITY, SECRET_PROVIDERS_AZURE_KV_ENDPOINT,
@@ -81,10 +83,13 @@ impl AzureKeyVault {
     /// The provider `secret_providers.azure_kv.*` configure in `resolved`,
     /// which also gives how the vault and the authority are reached, for
     /// the service principal in the engine's `environment`.
+    ///
+    /// Its endpoint reads `tls.trusted_cas` as `owner`'s blocking work.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        owner: Arc<TaskOwner>,
     ) -> Self {
         let text =
             |name: &str, default: &str| resolved.value(name).as_str().unwrap_or(default).to_owned();
@@ -92,7 +97,7 @@ impl AzureKeyVault {
             text(SECRET_PROVIDERS_AZURE_KV_ENDPOINT.name, PUBLIC_ENDPOINT),
             text(SECRET_PROVIDERS_AZURE_KV_AUTHORITY.name, PUBLIC_AUTHORITY),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, owner),
         )
     }
 

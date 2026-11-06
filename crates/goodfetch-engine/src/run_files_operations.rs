@@ -22,7 +22,7 @@ use goodfetch_protocol::download::{
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::composition::{CallContext, CallError, Handler, open_to_send};
 use crate::run::run_error;
 use crate::run_files::{self, KeepError, SaveError};
 use crate::runs::RunError;
@@ -176,10 +176,6 @@ async fn written(
 /// # Cancel safety
 ///
 /// Dropping the future stops the chunks; those sent stay sent.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 pub async fn send_kept(
     context: &CallContext,
     folder: &Path,
@@ -196,10 +192,15 @@ pub async fn send_kept(
             folder,
         )
     };
-    let mut file = tokio::fs::File::open(source).await.map_err(unreadable)?;
+    let owner = Arc::clone(&context.runs().limits().owner);
+    let opened = source.to_owned();
+    let file = owner
+        .blocking(move || open_to_send(&opened))
+        .await
+        .map_err(unreadable)?;
     context
         .stream()
-        .send_file(&mut file)
+        .send_file(&owner, file)
         .await
         .map_err(unreadable)?;
     Ok(())

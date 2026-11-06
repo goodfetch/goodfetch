@@ -97,6 +97,10 @@ fn main() -> ExitCode {
 
 /// Serves until the process is killed or interrupted; interrupted, it
 /// kills and reaps its engines before it returns.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the Stub gateway is a test-only stand-in that no Run's blocking policy governs, never shipped (ADR 0096)"
+)]
 async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> Result<(), String> {
     let build = console_build::read(&arguments.console_build)
         .await

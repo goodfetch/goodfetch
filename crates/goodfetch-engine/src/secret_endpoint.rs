@@ -9,6 +9,8 @@
 //! for its own domain, and no exception of `tls.accept_invalid_certs` lets
 //! an invalid one through.
 
+use std::sync::Arc;
+
 use goodfetch_protocol::egress::ConfiguredKind;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
@@ -17,6 +19,7 @@ use crate::clock::Clock;
 use crate::egress::Refused;
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::settings::Resolved;
+use crate::tasks::TaskOwner;
 use crate::tls::CertificateInvalid;
 
 /// The most bytes of an endpoint's answer a request reads: one secret's
@@ -52,10 +55,11 @@ pub enum EndpointFailure {
 impl SecretProviderEndpoint {
     /// The endpoint the machine's `settings` let a provider reach: their
     /// `egress.no_private_endpoints`, `network.resolve` and
-    /// `tls.trusted_cas`.
-    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// `tls.trusted_cas`, whose files each send reads as `owner`'s
+    /// blocking work.
+    pub fn of(settings: &Resolved, clock: Clock, owner: Arc<TaskOwner>) -> Self {
         Self {
-            endpoint: EndpointSettings::of(settings, clock),
+            endpoint: EndpointSettings::of(settings, clock, owner),
         }
     }
 

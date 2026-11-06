@@ -156,6 +156,9 @@ pub struct ProviderInputs<'a> {
     pub environment: &'a BTreeMap<OsString, OsString>,
     /// The engine's clock.
     pub clock: Clock,
+    /// The owner whose blocking policy a provider's blocking work, such
+    /// as reading its endpoint's certificate authorities, runs under.
+    pub owner: &'a Arc<TaskOwner>,
 }
 
 /// Builds a Product's provider for each Run from [`ProviderInputs`], since
@@ -541,6 +544,7 @@ impl Secrets {
                 settings,
                 environment: &self.0.environment,
                 clock: self.0.clock,
+                owner: &self.0.owner,
             };
             for (provider, factory) in &self.0.configured {
                 shared
@@ -717,6 +721,13 @@ impl RunSecrets {
     /// placeholder, or the setting's key where none names it.
     pub fn mask(&self) -> &Mask {
         &self.0.mask
+    }
+
+    /// The owner whose blocking policy its resolutions run under, which
+    /// the files a resolution reads beside it, such as a client
+    /// certificate's, are read under too.
+    pub(crate) fn owner(&self) -> &Arc<TaskOwner> {
+        &self.0.secrets.0.owner
     }
 
     /// The value `reference` points to for `purpose`: refused for a domain

@@ -11,6 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::sync::Arc;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
@@ -18,6 +19,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SECRET_PROVIDERS_GCP_SM_ENDPOINT;
 use hyper::Request;
@@ -49,10 +51,13 @@ impl GcpSecretManager {
     /// The provider `secret_providers.gcp_sm.endpoint` configures in
     /// `resolved`, which also gives how the API is reached, with the access
     /// token in the engine's `environment`.
+    ///
+    /// Its endpoint reads `tls.trusted_cas` as `owner`'s blocking work.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        owner: Arc<TaskOwner>,
     ) -> Self {
         Self::new(
             resolved
@@ -61,7 +66,7 @@ impl GcpSecretManager {
                 .unwrap_or(PUBLIC_ENDPOINT)
                 .to_owned(),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, owner),
         )
     }
 

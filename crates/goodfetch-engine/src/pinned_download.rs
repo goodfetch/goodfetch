@@ -11,6 +11,7 @@
 //! 0127).
 
 use std::fmt::{self, Write as _};
+use std::io::Write as _;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -21,7 +22,6 @@ use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 use rustls::pki_types::CertificateDer;
 use sha2::{Digest as _, Sha256};
-use tokio::io::AsyncWriteExt as _;
 
 use crate::clock::Clock;
 use crate::egress::EndpointPolicy;
@@ -308,14 +308,15 @@ pub(crate) enum Failure {
 /// Downloads `url` into the file at `into`, reporting `(received, total)` as
 /// bytes arrive, and checks that what it received has the digest `pinned`.
 ///
+/// It writes `into` inline, as the Browser cache, its caller, runs its
+/// blocking work (its `blocking`), so under
+/// [`crate::tasks::BlockingPolicy::Inline`] a run replays from its seed
+/// whatever the host's load.
+///
 /// # Cancel safety
 ///
 /// Dropping the future closes the connection and leaves `into` partly
 /// written, for its caller to remove.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 pub(crate) async fn download(
     url: &PinnedUrl,
     pinned: Digest,
@@ -362,14 +363,14 @@ pub(crate) async fn download(
         return Err(Failure::Status(response.status.as_u16()));
     }
     let total = response.content_length;
-    let mut file = tokio::fs::File::create(into).await.map_err(Failure::File)?;
+    let mut file = create(into).map_err(Failure::File)?;
     let mut hasher = Sha256::new();
     let mut received = 0_u64;
     let mut reported = 0_u64;
     progress(0, total);
     while let Some(bytes) = response.chunk().await.map_err(|_| Failure::Network)? {
         hasher.update(&bytes);
-        file.write_all(&bytes).await.map_err(Failure::File)?;
+        file.write_all(&bytes).map_err(Failure::File)?;
         received += u64::try_from(bytes.len()).expect("invariant: a frame fits in u64");
         if received - reported >= PROGRESS_STEP {
             reported = received;
@@ -379,7 +380,7 @@ pub(crate) async fn download(
     if total.is_some_and(|total| total != received) {
         return Err(Failure::Network);
     }
-    file.sync_all().await.map_err(Failure::File)?;
+    file.sync_all().map_err(Failure::File)?;
     if reported != received {
         progress(received, total);
     }
@@ -387,4 +388,14 @@ pub(crate) async fn download(
         return Err(Failure::DigestMismatch);
     }
     Ok(())
+}
+
+/// The file `into`, created empty for a download to write; it blocks, run
+/// inline as the Browser cache runs its blocking work.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the Browser cache runs its blocking work inline (its `blocking`), and its download's file with it; ADR 0140: a file opened on no counted row yet, which the Shared paths audit moves onto its counted function"
+)]
+fn create(into: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::create(into)
 }

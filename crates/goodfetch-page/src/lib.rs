@@ -24,6 +24,7 @@ mod errors;
 mod guard;
 mod hiding;
 mod interception;
+pub mod kept_tree;
 mod launch;
 pub mod noindex;
 mod page_events;

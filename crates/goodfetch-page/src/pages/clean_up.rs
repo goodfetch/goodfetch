@@ -174,9 +174,11 @@ pub(super) fn extractor(
 /// `hidden` applied before its main content, and what they did, its share
 /// measured as `measure` says; none when the request reads nothing of the
 /// cleaned page, so that no rule ran and Provenance has no line of it
-/// (ADR 0138).
+/// (ADR 0138). A served page whose handler's reads keep its untouched
+/// tree, `kept`, reads a copy of it, never a parse of its HTML, and leaves
+/// it as it was.
 pub(super) fn read(
-    document: &SerializedDocument,
+    (document, kept): (&SerializedDocument, Option<&ParsedHtml>),
     serialization: Serialization,
     request: FormatsRequest,
     (extractor, measure): (&dyn Extractor, ShareMeasure),
@@ -203,7 +205,12 @@ pub(super) fn read(
     let Measured {
         formats,
         main_content_length,
-    } = goodfetch_extractor::measured_formats(&of(&document.html), &request, &context);
+    } = match kept {
+        Some(kept) => {
+            goodfetch_extractor::measured_formats_of(&of(&document.html), kept, &request, &context)
+        }
+        None => goodfetch_extractor::measured_formats(&of(&document.html), &request, &context),
+    };
     let removal = matcher.removal.into_inner();
     let (removed, removed_text, share) = match removal {
         Some(removal) if !removal.removed.is_empty() => {
@@ -215,11 +222,19 @@ pub(super) fn read(
             let share = main_content_length.map(|after| {
                 let before = match measure {
                     ShareMeasure::Estimate => removal.removed_text + after,
-                    ShareMeasure::Exact => goodfetch_extractor::main_content_length(
-                        &of(&document.html),
-                        extractor,
-                        work,
-                    ),
+                    ShareMeasure::Exact => match kept {
+                        Some(kept) => goodfetch_extractor::main_content_length_of(
+                            &of(&document.html),
+                            kept,
+                            extractor,
+                            work,
+                        ),
+                        None => goodfetch_extractor::main_content_length(
+                            &of(&document.html),
+                            extractor,
+                            work,
+                        ),
+                    },
                 };
                 Share::of(before, after)
             });

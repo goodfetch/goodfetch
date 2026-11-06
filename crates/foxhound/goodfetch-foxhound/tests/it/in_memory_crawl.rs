@@ -234,8 +234,9 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
 }
 
 /// A handler on a document tier waits on each page, which the tier answers from
-/// the page's own document: each wait counts its parse, and its selector comes
-/// from the engine's cache, compiled once for the crawl.
+/// the page's kept tree: the page is parsed once for its attempt, its Page
+/// signature reads a copy, and the wait's selector comes from the engine's
+/// cache, compiled once for the crawl.
 #[test]
 fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     let env = TestEnv::new();
@@ -254,19 +255,22 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // Two parses of a page's three are its waits' (#1918 lowers them). The
+    // One parse a page, which its waits read on the kept tree (#1918), and
+    // one copy a page, which its Page signature reads. The
     // untouched page's readers compile 7 once a Run (#1910; `base[href]`,
     // which two of them read, once), and the main-content step's and the
     // markup waits' 7 with them. The handler's own `h1` compiles once, at its
     // first wait, into the engine's cache, which every later wait reads
-    // (#1912).
+    // (#1912). The streaming pass of the AI-use signals' markup parses its 4
+    // once a Run (#1917).
     assert_eq!(
         (
             crawled.handled,
             work.read(Row::PageParses),
+            work.read(Row::PageTreeCopies),
             work.read(Row::PageSelectorCompilations),
         ),
-        (pages, 3 * pages, 15)
+        (pages, pages, pages, 19)
     );
 }
 

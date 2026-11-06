@@ -56,6 +56,7 @@ use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
 
 use crate::blocks::Block;
+pub use crate::kept_tree::{KeptFrom, KeptTree};
 use crate::url_pattern::UrlPattern;
 
 /// A boxed future of [`BrowserPages`]'s.
@@ -699,6 +700,11 @@ pub struct ServedDocument {
     /// `content.extractor`, over its Run's; none when the Label leaves it
     /// to the Run.
     pub extractor: Option<BuiltIn>,
+    /// Its untouched tree, kept for the attempt while a handler reads it
+    /// ([`KeptTree`]): `page.formats` reads a copy of it, never a parse of
+    /// `html`. None for a page no handler reads, whose formats parse
+    /// `html`.
+    pub tree: Option<KeptTree>,
 }
 
 impl Debug for ServedDocument {

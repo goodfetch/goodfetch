@@ -51,6 +51,7 @@ mod governor;
 mod in_memory_crawl;
 mod journeys;
 mod kept_responses;
+mod kept_tree;
 mod label_pools;
 mod learned_rules;
 mod light_browser;

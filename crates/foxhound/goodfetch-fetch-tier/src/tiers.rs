@@ -51,8 +51,8 @@ use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
-    ServedDocument,
+    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
+    ProgramPages, Reader, ServedDocument,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
@@ -416,12 +416,12 @@ impl Decoded {
         let base_url = goodfetch_frontier::document_base(&url, base_href.as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let signals = UseSignals::of(&fetched.headers);
-        let (use_signals, untouched) = match untouched {
+        let work = run.metrics().counted_work();
+        let (use_signals, untouched, kept) = match untouched {
             Untouched::Tree(tree) => {
                 let use_signals = readers.use_signals(signals, (&html, &tree), &fetched.url);
-                let untouched = if own {
-                    let work = run.metrics().counted_work();
-                    readers.read(tree, (&url, &base_url), |tree| {
+                let (untouched, kept) = if own {
+                    let signed = |tree| {
                         goodfetch_extractor::page_signature_of(
                             tree,
                             &goodfetch_extractor::Document {
@@ -433,11 +433,12 @@ impl Decoded {
                             chosen_extractor(run, extractor).extractor(),
                             work,
                         )
-                    })
+                    };
+                    readers.read(tree, (&url, &base_url), (signed, work))
                 } else {
-                    untouched::Read::default()
+                    (untouched::Read::default(), Some(tree))
                 };
-                (use_signals, untouched)
+                (use_signals, untouched, kept.map(KeptFrom::Tree))
             }
             Untouched::Streamed(streamed) => (
                 UntouchedReaders::streamed_use_signals(signals, &fetched.url),
@@ -446,8 +447,17 @@ impl Decoded {
                 } else {
                     untouched::Read::default()
                 },
+                None,
             ),
         };
+        // A handler's reads keep the page's untouched tree, or its HTML,
+        // which the first read that needs a tree parses (ADR 0138).
+        let tree = (readers.keeps() && not_document.is_none()).then(|| {
+            KeptTree::keep(
+                run,
+                kept.unwrap_or_else(|| KeptFrom::Html(Arc::from(html.as_str()))),
+            )
+        });
         let links = fetched
             .headers
             .iter()
@@ -461,6 +471,7 @@ impl Decoded {
                 base_url,
                 html,
                 extractor,
+                tree,
             }),
             not_document,
             encoding,
@@ -1365,20 +1376,20 @@ impl FetchTiers {
                 .map_err(LinksUnread::Selector),
             );
         }
+        // Any other selector reads the page's kept tree while a handler
+        // reads it, else a parse of its document (ADR 0138).
         let selector = selector.to_owned();
-        let run = served.run.clone();
-        let work = run.metrics().counted_work().clone();
-        let read = run
-            .owner()
-            .analysis(move || {
-                matched(&served.html, &selector, &work).map(|elements| ServedLinks {
-                    url: served.url.clone(),
-                    base_url: served.base_url.clone(),
-                    encoding,
-                    elements,
-                })
+        let work = served.run.metrics().counted_work().clone();
+        let document = Arc::clone(&served);
+        let read = calls::on_tree(&served, move |tree| {
+            matched(tree, &selector, &work).map(|elements| ServedLinks {
+                url: document.url.clone(),
+                base_url: document.base_url.clone(),
+                encoding,
+                elements,
             })
-            .await;
+        })
+        .await?;
         Some(read.map_err(LinksUnread::Selector))
     }
 
@@ -1426,19 +1437,13 @@ impl FetchTiers {
             );
         }
         let locators = locators.to_vec();
-        let run = served.run.clone();
-        let work = run.metrics().counted_work().clone();
-        let read = run
-            .owner()
-            .analysis(move || {
-                document::first_elements(&served.html, &locators, &work).map(|elements| {
-                    FieldElements {
-                        base_url: served.base_url.clone(),
-                        elements,
-                    }
-                })
-            })
-            .await;
+        let work = served.run.metrics().counted_work().clone();
+        let base_url = served.base_url.clone();
+        let read = calls::on_tree(&served, move |tree| {
+            document::first_elements(tree, &locators, &work)
+                .map(|elements| FieldElements { base_url, elements })
+        })
+        .await?;
         Some(read.map_err(invalid))
     }
 

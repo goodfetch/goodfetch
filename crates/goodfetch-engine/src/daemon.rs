@@ -41,7 +41,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
-use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler};
+use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler, Holding};
 use crate::events::Events;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
@@ -243,8 +243,44 @@ pub(crate) struct Serving {
 /// The Clients connected now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Presence {
+    /// Every connected Client, as `daemon.status` counts them.
     clients: u32,
-    consoles: u32,
+    /// Those that hold off the idle stop.
+    holding_off_idle_stop: u32,
+    /// Those that hold off a handover to the major's pick.
+    holding_off_handover: u32,
+}
+
+impl Presence {
+    /// What one Client of `surface` counts toward each figure.
+    ///
+    /// A Console holds off the idle stop, as a visible tab does, but not a
+    /// handover (ADR 0098). A Kennel that only observes holds off neither
+    /// (ADR 0141).
+    fn of_one(surface: Surface, holding: Holding) -> Self {
+        let holds = holding == Holding::Holds;
+        Self {
+            clients: 1,
+            holding_off_idle_stop: u32::from(holds),
+            holding_off_handover: u32::from(holds && surface.holds_off_handover()),
+        }
+    }
+
+    fn add(&mut self, one: Self) {
+        self.clients += one.clients;
+        self.holding_off_idle_stop += one.holding_off_idle_stop;
+        self.holding_off_handover += one.holding_off_handover;
+    }
+
+    fn remove(&mut self, one: Self) {
+        self.clients = self.clients.saturating_sub(one.clients);
+        self.holding_off_idle_stop = self
+            .holding_off_idle_stop
+            .saturating_sub(one.holding_off_idle_stop);
+        self.holding_off_handover = self
+            .holding_off_handover
+            .saturating_sub(one.holding_off_handover);
+    }
 }
 
 /// Why the Daemon's loop ends, as its Connections ask.
@@ -330,21 +366,21 @@ impl Shared {
         self.keep_alive || self.holds.held()
     }
 
-    /// Whether no Client but a Console is connected and no Run is live.
-    async fn idle_but_for_consoles(&self) -> bool {
-        let presence = *self.presence.borrow();
-        presence.clients == presence.consoles && self.runs.live_count().await == 0
+    /// Whether no Client that holds off a handover is connected and no Run
+    /// is live.
+    async fn nothing_holds_off_a_handover(&self) -> bool {
+        self.presence.borrow().holding_off_handover == 0 && self.runs.live_count().await == 0
     }
 
-    /// Hands over when this Daemon is idle but for Consoles and is not its
-    /// major's pick; whether it began to.
+    /// Hands over when this Daemon is idle but for Consoles and Kennels that
+    /// only observe, and is not its major's pick; whether it began to.
     async fn hand_over_if_not_the_pick(&self) -> bool {
         let mut state = self.state.lock().await;
         if *state == EngineState::HandingOver {
             // A handover began already: the Client waits for it too.
             return true;
         }
-        if !self.idle_but_for_consoles().await {
+        if !self.nothing_holds_off_a_handover().await {
             return false;
         }
         let succession = Arc::clone(&self.succession);
@@ -390,16 +426,14 @@ struct Opened {
     presence: watch::Sender<Presence>,
     metrics: Metrics,
     surface: Surface,
+    counted: Presence,
 }
 
 impl Drop for Opened {
     fn drop(&mut self) {
         self.metrics.clients(self.surface, -1);
-        let console = u32::from(self.surface == Surface::Console);
-        self.presence.send_modify(|presence| {
-            presence.clients = presence.clients.saturating_sub(1);
-            presence.consoles = presence.consoles.saturating_sub(console);
-        });
+        self.presence
+            .send_modify(|presence| presence.remove(self.counted));
     }
 }
 
@@ -408,17 +442,17 @@ impl DaemonSide for ConnectionSide {
         &self.shared.token
     }
 
-    fn opened(&self, surface: Surface) -> Box<dyn Send + Sync> {
-        let console = surface == Surface::Console;
-        self.shared.presence.send_modify(|presence| {
-            presence.clients += 1;
-            presence.consoles += u32::from(console);
-        });
+    fn opened(&self, surface: Surface, holding: Holding) -> Box<dyn Send + Sync> {
+        let counted = Presence::of_one(surface, holding);
+        self.shared
+            .presence
+            .send_modify(|presence| presence.add(counted));
         self.shared.metrics.clients(surface, 1);
         Box::new(Opened {
             presence: self.shared.presence.clone(),
             metrics: self.shared.metrics.clone(),
             surface,
+            counted,
         })
     }
 
@@ -524,8 +558,7 @@ pub(crate) async fn serve(
             Some(connection) = endings_of_connections.recv() => {
                 let _ = shared.transition(EngineEvent::ClientLost).await;
                 open.remove(&connection);
-                let presence = *shared.presence.borrow();
-                if presence.clients == presence.consoles {
+                if shared.presence.borrow().holding_off_handover == 0 {
                     let shared = Arc::clone(&shared);
                     owner.spawn(async move {
                         shared.hand_over_if_not_the_pick().await;
@@ -743,10 +776,11 @@ async fn finish(end: DaemonEnd, connections: &TaskOwner, shared: &Shared) -> Dae
     end
 }
 
-/// Resolves once no Client has been connected, and nothing has kept the
-/// Daemon alive, neither a hold nor a live Run that outlived the CLI
-/// command that started it, for `daemon.idle_timeout` on `clock`; never
-/// when it is kept alive by `--keep-alive` or a service.
+/// Resolves once no Client that holds off the idle stop has been connected
+/// (none but Kennels that only observe), and nothing has kept the Daemon
+/// alive, neither a hold nor a live Run that outlived the CLI command that
+/// started it, for `daemon.idle_timeout` on `clock`; never when it is kept
+/// alive by `--keep-alive` or a service.
 async fn idle(shared: &Shared, clock: Clock) {
     if shared.keep_alive {
         return std::future::pending().await;
@@ -755,9 +789,9 @@ async fn idle(shared: &Shared, clock: Clock) {
     let mut holds = shared.holds.0.subscribe();
     let mut runs_held = shared.runs_held.0.subscribe();
     loop {
-        let clients = presence.borrow_and_update().clients;
+        let holding = presence.borrow_and_update().holding_off_idle_stop;
         let held = *holds.borrow_and_update() + *runs_held.borrow_and_update();
-        if clients == 0 && held == 0 {
+        if holding == 0 && held == 0 {
             tokio::select! {
                 () = clock.sleep(shared.idle_timeout) => return,
                 _ = presence.changed() => {}

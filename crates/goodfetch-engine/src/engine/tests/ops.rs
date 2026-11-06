@@ -20,12 +20,13 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::daemon::{cli_hello, daemon, draining, opened, stuck, the_pick};
+use super::daemon::{cli_hello, daemon, draining, kennel_hello, opened, stuck, the_pick};
 use super::disk_view::DiskView;
 use super::layout::install_file;
 use super::run::{call, run_folder};
 use super::{engine, engine_with};
 use crate::daemon::DaemonOptions;
+use crate::engine::Engine;
 use crate::metrics::{METER, Metrics};
 use crate::ops::{ConfiguredBrowsers, Ops};
 use crate::run_state::RunStateOptions;
@@ -370,14 +371,10 @@ fn beside_the_run_file(series: BTreeSet<String>) -> BTreeSet<String> {
         .collect()
 }
 
-/// The meter the engine is given records each Client while it is
-/// connected, each Run while it is live and each Run's end by its three
-/// axes, and whether the Daemon drains; Prometheus renders them under
-/// `goodfetch_*`.
-///
-/// Covers: story:3-103
-#[test]
-fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics() {
+/// A Collie engine, the registry the Prometheus exporter the executables
+/// use renders its meter into, and the meter's provider, which records only
+/// while it is held.
+fn metered() -> (Engine, prometheus::Registry, SdkMeterProvider) {
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
@@ -387,6 +384,18 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         .unwrap();
     let provider = SdkMeterProvider::builder().with_reader(exporter).build();
     let engine = engine(Product::Collie).with_metrics(Metrics::new(&provider.meter(METER)));
+    (engine, registry, provider)
+}
+
+/// The meter the engine is given records each Client while it is
+/// connected, each Run while it is live and each Run's end by its three
+/// axes, and whether the Daemon drains; Prometheus renders them under
+/// `goodfetch_*`.
+///
+/// Covers: story:3-103
+#[test]
+fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics() {
+    let (engine, registry, _provider) = metered();
     let asked = CancellationToken::new();
     let scraped = registry.clone();
 
@@ -442,5 +451,33 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
                 r#"goodfetch_run_ended_total{completeness="incomplete",lifecycle="stopped",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ])),
         )
+    );
+}
+
+/// The meter counts a Kennel's Connection under its own `surface` label,
+/// beside a CLI command's, while each is connected (ADR 0141).
+///
+/// Covers: story:3-103
+#[test]
+fn the_daemon_counts_a_kennel_under_its_own_surface_in_the_runtimes_metrics() {
+    let (engine, registry, _provider) = metered();
+
+    let (_, connected) = daemon(&engine, &TestEnv::new(), the_pick(), |dialer| async move {
+        let cli = opened(&dialer, cli_hello()).await;
+        let kennel = opened(&dialer, kennel_hello(false)).await;
+        let connected: Vec<String> = series(&registry)
+            .into_iter()
+            .filter(|line| line.starts_with("goodfetch_client_connected"))
+            .collect();
+        drop((cli, kennel));
+        connected
+    });
+
+    assert_eq!(
+        connected,
+        [
+            r#"goodfetch_client_connected{surface="cli"} 1"#,
+            r#"goodfetch_client_connected{surface="kennel"} 1"#,
+        ]
     );
 }

@@ -34,10 +34,14 @@ pub(crate) enum Job {
     Evaluation,
     /// TLC on `models`, with their small constants (ADR 0060).
     Tlc,
+    /// The Kennel's checks, `just kennel-check` (ADR 0141): its workspace's
+    /// Clippy and tests, run when it or the protocol crate it is built on
+    /// changes, and for no other change.
+    Kennel,
 }
 
 impl Job {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::PreMerge,
         Self::Sinks,
         Self::Perf,
@@ -45,6 +49,7 @@ impl Job {
         Self::Docs,
         Self::Evaluation,
         Self::Tlc,
+        Self::Kennel,
     ];
 
     const fn id(self) -> &'static str {
@@ -56,6 +61,7 @@ impl Job {
             Self::Docs => "docs",
             Self::Evaluation => "evaluation",
             Self::Tlc => "tlc",
+            Self::Kennel => "kennel",
         }
     }
 }
@@ -96,6 +102,9 @@ pub(crate) struct Selection {
     bench_targets: BTreeSet<String>,
     /// The TLA+ models TLC checks, by name.
     models: BTreeSet<String>,
+    /// Whether the change is documents alone: at least one path, and every
+    /// path a document (`is_document`).
+    documents_only: bool,
 }
 
 /// The folder of every sink process (ADR 0087).
@@ -112,6 +121,10 @@ const PROMPT_FOLDERS: [&str; 2] = ["skills", CATALOG_CRATE];
 const CATALOG_CRATE: &str = "crates/goodfetch-protocol";
 const PROMPT_SEGMENTS: [&str; 2] = ["prompts", "request-snapshots"];
 
+/// The Kennel's workspace (ADR 0141), no member of the root one: its own
+/// job checks it, and its changes select nothing else.
+const KENNEL_FOLDER: &str = "kennel";
+
 /// Paths no test reads: the Quick suite, which always runs, checks them.
 pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
     let top_level_markdown = !path.as_str().contains('/')
@@ -122,6 +135,16 @@ pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
         || ["rnd", "docs", "website"]
             .iter()
             .any(|folder| path.is_in(folder))
+}
+
+/// Whether the path is a document: Markdown among the paths no test reads,
+/// which only the checks of `just lint` that read documents check (`just
+/// lint-documents`). Any other file, even one no test reads, is not.
+fn is_document(path: &RepoPath) -> bool {
+    needs_no_tests(path)
+        && Path::new(path.as_str())
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
 /// What the visual job reads besides its tests and the code they exercise:
@@ -261,13 +284,18 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
         if is_prompt_affecting(path) {
             changed.jobs.insert(Job::Evaluation);
         }
+        if path.is_in(KENNEL_FOLDER) || path.is_in(CATALOG_CRATE) {
+            changed.jobs.insert(Job::Kennel);
+        }
         match owner(workspace, path) {
             Some(Owner::Crate(krate)) => {
                 changed.crates.insert(krate.name.clone());
             }
             Some(Owner::Package(package)) => changed.packages.push(package),
-            // The models are checked by TLC alone.
-            None if needs_no_tests(path) || path.is_in(tlc::MODELS_FOLDER) => {}
+            // The models are checked by TLC alone, the Kennel by its job.
+            None if needs_no_tests(path)
+                || path.is_in(tlc::MODELS_FOLDER)
+                || path.is_in(KENNEL_FOLDER) => {}
             None => everything = true,
         }
     }
@@ -505,6 +533,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath]) -> Selection {
         touched_sinks: names(reached.iter().filter(|krate| is_sink(krate))),
         bench_targets,
         models,
+        documents_only: !paths.is_empty() && paths.iter().all(is_document),
     }
 }
 
@@ -550,12 +579,15 @@ impl Selection {
 
     /// What the local gate runs (ADR 0135): `quick` when the change selects
     /// no job but the docs', so no test, benchmark, model, container or
-    /// Evaluation reads it, else `full`.
+    /// Evaluation reads it, and `docs` when, of those, it is documents alone;
+    /// else `full`.
     fn gate(&self) -> &'static str {
-        if self.jobs.iter().all(|job| *job == Job::Docs) {
-            "quick"
-        } else {
+        if !self.jobs.iter().all(|job| *job == Job::Docs) {
             "full"
+        } else if self.documents_only {
+            "docs"
+        } else {
+            "quick"
         }
     }
 }

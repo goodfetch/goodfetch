@@ -1,5 +1,6 @@
 //! `xtask affected` reads a change from git, as CI's base and head or as the
-//! local working tree against the merge base with `origin/main`, and selects
+//! local working tree against the merge base with `origin/main` (or with the
+//! branch `--since` names), and selects
 //! from the repository's own Cargo, pnpm and uv manifests (ADR 0061). The
 //! selection rules themselves are unit tests of the `affected` module, in the
 //! Quick suite.
@@ -244,6 +245,32 @@ fn local_mode_gives_the_same_selection_as_the_base_and_head_mode() {
     let committed = workspace.xtask(&["affected", "--base", "origin/main", "--head", "HEAD"]);
 
     assert_eq!(committed.stdout, local.stdout);
+}
+
+/// A ticket's working tree against the integration branch it goes into: what
+/// that branch already holds is not the ticket's change.
+#[test]
+fn local_mode_since_a_branch_reads_the_working_tree_against_its_merge_base() {
+    let workspace = repository();
+    workspace.write(
+        "crates/foxhound/sinks/goodfetch-sink-s3/src/main.rs",
+        b"fn main() { }\n",
+    );
+    commit_all(&workspace, "Change a Sink on the integration branch");
+    workspace.git(&["branch", "integration"]);
+    workspace.write("docs/index.md", b"# Changed docs\n");
+
+    let since = workspace.xtask(&["affected", "--local", "--since", "integration"]);
+    let against_main = workspace.xtask(&["affected", "--local"]);
+
+    assert_eq!(
+        (value(&since, "crates"), value(&since, "gate")),
+        (String::new(), "docs".to_owned())
+    );
+    assert_eq!(
+        (value(&against_main, "crates"), value(&against_main, "gate")),
+        ("goodfetch-sink-s3".to_owned(), "full".to_owned())
+    );
 }
 
 #[test]

@@ -87,6 +87,7 @@ pub(crate) fn hello(
         product_version: version(),
         log_level: relayed.and_then(|relayed| relayed.log_level),
         client_surface: relayed.map(|relayed| relayed.surface),
+        keep_daemon_alive: false,
     }
 }
 

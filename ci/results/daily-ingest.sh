@@ -9,7 +9,7 @@ set -euo pipefail
 store=${1:?usage: ci/results/daily-ingest.sh <store>}
 here=$(cd "$(dirname "$0")" && pwd)
 
-pending=$(cargo run --quiet --locked -p xtask -- results pending \
+pending=$(cargo run --quiet --locked --bin xtask -- results pending \
   --repository "${GITHUB_REPOSITORY:?}" --store "$store")
 
 ingested=0

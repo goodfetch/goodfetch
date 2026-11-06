@@ -1058,25 +1058,53 @@ fn full_durability() -> serde_json::Value {
 }
 
 /// `run_state.durability`'s default: an acknowledged commit survives a
-/// power cut (ADR 0002).
+/// power cut (ADRs 0002 and 0138).
 pub const DURABILITY_FULL: &str = "full";
 /// `run_state.durability`'s opt-in: an acknowledged commit survives a
-/// process crash only (ADR 0002).
+/// process crash only (ADRs 0002 and 0138).
 pub const DURABILITY_FAST: &str = "fast";
+/// `run_state.durability`'s opt-in: as `fast`, with one synced commit every
+/// `run_state.commit_interval` (ADR 0138).
+pub const DURABILITY_PERIODIC: &str = "periodic";
+/// `run_state.durability`'s opt-in: nothing synced, and a run file a crash
+/// left is discarded, so the Run starts again (ADR 0138).
+pub const DURABILITY_OFF: &str = "off";
 
-fn is_fast(value: &serde_json::Value) -> bool {
-    value.as_str() == Some(DURABILITY_FAST)
+/// Every Durability level below `full` weakens a guarantee (ADR 0138).
+fn below_full(value: &serde_json::Value) -> bool {
+    value.as_str() != Some(DURABILITY_FULL)
 }
 
-/// `run_state.durability` (ADR 0002).
+/// `run_state.durability` (ADRs 0002 and 0138).
 pub const RUN_STATE_DURABILITY: Setting = Setting {
     name: "run_state.durability",
-    description: "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
-    kind: ValueKind::Choice(&[DURABILITY_FULL, DURABILITY_FAST]),
+    description: "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
+    kind: ValueKind::Choice(&[
+        DURABILITY_FULL,
+        DURABILITY_FAST,
+        DURABILITY_PERIODIC,
+        DURABILITY_OFF,
+    ]),
     default: full_durability,
     clearable: false,
     authority: Authority::Every,
-    weakens: Some(is_fast),
+    weakens: Some(below_full),
+    arrived_in: ARRIVED_IN,
+};
+
+fn five_seconds() -> serde_json::Value {
+    serde_json::json!(5_000)
+}
+
+/// `run_state.commit_interval` (ADR 0138).
+pub const RUN_STATE_COMMIT_INTERVAL: Setting = Setting {
+    name: "run_state.commit_interval",
+    description: "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+    kind: ValueKind::Duration,
+    default: five_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1293,7 +1321,12 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[RUN_STATE_LOCATION, RUN_STATE_DURABILITY, RUN_STATE_LAYOUT],
+    settings: &[
+        RUN_STATE_LOCATION,
+        RUN_STATE_DURABILITY,
+        RUN_STATE_COMMIT_INTERVAL,
+        RUN_STATE_LAYOUT,
+    ],
     hook_stages: &[],
     shared_type_values: &warning::WARNING_CODES,
 };

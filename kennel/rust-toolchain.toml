@@ -1,0 +1,7 @@
+# The Kennel's own pin (ADR 0141): eframe 0.37, which its details window
+# takes, needs rustc 1.95. It matches the root's pin today; the two move
+# apart only when one of them needs to.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

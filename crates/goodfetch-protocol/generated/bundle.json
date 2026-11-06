@@ -5815,6 +5815,11 @@
           "arrived_in": "0.1",
           "description": "The form its user writes names in (ADR 0099); none until each\nsurface names its own."
         },
+        "keep_daemon_alive": {
+          "arrived_in": "0.1",
+          "description": "On a Kennel's `hello` (surface `kennel`), asks a Daemon to count the\nConnection as a Client that keeps it alive, holding off its idle\nstop and a handover to its major's pick as every other surface's\nConnection does (ADR 0141). Read only from a `kennel` Connection,\nand ignored on any other surface's.",
+          "type": "boolean"
+        },
         "log_level": {
           "anyOf": [
             {
@@ -15403,6 +15408,11 @@
           "type": "string"
         },
         {
+          "const": "kennel",
+          "description": "The Kennel, a person surface that observes the Daemon: its Runs\noutlive its Connection, which holds the Daemon neither awake nor\nback from a handover unless its `hello` sets `keep_daemon_alive`\n(ADR 0141).",
+          "type": "string"
+        },
+        {
           "const": "cloud",
           "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
           "type": "string"
@@ -17715,6 +17725,17 @@
                 },
                 "type": "object"
               },
+              "run_state": {
+                "additionalProperties": false,
+                "properties": {
+                  "commit_interval": {
+                    "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "sample": {
                 "additionalProperties": false,
                 "properties": {
@@ -19411,11 +19432,18 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "commit_interval": {
+                    "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "durability": {
-                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+                    "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
                     "enum": [
                       "full",
-                      "fast"
+                      "fast",
+                      "periodic",
+                      "off"
                     ]
                   },
                   "key_reference": {
@@ -22085,11 +22113,18 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "commit_interval": {
+                    "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "durability": {
-                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+                    "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
                     "enum": [
                       "full",
-                      "fast"
+                      "fast",
+                      "periodic",
+                      "off"
                     ]
                   },
                   "key_reference": {
@@ -24775,11 +24810,18 @@
               "run_state": {
                 "additionalProperties": false,
                 "properties": {
+                  "commit_interval": {
+                    "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "durability": {
-                    "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+                    "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
                     "enum": [
                       "full",
-                      "fast"
+                      "fast",
+                      "periodic",
+                      "off"
                     ]
                   },
                   "key_reference": {

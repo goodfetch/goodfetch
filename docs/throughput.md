@@ -29,9 +29,7 @@ The steps run in this order for each page of a code-free crawl on the `http` tie
 | Keep the page's Record | feature | `dataset.records: false` | 1 validation, 1 serialization, 1 deep copy and 2 lookups of a value constant for the Run per Record, against no Record |
 | Write the Provenance log | feature | `provenance.log: false` | 1 task spawned per Run-trace entry, 17 entries for 16 pages, against no entry |
 | Commit the attempt's outcome | needed | — | 5.375 run-file transactions per attempt |
-| Sync the outcome to disk | feature | `run_state.durability: fast` | 4.616 syncs per attempt at `full`, its default, against 1.924 at `fast` (B1's cells `concurrency_16` and `durability_fast`) |
-
-The durable levels `periodic` and `off` come with #1927.
+| Sync the outcome to disk | feature | `run_state.durability: off` | 4.616 syncs per attempt at `full`, its default, against 1.924 at `fast` (B1's cells `concurrency_16` and `durability_fast`); `periodic` syncs one group per `run_state.commit_interval`, and `off` none but its "unclean" mark's two per Run |
 
 ## The maximum-throughput combination
 
@@ -46,7 +44,7 @@ A crawl that only fetches pages and follows their links, keeping nothing but the
   "frontier": { "learning": false },
   "provenance": { "log": false },
   "dataset": { "records": false },
-  "run_state": { "durability": "fast" }
+  "run_state": { "durability": "off" }
 }
 ```
 
@@ -59,4 +57,4 @@ What it gives up:
 - **`fetch.block_classification: false`** moves no request to the browser for a Challenge and ends none `blocked`, so a page a site blocked can be among the successes.
 - **`dataset.records: false`** keeps no Record: `run.records` reads none, and each request's outcome says `records_off`.
 - **`provenance.log: false`** writes no Provenance log, so the Run trace cannot say which tier fetched each page.
-- **`run_state.durability: fast`** can lose the last commits to a power cut, never to a crash of the process alone.
+- **`run_state.durability: off`** keeps nothing through a crash: a run file a process crash or a power cut left is discarded when the Run is next started or resumed, and the Run starts again from nothing. A clean stop (`run.pause`, an abort) still leaves a run file the Run resumes from.

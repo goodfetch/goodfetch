@@ -2,7 +2,8 @@
 //! 0032 and 0061): from the paths a change touches, which jobs run and what
 //! each test runner selects. CI gives it a base and a head; locally it diffs
 //! the working tree, uncommitted and untracked files included, against the
-//! merge base with `origin/main`. Both modes feed the same rules.
+//! merge base with `origin/main`, or with the branch `--since` names. Both
+//! modes feed the same rules.
 
 mod git;
 mod imports;
@@ -183,15 +184,22 @@ pub(crate) struct Arguments {
     #[arg(long, requires = "base")]
     head: Option<String>,
     /// The working tree, uncommitted and untracked files included,
-    /// against the merge base with `origin/main`.
+    /// against the merge base with `origin/main`, or with `--since`.
     #[arg(long, conflicts_with_all = ["base", "head"])]
     local: bool,
+    /// With `--local`, the revision whose merge base with `HEAD` the working
+    /// tree is read against, in place of `origin/main`: the integration
+    /// branch a ticket goes into, or what a push's remote ref holds.
+    #[arg(long, requires = "local")]
+    since: Option<String>,
 }
 
 pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
     let range = match (arguments.base, arguments.head) {
         (Some(base), Some(head)) => Range::Commits { base, head },
-        _ => Range::WorkingTree,
+        _ => Range::WorkingTree {
+            since: arguments.since,
+        },
     };
     let selection = select(&environment.cargo, &environment.root, &range)?;
     output::line(selection.to_string().trim_end());

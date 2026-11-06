@@ -136,7 +136,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- results scan --store test-results
+          cargo run --quiet --locked --bin xtask -- results scan --store test-results
           --repository "$GITHUB_REPOSITORY"
       # ADR 0071: main's latest counted figures against the last release's;
       # before the first release it compares none with a release.
@@ -145,12 +145,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- perf drift --store test-results
+          cargo run --quiet --locked --bin xtask -- perf drift --store test-results
           --repository "$GITHUB_REPOSITORY"
       - name: Build the Allure report from the store
         if: always()
         run: |
-          cargo run --quiet --locked -p xtask -- results allure --store test-results --out target/allure
+          cargo run --quiet --locked --bin xtask -- results allure --store test-results --out target/allure
           cd target/allure
           pnpm exec allure generate results --config allurerc.json
       - name: Scan the Allure report for secrets before it uploads
@@ -200,7 +200,7 @@ jobs:
       - name: Check the month's minutes against the ceiling
         id: ceiling
         run: >-
-          cargo run --quiet --locked -p xtask -- results ceiling --store test-results
+          cargo run --quiet --locked --bin xtask -- results ceiling --store test-results
           --run constrained --today "$(date -u +%F)" --summary "$GITHUB_STEP_SUMMARY"
           | tee -a "$GITHUB_OUTPUT"
       # A Release run tests the commit its `commit` input names, which may
@@ -214,7 +214,7 @@ jobs:
       - name: Name the commit the Release run tested
         id: tested
         if: github.event_name == 'workflow_run'
-        run: cargo run --quiet --locked -p xtask -- results tested-commit --artifacts target/artifacts | tee -a "$GITHUB_OUTPUT"
+        run: cargo run --quiet --locked --bin xtask -- results tested-commit --artifacts target/artifacts | tee -a "$GITHUB_OUTPUT"
 
   constrained:
     name: constrained

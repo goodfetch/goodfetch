@@ -1,0 +1,36 @@
+[package]
+name = "goodfetch-kennel"
+description = "The Kennel's modules that need no graphical toolkit: the Client, the State, the settings and the Daemon start (ADR 0141)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+dirs.workspace = true
+goodfetch-protocol.workspace = true
+# The installed executables' modification times.
+jiff.workspace = true
+# The settings file's changes, from the platform's file notifications.
+notify.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The settings file and the login agent, replaced by rename.
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
+toml.workspace = true
+toml_edit.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

@@ -97,7 +97,7 @@ jobs:
           CELLS: ${{ inputs.cells }}
           COMMIT: ${{ inputs.commit }}
         run: >-
-          cargo run --quiet --locked -p xtask -- release-suite plan
+          cargo run --quiet --locked --bin xtask -- release-suite plan
           --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --ref "$GITHUB_REF"
           --cells "$CELLS" --commit "$COMMIT"
           --outputs "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
@@ -722,7 +722,7 @@ jobs:
           GOODFETCH_TEST_SUITE: release
         run: ci/vm/visual.sh test
       - name: Check that every Reference screenshot was read
-        run: ci/vm/exec.sh cargo run --quiet --locked -p xtask -- screenshots orphans
+        run: ci/vm/exec.sh cargo run --quiet --locked --bin xtask -- screenshots orphans
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -784,7 +784,7 @@ jobs:
       - name: Evict caches past 9 GB
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: cargo run --quiet --locked -p xtask -- evict-caches --repository "$GITHUB_REPOSITORY"
+        run: cargo run --quiet --locked --bin xtask -- evict-caches --repository "$GITHUB_REPOSITORY"
 
   # The budget check (ADR 0061; TESTING.md, Time budgets) at the end of every
   # manual-dispatch Release run, where spec #325 places it: each job's median
@@ -837,5 +837,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          cargo run --quiet --locked -p xtask -- budgets --store test-results
+          cargo run --quiet --locked --bin xtask -- budgets --store test-results
           --repository "$GITHUB_REPOSITORY"

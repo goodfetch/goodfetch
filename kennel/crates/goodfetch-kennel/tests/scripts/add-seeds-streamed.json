@@ -1,0 +1,160 @@
+{
+  "description": "Add Seeds streams the seeds to run.add_seeds within the credits the call grants: two seeds for the first two credits, the last one marked end for the next; the answers of each batch, then the call's counts. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.add_seeds",
+        "params": {
+          "run_id": "shop-crawl"
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/credit",
+          "params": {
+            "id": 3,
+            "credits": 2
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/seeds",
+        "params": {
+          "id": 3,
+          "seeds": [
+            {
+              "url": "https://shop.example/a",
+              "label": "detail"
+            },
+            {
+              "url": "https://shop.example/b",
+              "label": "detail"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/enqueued",
+          "params": {
+            "id": 3,
+            "answers": [
+              {
+                "kind": "added",
+                "id": "r1",
+                "url": "https://shop.example/a"
+              },
+              {
+                "kind": "not_added",
+                "reason": "duplicate",
+                "url": "https://shop.example/b"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/credit",
+          "params": {
+            "id": 3,
+            "credits": 2
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/seeds",
+        "params": {
+          "id": 3,
+          "seeds": [
+            {
+              "url": "not a url",
+              "label": "detail"
+            }
+          ],
+          "end": true
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/enqueued",
+          "params": {
+            "id": 3,
+            "answers": [
+              {
+                "kind": "not_added",
+                "reason": "invalid_url",
+                "url": "not a url"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "added": 1,
+          "not_added": 2
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

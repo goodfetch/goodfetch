@@ -1,0 +1,339 @@
+{
+  "description": "The Daemon sends 31 events, then one more; once the Kennel has applied all 32, half its 64 credits, it renews them in one grant. Then the Daemon closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "kennel",
+          "token": "kennel-test-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.4.1",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {
+          "after": {
+            "engine_instance": "0123456789abcdef",
+            "position": 18446744073709551615
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 2,
+            "events": [
+              {
+                "position": 1,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-01",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 2,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-02",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 3,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-03",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 4,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-04",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 5,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-05",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 6,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-06",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 7,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-07",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 8,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-08",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 9,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-09",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 10,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-10",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 11,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-11",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 12,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-12",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 13,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-13",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 14,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-14",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 15,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-15",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 16,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-16",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 17,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-17",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 18,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-18",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 19,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-19",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 20,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-20",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 21,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-21",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 22,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-22",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 23,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-23",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 24,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-24",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 25,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-25",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 26,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-26",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 27,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-27",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 28,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-28",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 29,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-29",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 30,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-30",
+                  "lifecycle": "running"
+                }
+              },
+              {
+                "position": 31,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-31",
+                  "lifecycle": "running"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 2,
+            "events": [
+              {
+                "position": 32,
+                "event": "run.axes_changed",
+                "data": {
+                  "run_id": "run-32",
+                  "lifecycle": "running"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 32
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

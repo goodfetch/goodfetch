@@ -200,6 +200,14 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
         .unwrap()
         .with_metrics(metrics);
     goodfetch_test_support::runtime().block_on(async {
+        // The dispatch records go into the test's exercise record (ADR
+        // 0072), which the Feature audit reads for the operations the test
+        // covers, timed by the engine's Clock.
+        let clock = Clock::paused(env.start_time());
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                clock.wall()
+            }));
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, mut writer) = dialer.connect().await.unwrap().split();

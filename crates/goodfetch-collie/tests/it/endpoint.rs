@@ -280,6 +280,9 @@ fn no_endpoint_token_reaches_the_daemons_log_or_the_audit_log() {
     daemon.terminate();
 
     let home = Home::new(env.home().to_path_buf());
+    // The entries a closed connection left in the write-ahead log (#2110).
+    let mut wal = home.audit_log().into_os_string();
+    wal.push("-wal");
     let stdout = daemon.logged.join("\n");
     let leaks = canaries
         .leaks(&[
@@ -288,6 +291,7 @@ fn no_endpoint_token_reaches_the_daemons_log_or_the_audit_log() {
                 bytes: stdout.as_bytes(),
             },
             Output::Path(&home.audit_log()),
+            Output::Path(std::path::Path::new(&wal)),
             Output::Path(&home.audit_log_head()),
         ])
         .unwrap();

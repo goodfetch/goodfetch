@@ -44,5 +44,25 @@ pub(crate) fn enter(connection: &Connection, timeout: Duration) -> rusqlite::Res
     }
 }
 
+/// Has `connection` leave the write-ahead log as it is when it closes,
+/// rather than copy it into the file, which syncs both, when it is the
+/// file's last connection (#2110). A commit at `synchronous=FULL` already
+/// synced the log, so what it holds survives a power cut, and the next
+/// connection reads it; SQLite's automatic checkpoint still copies it into
+/// the file once it passes its thousand pages, so it does not grow without
+/// bound.
+///
+/// # Errors
+///
+/// SQLite's error.
+pub(crate) fn no_checkpoint_on_close(connection: &Connection) -> rusqlite::Result<()> {
+    connection
+        .set_db_config(
+            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+            true,
+        )
+        .map(drop)
+}
+
 #[cfg(test)]
 pub(crate) mod tests;

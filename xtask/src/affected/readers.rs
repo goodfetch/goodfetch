@@ -4,7 +4,9 @@
 //! both the selection and the gate's evidence add these members (ADR 0135).
 //! A literal on a comment line names the file without reading it, and a
 //! document the Quick suite alone checks is read only where a literal names
-//! the file itself (#2041).
+//! the file itself (#2041). A member whose code also names heading lines of
+//! a changed Markdown document, in string literals, reads only those parts
+//! of it (`parts`), so it is a reader only when one of them changed.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -16,7 +18,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use super::selection::needs_no_tests;
-use super::{RepoPath, WorkspaceMembers};
+use super::{ChangedParts, RepoPath, WorkspaceMembers};
 
 /// The extensions of the files whose string literals may name a file a test
 /// reads at run time.
@@ -24,11 +26,14 @@ const SOURCE_EXTENSIONS: [&str; 7] = ["rs", "ts", "tsx", "mts", "js", "mjs", "py
 
 /// The members whose own files hold a string literal naming one of the
 /// `changed` paths no member owns (`TESTING.md"`, `"docs/adr`…): a test may
-/// read such a file at run time, which no build or import shows.
+/// read such a file at run time, which no build or import shows. Of a
+/// document whose `parts` were read, a member that names some of its
+/// heading lines reads those parts alone.
 pub(crate) fn literal_readers(
     root: &Path,
     members: &WorkspaceMembers,
     changed: &[RepoPath],
+    parts: &ChangedParts,
 ) -> Result<BTreeMap<String, String>> {
     let unowned: Vec<&RepoPath> = changed
         .iter()
@@ -50,25 +55,53 @@ pub(crate) fn literal_readers(
         let Some(folder) = members.folder(&member) else {
             continue;
         };
-        'files: for file in super::source_files(&root.join(&folder), &SOURCE_EXTENSIONS)? {
-            let Ok(text) = std::fs::read_to_string(&file) else {
-                continue;
-            };
-            let code = code_lines(&text, &file);
-            for (literal, path) in &patterns {
-                let from_its_folder = member == XTASK && needs_no_tests(path);
-                if names(&code, literal, from_its_folder) {
-                    let relative = file.strip_prefix(root).unwrap_or(&file);
-                    reached.insert(
-                        member.clone(),
-                        format!("{} names {}", relative.display(), path.as_str()),
-                    );
-                    break 'files;
-                }
+        let mut files = Vec::new();
+        for file in super::source_files(&root.join(&folder), &SOURCE_EXTENSIONS)? {
+            if let Ok(text) = std::fs::read_to_string(&file) {
+                let code = code_lines(&text, &file);
+                files.push((file, code));
             }
+        }
+        let read = patterns.iter().find_map(|(literal, path)| {
+            let from_its_folder = member == XTASK && needs_no_tests(path);
+            let (file, _) = files
+                .iter()
+                .find(|(_, code)| names(code, literal, from_its_folder))?;
+            reads_a_changed_part(&files, path, parts).then_some((file, path))
+        });
+        if let Some((file, path)) = read {
+            let relative = file.strip_prefix(root).unwrap_or(file);
+            reached.insert(
+                member.clone(),
+                format!("{} names {}", relative.display(), path.as_str()),
+            );
         }
     }
     Ok(reached)
+}
+
+/// Whether a member whose `files` name `path` reads a changed part of it:
+/// always, unless its parts were read and the files name some of its
+/// heading lines in a string literal (`"## Quality register"`), each the
+/// part a reader finds by it, and none of those parts changed.
+fn reads_a_changed_part(
+    files: &[(std::path::PathBuf, String)],
+    path: &RepoPath,
+    parts: &ChangedParts,
+) -> bool {
+    let (Some(headings), Some(changed)) = (parts.headings(path), parts.changed(path)) else {
+        return true;
+    };
+    let named: Vec<&String> = headings
+        .iter()
+        .filter(|heading| {
+            ['"', '\'', '`'].iter().any(|quote| {
+                let literal = format!("{quote}{heading}{quote}");
+                files.iter().any(|(_, code)| code.contains(&literal))
+            })
+        })
+        .collect();
+    named.is_empty() || named.iter().any(|heading| changed.contains(*heading))
 }
 
 /// The member whose commands run at the repository's root, so that its

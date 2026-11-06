@@ -304,3 +304,44 @@ fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies(
         );
     }
 }
+
+/// A gate worktree keeps perf's base build and the base's tree from one gate
+/// to the next, as it keeps the head's build, so the next gate's perf
+/// rebuilds only what the base changed; any other output of a step goes.
+#[test]
+fn a_gate_worktree_keeps_perfs_base_build_and_tree() {
+    let workspace = backstop_repository();
+    // Ignored, as the repository's `.gitignore` ignores it.
+    workspace.write(".git/info/exclude", b"/target/\n");
+    let stand_in = stand_in_just(&workspace);
+    let first = backstop(&workspace, &stand_in);
+    assert_eq!(first.code, Some(0), "{}", first.log);
+    let worktree = ".claude/worktrees/gate-backstop";
+    let kept = [
+        "target/release/deps/bench",
+        "target/perf-base/release/deps/bench",
+        "target/perf-base-tree/Cargo.toml",
+    ];
+    for file in kept {
+        workspace.write(&format!("{worktree}/{file}"), b"");
+    }
+    workspace.write(&format!("{worktree}/target/perf/plan.json"), b"{}");
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    for file in kept {
+        assert!(
+            workspace.path().join(worktree).join(file).exists(),
+            "{file} was removed"
+        );
+    }
+    assert!(
+        !workspace
+            .path()
+            .join(worktree)
+            .join("target/perf/plan.json")
+            .exists(),
+        "an earlier gate's perf plan was kept"
+    );
+}

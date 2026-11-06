@@ -58,26 +58,51 @@ command -v valgrind >/dev/null 2>&1 || skip "just perf" "Valgrind is not install
 # The rows of counted work (ADR 0140), whose statement preparations are
 # Callgrind's call count: each run against its limit, then each counter against
 # a planted unit of its work.
-cargo run --quiet --bin xtask -- counts
-cargo run --quiet --bin xtask -- counts --prove
-
-# B1 and B2 under strace: what it sees of the Run trace's opens and folders
-# and of the counted files' syncs against the counters, then a raw unit of each
-# beside its counted function, which must fail the cell (ADR 0140). Without
-# strace on a local host it lists itself as skipped; CI fails.
-cargo run --quiet --bin xtask -- counts --strace
-cargo run --quiet --bin xtask -- counts --strace --prove
-
-command -v gungraun-runner >/dev/null 2>&1 || skip "just perf" "gungraun-runner is not installed on this host"
+counted_rows() {
+  nice -n 10 cargo run --quiet --bin xtask -- counts
+  nice -n 10 cargo run --quiet --bin xtask -- counts --prove
+  # B1 and B2 under strace: what it sees of the Run trace's opens and folders
+  # and of the counted files' syncs against the counters, then a raw unit of
+  # each beside its counted function, which must fail the cell (ADR 0140).
+  # Without strace on a local host it lists itself as skipped; CI fails.
+  nice -n 10 cargo run --quiet --bin xtask -- counts --strace
+  nice -n 10 cargo run --quiet --bin xtask -- counts --strace --prove
+}
 
 # The rows read under Valgrind (ADR 0140): each against its limit, then each
 # against a planted unit of work.
-cargo run --quiet --bin xtask -- counts --valgrind
-cargo run --quiet --bin xtask -- counts --valgrind --prove
+valgrind_rows() {
+  nice -n 10 cargo run --quiet --bin xtask -- counts --valgrind
+  nice -n 10 cargo run --quiet --bin xtask -- counts --valgrind --prove
+}
 
-selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
-targets=$(sed -n 's/^bench-targets=//p' <<<"$selection")
-cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
+if ! command -v gungraun-runner >/dev/null 2>&1; then
+  counted_rows
+  skip "just perf" "gungraun-runner is not installed on this host"
+fi
+
+# The counted rows read neither the bench targets' build nor its figures, so
+# they run beside it, their lines marked `[counts]`, at `nice -n 10` (TESTING.md's
+# priority for load beside other work): they yield the CPU to the build and to
+# the host's other checks, and take all of it on an idle host. The measurement
+# starts once both have passed, and a red row or build fails perf before it.
+(
+  counted_rows
+  valgrind_rows
+) > >(sed -u 's/^/[counts] /') 2>&1 &
+counting=$!
+
+status=0
+{
+  selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}") &&
+    targets=$(sed -n 's/^bench-targets=//p' <<<"$selection") &&
+    cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
+} || status=$?
+counted=0
+wait "$counting" || counted=$?
+((status == 0)) || exit "$status"
+((counted == 0)) || exit "$counted"
+
 # `just merge` saves the pull request's acceptance (ci/merge-pr.sh); without
 # it, every figure past its threshold is reported. Until M1's optimization
 # pass, each is a note that fails nothing, and only a broken measurement

@@ -47,6 +47,7 @@ use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
     self, BROWSERS_PATH_VARIABLE, CacheLocation, HOME_FOLDER, MaxUnusedAge,
 };
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
@@ -141,6 +142,8 @@ pub(super) struct Machine<'a> {
     pub(super) environment: &'a BTreeMap<OsString, OsString>,
     /// This executable's path, as the OS started it.
     pub(super) executable: Option<PathBuf>,
+    /// Where it reads wall time: the engine's Clock.
+    pub(super) clock: Clock,
 }
 
 /// Why reaching the Daemon failed.
@@ -239,6 +242,11 @@ fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
 }
 
 impl Machine<'_> {
+    /// Wall time now, on the engine's Clock.
+    pub(super) fn now(&self) -> jiff::Timestamp {
+        now_of(self.clock)
+    }
+
     pub(super) fn files(&self) -> DaemonFiles {
         DaemonFiles::of(self.home, &self.identity.product_version)
     }
@@ -305,7 +313,7 @@ impl Machine<'_> {
             &seen,
             &self.identity.product_version,
             stores_floor(self.home, &self.identity.product_version),
-            now(),
+            self.now(),
             self.max_unused_age(),
         )
         .cloned()
@@ -404,7 +412,7 @@ impl Machine<'_> {
                     Path::new(&picked.path),
                     picked.product,
                     &picked.product_version,
-                    jiff_now(),
+                    self.now(),
                 )
                 .map_err(unavailable("the Daemon's versioned copy cannot be made"))?;
                 let recorded = InstalledExecutable {
@@ -607,7 +615,7 @@ impl Machine<'_> {
                     .map(|artifact| artifact.id)
                     .collect(),
                 copy: None,
-                last_seen: jiff_now(),
+                last_seen: self.now(),
             })
         });
         if let Err(error) = recorded {
@@ -1091,13 +1099,10 @@ fn describe(status: &DaemonState) -> String {
     )
 }
 
-fn now() -> jiff::Timestamp {
-    jiff_now()
-}
-
-fn jiff_now() -> jiff::Timestamp {
-    let now = std::time::SystemTime::now();
-    jiff::Timestamp::try_from(now).expect("invariant: the system clock reads a representable time")
+/// Wall time now on `clock`.
+pub(super) fn now_of(clock: Clock) -> jiff::Timestamp {
+    jiff::Timestamp::try_from(clock.wall())
+        .expect("invariant: the system clock reads a representable time")
 }
 
 fn runtime() -> tokio::runtime::Runtime {

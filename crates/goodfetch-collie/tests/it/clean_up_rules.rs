@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use goodfetch_protocol::page::PageOpened;
+use goodfetch_protocol::run::warning::CLEAN_UP_RULES_STALE;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
@@ -39,6 +40,22 @@ use crate::run::call;
 
 /// The digest of the embedded part, as the clean-up crate's build gives it.
 const EMBEDDED: &str = goodfetch_clean_up_rules::rules::EMBEDDED_DIGEST;
+
+/// The warnings of a Run report, `warnings`, without the one the Run
+/// carries while it holds to Clean-up rules older than 14 days: every Run
+/// that holds to the embedded part carries it from 14 days after the part's
+/// date on, and a test of the executable runs on the real calendar, which
+/// no build lets it set (TESTING.md › Time). A test that is not about the
+/// Clean-up rules compares the rest, so its outcome never depends on the
+/// date it runs on; the rule itself is proven in-process on any "now"
+/// (`clean_up_versions`' tests) and here with a pinned old version.
+pub(crate) fn calendar_free(warnings: &[Value]) -> Vec<Value> {
+    warnings
+        .iter()
+        .filter(|warning| warning["code"] != json!(CLEAN_UP_RULES_STALE))
+        .cloned()
+        .collect()
+}
 
 /// The folder of the Run `run_id` in the Goodfetch home `home`.
 fn run_folder(home: &Path, run_id: &str) -> PathBuf {

@@ -51,6 +51,9 @@ impl Filesystem {
 /// once; a folder whose filesystem cannot be read is in none.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StorageSample {
+    /// The sample's number, from 1 for the first: the one the governor's
+    /// count of storage samples begun read as it began.
+    pub number: u64,
     /// The filesystems, in the order of their first folder.
     pub filesystems: Vec<Filesystem>,
 }
@@ -128,8 +131,13 @@ impl Disks {
     }
 
     /// Samples each filesystem holding one of `folders` once, under
-    /// `settled`. Blocking.
-    pub(crate) fn sample(&self, folders: &[PathBuf], settled: &Settled) -> StorageSample {
+    /// `settled`, as the sample `number`. Blocking.
+    pub(crate) fn sample(
+        &self,
+        number: u64,
+        folders: &[PathBuf],
+        settled: &Settled,
+    ) -> StorageSample {
         let mut held: Vec<(FilesystemId, Vec<PathBuf>)> = Vec::new();
         for folder in folders {
             let Some(id) = self.identify(folder) else {
@@ -147,7 +155,10 @@ impl Disks {
                 Some(settled.filesystem(folders, &reading))
             })
             .collect();
-        StorageSample { filesystems }
+        StorageSample {
+            number,
+            filesystems,
+        }
     }
 }
 

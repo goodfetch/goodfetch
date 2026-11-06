@@ -16,9 +16,10 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::{
-    HostDefaults, Layers, Policy, Recipe, Resolved, SettingsError, Values, check_environment,
-    configuration, operator_policy, resolve, rewrite,
+    HostDefaults, Layers, Policy, Recipe, Resolved, SettingsError, SettingsFiles, Values,
+    check_environment, configuration, operator_policy, resolve, rewrite,
 };
+use crate::home::Home;
 
 fn nested(value: Value) -> Map<String, Value> {
     match value {
@@ -1265,6 +1266,35 @@ fn rewriting_a_shared_file_keeps_every_other_entry_byte_for_byte() {
     assert_eq!(
         rewritten,
         "version = \"0.1\"\n# Foxhound's, kept by Collie.\n[settings.crawl.retry]\nmax = 5 # five\n\n[settings.timeout]\nnavigation = 3000 # two seconds\n"
+    );
+}
+
+/// Every test home's user configuration (`TEST_SETTINGS` and the test's
+/// `log.level`) is already in the order the writer keeps: a setting the
+/// Console or `config set` writes leaves every other byte as it was, as
+/// the served Console test of a user-level edit checks.
+#[rstest]
+#[case::as_created(None)]
+#[case::with_a_log_level_set_since(Some("debug"))]
+fn a_write_to_the_test_homes_user_configuration_keeps_every_other_byte(
+    #[case] log_level: Option<&str>,
+) {
+    let env = goodfetch_test_support::TestEnv::new();
+    if let Some(filter) = log_level {
+        env.log_level(filter);
+    }
+    let files = SettingsFiles::of(&Home::new(env.home().to_owned()), &engine());
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a synchronous test reads the file, outside any async worker"
+    )]
+    let text = std::fs::read_to_string(files.user_configuration()).unwrap();
+
+    let rewritten = rewrite(&text, "settings", "timeout.navigation", &json!(45000)).unwrap();
+
+    assert_eq!(
+        rewritten,
+        format!("{text}\n[settings.timeout]\nnavigation = 45000\n")
     );
 }
 

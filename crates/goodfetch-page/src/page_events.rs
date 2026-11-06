@@ -645,8 +645,8 @@ impl PageEvents {
 
     /// Arms a listener for `event` now: the event is published while it
     /// listens. The second value says the listener must first turn
-    /// `Runtime` on, which `wall` dates.
-    pub(crate) fn listen(&self, event: PageEventName, wall: SystemTime) -> (Listening, bool) {
+    /// `Runtime` on, which the Run's clock dates.
+    pub(crate) fn listen(&self, event: PageEventName) -> (Listening, bool) {
         let (queue, events) = mpsc::channel(LISTENER_LIMIT);
         let (overflowed, overflow) = oneshot::channel();
         let mut state = lock(&self.shared.state);
@@ -663,7 +663,7 @@ impl PageEvents {
         let runtime = matches!(event, PageEventName::Console | PageEventName::PageError)
             && state.runtime_since.is_none();
         if runtime {
-            state.runtime_since = Some(millis_since_epoch(wall));
+            state.runtime_since = Some(millis_since_epoch(self.shared.clock.wall()));
         }
         drop(state);
         (

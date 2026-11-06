@@ -1,0 +1,7 @@
+# The incremental gate's backstop (ADR 0135, TESTING.md's Commands): one full
+# `just pre-merge all` a day on `main`'s head, compared with the incremental
+# runs of `just merge` (ci/gate-backstop.sh). It goes into the gate host's
+# crontab (`crontab -e`), with GOODFETCH_CHECKOUT set to the main checkout.
+# On a day the disk lacks room for its build it lists itself as skipped.
+GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
+37 3 * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && nice -n 10 just gate-backstop origin/main'

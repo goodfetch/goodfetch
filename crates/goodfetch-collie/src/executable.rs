@@ -430,7 +430,7 @@ pub fn main(start: &Start) -> ExitCode {
         return ExitCode::FAILURE;
     };
     if !launched {
-        age_notice(start.release_date, &home, engine.identity());
+        age_notice(start.release_date, &home, engine.identity(), clock);
     }
     let Ok(entropy) = entropy.inspect_err(|error| {
         tracing::error!(%error, "the engine has no seed for its random choices");
@@ -612,6 +612,7 @@ fn run(
         home: &home,
         environment,
         executable: std::env::current_exe().ok(),
+        clock: dependencies.clock,
     };
     if records_the_executable(&parsed) {
         machine.record();
@@ -629,11 +630,17 @@ fn run(
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
-        } => browsers::install(engine.identity(), environment, json, human),
+        } => browsers::install(engine.identity(), environment, machine.clock, json, human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..
-        } => browsers::clean(engine.identity(), environment, (dry_run, json), human),
+        } => browsers::clean(
+            engine.identity(),
+            environment,
+            machine.clock,
+            (dry_run, json),
+            human,
+        ),
         Command::Console {
             no_browser, json, ..
         } => console::open(&machine, no_browser, json, human),
@@ -777,13 +784,13 @@ fn config_explain(
 }
 
 /// Prints the age notice on stderr when it is due for an executable
-/// released on `release_date` (ADR 0030).
-fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity) {
+/// released on `release_date` (ADR 0030), at the time `clock` reads.
+fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, clock: Clock) {
     let Some(released) = release_date.and_then(|date| date.parse::<jiff::civil::Date>().ok())
     else {
         return;
     };
-    match AgeNotice::new(home, identity.clone()).due(released, Clock::system().wall()) {
+    match AgeNotice::new(home, identity.clone()).due(released, clock.wall()) {
         Ok(Some(line)) => output::note(&line),
         Ok(None) => {}
         Err(error) => tracing::debug!(%error, "the age notice was not recorded"),

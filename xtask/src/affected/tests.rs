@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use super::selection::{Job, Selection, select};
 use super::workspace::{Crate, Ecosystem, Embedded, Package, Workspace};
-use super::{RepoPath, WorkspaceMembers, select_with_readers};
+use super::{ChangedParts, RepoPath, WorkspaceMembers, select_with_readers};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -241,7 +241,7 @@ fn packages() -> Vec<Package> {
 
 fn select_paths(paths: &[&str]) -> Selection {
     let paths: Vec<RepoPath> = paths.iter().map(|path| RepoPath::new(*path)).collect();
-    select(&fixture(), &paths)
+    select(&fixture(), &paths, &ChangedParts::default())
 }
 
 /// The value of the selection's `key=value` line for `key`.
@@ -398,7 +398,8 @@ fn a_document_is_read_only_where_code_names_the_file_itself(
     let members = WorkspaceMembers::from_workspace(fixture());
     let paths: Vec<RepoPath> = paths.iter().map(|path| RepoPath::new(*path)).collect();
 
-    let selection = select_with_readers(root.path(), &members, &paths).unwrap();
+    let selection =
+        select_with_readers(root.path(), &members, &paths, &ChangedParts::default()).unwrap();
 
     assert_eq!(
         (
@@ -429,8 +430,13 @@ fn xtask_reads_a_document_only_through_a_path_from_its_folder(
     write(root.path(), "xtask/tests/it/notes.rs", source);
     let members = WorkspaceMembers::from_workspace(fixture());
 
-    let selection =
-        select_with_readers(root.path(), &members, &[RepoPath::new("NOTES.md")]).unwrap();
+    let selection = select_with_readers(
+        root.path(),
+        &members,
+        &[RepoPath::new("NOTES.md")],
+        &ChangedParts::default(),
+    )
+    .unwrap();
 
     assert_eq!(value(&selection, "gate"), gate);
 }
@@ -443,6 +449,100 @@ fn a_change_to_the_register_runs_perf() {
     let selection = select_paths(&["TESTING.md"]);
 
     assert!(selection.selects(Job::Perf), "{selection}");
+}
+
+/// TESTING.md as a change's base holds it, for the cases below.
+const TESTING_BEFORE: &str = "# Testing\n\nIntro.\n\n## Writing a test\n\nProse.\n\n### Time budgets\n\n| Suite | Where | Budget |\n|---|---|---|\n| Quick | host | 10 min |\n\n## Quality register\n\n| Row | Limit |\n|---|---|\n| a | 1 |\n";
+
+/// A test reads a document's parts by their heading lines, which its
+/// member's code names in a string literal: a change to a part no reader
+/// names takes the docs gate, a change to a named part selects its readers,
+/// and a member that names the document but none of its headings reads it
+/// whole. The Quality register's part alone runs perf (hygiene backlog E1).
+#[rstest]
+#[case::prose_no_reader_names(
+    r####"const T: &str = include_str!("../../../TESTING.md"); const S: &str = "### Time budgets";"####,
+    ("Prose.", "Reworded prose."),
+    "docs",
+    false
+)]
+#[case::a_part_its_reader_names(
+    r####"const T: &str = include_str!("../../../TESTING.md"); const S: &str = "### Time budgets";"####,
+    ("| Quick | host | 10 min |", "| Quick | host | 12 min |"),
+    "full",
+    true
+)]
+#[case::a_reader_of_the_whole_document(
+    r#"const T: &str = include_str!("../../../TESTING.md");"#,
+    ("Prose.", "Reworded prose."),
+    "full",
+    true
+)]
+#[case::the_quality_register(
+    r####"const T: &str = include_str!("../../../TESTING.md"); const S: &str = "### Time budgets";"####,
+    ("| a | 1 |", "| a | 2 |"),
+    "full",
+    false
+)]
+#[case::a_renamed_heading_its_reader_names(
+    r####"const T: &str = include_str!("../../../TESTING.md"); const S: &str = "### Time budgets";"####,
+    ("### Time budgets", "### Budgets"),
+    "full",
+    true
+)]
+fn a_document_tests_read_by_part_selects_only_the_readers_of_its_changed_parts(
+    #[case] source: &str,
+    #[case] edit: (&str, &str),
+    #[case] gate: &str,
+    #[case] selected: bool,
+) {
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), "xtask/tests/it/budgets.rs", source);
+    let members = WorkspaceMembers::from_workspace(fixture());
+    let testing = RepoPath::new("TESTING.md");
+    let after = TESTING_BEFORE.replace(edit.0, edit.1);
+    let mut parts = ChangedParts::default();
+    parts.insert(testing.clone(), TESTING_BEFORE, &after);
+
+    let selection = select_with_readers(root.path(), &members, &[testing], &parts).unwrap();
+
+    assert_eq!(
+        (
+            value(&selection, "gate"),
+            value(&selection, "crates")
+                .split(' ')
+                .any(|krate| krate == "xtask"),
+        ),
+        (gate.to_owned(), selected),
+        "{selection}"
+    );
+}
+
+/// A part runs from its heading line to the next heading of its level or
+/// above, so a change inside a subsection changes every part around it; a
+/// `#` line inside a fenced block is no heading, and a heading line that
+/// appears twice names both parts.
+#[test]
+fn a_changed_part_is_named_by_its_heading_and_every_heading_around_it() {
+    let before = "# Doc\n\n## One\n\n```sh\n# not a heading\n```\n\n### Inner\n\na\n\n## Two\n\nb\n\n### Inner\n\nc\n";
+    let after = before.replace("a\n", "z\n");
+    let mut parts = ChangedParts::default();
+    let path = RepoPath::new("DOC.md");
+    parts.insert(path.clone(), before, &after);
+
+    assert_eq!(
+        parts
+            .changed(&path)
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["# Doc", "## One", "### Inner"]
+    );
+    assert!(
+        !parts.headings(&path).unwrap().contains("# not a heading"),
+        "a fenced line is no heading"
+    );
 }
 
 #[rstest]
@@ -663,7 +763,11 @@ fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosyste
     #[case] key: &str,
     #[case] expected: &str,
 ) {
-    let selection = select(&with_test_support_in_every_run(), &[RepoPath::new(path)]);
+    let selection = select(
+        &with_test_support_in_every_run(),
+        &[RepoPath::new(path)],
+        &ChangedParts::default(),
+    );
 
     assert_eq!(value(&selection, key), expected);
 }
@@ -678,7 +782,11 @@ fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
         krate: "goodfetch-collie".to_owned(),
     }];
 
-    let selection = select(&workspace, &[RepoPath::new("console/src/app.tsx")]);
+    let selection = select(
+        &workspace,
+        &[RepoPath::new("console/src/app.tsx")],
+        &ChangedParts::default(),
+    );
 
     assert_eq!(
         value(&selection, "crates"),
@@ -754,7 +862,11 @@ fn a_change_to_collies_console_reaches_foxhounds_executable() {
         },
     ];
 
-    let selection = select(&workspace, &[RepoPath::new("console/src/app.tsx")]);
+    let selection = select(
+        &workspace,
+        &[RepoPath::new("console/src/app.tsx")],
+        &ChangedParts::default(),
+    );
 
     let crates = value(&selection, "crates");
     assert!(crates.contains("goodfetch-collie"), "{selection}");
@@ -779,6 +891,7 @@ fn a_package_the_console_needs_only_for_its_tests_does_not_reach_the_embedder() 
     let selection = select(
         &workspace,
         &[RepoPath::new("test-support/typescript/src/screenshot.ts")],
+        &ChangedParts::default(),
     );
 
     assert!(

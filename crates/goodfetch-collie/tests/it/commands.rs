@@ -15,8 +15,10 @@ use goodfetch_test_support::{
     CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
 use rstest::rstest;
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
+
+use crate::clean_up_rules::calendar_free;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -33,8 +35,11 @@ pub(crate) fn start(env: &TestEnv, run_id: &str) {
 
 /// `output` without the engine's dispatch records, which an Attached
 /// engine writes on the command's stderr and a Daemon in its own log, so
-/// that both modes share one snapshot of what the command itself prints.
+/// that both modes share one snapshot of what the command itself prints;
+/// and, in a Run report it prints, without the warning that depends on the
+/// calendar ([`calendar_free`]).
 fn printed(mut output: CliOutput) -> CliOutput {
+    output.stdout = calendar_free_report(&output.stdout);
     output.stderr = output
         .stderr
         .lines()
@@ -45,6 +50,53 @@ fn printed(mut output: CliOutput) -> CliOutput {
             kept
         });
     output
+}
+
+/// `stdout` without the calendar's warning in the Run report it prints,
+/// as one JSON document or one field per line; unchanged when the report
+/// carries no such warning.
+fn calendar_free_report(stdout: &str) -> String {
+    if let Ok(mut report) = serde_json::from_str::<Value>(stdout) {
+        let Some(warnings) = report.get("warnings").and_then(Value::as_array) else {
+            return stdout.to_owned();
+        };
+        let kept = calendar_free(warnings);
+        if kept.len() == warnings.len() {
+            return stdout.to_owned();
+        }
+        let fields = report
+            .as_object_mut()
+            .expect("invariant: a report with warnings is an object");
+        if kept.is_empty() {
+            fields.remove("warnings");
+        } else {
+            fields.insert("warnings".to_owned(), Value::Array(kept));
+        }
+        return format!("{report:#}\n");
+    }
+    let mut changed = false;
+    let kept = stdout
+        .lines()
+        .filter_map(|line| {
+            let Some(warnings) = line
+                .strip_prefix("warnings: ")
+                .and_then(|listed| serde_json::from_str::<Vec<Value>>(listed).ok())
+            else {
+                return Some(line.to_owned());
+            };
+            let kept = calendar_free(&warnings);
+            if kept.len() == warnings.len() {
+                return Some(line.to_owned());
+            }
+            changed = true;
+            (!kept.is_empty()).then(|| format!("warnings: {}", Value::Array(kept)))
+        })
+        .fold(String::new(), |mut kept, line| {
+            kept.push_str(&line);
+            kept.push('\n');
+            kept
+        });
+    if changed { kept } else { stdout.to_owned() }
 }
 
 /// The folder of the Run `run_id` that `run start` made in the test's

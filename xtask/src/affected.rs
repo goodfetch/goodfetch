@@ -7,6 +7,7 @@
 
 mod git;
 mod imports;
+mod parts;
 mod readers;
 mod selection;
 mod workspace;
@@ -21,6 +22,7 @@ use crate::environment::Environment;
 use crate::output;
 
 pub(crate) use git::Range;
+pub(crate) use parts::ChangedParts;
 pub(crate) use readers::literal_readers;
 pub(crate) use selection::{Job, Selection, selectable_job_ids};
 use workspace::{Ecosystem, Workspace};
@@ -55,27 +57,55 @@ impl RepoPath {
 pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Selection> {
     let paths = changed_paths(root, range)?;
     let members = WorkspaceMembers::read(cargo, root)?;
-    select_with_readers(root, &members, &paths)
+    let parts = changed_parts(root, range, &members, &paths)?;
+    select_with_readers(root, &members, &paths, &parts)
+}
+
+/// The parts of each changed Markdown file no member owns, read from both
+/// sides of `range`; a file missing from one side is left out, so it counts
+/// as changed throughout.
+fn changed_parts(
+    root: &Path,
+    range: &Range,
+    members: &WorkspaceMembers,
+    paths: &[RepoPath],
+) -> Result<ChangedParts> {
+    let mut parts = ChangedParts::default();
+    let documents = paths.iter().filter(|path| {
+        members.owner(path.as_str()).is_none()
+            && Path::new(path.as_str())
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+    });
+    for path in documents {
+        if let (Some(before), Some(after)) = git::versions(root, range, path)? {
+            parts.insert(path.clone(), &before, &after);
+        }
+    }
+    Ok(parts)
 }
 
 /// The selection for a change to `paths` in the repository at `root`, in
 /// which a member whose own files name a changed path no member owns is
 /// changed too: its test may read that file at run time (`TESTING.md`),
 /// which no build or import shows, and the quick gate runs no such test
-/// (ADR 0135). The gate's evidence widens its parts the same way.
+/// (ADR 0135). The gate's evidence widens its parts the same way. Of a
+/// document whose `parts` were read, only the changed parts' readers are
+/// (`literal_readers`).
 fn select_with_readers(
     root: &Path,
     members: &WorkspaceMembers,
     paths: &[RepoPath],
+    parts: &ChangedParts,
 ) -> Result<Selection> {
     let mut widened = paths.to_vec();
     widened.extend(
-        literal_readers(root, members, paths)?
+        literal_readers(root, members, paths, parts)?
             .keys()
             .filter_map(|member| members.folder(member))
             .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
     );
-    Ok(members.select(&widened))
+    Ok(selection::select(&members.workspace, &widened, parts))
 }
 
 /// The files under `folder` with one of `extensions`, outside installed
@@ -167,9 +197,9 @@ impl WorkspaceMembers {
         selection::owner_name(&self.workspace, &RepoPath::new(path))
     }
 
-    /// The selection for a change to `paths`.
+    /// The selection for a change to `paths`, each changed throughout.
     pub(crate) fn select(&self, paths: &[RepoPath]) -> Selection {
-        selection::select(&self.workspace, paths)
+        selection::select(&self.workspace, paths, &ChangedParts::default())
     }
 }
 

@@ -69,6 +69,7 @@ lint-documents: fmt-check
 # Formatting checks and the checks that read documents, then every linter and
 # the repository's own static checks.
 lint: lint-documents
+    ci/ignored-sources.sh
     cargo metadata --locked --format-version 1 > /dev/null
     cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
     ci/fuzz-check.sh locked
@@ -844,6 +845,27 @@ test-affected suite *change:
 quick *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
+# Prints the commands `just quick` runs, in its order (ci/quick.sh), the
+# lints read from their recipes, so an implementer can run by name the ones
+# its change reaches before its one final `just quick` (TESTING.md, Commands).
+quick-steps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just="{{ just_executable() }}"
+    echo "# First, always:"
+    echo "just floor-guard"
+    echo "just commit-leaks"
+    echo "# The change's gate, its gate= line:"
+    echo "cargo run --quiet --locked --bin xtask -- affected --local"
+    echo "# gate=docs: just lint-documents (fmt-check, then its own lines), and nothing after it."
+    echo "# Any other gate: just lint (fmt-check, lint-documents, then its own lines), then the Quick suite."
+    for recipe in fmt-check lint-documents lint; do
+      echo "# just $recipe:"
+      "$just" --show "$recipe" | sed -n 's/^    //p'
+    done
+    echo "# The Quick suite over what changed:"
+    echo "just test-affected quick --local"
+
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
@@ -1411,9 +1433,21 @@ hooks:
 # `gate=quick`, ADR 0135), or `just pre-merge docs` when it is documents
 # alone (`gate=docs`). It refuses once 10 merges have landed on `main` since
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
-# `--past-cap`: `just merge <number> --past-cap`.
+# `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
+# under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
+# `target/`, keeps a failing gate's log and test results in the common Git
+# folder's `goodfetch-gate-failures/` for 30 days, and sweeps the gate's
+# `target/` after the gate, still holding its lock.
 merge number *override:
     ci/merge-pr.sh {{ number }} {{ override }}
+
+# Removes a Cargo target folder's dead units, which no build has read for
+# `--unused-hours` (48 by default, at least 25) or since the day before the
+# Unix time `--read-since` gives (`just merge` passes its gate's start), and
+# keeps whole each unit a build read:
+# `just sweep-target --target <folder> [--dry-run]`.
+sweep-target *args:
+    cargo run --quiet --bin xtask -- sweep-target {{ args }}
 
 # Installs the owner's copy of the self-hosted allowlist and the runner's
 # pre-job and post-job scripts into a folder the runner user can read but not

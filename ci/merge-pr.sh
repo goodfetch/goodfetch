@@ -9,7 +9,11 @@
 # that change is documents alone (`gate=docs`), and merges only when it
 # passes. First the merge cap (ci/merge-cap.sh) refuses once 10 merges have
 # landed on `main` since the backstop's last green run, unless the owner
-# passes `--past-cap`.
+# passes `--past-cap`. It refuses to start a gate while the file system of
+# the gate's `target/` has less free space than a gate's builds take (#1822);
+# keeps a failing gate's log and test results where no cleanup reaches them
+# (#2087); and, still holding the gate's lock, removes the build units no
+# gate read since the day before this one started (`xtask sweep-target`).
 set -euo pipefail
 
 usage="usage: ci/merge-pr.sh <pull request number> [--past-cap]"
@@ -59,7 +63,53 @@ compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
 gate_worktree_lock
-trap 'rm -rf "$lock"' EXIT
+
+# A failing gate's log and test results are kept in the repository's common
+# folder, which no checkout's clean, no worktree removal and no sweep of the
+# temporary folder reaches, for 30 days: a flaky-candidate issue links them.
+gate_log=$(mktemp)
+failures="$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-gate-failures"
+keep_failed_gate() {
+  local kept entry
+  kept="$failures/$(date -u +%Y%m%dT%H%M%SZ)-pr$number-${head:0:12}"
+  mkdir -p "$kept"
+  cp "$gate_log" "$kept/gate.log"
+  for entry in nextest junit skipped.txt stress-selection.tsv; do
+    [[ ! -e $worktree/target/$entry ]] || cp -R "$worktree/target/$entry" "$kept/"
+  done
+  find "$failures" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+  echo "The failing gate's log and test results are kept in $kept: link that folder in the flaky-candidate issue" >&2
+}
+
+# After the gate, pass or fail, and before the lock is released: the build
+# units no gate read since the day before this gate started go, which
+# `relatime` keeps telling apart (xtask/src/sweep_target.rs). The sweep takes
+# the start itself, so the gate's own reads stay however long it ran. A head
+# from before the command only warns.
+started=""
+on_exit() {
+  if [[ -n $started ]]; then
+    (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --read-since "$started") ||
+      echo "warning: the gate's target/ was not swept" >&2
+  fi
+  rm -f "$gate_log"
+  rm -rf "$lock"
+}
+trap on_exit EXIT
+
+# A gate's builds, a dependency change's included, take up to this much on
+# the file system of its `target/`, which can be another than the
+# checkout's (a mount of its own).
+min_free_gb=${GOODFETCH_GATE_MIN_FREE_GB:-30}
+on=$worktree/target
+[[ -e $on ]] || on=$root
+read -r free_gb mount < <(df -Pk "$on" | awk 'NR == 2 { print int($4 / 1048576), $6 }')
+if ((free_gb < min_free_gb)); then
+  echo "error: the gate's target/ is on $mount, which has $free_gb GB free, under the $min_free_gb GB a gate's builds need (GOODFETCH_GATE_MIN_FREE_GB); free space there first, for example with \`cargo run --bin xtask -- sweep-target --target $worktree/target --unused-hours 25\`" >&2
+  exit 1
+fi
+echo "The gate's target/ is on $mount, with $free_gb GB free (at least $min_free_gb GB needed)"
+
 gate_worktree_checkout "$head"
 
 # The head's own `xtask affected` decides, so a head from before `gate=`
@@ -75,6 +125,8 @@ else
   ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
 fi
 echo "Running the local gate ($gate) on #$number at $head in $worktree"
+started=$(date -u +%s)
+status=0
 (
   cd "$worktree"
   # Before any build: whether the gate's checkout reuses the C and C++
@@ -94,7 +146,11 @@ echo "Running the local gate ($gate) on #$number at $head in $worktree"
       perf pull-request --number "$number" --save target/perf-pull-request.json
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
-)
+) 2>&1 | tee "$gate_log" || status=$?
+if ((status != 0)); then
+  keep_failed_gate
+  exit "$status"
+fi
 # The incremental gate's verdict combines this run with the green results it
 # reused from earlier runs on ancestor heads (ADR 0135); the plan names the
 # nearest such run.

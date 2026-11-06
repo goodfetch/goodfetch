@@ -4,6 +4,7 @@
 //! The real benchmark's run is `just counts`, and its own tests are
 //! `goodfetch-foxhound`'s `in_memory_crawl`.
 
+use std::path::Path;
 use std::process::Command;
 
 use rstest::rstest;
@@ -84,6 +85,28 @@ fn a_figure_at_its_limit_passes_and_is_printed() {
             .contains("F1.parses [default]: 8 per page, limit 8 (104 over 13)"),
         "{}",
         outcome.stdout
+    );
+}
+
+/// The register is found by its heading line, the part `xtask affected`
+/// reads it as: prose that quotes the heading earlier in the file is no
+/// register.
+#[test]
+fn the_register_is_found_by_its_heading_line_not_a_quote_of_it() {
+    let (workspace, executable) = workspace("8", &benchmark(&[("default", 104)], false));
+    let quoted = register("8").replace(
+        "# Testing\n\n",
+        "# Testing\n\n## Commands\n\nA reader names `\"## Quality register\"`.\n\n",
+    );
+    workspace.write("TESTING.md", quoted.as_bytes());
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &executable]);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
     );
 }
 
@@ -1563,5 +1586,32 @@ fn off_linux_the_strace_cell_lists_itself_as_skipped() {
             .contains("skipped: xtask counts --strace (strace runs on Linux only)"),
         "{}",
         outcome.stderr
+    );
+}
+
+/// `cargo bench` runs a benchmark in its package's folder, so gungraun's
+/// folder is given as an absolute path under the root's `target/`: a
+/// relative one would land in the package's own `target/`, outside every
+/// build folder Git ignores, and leave the gate's tree unclean.
+#[test]
+fn gungraun_writes_under_the_roots_target_folder() {
+    let script = stand_in_cargo(1000, 5000, 0).replacen(
+        "#!/bin/sh\n",
+        "#!/bin/sh\necho \"$GUNGRAUN_HOME\" >>\"$PWD/gungraun-homes\"\n",
+        1,
+    );
+    let (workspace, cargo) = valgrind_workspace(&script);
+
+    let outcome = workspace.xtask_with_env(
+        &["counts", "--family", "B3", "--valgrind"],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+    let homes = workspace.read_text("gungraun-homes");
+    let expected = std::path::absolute(workspace.path().join("target/counts/gungraun")).unwrap();
+    assert!(
+        homes.lines().all(|home| Path::new(home) == expected),
+        "{homes}"
     );
 }

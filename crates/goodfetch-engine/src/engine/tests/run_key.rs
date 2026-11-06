@@ -743,7 +743,10 @@ fn a_discarded_runs_wrapped_data_key_is_overwritten_in_its_run_file() {
             talk.ok(4, "run.finish", json!({ "run_id": "sealed" }))
                 .await;
             std::fs::hard_link(&run_file, &link_to).unwrap();
-            let wrapped = wrapped_key(&link_to);
+            // Read through the run file's own path, whose WAL its writer left
+            // beside it (#2117): the connection's close copies the WAL, the
+            // key with it, into the file the link names too.
+            let wrapped = wrapped_key(&run_file);
             let discarded = talk
                 .ok(5, "run.discard", json!({ "run_id": "sealed" }))
                 .await;

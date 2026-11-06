@@ -325,10 +325,11 @@ fn the_checkpointer_copies_a_wal_past_its_threshold_into_the_file() {
     assert!(copied >= 2 * 1_048_576, "{copied}");
 }
 
-/// ADR 0138: a clean stop, the writer's last write, truncates the WAL, though
-/// a reader still holds the file open, so its close copies nothing.
+/// A clean stop, the writer's last write, leaves the WAL as it is (#2117):
+/// its commit synced the WAL, so no checkpoint copies it into the file, and
+/// a reader that still holds the file open reads every write.
 #[test]
-fn a_clean_stop_truncates_the_wal() {
+fn a_clean_stop_leaves_the_wal_to_its_readers() {
     let env = TestEnv::new();
     let path = env.folder().join("run.sqlite");
 
@@ -352,10 +353,8 @@ fn a_clean_stop_truncates_the_wal() {
         reader
     });
 
-    assert_eq!(
-        (size_of(&env, "run.sqlite-wal"), items(&reader).unwrap()),
-        (0, vec![1])
-    );
+    assert!(size_of(&env, "run.sqlite-wal") > 1_048_576);
+    assert_eq!(items(&reader).unwrap(), vec![1]);
 }
 
 /// Covers: story:3-26
@@ -775,11 +774,11 @@ fn reads_keep_their_connection_from_one_read_to_the_next() {
     assert_eq!(kept, "-7");
 }
 
-/// A writer that stops closes its readers first, so it is the file's last
-/// connection and folds the WAL into the file: a Run that ended leaves one
-/// self-contained file, whatever was read beside its writer.
+/// A writer that stops closes its readers first and leaves its WAL beside
+/// the file (#2117): a new connection reads every write of a Run that
+/// ended, whatever was read beside its writer.
 #[test]
-fn a_stopped_writer_leaves_its_file_whole_with_no_wal_beside_it() {
+fn a_stopped_writers_file_reads_whole_with_its_wal_beside_it() {
     let env = TestEnv::new();
 
     with_writer(&env, 1, async |state| {
@@ -788,14 +787,13 @@ fn a_stopped_writer_leaves_its_file_whole_with_no_wal_beside_it() {
     });
 
     let path = env.folder().join("run.sqlite");
-    let wal = env.folder().join("run.sqlite-wal").exists();
     let whole: Vec<i64> = Connection::open_with_flags(
         &path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .and_then(|connection| items(&connection))
     .unwrap();
-    assert_eq!((wal, whole), (false, vec![1]));
+    assert_eq!(whole, vec![1]);
 }
 
 /// A read commits nothing, so the writer's acknowledged commits do not move
@@ -956,5 +954,161 @@ fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
     assert_eq!(
         (added, bound),
         (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
+    );
+}
+
+/// A declaring write, a crawl's start, syncs and declares the bound in its
+/// own commit (#2117), so the first deferred charges commit unsynced, and a
+/// power cut after them leaves the bound declared for the reclaim.
+///
+/// Covers: story:3-25
+#[test]
+fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within() {
+    let half = DEFERRED_CHARGES / 2;
+    let env = TestEnv::new();
+    let counting = goodfetch_test_support::CountingVfs::register();
+    let options = RunStateOptions {
+        vfs: Some(counting.name().to_owned()),
+        ..RunStateOptions::default()
+    };
+    let added = with_writer_options(&env, &options, async |state| {
+        let mut added = Vec::new();
+        let before = counting.syncs();
+        state.write_with(Syncing::Declaring, run_row).await.unwrap();
+        added.push(counting.syncs() - before);
+        for charged in [1, half, half] {
+            let before = counting.syncs();
+            state
+                .write_with(Syncing::Deferred { charged }, |_| Ok(()))
+                .await
+                .unwrap();
+            added.push(counting.syncs() - before);
+        }
+        added
+    });
+    let crashed = TestEnv::new();
+    let vfs = CrashVfs::register(&crashed.unique_name("declared-bound"), crashed.seed()).unwrap();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        ..RunStateOptions::default()
+    };
+    with_writer_options(&crashed, &options, async |state| {
+        state.write_with(Syncing::Declaring, run_row).await.unwrap();
+        state
+            .write_with(Syncing::Deferred { charged: 1 }, insert(1))
+            .await
+            .unwrap();
+        vfs.crash(CrashKind::PowerCut);
+    });
+    let path = crashed.folder().join("run.sqlite");
+    let after = goodfetch_test_support::after_crash(&vfs, &path.to_string_lossy()).unwrap();
+
+    // 1 and a half fit the bound; the second half would pass it.
+    assert_eq!(
+        (added, declared(&after).unwrap()),
+        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
+    );
+}
+
+/// What a run file at `durability` syncs through a counting VFS (ADR 0140)
+/// as its writer opens it new, as a write that needs a sync commits, as its
+/// last write, a clean stop, commits, and once the writer stopped.
+fn syncs_of_a_run(durability: Durability) -> [u64; 4] {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        durability,
+        ..RunStateOptions::default()
+    };
+    let path = env.folder().join("run.sqlite");
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(path, &options, vec![ITEMS], 1, &owner)
+            .await
+            .unwrap();
+        let opened = vfs.syncs();
+        state.write(insert(1)).await.unwrap();
+        let written = vfs.syncs();
+        state.write_last(insert(2)).await.unwrap();
+        let last = vfs.syncs();
+        drop(state);
+        owner.wait().await;
+        [opened, written - opened, last - written, vfs.syncs() - last]
+    })
+}
+
+/// A run file's own syncs fold into the commits it acknowledges (#2117): a
+/// new file's switch to WAL syncs its rollback journal once and the file
+/// once; its first commit, its tables, and the WAL's header go unsynced
+/// below `off`, where its "unclean" mark syncs; the next synced commit
+/// covers them. The clean stop syncs its last write at every level and
+/// leaves the WAL, which that sync covers, as it is: no checkpoint syncs
+/// the WAL and the file again.
+///
+/// Covers: story:3-25, story:3-27, setting:run_state.durability
+#[rstest::rstest]
+#[case::full(Durability::Full, [2, 1, 1, 0])]
+#[case::fast(Durability::Fast, [2, 0, 1, 0])]
+#[case::periodic(Durability::Periodic { interval: Duration::from_secs(3600) }, [2, 0, 1, 0])]
+#[case::off(Durability::Off, [4, 0, 1, 0])]
+fn a_run_file_syncs_its_switch_to_wal_what_it_acknowledges_and_its_clean_stop(
+    #[case] durability: Durability,
+    #[case] syncs: [u64; 4],
+) {
+    assert_eq!(syncs_of_a_run(durability), syncs);
+}
+
+/// The guarantees the run file's folded syncs keep (#2117, ADR 0138's
+/// Durability levels): through a power cut, a new file's first synced
+/// write is there at `full`, with the tables its opening committed
+/// unsynced, and a clean stop's writes are there at every level, the file
+/// whole and its "unclean" mark cleared, though no checkpoint copied the
+/// WAL into it.
+///
+/// Covers: story:3-25, story:3-27, setting:run_state.durability
+#[rstest::rstest]
+#[case::full_synced_write(Durability::Full, false, vec![1])]
+#[case::full_clean_stop(Durability::Full, true, vec![1, 2])]
+#[case::fast_clean_stop(Durability::Fast, true, vec![1, 2])]
+#[case::periodic_clean_stop(Durability::Periodic { interval: Duration::from_secs(3600) }, true, vec![1, 2])]
+#[case::off_clean_stop(Durability::Off, true, vec![1, 2])]
+fn what_a_run_file_acknowledged_survives_a_power_cut_after_its_folded_syncs(
+    #[case] durability: Durability,
+    #[case] stops: bool,
+    #[case] survived: Vec<i64>,
+) {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("folded-syncs"), env.seed()).unwrap();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        durability,
+        ..RunStateOptions::default()
+    };
+    let path = env.folder().join("run.sqlite");
+
+    with_writer_options(&env, &options, async |state| {
+        if stops {
+            state
+                .write_with(Syncing::Deferred { charged: 0 }, insert(1))
+                .await
+                .unwrap();
+            state.write_last(insert(2)).await.unwrap();
+        } else {
+            state.write(insert(1)).await.unwrap();
+            vfs.crash(CrashKind::PowerCut);
+        }
+    });
+    if stops {
+        vfs.crash(CrashKind::PowerCut);
+    }
+    let after = goodfetch_test_support::after_crash(&vfs, &path.to_string_lossy()).unwrap();
+
+    assert_eq!(
+        (
+            items(&after).unwrap(),
+            unclean(&path, Some(vfs.name()), durability).unwrap()
+        ),
+        (survived, false)
     );
 }

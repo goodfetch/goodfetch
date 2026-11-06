@@ -29,8 +29,15 @@
 //! commit, and no checkpoint on the writer: its connection runs none of its
 //! own, and a checkpointer, an actor of the same owner on a connection of its
 //! own, runs a `PASSIVE` checkpoint once the WAL passes
-//! [`WAL_CHECKPOINT_AFTER_BYTES`], which never takes the writer's lock, and a
-//! `TRUNCATE` one once the writer's last write committed.
+//! [`WAL_CHECKPOINT_AFTER_BYTES`], which never takes the writer's lock. No
+//! connection of the writer's copies the WAL into the file as it closes: a
+//! clean stop's last write syncs the WAL, which stays beside the file
+//! (#2117).
+//!
+//! Its own syncs fold into the commits it acknowledges (#2117): a new
+//! file's opening commits its tables unsynced below `off`, and the first
+//! synced commit covers them; that commit also declares the bound of the
+//! charges its deferred commits may hold ([`DEFERRED_CHARGES`]).
 //!
 //! Size: one concern, the run file's writer on its one connection: how it
 //! opens, queues jobs and commits each group, which read side by side.
@@ -289,6 +296,11 @@ pub enum Syncing {
     /// acknowledges: the default.
     #[default]
     Required,
+    /// As `Required`, its group also declaring [`DEFERRED_CHARGES`] at
+    /// `full` when the file does not yet: the start of a Run whose claims
+    /// defer their charges, so that no claim's group syncs to declare it
+    /// (#2117).
+    Declaring,
     /// Committed without a sync of its own at `full`: a power cut before
     /// the next synced commit may take it, as it may an attempt's claim.
     Deferred {
@@ -550,6 +562,7 @@ impl RunState {
         };
         let mut interval = Interval::of(options);
         let marked = options.durability == Durability::Off;
+        let durability = options.durability;
         let connection = WriterConnection {
             connection,
             deferring,
@@ -575,13 +588,16 @@ impl RunState {
                 // A tick with nothing committed unsynced commits nothing.
                 let idle =
                     group.is_empty() && !interval.as_ref().is_some_and(|interval| interval.owed);
-                // `off`'s clean stop commits synced and clears the mark.
-                let clean = marked
-                    && last.is_some()
+                // A clean stop commits synced at every level, `fast`'s and
+                // `off`'s included, and `off`'s clears the mark: its sync
+                // covers the WAL, which no checkpoint copies then (#2117).
+                let synced_stop = last.is_some()
+                    && matches!(durability, Durability::Fast | Durability::Off)
                     && connection
                         .connection
                         .pragma_update(None, "synchronous", "FULL")
                         .is_ok();
+                let clean = marked && synced_stop;
                 let group: Vec<QueuedWrite> =
                     group.into_iter().map(|queued| queued.write).collect();
                 let committed = if idle {
@@ -776,9 +792,8 @@ impl RunState {
     }
 }
 
-/// The writer's connections, which close their readers' first: the writer
-/// is then the file's last connection, which folds its WAL into it on
-/// closing. At `full` it has two (ADR 0138's note of #1926): `connection`
+/// The writer's connections, which close their readers' first, and leave
+/// the WAL beside the file as they close (#2117). At `full` it has two (ADR 0138's note of #1926): `connection`
 /// commits with `synchronous=FULL`, and `deferring` with `NORMAL` commits
 /// the groups that need no sync, as SQLite sets a connection's sync level
 /// only as it prepares `PRAGMA synchronous`, which a group's switch would
@@ -822,15 +837,21 @@ struct Planned {
 }
 
 impl Deferral {
-    /// How `group` commits: synced when any of its writes needs it, when it
+    /// How `group` commits: synced when any of its writes needs it, and
+    /// declaring the bound when one of them asks to; synced too when it
     /// charges before the file declares the bound, which it then declares,
     /// or when it would pass the bound; else on the deferring connection.
     fn plan(&self, group: &[Queued]) -> Planned {
         let mut required = false;
+        let mut declaring = false;
         let mut charged = 0_u64;
         for queued in group {
             match queued.syncing {
                 Syncing::Required => required = true,
+                Syncing::Declaring => {
+                    required = true;
+                    declaring = true;
+                }
                 Syncing::Deferred { charged: more } => charged = charged.saturating_add(more),
             }
         }
@@ -839,8 +860,10 @@ impl Deferral {
             declare,
             charged,
         };
-        if !self.deferring || required {
+        if !self.deferring {
             synced(false)
+        } else if required {
+            synced(declaring && !self.declared)
         } else if charged == 0 {
             Planned {
                 synced: false,
@@ -1127,6 +1150,16 @@ fn open_file(
         options.durability
     };
     configure(&connection, options, opening.synchronous(), PAGE_CACHE_KIB).map_err(failed)?;
+    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
+    // Below `off` the opening's commit, the file's tables and its format,
+    // syncs nothing: no one is told of it, and the next synced commit, a
+    // Run's start or a new run epoch, covers it, with the WAL's header
+    // (#2117). At `off` the commit that sets the mark syncs.
+    if !marked {
+        connection
+            .pragma_update(None, "synchronous", Durability::Off.synchronous())
+            .map_err(failed)?;
+    }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(failed)?;
@@ -1160,11 +1193,9 @@ fn open_file(
             .map_err(failed)?;
     }
     transaction.commit().map_err(failed)?;
-    if marked {
-        connection
-            .pragma_update(None, "synchronous", Durability::Off.synchronous())
-            .map_err(failed)?;
-    }
+    connection
+        .pragma_update(None, "synchronous", options.durability.synchronous())
+        .map_err(failed)?;
     Ok(connection)
 }
 
@@ -1188,7 +1219,10 @@ pub(crate) fn unclean(
         Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
         None => Connection::open_with_flags(path, flags),
     };
+    // Reading the mark copies no WAL into the file as it closes (#2117):
+    // the file stays as its writer left it.
     let marked = opened.and_then(|connection| {
+        crate::sqlite_wal::no_checkpoint_on_close(&connection)?;
         connection
             .query_row("SELECT count(*) FROM unclean", [], |row| {
                 row.get::<_, i64>(0)
@@ -1228,6 +1262,7 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
         DEFERRING_PAGE_CACHE_KIB,
     )
     .map_err(failed)?;
+    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
     connection.wal_hook(Some(note_wal_pages));
     Ok(connection)
 }

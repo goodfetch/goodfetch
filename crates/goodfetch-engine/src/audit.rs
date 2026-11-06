@@ -744,6 +744,12 @@ impl AuditLog {
                 .pragma_update(None, "fullfsync", "ON")
                 .map_err(|error| failed(&error))?;
         }
+        // A new log's tables, and its WAL's header, commit unsynced: no entry
+        // is in them yet, and the commit of its first entry syncs them too
+        // (#2117). An existing log's commit here writes nothing.
+        connection
+            .pragma_update(None, "synchronous", "OFF")
+            .map_err(|error| failed(&error))?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| failed(&error))?;
@@ -766,6 +772,9 @@ impl AuditLog {
             )
             .map_err(|error| failed(&error))?;
         transaction.commit().map_err(|error| failed(&error))?;
+        connection
+            .pragma_update(None, "synchronous", "FULL")
+            .map_err(|error| failed(&error))?;
         check_format(&found)?;
         Ok(connection)
     }

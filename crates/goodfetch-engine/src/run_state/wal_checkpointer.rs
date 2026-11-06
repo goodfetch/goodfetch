@@ -1,8 +1,9 @@
 //! The run file's WAL checkpointer (ADR 0138): the writer's connection
 //! runs no automatic checkpoint, its WAL hook notes the WAL's pages after
 //! each commit, and an actor of the writer's owner, on a connection of its
-//! own, runs a `PASSIVE` checkpoint past the threshold and a `TRUNCATE` one
-//! once the writer's last write committed.
+//! own, runs a `PASSIVE` checkpoint past the threshold. The writer's last
+//! write asks for none: its commit synced the WAL, which stays beside the
+//! file, so a clean stop syncs neither the WAL nor the file again (#2117).
 
 use std::cell::Cell;
 use std::path::Path;
@@ -37,20 +38,13 @@ pub(super) fn note_wal_pages(
     Ok(())
 }
 
-/// What the writer asks its checkpointer for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WalCheckpoint {
-    /// A `PASSIVE` checkpoint, which never takes the writer's lock.
-    Passive,
-    /// A `TRUNCATE` checkpoint, once the writer's last write committed.
-    Truncate,
-}
-
 /// The writer's side of its checkpointer: an actor of the writer's owner,
 /// which runs each checkpoint on a connection of its own, opened with the
 /// writer's, and ends once the writer is gone (ADR 0138).
 pub(super) struct WalCheckpointer {
-    requests: mpsc::Sender<WalCheckpoint>,
+    /// Its requests for a `PASSIVE` checkpoint, which never takes the
+    /// writer's lock.
+    requests: mpsc::Sender<()>,
     /// The WAL's pages past which a commit asks for a `PASSIVE` checkpoint.
     after_pages: std::ffi::c_int,
 }
@@ -64,21 +58,18 @@ impl WalCheckpointer {
         connection: Connection,
         owner: &TaskOwner,
     ) -> std::io::Result<Self> {
-        // Room for one `PASSIVE` request, which the writer sends only into an
-        // empty mailbox, and its last write's `TRUNCATE` one.
-        let (requests, mailbox) = mpsc::channel(2);
+        // Room for one request, which the writer sends only into an empty
+        // mailbox.
+        let (requests, mailbox) = mpsc::channel(1);
         let path = path.to_owned();
         owner.actor(
             "run-state-wal-checkpointer",
             mailbox,
-            move |group: Vec<WalCheckpoint>| {
-                let mode = if group.contains(&WalCheckpoint::Truncate) {
-                    WalCheckpoint::Truncate
-                } else {
-                    WalCheckpoint::Passive
-                };
-                if let Err(error) = checkpoint_wal(&connection, mode) {
-                    tracing::warn!(path = %path.display(), %error, ?mode, "a WAL checkpoint of the run file failed");
+            move |_: Vec<()>| {
+                if let Err(error) =
+                    connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))
+                {
+                    tracing::warn!(path = %path.display(), %error, "a WAL checkpoint of the run file failed");
                 }
             },
         )?;
@@ -90,29 +81,22 @@ impl WalCheckpointer {
     }
 
     /// Takes the WAL's pages after the commit that just returned on this
-    /// thread, and asks for a `TRUNCATE` checkpoint after the writer's
-    /// `last` write, else a `PASSIVE` one past the threshold, unless one
-    /// waits already.
+    /// thread, and asks for a checkpoint past the threshold, unless the
+    /// commit was the writer's `last` write.
     pub(super) fn committed(&self, last: bool) {
         let pages = WAL_PAGES.take();
-        let request = if last {
-            WalCheckpoint::Truncate
-        } else if pages >= self.after_pages
-            && self.requests.capacity() == self.requests.max_capacity()
-        {
-            WalCheckpoint::Passive
-        } else {
+        if last || pages < self.after_pages {
             return;
-        };
+        }
         // A full or closed mailbox: a checkpoint waits already, or the
         // owner's stop ended the checkpointer.
-        let _ = self.requests.try_send(request);
+        let _ = self.requests.try_send(());
     }
 }
 
 /// Opens the run file at `path` through `vfs` for its checkpointer, which
-/// syncs as `durability` says and never waits on a lock: a `PASSIVE`
-/// checkpoint takes none it would wait on, and a `TRUNCATE` one gives up.
+/// syncs as `durability` says, never waits on a lock, as a `PASSIVE`
+/// checkpoint takes none it would wait on, and copies nothing as it closes.
 pub(super) fn open_wal_checkpointer(
     path: &Path,
     vfs: Option<&str>,
@@ -124,19 +108,11 @@ pub(super) fn open_wal_checkpointer(
         None => Connection::open_with_flags(path, flags),
     }?;
     connection.busy_timeout(std::time::Duration::ZERO)?;
+    crate::sqlite_wal::no_checkpoint_on_close(&connection)?;
     connection.pragma_update(None, "synchronous", durability.checkpoint_synchronous())?;
     if cfg!(target_os = "macos") {
         connection.pragma_update(None, "fullfsync", "ON")?;
         connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;
     }
     Ok(connection)
-}
-
-/// Runs a checkpoint of `mode` on `connection`.
-fn checkpoint_wal(connection: &Connection, mode: WalCheckpoint) -> rusqlite::Result<()> {
-    let statement = match mode {
-        WalCheckpoint::Passive => "PRAGMA wal_checkpoint(PASSIVE)",
-        WalCheckpoint::Truncate => "PRAGMA wal_checkpoint(TRUNCATE)",
-    };
-    connection.query_row(statement, [], |_| Ok(()))
 }

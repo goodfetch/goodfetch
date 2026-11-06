@@ -71,8 +71,11 @@ const LAZYFS_PARENT: &str = "/tmp";
 /// runs beside the test, and once critical it sheds the Run's browsers, so
 /// a test's browsers would come and go with the host's load (#2115,
 /// #2116). The governor's host rules are tested on a `/proc` the test
-/// writes.
-pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\nlog.file.max_files = 10000\ngovernor.host_memory = false\n";
+/// writes. The keys are in the order the engine's settings writer keeps,
+/// each group of dotted keys sharing a first segment together where its
+/// first key is, with `log.level` after them: a setting the Console or
+/// `config set` writes leaves every other byte of the file as it was.
+pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\ngovernor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";
@@ -650,7 +653,9 @@ fn folder_name(test: &str) -> String {
 /// version, then [`TEST_SETTINGS`] and `settings` under `[settings]`; when
 /// `settings` sets the Console's address itself, its value alone.
 /// Sets `log.level` to `filter` in `home`'s user configuration: its line
-/// replaced, or one added under `[settings]`, every other line kept.
+/// replaced, or one added after the last `log.` key under `[settings]`
+/// (where the engine's settings writer keeps it, [`TEST_SETTINGS`]), or
+/// first under `[settings]` without one, every other line kept.
 fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
     let file = home
         .join(major_folder(env!("CARGO_PKG_VERSION")))
@@ -662,7 +667,17 @@ fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
         .map(str::to_owned)
         .collect();
     match lines.iter().position(|line| line.trim() == "[settings]") {
-        Some(table) => lines.insert(table + 1, level),
+        Some(table) => {
+            let entries = lines[table + 1..]
+                .iter()
+                .take_while(|line| !line.trim_start().starts_with('['));
+            let after = entries
+                .enumerate()
+                .filter(|(_, line)| line.trim_start().starts_with("log."))
+                .last()
+                .map_or(table + 1, |(index, _)| table + index + 2);
+            lines.insert(after, level);
+        }
         None => lines.extend(["[settings]".to_owned(), level]),
     }
     replace(&file, &(lines.join("\n") + "\n"))

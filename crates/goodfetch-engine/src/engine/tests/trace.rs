@@ -32,7 +32,8 @@ use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::run::call;
 use super::{attached_on, engine, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::entropy::Entropy;
 use crate::trace::EntropyIds;
 

@@ -15,10 +15,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use tokio::sync::{Mutex, Semaphore};
 
 use super::{STATEMENTS, SWITCH_TIMEOUT, run_cached};
+use crate::sqlite_store::{Access, File};
 use crate::tasks::BlockingThreads;
 
 /// How many reads of one run file run at once, each on a connection of its
@@ -122,11 +123,7 @@ impl RunStateReaders {
 
 /// Opens the run file at `path` read-only, through the VFS `vfs`.
 fn open(path: &Path, vfs: Option<&str>) -> rusqlite::Result<Connection> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }?;
+    let connection = File::new(path, vfs).connect(Access::ReadOnly)?;
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
     connection.busy_timeout(SWITCH_TIMEOUT)?;
     Ok(connection)

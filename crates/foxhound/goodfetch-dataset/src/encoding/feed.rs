@@ -33,17 +33,6 @@ pub struct FeedFields {
     pub summary: String,
 }
 
-impl Default for FeedFields {
-    fn default() -> Self {
-        Self {
-            title: "title".to_owned(),
-            link: "url".to_owned(),
-            published: "published".to_owned(),
-            summary: "summary".to_owned(),
-        }
-    }
-}
-
 /// Which feed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Flavor {

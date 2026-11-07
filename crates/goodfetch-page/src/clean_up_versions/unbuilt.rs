@@ -25,14 +25,14 @@ pub(super) fn refuse_unbuilt(settings: Option<&Resolved>) -> Result<(), CallErro
     };
     let unbuilt = [
         (
-            CLEAN_UP_UPDATE.name,
+            &CLEAN_UP_UPDATE,
             json!("daily"),
             "daily",
             "the daily channel's versions are used only once the engine checks their signature, which it cannot yet",
             "`clean_up.update: release` or `upstream`, or a `clean_up.version` pinned by its digest",
         ),
         (
-            FILTER_LISTS_PAGE_SCRIPTLETS.name,
+            &FILTER_LISTS_PAGE_SCRIPTLETS,
             json!(true),
             "page_scriptlets",
             "this engine runs no Filter-list scriptlet yet",
@@ -41,13 +41,13 @@ pub(super) fn refuse_unbuilt(settings: Option<&Resolved>) -> Result<(), CallErro
     ];
     for (key, refused, kind, why, fix) in unbuilt {
         if let Some(effective) = settings
-            .get(key)
+            .effective(key)
             .filter(|effective| effective.value == refused)
         {
-            return Err(unavailable(key, effective.layer, kind, why, fix));
+            return Err(unavailable(key.name, effective.layer, kind, why, fix));
         }
     }
-    if let Some(effective) = settings.get(FILTER_LISTS_EXTRA.name).filter(|effective| {
+    if let Some(effective) = settings.effective(&FILTER_LISTS_EXTRA).filter(|effective| {
         effective
             .value
             .as_array()

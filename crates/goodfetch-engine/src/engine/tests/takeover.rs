@@ -28,7 +28,8 @@ use tokio::io::{AsyncBufReadExt as _, BufReader};
 
 use super::run::call;
 use super::{Client, attached_on, dependencies, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, Network};

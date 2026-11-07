@@ -46,17 +46,31 @@ use goodfetch_protocol::formats::{AUDIT_LOG, Compatibility};
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::{SignedDuration, Timestamp};
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::durable;
 use crate::home::Home;
-use crate::settings::{Layers, SettingsFiles, resolve};
+use crate::settings::SettingsFiles;
+use crate::sqlite_store::{
+    Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous,
+    Wait, WalOnClose,
+};
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How its commits reach the disk: each synced, through `F_FULLFSYNC` on
+/// macOS, its WAL left as it is when a connection closes (#2110), and its
+/// tables' commit unsynced (#2117).
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Full,
+    opening: Synchronous::Off,
+    full_fsync: FullFsync::Commits,
+    wal_on_close: WalOnClose::Kept,
+};
 
 /// The previous hash of the first entry.
 const NO_PREVIOUS: [u8; 32] = [0; 32];
@@ -65,7 +79,6 @@ const NO_PREVIOUS: [u8; 32] = [0; 32];
 /// and columns, each column with a default, so these statements keep
 /// working on its files.
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS entries (
         sequence INTEGER NOT NULL PRIMARY KEY,
         entry TEXT NOT NULL,
@@ -465,17 +478,9 @@ impl AuditLog {
                 tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
             })
             .ok()?;
-        let layers = Layers {
-            operator_policy: machine.operator_policy,
-            user_configuration: machine.user_configuration,
-            ..Layers::default()
-        };
-        let resolved = resolve(&layers, *product, *product).ok()?;
-        let retention = resolved.get(AUDIT_RETENTION.name)?;
-        Some((
-            Duration::from_millis(retention.value.as_u64()?),
-            retention.layer,
-        ))
+        let resolved = machine.resolve(*product).ok()?;
+        let retention = resolved.get::<Option<Duration>>(&AUDIT_RETENTION)?;
+        Some((retention, resolved.effective(&AUDIT_RETENTION)?.layer))
     }
 
     /// Writes the head file after the last of `appended`, each entry
@@ -688,80 +693,38 @@ impl AuditLog {
     }
 
     /// Opens the store, creating it and its tables when it does not exist,
-    /// and refuses one of another major.
+    /// and refuses one of another major. A new log's tables, and its WAL's
+    /// header, commit unsynced: no entry is in them yet, and the commit of
+    /// its first entry syncs them too (#2117). An existing log's commit
+    /// there writes nothing.
     fn open(&self) -> Result<Connection, AuditError> {
         self.work.count(Row::AuditOpens);
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        if let Some(folder) = self.path.parent() {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the Audit log's calls run under their caller's blocking policy"
-            )]
-            std::fs::create_dir_all(folder).map_err(|error| failed(&error))?;
-        }
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let mut connection = match &self.vfs {
-            Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
-            None => Connection::open_with_flags(&self.path, flags),
-        }
-        .map_err(|error| failed(&error))?;
-        // Beneath every caller, so a commit beside the append's counts too
-        // (ADR 0140).
-        let work = self.work.clone();
-        connection
-            .commit_hook(Some(move || {
-                work.count(Row::AuditTransactions);
-                false
-            }))
-            .map_err(|error| failed(&error))?;
-        connection
-            .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| failed(&error))?;
-        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
-        connection
-            .pragma_update(None, "synchronous", "FULL")
-            .map_err(|error| failed(&error))?;
-        crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(|error| failed(&error))?;
-        if cfg!(target_os = "macos") {
-            connection
-                .pragma_update(None, "fullfsync", "ON")
-                .map_err(|error| failed(&error))?;
-        }
-        // A new log's tables, and its WAL's header, commit unsynced: no entry
-        // is in them yet, and the commit of its first entry syncs them too
-        // (#2117). An existing log's commit here writes nothing.
-        connection
-            .pragma_update(None, "synchronous", "OFF")
-            .map_err(|error| failed(&error))?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        for statement in SCHEMA {
-            transaction
-                .execute(statement, [])
-                .map_err(|error| failed(&error))?;
-        }
-        transaction
-            .execute(
-                "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (AUDIT_LOG.name, AUDIT_LOG.version.to_string()),
-            )
-            .map_err(|error| failed(&error))?;
-        let found: String = transaction
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [AUDIT_LOG.name],
-                |row| row.get(0),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        connection
-            .pragma_update(None, "synchronous", "FULL")
-            .map_err(|error| failed(&error))?;
-        check_format(&found)?;
-        Ok(connection)
+        File::new(&self.path, self.vfs.as_deref())
+            .open(&Opening {
+                folder: Folder::Make,
+                access: Access::Create,
+                wait: Wait::Busy(BUSY_TIMEOUT),
+                durability: DURABILITY,
+                // Beneath every caller, so a commit beside the append's
+                // counts too (ADR 0140).
+                counting: Some(Counting {
+                    work: &self.work,
+                    opens: None,
+                    transactions: Row::AuditTransactions,
+                    counts_switch: true,
+                }),
+                schema: Some(Schema {
+                    format: &AUDIT_LOG,
+                    statements: &[SCHEMA],
+                }),
+            })
+            .map_err(|error| match error {
+                OpenError::Format(refusal) => AuditError::Format {
+                    found: refusal.found,
+                    compatibility: refusal.compatibility,
+                },
+                other => self.failed(&other),
+            })
     }
 
     /// Replaces the head file with `head`, through a file renamed over it,
@@ -1045,22 +1008,6 @@ fn decode(hash: &str) -> Option<[u8; 32]> {
         .ok()?
         .try_into()
         .ok()
-}
-
-/// Refuses a store of another major (ADR 0030): every minor of this one
-/// opens.
-fn check_format(found: &str) -> Result<(), AuditError> {
-    let refused = |compatibility| AuditError::Format {
-        found: found.to_owned(),
-        compatibility,
-    };
-    let version = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match AUDIT_LOG.rule.compatibility(AUDIT_LOG.version, version) {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
-    }
 }
 
 #[cfg(test)]

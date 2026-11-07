@@ -18,7 +18,8 @@ use serde_json::{Value, json};
 
 use super::run::call;
 use super::{attached_on, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 
 /// Reads the `synchronous` pragma of a live Run's run file, on its writer.
 const SYNCHRONOUS: Operation = Operation {

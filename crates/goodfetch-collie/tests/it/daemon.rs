@@ -23,7 +23,9 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
     ListenerKind, Process, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
@@ -511,20 +513,18 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
             .join("run.sqlite"),
     )
     .unwrap();
-    let lifecycle: String = run
-        .query_row("SELECT lifecycle FROM run", [], |row| row.get(0))
-        .unwrap();
+    let lifecycle = run_row::lifecycle(&run).unwrap();
     let integrity: String = run
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();
     assert_eq!(
         (
-            lifecycle.as_str(),
+            lifecycle,
             integrity.as_str(),
             restarted["pid"].is_u64(),
             restarted["pid"] == json!(found.pid)
         ),
-        ("running", "ok", true, false)
+        (Lifecycle::Running, "ok", true, false)
     );
 }
 

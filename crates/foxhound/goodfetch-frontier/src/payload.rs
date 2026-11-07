@@ -24,7 +24,7 @@ use data_encoding::HEXLOWER;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_PAYLOAD_MAX_SIZE, PAYLOAD_INVALID, PayloadInvalidDetails, PayloadIssue,
@@ -132,9 +132,10 @@ impl PayloadRules {
             .prepare_cached("SELECT max_size FROM payload_cap WHERE id = 1")
             .and_then(|mut cached| cached.query_row([], |row| row.get::<_, i64>(0)))
             .optional()?
-            .map_or_else(built_in_max_size, |max_size| {
-                u64::try_from(max_size).unwrap_or(0)
-            });
+            .map_or_else(
+                || catalog_default(&CRAWL_PAYLOAD_MAX_SIZE),
+                |max_size| u64::try_from(max_size).unwrap_or(0),
+            );
         let labels = connection
             .prepare_cached("SELECT label, schema FROM payload_labels")?
             .query_map([], |row| {
@@ -277,15 +278,7 @@ fn record_cap(connection: &Connection, max_size: u64) -> rusqlite::Result<()> {
 }
 
 fn max_size(settings: &Resolved) -> u64 {
-    settings
-        .count(CRAWL_PAYLOAD_MAX_SIZE.name)
-        .unwrap_or_else(built_in_max_size)
-}
-
-fn built_in_max_size() -> u64 {
-    (CRAWL_PAYLOAD_MAX_SIZE.default)()
-        .as_u64()
-        .expect("invariant: `crawl.payload.max_size`'s default is a count")
+    settings.get(&CRAWL_PAYLOAD_MAX_SIZE)
 }
 
 /// Keeps the Payload of the crawl request `request`, when it has one.

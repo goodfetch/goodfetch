@@ -64,8 +64,9 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use goodfetch_test_support::TestEnv;
 
 use super::{Dependencies, Engine};
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::{CallContext, CallError, Composition, Contribution, Handler};
+use crate::composition::{CallContext, Composition, Contribution, Handler};
 use crate::entropy::Entropy;
 use crate::home::{Home, RunStateLocation};
 use crate::product::{Channel, Identity};

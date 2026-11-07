@@ -26,12 +26,13 @@ use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::formats::RUN_STATE;
 use goodfetch_protocol::run::Lifecycle;
 use rusqlite::backup::{Backup, StepResult};
-use rusqlite::{Connection, ErrorCode, OpenFlags};
+use rusqlite::{Connection, ErrorCode};
 use sha2::{Digest as _, Sha256};
 
 use crate::run_files::{self, CarryError};
 use crate::run_key::{self, StoredKey};
-use crate::run_state::{RunStateError, check_format, open_reader};
+use crate::run_state::{RunStateError, open_reader};
+use crate::sqlite_store::{self, Access};
 
 /// The name of the Checkpoint the engine keeps in a Run's folder: the
 /// latest one taken there.
@@ -120,15 +121,10 @@ pub(crate) fn install(
         std::fs::create_dir_all(folder).map_err(|error| storage(&error, "make its folder"))?;
         run_files::unpack(&from, folder).map_err(|error| carry_failed(error, checkpoint))?;
     }
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let failed = |error: rusqlite::Error| sqlite_storage(&error);
-    let mut to = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(run_file, flags, vfs),
-        None => Connection::open_with_flags(run_file, flags),
-    }
-    .map_err(failed)?;
+    let mut to = sqlite_store::File::new(run_file, vfs)
+        .connect(Access::Create)
+        .map_err(failed)?;
     {
         let backup = Backup::new(&from, &mut to).map_err(failed)?;
         match backup.step(-1).map_err(failed)? {
@@ -202,7 +198,7 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
             |row| row.get(0),
         )
         .map_err(|error| damaged(error.to_string()))?;
-    check_format(&RUN_STATE, &found)?;
+    sqlite_store::check_format(&RUN_STATE, &found)?;
     let (run_id, needs, lifecycle, binding, run_epoch): (
         String,
         String,
@@ -260,9 +256,10 @@ pub fn fuzz_checkpoint(data: &[u8]) {
 /// SQLite's online backup, so it holds one commit's state, and answers its
 /// run epoch and journal position.
 fn copy_into(reader: &Connection, source: &Path, into: &Path) -> Result<(u64, u64), WriteError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let failed = |error: rusqlite::Error| sqlite_storage(&error);
-    let mut copy = Connection::open_with_flags(into, flags).map_err(failed)?;
+    let mut copy = sqlite_store::File::new(into, None)
+        .connect(Access::ReadWrite)
+        .map_err(failed)?;
     {
         let backup = Backup::new(reader, &mut copy).map_err(failed)?;
         match backup.step(-1).map_err(failed)? {

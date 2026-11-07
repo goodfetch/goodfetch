@@ -65,7 +65,7 @@ use goodfetch_engine::politeness::{
     Ending, Hold, PermitRule, Politeness, PolitenessError, PolitenessTables, Verdict, milliseconds,
     moment,
 };
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_ENABLED, POLITENESS_BACKOFF_INITIAL, POLITENESS_BACKOFF_MAX,
@@ -421,11 +421,11 @@ pub fn longest_wait(settings: &Resolved) -> Option<Duration> {
 ///
 /// `setting_not_applicable` naming `switch` and the layer that set it.
 pub fn refuse_second_copies(settings: &Resolved, switch: &Setting) -> Result<(), CallError> {
-    let Some(switched) = settings.get(switch.name) else {
+    let Some(switched) = settings.effective(switch) else {
         return Ok(());
     };
     let one_at_a_time = settings
-        .count(POLITENESS_DOMAIN_CONCURRENCY.name)
+        .get::<Option<u64>>(&POLITENESS_DOMAIN_CONCURRENCY)
         .is_some_and(|concurrency| concurrency < 2);
     if switched.value != Value::Bool(true) || !one_at_a_time {
         return Ok(());
@@ -456,14 +456,14 @@ pub(crate) struct Waits {
 
 impl Waits {
     pub(crate) fn of(settings: &Resolved) -> Self {
-        let duration = |name| settings.duration(name).unwrap_or_default();
         Self {
-            backoff: (settings.value(POLITENESS_BACKOFF_ENABLED.name).as_bool() != Some(false))
+            backoff: settings
+                .get::<bool>(&POLITENESS_BACKOFF_ENABLED)
                 .then(|| Backoff {
-                    initial: duration(POLITENESS_BACKOFF_INITIAL.name),
-                    max: duration(POLITENESS_BACKOFF_MAX.name),
+                    initial: settings.get(&POLITENESS_BACKOFF_INITIAL),
+                    max: settings.get(&POLITENESS_BACKOFF_MAX),
                 }),
-            retry_after_max: duration(POLITENESS_RETRY_AFTER_MAX.name),
+            retry_after_max: settings.get(&POLITENESS_RETRY_AFTER_MAX),
         }
     }
 
@@ -484,11 +484,11 @@ impl Default for Waits {
     /// 2 s up to 60 s, and a `Retry-After` up to 15 minutes.
     fn default() -> Self {
         Self {
-            backoff: Some(Backoff {
-                initial: Duration::from_secs(2),
-                max: Duration::from_mins(1),
+            backoff: catalog_default::<bool>(&POLITENESS_BACKOFF_ENABLED).then(|| Backoff {
+                initial: catalog_default(&POLITENESS_BACKOFF_INITIAL),
+                max: catalog_default(&POLITENESS_BACKOFF_MAX),
             }),
-            retry_after_max: Duration::from_mins(15),
+            retry_after_max: catalog_default(&POLITENESS_RETRY_AFTER_MAX),
         }
     }
 }
@@ -498,7 +498,10 @@ impl Default for Waits {
 /// ([`Pace`]). One that does not consults no Politeness store for them
 /// (ADR 0138).
 pub fn paces(settings: &Resolved) -> bool {
-    settings.count(POLITENESS_DOMAIN_CONCURRENCY.name).is_some() || Pace::of(settings).paces()
+    settings
+        .get::<Option<u64>>(&POLITENESS_DOMAIN_CONCURRENCY)
+        .is_some()
+        || Pace::of(settings).paces()
 }
 
 /// A crawl's per-domain rule under its own settings.
@@ -516,7 +519,7 @@ impl DomainRule {
     /// `entropy`.
     pub(crate) fn of(settings: &Resolved, entropy: SharedEntropy) -> Self {
         Self {
-            concurrency: settings.count(POLITENESS_DOMAIN_CONCURRENCY.name),
+            concurrency: settings.get(&POLITENESS_DOMAIN_CONCURRENCY),
             pace: Pace::of(settings),
             waits: Waits::of(settings),
             entropy,

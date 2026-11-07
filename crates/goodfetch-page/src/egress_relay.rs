@@ -76,7 +76,7 @@ use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved as ResolvedSettings;
+use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -231,7 +231,11 @@ const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 /// `proxy_unavailable`, before the navigation's own deadline (deep review
 /// finding 577-4).
 pub(crate) fn connect_deadline(run: &Run) -> Duration {
-    let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
+    let navigation = Deadline::of_resolved(
+        run.settings().map(RunSettings::resolved),
+        &TIMEOUT_NAVIGATION,
+    )
+    .duration();
     CONNECT_DEADLINE.min(navigation / 2)
 }
 
@@ -328,7 +332,7 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
 /// `settings`, by lowercase host.
 fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAddr>> {
     settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
         .unwrap_or_default()
         .into_iter()
         .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
@@ -339,7 +343,7 @@ fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAdd
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
     settings
-        .value(SECURITY_RAW_CDP_EGRESS_PROXY.name)
+        .value(&SECURITY_RAW_CDP_EGRESS_PROXY)
         .as_bool()
         .unwrap_or(true)
 }
@@ -380,9 +384,7 @@ impl EgressRelay {
             "Basic {}",
             BASE64.encode(format!("{USERNAME}:{password}").as_bytes())
         );
-        let settings = run
-            .settings()
-            .map(goodfetch_engine::settings::RunSettings::resolved);
+        let settings = run.settings().map(RunSettings::resolved);
         let policy = session_policy(settings)?;
         let mapping = mapping_of(settings);
         let RelayTls {

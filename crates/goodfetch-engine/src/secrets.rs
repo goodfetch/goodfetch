@@ -536,7 +536,7 @@ impl Secrets {
             }
         }
         let each_use = settings
-            .value(SECRETS_RESOLVE_EACH_USE.name)
+            .value(&SECRETS_RESOLVE_EACH_USE)
             .as_array()
             .into_iter()
             .flatten()
@@ -549,16 +549,6 @@ impl Secrets {
     /// Every live Run's resolved values.
     pub(crate) fn masks(&self) -> &Masks {
         &self.0.masks
-    }
-
-    /// The Audit log every resolution is recorded in.
-    pub(crate) fn audit(&self) -> &AuditLog {
-        &self.0.audit
-    }
-
-    /// The engine's environment map.
-    pub(crate) fn environment(&self) -> &BTreeMap<OsString, OsString> {
-        &self.0.environment
     }
 
     /// What one Run resolves through, each provider bounded by `timeout`,

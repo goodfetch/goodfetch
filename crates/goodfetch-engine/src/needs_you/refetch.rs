@@ -123,7 +123,7 @@ impl Primitives for Stops {
                 .open(Opening::default())
                 .await
                 .map_err(SourceError::new)?;
-            let denied = domains_of(resolved.resolved().value(WALL_DENIED_DOMAINS.name));
+            let denied = domains_of(resolved.resolved().value(&WALL_DENIED_DOMAINS));
             let files = context.settings.files().clone();
             let projects: Vec<(Option<String>, String)> = stops
                 .iter()

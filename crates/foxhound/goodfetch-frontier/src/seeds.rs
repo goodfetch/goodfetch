@@ -1,8 +1,8 @@
 //! Each seed's answer (ADR 0102): the Frontier's answers to a crawl's seeds,
-//! written in the transaction that records the Run, and `run.seeds`, which
-//! reads them from the Run's committed state through the engine's Run
-//! reader, so they are the answers given when the Run began, on a Run no
-//! program holds too.
+//! written in the transaction that records the Run, read back by
+//! [`answers`], and `run.seeds`, which reads them from the Run's committed
+//! state through the engine's Run reader, so they are the answers given
+//! when the Run began, on a Run no program holds too.
 
 use goodfetch_engine::run::run_error;
 use goodfetch_engine::run_state::RunStateTables;
@@ -59,6 +59,16 @@ fn read(connection: &Connection) -> rusqlite::Result<Vec<Enqueued>> {
     if !has_seeds {
         return Ok(Vec::new());
     }
+    answers(connection)
+}
+
+/// Each seed's answer, in the order the start gave the seeds: the reader
+/// other crates read the `seeds` table through.
+///
+/// # Errors
+///
+/// When the run file cannot be read, or an answer no longer decodes.
+pub fn answers(connection: &Connection) -> rusqlite::Result<Vec<Enqueued>> {
     connection
         .prepare_cached("SELECT answer FROM seeds ORDER BY position")?
         .query_map([], |row| row.get::<_, String>(0))?

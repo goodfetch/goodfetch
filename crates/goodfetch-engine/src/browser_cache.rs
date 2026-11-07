@@ -46,7 +46,7 @@ pub use platform::{
     browser_source,
 };
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::pinned_download::{self, Digest, Failure, Fetching, PinnedUrl};
 use store::{Locking, Read};
 

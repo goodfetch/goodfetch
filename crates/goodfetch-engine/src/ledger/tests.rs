@@ -555,6 +555,92 @@ fn a_ledger_of_another_major_is_refused() {
     );
 }
 
+/// A ledger of another major is refused before this engine writes to it:
+/// the tables of this version it lacks are not created in it.
+///
+/// Covers: format:usage-ledger
+#[test]
+fn a_ledger_of_another_major_is_refused_without_being_written_to() {
+    let env = TestEnv::new();
+    let ledger = ledger_at_version(&env, "1.0");
+    let connection = rusqlite::Connection::open(ledger.path()).unwrap();
+    connection.execute_batch("DROP TABLE limits").unwrap();
+
+    let refused = ledger.limits();
+
+    let tables: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'limits'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (refused, tables),
+        (
+            Err(LedgerError::Format {
+                found: "1.0".to_owned(),
+                compatibility: Compatibility::NewerMajor,
+            }),
+            0
+        )
+    );
+}
+
+/// Overwrites the root page of `table` in the SQLite file at `path`, its
+/// WAL first copied into it, with bytes that are no B-tree page: SQLite
+/// reads it as it reads a page that met an I/O error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test damages its own ledger's file, as a failing disk would, beneath every counted function"
+)]
+fn damage_table(path: &std::path::Path, table: &str) {
+    use std::io::{Seek as _, SeekFrom, Write as _};
+
+    let connection = rusqlite::Connection::open(path).unwrap();
+    connection
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        .unwrap();
+    let page_size: i64 = connection
+        .query_row("PRAGMA page_size", [], |row| row.get(0))
+        .unwrap();
+    let root: i64 = connection
+        .query_row(
+            "SELECT rootpage FROM sqlite_master WHERE name = ?1",
+            [table],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(connection);
+    let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.seek(SeekFrom::Start(
+        u64::try_from((root - 1) * page_size).unwrap(),
+    ))
+    .unwrap();
+    file.write_all(&vec![0xff; usize::try_from(page_size).unwrap()])
+        .unwrap();
+}
+
+/// SQLite reports a read that met an I/O error (EIO) as `SQLITE_CORRUPT`
+/// (its Unix VFS's `SQLITE_IOERR_CORRUPTFS`): a ledger read that meets one
+/// fails as a storage failure, which stops every Run (ADR 0122), as the
+/// run file's does.
+///
+/// Covers: story:3-67
+#[test]
+fn a_read_that_meets_a_damaged_disk_fails_as_a_storage_failure() {
+    let env = TestEnv::new();
+    let ledger = ledger(&env);
+    ledger
+        .add_limit(&limit(install(), "requests", 10), now())
+        .unwrap();
+    damage_table(ledger.path(), "limits");
+
+    let read = ledger.limits();
+
+    assert!(matches!(read, Err(LedgerError::Storage { .. })), "{read:?}");
+}
+
 #[test]
 fn a_ledger_keeps_the_columns_a_newer_minor_added() {
     let env = TestEnv::new();

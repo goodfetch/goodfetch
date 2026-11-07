@@ -43,8 +43,8 @@ use rustls::time_provider::TimeProvider;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
 
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 use crate::known_certificates::KeyHash;
 
 /// What a host's certificate may chain to beside Mozilla's roots.

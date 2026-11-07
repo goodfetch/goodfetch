@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 
 use super::run::call;
 use super::{attached, cancel, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 
 /// Holds a Human pause on a Run until it is cancelled.
 const PAUSE: Operation = Operation {

@@ -19,7 +19,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
+use rusqlite::{Connection, OptionalExtension as _};
 
 use super::RUN_FILE;
 use super::writer::{LOCK_FILE, retried, try_lock};
@@ -27,6 +27,7 @@ use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{Durability, RunStateError, sqlite_error};
+use crate::sqlite_store::{Access, File};
 use crate::tasks::TaskOwner;
 
 /// What a discard found of a Run.
@@ -202,18 +203,9 @@ fn present(
 /// Opens the run file at `file` through the VFS `vfs`: `None` when it never
 /// came to be.
 fn open_run_file(file: &Path, vfs: Option<&str>) -> Result<Option<Connection>, RunStateError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(file, flags, vfs),
-        None => Connection::open_with_flags(file, flags),
-    };
-    match connection {
-        Ok(connection) => Ok(Some(connection)),
-        Err(error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::CannotOpen) => {
-            Ok(None)
-        }
-        Err(error) => Err(sqlite_error(file, &error)),
-    }
+    File::new(file, vfs)
+        .connect_existing(Access::ReadWrite)
+        .map_err(|error| sqlite_error(file, &error))
 }
 
 /// Overwrites the wrapped data key the run file at `file` holds, if any,

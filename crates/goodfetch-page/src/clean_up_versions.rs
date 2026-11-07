@@ -43,10 +43,11 @@ use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact}
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
-use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_engine::settings::{Resolved, RunSettings, catalog_value, get_or_default};
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::tls::read_certificates;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
@@ -56,7 +57,7 @@ use goodfetch_protocol::run::warning::{CLEAN_UP_RULES_FALLBACK, CLEAN_UP_RULES_S
 use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::{
     CLEAN_UP_CHANNEL, CLEAN_UP_FETCH_TIMEOUT, CLEAN_UP_LISTS, CLEAN_UP_UPDATE, CLEAN_UP_VERSION,
-    DAILY_CHANNEL, SettingsLayer, UPSTREAM_LISTS,
+    SettingsLayer, UPSTREAM_LISTS,
 };
 use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use serde_json::{Value, json};
@@ -79,10 +80,6 @@ const STALE_AFTER: Duration = Duration::from_hours(14 * 24);
 
 /// The most bytes one file of a version may hold.
 const FILE_LIMIT: usize = 64 * 1024 * 1024;
-
-/// How long the fetches of one start or resume may take when
-/// `clean_up.fetch_timeout` is not resolved.
-const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many loaded versions the engine keeps once no Run holds them, the
 /// most recently used: the next Run on one of them reuses its Filter lists
@@ -195,22 +192,19 @@ struct Asked {
 
 impl Asked {
     fn of(settings: Option<&Resolved>) -> Self {
-        let update =
-            match settings.and_then(|settings| settings.value(CLEAN_UP_UPDATE.name).as_str()) {
-                Some("daily") => Update::Daily,
-                Some("upstream") => Update::Upstream,
-                // The setting's own validation lets only its three choices in.
-                _ => Update::Release,
-            };
+        let update = match get_or_default::<&str>(settings, &CLEAN_UP_UPDATE) {
+            "daily" => Update::Daily,
+            "upstream" => Update::Upstream,
+            // The setting's own validation lets only its three choices in.
+            _ => Update::Release,
+        };
         let version = settings
-            .and_then(|settings| settings.get(CLEAN_UP_VERSION.name))
+            .and_then(|settings| settings.effective(&CLEAN_UP_VERSION))
             .and_then(|effective| Some((effective.value.as_str()?.to_owned(), effective.layer)));
         Self {
             update,
             version,
-            timeout: settings
-                .and_then(|settings| settings.duration(CLEAN_UP_FETCH_TIMEOUT.name))
-                .unwrap_or(FETCH_TIMEOUT),
+            timeout: get_or_default(settings, &CLEAN_UP_FETCH_TIMEOUT),
         }
     }
 
@@ -324,16 +318,13 @@ impl Sources {
     async fn of(context: &RulesContext<'_>) -> Self {
         let settings = context.settings.map(RunSettings::resolved);
         let owner = context.owner.child();
-        let channel = settings
-            .and_then(|settings| settings.value(CLEAN_UP_CHANNEL.name).as_str())
-            .unwrap_or(DAILY_CHANNEL)
-            .to_owned();
+        let channel = get_or_default::<&str>(settings, &CLEAN_UP_CHANNEL).to_owned();
         let mut lists: BTreeMap<String, String> = UPSTREAM_LISTS
             .iter()
             .map(|(list, url)| ((*list).to_owned(), (*url).to_owned()))
             .collect();
         if let Some(named) =
-            settings.and_then(|settings| settings.value(CLEAN_UP_LISTS.name).as_object())
+            settings.and_then(|settings| settings.value(&CLEAN_UP_LISTS).as_object())
         {
             for (list, url) in named {
                 if let Some(url) = url.as_str() {
@@ -344,7 +335,7 @@ impl Sources {
         let mut fetching = Fetching::new(context.clock);
         if let Some(settings) = settings {
             fetching = Fetching::of(settings, context.clock);
-            let files = authority_files(settings.value(TLS_TRUSTED_CAS.name));
+            let files = authority_files(settings.value(&TLS_TRUSTED_CAS));
             fetching.trusted_certificates = owner
                 .blocking(move || {
                     files
@@ -616,7 +607,8 @@ impl Versions {
             "update": context
                 .settings
                 .map(RunSettings::resolved)
-                .map_or(json!("release"), |settings| settings.value(CLEAN_UP_UPDATE.name).clone()),
+                .map_or_else(|| catalog_value(&CLEAN_UP_UPDATE), |settings| settings.value(&CLEAN_UP_UPDATE))
+                .clone(),
             "resumed": resumed,
         });
         if let Some(fallback) = &fallback {
@@ -910,11 +902,7 @@ async fn known(
 /// The Clean-up rules digest `run`'s state records.
 async fn recorded_digest(run: &Run) -> Option<String> {
     run.state()
-        .read(|connection| {
-            connection.query_row("SELECT clean_up_digest FROM run", [], |row| {
-                row.get::<_, Option<String>>(0)
-            })
-        })
+        .read(run_row::clean_up_digest)
         .await
         .ok()
         .flatten()

@@ -204,47 +204,38 @@ pub struct Resolved {
 }
 
 impl Resolved {
-    /// The effective value of `key`, if the Run's Product honours it.
-    pub fn get(&self, key: &str) -> Option<&Effective> {
-        self.settings.get(key)
+    /// `setting`'s effective value, with the layer that set it, when the
+    /// Run's Product honours it.
+    pub fn effective(&self, setting: &Setting) -> Option<&Effective> {
+        self.settings.get(setting.name)
     }
 
-    /// The effective value of `key`, `null` if the Run's Product does not
-    /// honour it.
-    pub fn value(&self, key: &str) -> &Value {
+    /// `setting`'s value as it is written, its catalog default where the
+    /// Run's Product does not honour it.
+    pub fn value(&self, setting: &Setting) -> &Value {
         self.settings
-            .get(key)
-            .map_or(&Value::Null, |effective| &effective.value)
+            .get(setting.name)
+            .map_or_else(|| keys::default_of(setting), |effective| &effective.value)
     }
 
-    /// `key`'s value as a count, `None` when it is not one.
-    pub fn count(&self, key: &str) -> Option<u64> {
-        self.value(key).as_u64()
+    /// `setting`'s value as `T`, its catalog default where the Run's
+    /// Product does not honour it: `T` is the Rust type of its kind, such
+    /// as `u64` for a count, and an `Option` of it exactly when the setting
+    /// is clearable, `None` meaning cleared.
+    ///
+    /// # Panics
+    ///
+    /// When `T` is not the type of `setting`'s kind and clearability, a
+    /// mistake of the reading code, never of a layer's values.
+    pub fn get<'a, T: SettingValue<'a>>(&'a self, setting: &Setting) -> T {
+        read(setting, self.value(setting))
     }
 
-    /// `key`'s value as a duration, `None` when it is not one or cleared.
-    pub fn duration(&self, key: &str) -> Option<Duration> {
-        self.value(key).as_u64().map(Duration::from_millis)
-    }
-
-    /// `key`'s value as a boolean, `None` when it is not one.
-    pub fn boolean(&self, key: &str) -> Option<bool> {
-        self.value(key).as_bool()
-    }
-
-    /// `key`'s value as a Secret reference, `None` when it is not one or
-    /// cleared.
-    pub fn secret_reference(&self, key: &str) -> Option<SecretReference> {
-        self.value(key)
-            .as_str()
-            .and_then(|text| SecretReference::parse(text).ok())
-    }
-
-    /// `key`'s value as host names, each with its addresses, as
+    /// `setting`'s value as host names, each with its addresses, as
     /// `network.resolve` holds them (ADR 0059), from which a resolver's
     /// mapping is built; empty when it holds none.
-    pub fn hosts(&self, key: &str) -> Vec<(String, Vec<IpAddr>)> {
-        self.value(key)
+    pub fn hosts(&self, setting: &Setting) -> Vec<(String, Vec<IpAddr>)> {
+        self.value(setting)
             .as_object()
             .into_iter()
             .flatten()
@@ -388,6 +379,143 @@ impl Resolved {
             settings,
         }
     }
+}
+
+/// The Rust type a setting's values read as, by its kind: the reading of a
+/// value the resolver let through, which a kind it reads always has.
+pub trait SettingValue<'a>: Sized {
+    /// Whether it reads a clearable setting, whose `null` it reads as
+    /// cleared: only an `Option` does.
+    const CLEARABLE: bool = false;
+
+    /// Whether it reads values of `kind`.
+    fn reads(kind: &ValueKind) -> bool;
+
+    /// `value`, of a kind it reads, as this type.
+    fn read(value: &'a Value) -> Option<Self>;
+}
+
+impl SettingValue<'_> for bool {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::Boolean)
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        value.as_bool()
+    }
+}
+
+impl SettingValue<'_> for u64 {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::Count | ValueKind::CountUpTo(_))
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        value.as_u64()
+    }
+}
+
+impl SettingValue<'_> for Duration {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::Duration)
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        value.as_u64().map(Duration::from_millis)
+    }
+}
+
+impl<'a> SettingValue<'a> for &'a str {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::Text | ValueKind::Choice(_))
+    }
+
+    fn read(value: &'a Value) -> Option<Self> {
+        value.as_str()
+    }
+}
+
+impl SettingValue<'_> for SecretReference {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::SecretReference)
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        SecretReference::parse(value.as_str()?).ok()
+    }
+}
+
+impl<'a, T: SettingValue<'a>> SettingValue<'a> for Option<T> {
+    const CLEARABLE: bool = true;
+
+    fn reads(kind: &ValueKind) -> bool {
+        !T::CLEARABLE && T::reads(kind)
+    }
+
+    fn read(value: &'a Value) -> Option<Self> {
+        if value.is_null() {
+            Some(None)
+        } else {
+            T::read(value).map(Some)
+        }
+    }
+}
+
+/// `setting`'s catalog default as `T`, as [`Resolved::get`] reads it, for
+/// a scope that resolved no settings.
+///
+/// # Panics
+///
+/// As [`Resolved::get`].
+pub fn catalog_default<T: SettingValue<'static>>(setting: &Setting) -> T {
+    read(setting, keys::default_of(setting))
+}
+
+/// `setting`'s value in `settings` as [`Resolved::get`] reads it, or its
+/// catalog default when the scope resolved none, such as a Run started
+/// with no settings.
+///
+/// # Panics
+///
+/// As [`Resolved::get`].
+pub fn get_or_default<'a, T: SettingValue<'a>>(
+    settings: Option<&'a Resolved>,
+    setting: &Setting,
+) -> T {
+    settings.map_or_else(
+        || read(setting, keys::default_of(setting)),
+        |settings| settings.get(setting),
+    )
+}
+
+/// `setting`'s catalog default as it is written.
+pub fn catalog_value(setting: &Setting) -> &'static Value {
+    keys::default_of(setting)
+}
+
+/// `value`, `setting`'s in a layer the resolver checked or its catalog
+/// default, as `T`, as [`Resolved::get`] reads it.
+///
+/// # Panics
+///
+/// As [`Resolved::get`].
+pub fn value_as<'a, T: SettingValue<'a>>(setting: &Setting, value: &'a Value) -> T {
+    read(setting, value)
+}
+
+/// `value`, `setting`'s, as `T`.
+fn read<'a, T: SettingValue<'a>>(setting: &Setting, value: &'a Value) -> T {
+    let name = setting.name;
+    assert!(
+        T::reads(&setting.kind) && T::CLEARABLE == setting.clearable,
+        "invariant: `{name}` ({:?}, clearable: {}) is read as `{}`",
+        setting.kind,
+        setting.clearable,
+        std::any::type_name::<T>(),
+    );
+    T::read(value).unwrap_or_else(|| {
+        panic!("invariant: the resolver lets only `{name}`'s kind through, not `{value}`")
+    })
 }
 
 /// Whether user configuration may hold `key`, by its authority.

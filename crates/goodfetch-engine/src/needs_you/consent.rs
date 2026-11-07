@@ -60,7 +60,7 @@ impl Primitives for Walls {
                 .open(Opening::default())
                 .await
                 .map_err(SourceError::new)?;
-            let domains = machine.resolved().value(CONSENT_DOMAINS.name).clone();
+            let domains = machine.resolved().value(&CONSENT_DOMAINS).clone();
             Ok(seen
                 .iter()
                 .filter(|wall| !covers(&domains, &wall.domain))

@@ -8,10 +8,11 @@
 use std::cell::Cell;
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use tokio::sync::mpsc;
 
 use super::{Durability, RunStateOptions};
+use crate::sqlite_store::{Access, File};
 use crate::tasks::TaskOwner;
 
 /// The run file's page size, SQLite's default, which ADR 0138 keeps.
@@ -102,17 +103,9 @@ pub(super) fn open_wal_checkpointer(
     vfs: Option<&str>,
     durability: Durability,
 ) -> rusqlite::Result<Connection> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }?;
+    let connection = File::new(path, vfs).connect(Access::ReadWrite)?;
     connection.busy_timeout(std::time::Duration::ZERO)?;
-    crate::sqlite_wal::no_checkpoint_on_close(&connection)?;
-    connection.pragma_update(None, "synchronous", durability.checkpoint_synchronous())?;
-    if cfg!(target_os = "macos") {
-        connection.pragma_update(None, "fullfsync", "ON")?;
-        connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;
-    }
+    let synchronous = durability.checkpoint_synchronous();
+    super::connection_durability(synchronous, synchronous).apply(&connection)?;
     Ok(connection)
 }

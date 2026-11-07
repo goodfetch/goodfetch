@@ -234,6 +234,7 @@ impl HopGate for Navigating {
             // The Run's egress policy judges the hop before anything is
             // sent for it, robots.txt included (spec #565).
             self.hand_over
+                .of_run
                 .address_check(&hop.url)
                 .await
                 .map_err(|refused| Stop::Failed(refused.error()))?;
@@ -253,7 +254,7 @@ impl HopGate for Navigating {
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run.clock();
+            let clock = self.hand_over.run().clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }
@@ -267,7 +268,7 @@ impl HopGate for Navigating {
     }
 
     fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
-        Box::pin(self.hand_over.answered(hop, latency))
+        Box::pin(self.hand_over.of_run.answered(hop, latency))
     }
 
     /// A handler's navigation records nothing in the Frontier.

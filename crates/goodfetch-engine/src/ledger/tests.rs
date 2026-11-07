@@ -555,6 +555,38 @@ fn a_ledger_of_another_major_is_refused() {
     );
 }
 
+/// A ledger of another major is refused before this engine writes to it:
+/// the tables of this version it lacks are not created in it.
+///
+/// Covers: format:usage-ledger
+#[test]
+fn a_ledger_of_another_major_is_refused_without_being_written_to() {
+    let env = TestEnv::new();
+    let ledger = ledger_at_version(&env, "1.0");
+    let connection = rusqlite::Connection::open(ledger.path()).unwrap();
+    connection.execute_batch("DROP TABLE limits").unwrap();
+
+    let refused = ledger.limits();
+
+    let tables: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'limits'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (refused, tables),
+        (
+            Err(LedgerError::Format {
+                found: "1.0".to_owned(),
+                compatibility: Compatibility::NewerMajor,
+            }),
+            0
+        )
+    );
+}
+
 /// Overwrites the root page of `table` in the SQLite file at `path`, its
 /// WAL first copied into it, with bytes that are no B-tree page: SQLite
 /// reads it as it reads a page that met an I/O error.

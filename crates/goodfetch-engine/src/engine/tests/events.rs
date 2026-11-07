@@ -635,6 +635,51 @@ fn page_body_of_an_unknown_body_or_run_fails_with_body_not_found() {
     assert_eq!(codes, vec![json!("body_not_found"); 3], "{replies:#?}");
 }
 
+/// A body the Run holds but that cannot be read now, as under a
+/// permission change or a process out of file handles, fails as the
+/// engine's own failure, never as `body_not_found`, which would say the
+/// Run holds no such body.
+///
+/// Covers: operation:page.body
+#[cfg(unix)]
+#[test]
+fn page_body_of_a_body_that_cannot_be_read_fails_as_internal_not_body_not_found() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let engine = engine(EventsOptions::default());
+
+    let read = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        let _ = client.next().await;
+        client
+            .send(&[call(
+                1,
+                "test.body",
+                json!({ "run_id": "bodies", "size": 10 }),
+            )])
+            .await;
+        let handle = client.next().await.unwrap()["result"].clone();
+        let path = std::path::PathBuf::from(handle["path"].as_str().unwrap());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        client
+            .send(&[call(
+                2,
+                "page.body",
+                json!({ "run_id": "bodies", "body": handle["body"] }),
+            )])
+            .await;
+        let read = client.next().await.unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        read
+    });
+
+    assert_eq!(
+        read["error"]["data"]["code"],
+        json!("internal_error"),
+        "{read}"
+    );
+}
+
 /// Covers: event:run.axes_changed
 #[test]
 fn dispatch_records_each_event_it_sends_with_its_name() {

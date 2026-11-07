@@ -19,7 +19,7 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, attributes, crawl_under, fetch};
 
 /// The Proving ground's seed.
@@ -54,7 +54,7 @@ fn crawl_shop(settings: &Value) -> Crawled {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("facets.test", "/shop"), "label": "page" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answers = BTreeMap::new();
     let report = crawl_under(
@@ -81,21 +81,21 @@ fn crawl_shop(settings: &Value) -> Crawled {
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     let received: Vec<String> = ReceivedRequests::of(&observations)
         .of_the_case()
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let again = engine.call(
         "again",
         "run.finish",
         &json!({ "run_id": "shop" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     Crawled {
         answers,
         listings: received
@@ -238,7 +238,7 @@ fn a_path_budget_refuses_past_its_count_and_the_run_ends_incomplete() {
 #[test]
 fn a_path_budget_pattern_the_engine_cannot_match_fails_the_start() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let answer = engine.call(
         "start",
@@ -252,7 +252,7 @@ fn a_path_budget_pattern_the_engine_cannot_match_fails_the_start() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let begun = HomeLayout::of(env.home()).run_folder("unmatched").exists();
     assert_eq!(

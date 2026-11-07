@@ -7,10 +7,6 @@
 //! not `handler_failed`, and the work item is retried on the Connection
 //! still serving.
 #![expect(
-    clippy::disallowed_types,
-    reason = "a handler process's own Connection reaches the private endpoint from outside the engine (ADR 0060)"
-)]
-#![expect(
     clippy::disallowed_methods,
     reason = "the tests read the private endpoint's token file and the run file themselves"
 )]
@@ -19,28 +15,27 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::{BufRead as _, BufReader, Read, Write};
-use std::process::{ChildStdin, Stdio};
 use std::time::Duration;
 
-use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{DaemonEndpoint, Process, StrictStdout, TestEnv};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::{Attached, DaemonClient, Hello, HomeLayout};
+use goodfetch_test_support::{DaemonEndpoint, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use crate::FOXHOUND;
 use crate::governor::in_flight_whatever_the_machine;
-
-const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// How long a handler process waits for each message from the engine.
 const DEADLINE: Duration = Duration::from_secs(10);
 
 fn hello(token: Option<&str>) -> Value {
-    json!({
-        "jsonrpc": "2.0", "id": "hello", "method": "hello",
-        "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": "0.0.0", "token": token },
-    })
+    let hello = Hello::needing(Product::Foxhound).id("hello");
+    match token {
+        Some(token) => hello.token(token),
+        None => hello,
+    }
+    .message()
 }
 
 /// One end of a Connection to the engine: the stdio of an Attached engine,
@@ -85,120 +80,47 @@ trait Peer {
     }
 }
 
+/// Starts the engine with two HTTP admissions whatever the machine:
+/// each test holds a request on the Client while the handler process
+/// waits for its own, and a governor at its floor of one under a
+/// loaded machine's memory pressure sent the handler process none
+/// (fix-queue 130).
+fn started_engine(env: &TestEnv) -> Attached {
+    env.user_configuration(&in_flight_whatever_the_machine(2));
+    Attached::start(env, FOXHOUND)
+}
+
 /// An Attached engine of Foxhound's executable, its stdio the Client's.
-struct Attached {
-    process: Process,
-    stdin: Option<ChildStdin>,
-    stdout: StrictStdout,
-}
-
-impl Attached {
-    /// Starts the engine with two HTTP admissions whatever the machine:
-    /// each test holds a request on the Client while the handler process
-    /// waits for its own, and a governor at its floor of one under a
-    /// loaded machine's memory pressure sent the handler process none
-    /// (fix-queue 130).
-    fn start(env: &TestEnv) -> Self {
-        env.user_configuration(&in_flight_whatever_the_machine(2));
-        env.log_level("trace");
-        let mut command = env.process_command(FOXHOUND);
-        command.arg("attached-engine").stderr(Stdio::piped());
-        let process = env.spawn(&mut command).unwrap();
-        let stdin = process.child().stdin.take();
-        let stdout = StrictStdout::of(&process).unwrap();
-        Self {
-            process,
-            stdin,
-            stdout,
-        }
-    }
-
-    /// Ends the input and waits for the engine to exit.
-    fn finish(mut self) -> bool {
-        drop(self.stdin.take());
-        while self.next().is_some() {}
-        self.process.child().wait().unwrap().success()
-    }
-}
-
 impl Peer for Attached {
     fn send(&mut self, message: &Value) {
-        let stdin = self.stdin.as_mut().unwrap();
-        let mut line = serde_json::to_vec(message).unwrap();
-        line.push(b'\n');
-        stdin.write_all(&line).unwrap();
-        stdin.flush().unwrap();
+        Attached::send(self, message);
     }
 
     fn next(&mut self) -> Option<Value> {
-        let message = self.stdout.try_next().unwrap()?;
-        serde_json::from_value::<Message>(message.clone()).unwrap();
-        Some(message)
+        Attached::next(self)
     }
+}
+
+/// Connects to the private endpoint `reported` names and says `hello`
+/// with the token of its token file, as a handler process does.
+fn joined(reported: &Value) -> DaemonClient {
+    let address: DaemonEndpoint = serde_json::from_value(reported["address"].clone()).unwrap();
+    let token = std::fs::read_to_string(reported["token_file"].as_str().unwrap()).unwrap();
+    let mut handler_process = DaemonClient::connect_within(&address, DEADLINE);
+    handler_process.send(&hello(Some(&token)));
+    let answered = handler_process.reply("hello", &mut Vec::new());
+    assert_eq!(answered["result"]["product"], "foxhound", "{answered}");
+    handler_process
 }
 
 /// A handler process's Connection to the engine's private endpoint.
-struct HandlerProcess {
-    reader: BufReader<Box<dyn Read>>,
-    writer: Box<dyn Write>,
-}
-
-impl HandlerProcess {
-    /// Connects to the private endpoint `reported` names and says `hello`
-    /// with the token of its token file.
-    fn joined(reported: &Value) -> Self {
-        let address: DaemonEndpoint = serde_json::from_value(reported["address"].clone()).unwrap();
-        let token = std::fs::read_to_string(reported["token_file"].as_str().unwrap()).unwrap();
-        let (reader, writer): (Box<dyn Read>, Box<dyn Write>) = match address {
-            #[cfg(unix)]
-            DaemonEndpoint::Unix(path) => {
-                let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
-                stream.set_read_timeout(Some(DEADLINE)).unwrap();
-                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-            }
-            #[cfg(not(unix))]
-            DaemonEndpoint::Unix(_) => unreachable!("a private endpoint listens on TCP here"),
-            DaemonEndpoint::Tcp(address) => {
-                let stream = std::net::TcpStream::connect(address).unwrap();
-                stream.set_read_timeout(Some(DEADLINE)).unwrap();
-                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-            }
-        };
-        let mut handler_process = Self {
-            reader: BufReader::new(reader),
-            writer,
-        };
-        handler_process.send(&hello(Some(&token)));
-        let answered = handler_process.reply("hello", &mut Vec::new());
-        assert_eq!(answered["result"]["product"], "foxhound", "{answered}");
-        handler_process
-    }
-}
-
-impl Peer for HandlerProcess {
+impl Peer for DaemonClient {
     fn send(&mut self, message: &Value) {
-        writeln!(self.writer, "{message}").unwrap();
-        self.writer.flush().unwrap();
+        DaemonClient::send(self, message);
     }
 
-    /// # Panics
-    ///
-    /// When nothing comes for [`DEADLINE`]: a read past the socket's timeout
-    /// fails with `WouldBlock` on Unix and `TimedOut` on Windows.
     fn next(&mut self) -> Option<Value> {
-        let mut line = String::new();
-        let read = match self.reader.read_line(&mut line) {
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                panic!("the private endpoint sent nothing for {DEADLINE:?}")
-            }
-            read => read.unwrap(),
-        };
-        (read > 0).then(|| serde_json::from_str(&line).unwrap())
+        DaemonClient::next(self)
     }
 }
 
@@ -281,10 +203,10 @@ fn records(env: &TestEnv, run_id: &str) -> Vec<String> {
 #[test]
 fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = started_engine(&env);
     let mut kept = Vec::new();
     let (reported, first) = started(&mut engine, "shared", 4, &mut kept);
-    let mut handler_process = HandlerProcess::joined(&reported);
+    let mut handler_process = joined(&reported);
     handler_process.send(&json!({ "jsonrpc": "2.0", "id": "serve", "method": "crawl.serve", "params": { "run_id": "shared" } }));
     let mut handler_process_kept = Vec::new();
     let second = handler_process.request(&mut handler_process_kept);
@@ -299,7 +221,7 @@ fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run
     engine.send(&json!({ "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": "shared" } }));
     let finished = engine.reply("finish", &mut kept);
     drop(handler_process);
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     assert_eq!(
         (
@@ -331,11 +253,11 @@ fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run
 #[test]
 fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retried_on_another() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    let pid = engine.process.child().id();
+    let mut engine = started_engine(&env);
+    let pid = engine.pid();
     let mut kept = Vec::new();
     let (reported, first) = started(&mut engine, "dropped", 2, &mut kept);
-    let mut handler_process = HandlerProcess::joined(&reported);
+    let mut handler_process = joined(&reported);
     handler_process.send(&json!({ "jsonrpc": "2.0", "id": "serve", "method": "crawl.serve", "params": { "run_id": "dropped" } }));
     let lost = handler_process.request(&mut Vec::new());
 
@@ -345,7 +267,7 @@ fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retrie
     engine.answer(&retried);
     engine.send(&json!({ "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": "dropped" } }));
     let finished = engine.reply("finish", &mut kept);
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     assert_eq!(
         (
@@ -386,7 +308,7 @@ fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retrie
 #[test]
 fn crawl_serve_of_a_run_the_engine_runs_no_crawl_of_answers_run_not_found() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = started_engine(&env);
     let mut kept = Vec::new();
     engine.send(&hello(None));
     engine.reply("hello", &mut kept);
@@ -395,7 +317,7 @@ fn crawl_serve_of_a_run_the_engine_runs_no_crawl_of_answers_run_not_found() {
     let answered = engine.reply("serve", &mut kept);
 
     assert_eq!(
-        (answered["error"]["data"]["code"].clone(), engine.finish()),
+        (answered["error"]["data"]["code"].clone(), engine.finished()),
         (json!("run_not_found"), true)
     );
 }

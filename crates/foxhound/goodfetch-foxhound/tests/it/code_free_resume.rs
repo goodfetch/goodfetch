@@ -24,7 +24,9 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{HELLO, Surface};
 use goodfetch_protocol::home::{RUN_FILE, RUNS, per_major};
+use goodfetch_test_client::Hello;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use rusqlite::Connection;
@@ -110,13 +112,13 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
             let mut lines = BufReader::new(reader).lines();
             let mut replies = Vec::new();
             let hello = (
-                "hello",
-                json!({
-                    "protocol_version": "0.1",
-                    "surface": "rust",
-                    "needs": "foxhound",
-                    "product_version": PRODUCT_VERSION,
-                }),
+                HELLO,
+                Hello::needing(Product::Foxhound)
+                    .surface(Surface::Rust)
+                    .with(|params| {
+                        params.product_version = ProductVersion::parse(PRODUCT_VERSION).unwrap();
+                    })
+                    .params(),
             );
             for (index, (method, params)) in std::iter::once(&hello).chain(calls).enumerate() {
                 let mut line = serde_json::to_vec(&json!({

@@ -16,10 +16,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache_with_lightpanda};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine_on, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
@@ -145,7 +145,7 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let sampled = |label: &str| {
         let mut lines = Vec::new();
@@ -287,7 +287,7 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let learned_lines = chosen(&env, "light-auto", &["listing"]);
     assert_eq!(
@@ -495,7 +495,7 @@ fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused(
         &mut rows_handler(first, &mut seen),
     );
     let mut ended = crate::served_calls::ended(&mut engine, "light-table-forced");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut expected_seen = ByRow::new();
     let mut expected_ended = Vec::new();
@@ -542,7 +542,7 @@ fn under_auto_a_call_the_light_browser_cannot_serve_escalates_its_request_once()
         &mut rows_handler(first, &mut seen),
     );
     let ended = crate::served_calls::ended(&mut engine, "light-table-auto");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut expected_seen = ByRow::new();
     let mut expected_lines = Vec::new();
@@ -625,7 +625,7 @@ fn a_run_allowing_the_light_browser_beside_a_proxy_fails_its_start() {
         }
     };
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let from_lightpanda = proving_ground
         .received_requests()

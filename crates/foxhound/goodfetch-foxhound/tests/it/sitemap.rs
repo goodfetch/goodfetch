@@ -22,7 +22,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{added, crawl_with};
 
 /// The Proving ground's seed.
@@ -78,7 +78,7 @@ struct Crawled {
 
 fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> Crawled {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
@@ -126,7 +126,7 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
         .collect();
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     handled.sort();
     Crawled {
@@ -555,7 +555,7 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
@@ -580,7 +580,7 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     handled.sort();
 
     assert_eq!(
@@ -617,7 +617,7 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
@@ -658,7 +658,7 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     handled.sort();
 
     let sitemap_url = url("/sitemaps/plain.xml");

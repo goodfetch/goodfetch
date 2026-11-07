@@ -143,7 +143,7 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let listing: Vec<(&str, Value, usize)> = ["/linked/1", "/linked/2", "/linked/3"]
         .into_iter()
@@ -224,7 +224,7 @@ fn a_samples_discarded_http_run_teaches_the_frontier_nothing() {
         &json!({ "run_id": "sample-shells" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut outcomes: Vec<(String, Value, Value)> = read["result"]["outcomes"]
         .as_array()
@@ -317,7 +317,7 @@ fn records_that_differ_only_in_whitespace_match_and_the_browsers_run_commits_eit
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut records = committed(&env, "sample-spaced");
     records.sort_by_key(|record| record["path"].as_str().unwrap().to_owned());
@@ -380,7 +380,7 @@ fn a_script_redirect_keeps_the_label_on_the_browser() {
             json!({ "result": { "records": [{ "dataset": "pages", "data": { "moved": true } }] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -429,7 +429,7 @@ fn a_sample_count_below_three_is_a_weakened_control() {
         ),
         &mut |_, _| json!({ "result": { "records": [] } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let weakened: Vec<(Value, Value)> = report["result"]["weakened"]
         .as_array()
@@ -497,7 +497,7 @@ fn a_choice_that_served_its_requests_is_sampled_again() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

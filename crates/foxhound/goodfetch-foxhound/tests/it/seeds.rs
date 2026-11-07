@@ -13,10 +13,11 @@
 use std::cell::RefCell;
 use std::time::Duration;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{Suite, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{added, crawl, not_added};
 
 /// The handler of these crawls: one Record naming each page.
@@ -85,7 +86,7 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(Value, Value)> {
 #[test]
 fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enqueue_is() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "adding", "https://shop.test/a");
     let pages = RefCell::new(Vec::new());
     let mut handler = |params: &Value| {
@@ -123,7 +124,7 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
     );
     let mut outcomes = outcomes(&mut engine, "adding");
     outcomes.sort_by_key(|(url, _)| url.to_string());
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         answers,
@@ -161,7 +162,7 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
 #[test]
 fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut first_attempt: Option<Value> = None;
     let mut answers = Vec::new();
 
@@ -201,7 +202,7 @@ fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
         },
     );
     let outcomes = outcomes(&mut engine, "bound");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (answers, outcomes),
@@ -298,7 +299,7 @@ fn seed(url: &str) -> Value {
 #[test]
 fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "service", "ftp://shop.test/");
     let idle = engine.is_quiet_for(Duration::from_millis(500));
     let pages = RefCell::new(Vec::new());
@@ -334,7 +335,7 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
         &json!({ "run_id": "service" }),
         &mut handler,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (idle, one, credit),
@@ -375,7 +376,7 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
 #[test]
 fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "credits", "https://shop.test/0");
     let mut unanswered = |_: &Value| None;
     engine.send(&json!({
@@ -396,7 +397,7 @@ fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     let next_credit = next_for_stream(&mut engine, &mut unanswered);
     send_seeds(&mut engine, &vec![seed("https://shop.test/x"); 257], false);
     let refused = next_for_stream(&mut engine, &mut unanswered);
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     let Came::Answers(answers) = answers else {
         panic!("no answers came: {answers:?}");
@@ -470,7 +471,7 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
         Suite::Release => 1_000_000,
         _ => 100_000,
     };
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "million", "https://many.test/0");
     let mut unanswered = |_: &Value| None;
     engine.send(&json!({
@@ -522,7 +523,7 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
     }
     let reply = next_for_stream(&mut engine, &mut unanswered);
     highest = highest.max(resident_bytes(&env, engine.pid()));
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     assert_eq!(
         (out_of_order, exited, reply),

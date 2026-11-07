@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, crawl_from};
 
 /// The Datasets the crawls declare: `books`, with a schema requiring
@@ -90,7 +90,7 @@ fn read(reply: &Value) -> Vec<(u64, Value)> {
 #[test]
 fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_counts() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut live = Value::Null;
     let report = crawl_from(
         &mut engine,
@@ -120,7 +120,7 @@ fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_co
         &json!({ "run_id": "listed" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let books = |committed: u64, rejected: u64| {
         json!({
@@ -156,7 +156,7 @@ fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_co
 #[test]
 fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     // Each request's Record takes a rank no order of numbers follows, two of
     // them sharing one, and request 5's has none.
     let rank = |n: u64| (n * 7) % 11;
@@ -191,7 +191,7 @@ fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let through: BTreeSet<String> = pages
         .iter()
@@ -235,7 +235,7 @@ fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
 #[test]
 fn filters_sorts_and_columns_run_in_the_engine() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let books = [
         json!({ "title": "Dune", "isbn": "1", "price": 9.5, "lang": "en" }),
         json!({ "title": "Dune Messiah", "isbn": "2", "price": 12, "lang": "en" }),
@@ -274,7 +274,7 @@ fn filters_sorts_and_columns_run_in_the_engine() {
     let unknown = page(json!({ "dataset": "bokks" }));
     let too_many = page(json!({ "limit": 1001 }));
     let quoted = page(json!({ "sort": { "field": "a\"b", "direction": "ascending" } }));
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

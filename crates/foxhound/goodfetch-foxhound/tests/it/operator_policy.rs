@@ -14,11 +14,12 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -67,12 +68,12 @@ fn started_asking(engine: &mut Attached, run_id: &str, max_requests: &Value) -> 
 fn a_cap_on_crawl_max_requests_refuses_a_crawl_asking_for_more() {
     let env = TestEnv::new();
     capping_and_locking(&env);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let more = started_asking(&mut engine, "more", &json!(1_000));
     let unbounded = started_asking(&mut engine, "unbounded", &Value::Null);
     let fewer = started_asking(&mut engine, "fewer", &json!(50));
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let cap = json!({ "key": "crawl.max_requests", "value": 100, "layer": "operator_policy" });
     assert_eq!(

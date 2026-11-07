@@ -11,10 +11,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{JourneyRun, ReceivedRequests};
 use serde_json::{Map, Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_spawned;
 use crate::frontier::crawl_with;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -65,7 +66,7 @@ fn cli() {
     run.step("Start Foxhound's executable as a program's engine", |run| {
         let mut command = run.env().process_command(run.engine());
         command.arg("attached-engine");
-        engine = Some(Attached::spawned(run.env(), None, &mut command));
+        engine = Some(attached_spawned(run.env(), None, &mut command));
     });
     run.step(
         "Crawl three pages of a site over HTTP, choosing two of the machine's local addresses for the Crawl's traffic",
@@ -102,7 +103,7 @@ fn cli() {
     );
     run.step("Let the Crawl finish and read its report", |_| {
         let engine = engine.take().expect("the engine runs");
-        assert!(engine.finish());
+        assert!(engine.finished());
     });
 
     run.check("The Crawl finished", |_| {

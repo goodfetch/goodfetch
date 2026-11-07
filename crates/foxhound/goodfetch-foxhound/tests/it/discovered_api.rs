@@ -207,7 +207,7 @@ fn crawl(
         &settings(proving_ground, &json!({ "fetch": { "tier": tier } })),
         &mut read_the_list(kind),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
 }
 

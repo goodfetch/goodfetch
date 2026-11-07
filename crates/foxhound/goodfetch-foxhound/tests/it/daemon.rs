@@ -7,22 +7,19 @@
 //! the Daemon at most once (ADR 0098). Collie's executable comes from the
 //! test tool manifest.
 #![expect(
-    clippy::disallowed_types,
-    reason = "a test's own Client reaches the Daemon's socket from outside the engine (ADR 0060)"
-)]
-#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::{DaemonClient, Hello};
 use goodfetch_test_support::{
-    DaemonEndpoint, RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script,
-    reported_address, snapshot_settings, tools,
+    RuntimeFile, SnapshotValues, TestEnv, Tool, cli, engine_script, reported_address,
+    snapshot_settings, tools,
 };
 use serde_json::{Value, json};
 
@@ -70,45 +67,17 @@ fn explain(executable: &Path, env: &TestEnv) -> goodfetch_test_support::CliOutpu
 
 /// A test's own Client of the Daemon, which keeps it busy while it is
 /// connected.
-struct Busy {
-    _writer: Box<dyn std::io::Write>,
-    _reader: BufReader<Box<dyn std::io::Read>>,
-}
+struct Busy(#[expect(dead_code, reason = "held only to keep the Connection open")] DaemonClient);
 
 impl Busy {
     fn on(env: &TestEnv) -> Self {
         let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-        let (reader, mut writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) =
-            match &found.endpoint {
-                #[cfg(unix)]
-                DaemonEndpoint::Unix(path) => {
-                    let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
-                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-                }
-                #[cfg(not(unix))]
-                DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
-                DaemonEndpoint::Tcp(address) => {
-                    let stream = std::net::TcpStream::connect(address).unwrap();
-                    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-                }
-            };
-        let hello = json!({
-            "jsonrpc": "2.0", "id": 0, "method": "hello",
-            "params": {
-                "protocol_version": PROTOCOL_VERSION.to_string(), "surface": "sdk_typescript",
-                "token": found.token, "needs": "collie", "product_version": VERSION,
-            },
-        });
-        writeln!(writer, "{hello}").unwrap();
-        writer.flush().unwrap();
-        let mut reader = BufReader::new(reader);
-        let mut answer = String::new();
-        reader.read_line(&mut answer).unwrap();
-        assert!(answer.contains("\"result\""), "{answer}");
-        Self {
-            _writer: writer,
-            _reader: reader,
-        }
+        Self(DaemonClient::opened(
+            &found.endpoint,
+            &Hello::needing(Product::Collie)
+                .surface(Surface::SdkTypescript)
+                .token(&found.token),
+        ))
     }
 }
 

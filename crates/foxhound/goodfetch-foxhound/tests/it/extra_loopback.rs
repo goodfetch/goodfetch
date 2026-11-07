@@ -23,7 +23,8 @@ use goodfetch_test_support::{
 };
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
 use crate::frontier::{crawl_declaring, crawl_with};
 
 /// The Proving ground's seed.
@@ -119,7 +120,7 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         .iter()
         .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl_with(
         &mut engine,
@@ -129,7 +130,7 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         &mut |_, handle| answer(handle, &[]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -168,7 +169,7 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
             .collect()
     };
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let outside = crawl_with(
         &mut engine,
@@ -186,7 +187,7 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
         &mut |_, handle| answer(handle, &["/probe", "/cdp-probe"]),
     );
     let second = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let warnings: Vec<Value> = within["result"]["warnings"]
         .as_array()
@@ -245,7 +246,7 @@ fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though
     settings["proxy"] = json!({
         "server": format!("http://{}", proving_ground.description().fixtures.proxies["datacenter"]),
     });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl_with(
         &mut engine,
@@ -255,7 +256,7 @@ fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though
         &mut |_, handle| answer(handle, &["/consistency/1"]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         ["/consistency/1", "/consistency/2", "/version"]
@@ -280,7 +281,7 @@ fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_a
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     });
     let seeds = [
@@ -303,7 +304,7 @@ fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_a
         &mut |_, handle| answer(handle, &["/consistency/1"]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

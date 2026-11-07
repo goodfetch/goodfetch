@@ -16,7 +16,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, attributes, crawl_under, fetch};
 
 /// The Proving ground's seed.
@@ -67,7 +67,7 @@ fn crawl_archive(settings: &Value) -> Crawled {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("traps.test", "/archive/"), "label": "page" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answers = Vec::new();
     let report = crawl_under(
@@ -88,7 +88,7 @@ fn crawl_archive(settings: &Value) -> Crawled {
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     let received = ReceivedRequests::of(&observations)
         .every()
         .map(|request| request["target"].as_str().unwrap().to_owned())
@@ -105,14 +105,14 @@ fn crawled(
     report: &Value,
 ) -> Crawled {
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     let again = engine.call(
         "again",
         "run.finish",
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     Crawled {
         answers,
         received,
@@ -243,7 +243,7 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
         "/a/a/".to_owned(),
     ];
     let looping_seed = proving_ground.url("traps.test", "/b/b/b/");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut given = Vec::new();
     let report = crawl_under(
@@ -265,7 +265,7 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         crawled(&env, "caps", given, Vec::new(), &report),

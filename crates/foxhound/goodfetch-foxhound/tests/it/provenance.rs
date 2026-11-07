@@ -18,12 +18,14 @@
 
 use std::collections::BTreeSet;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
 use crate::exports::save_as;
 use crate::fetch_tiers::{provenance, settings};
 use crate::frontier::{Inside, crawl_from};
@@ -86,7 +88,7 @@ pub(crate) fn records(engine: &mut Attached, run_id: &str, dataset: &str) -> Vec
 fn every_record_names_its_request_tier_encoding_and_clean_up_rules_in_its_provenance() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let seeds: Vec<Value> = ["shift-jis", "utf-16-bom"]
         .iter()
         .map(|page| {
@@ -122,7 +124,7 @@ fn every_record_names_its_request_tier_encoding_and_clean_up_rules_in_its_proven
     );
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let read = records(&mut engine, "traced", "pages");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let clean_up = provenance(&env, "traced", "clean_up_rules");
     let digest = &clean_up.first().expect("the Run names its Clean-up rules")["digest"];
@@ -276,7 +278,7 @@ fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
     env.user_configuration(&format!(
         "run_state.key_reference = \"env:{KEY_VARIABLE}\"\n"
     ));
-    let mut engine = Attached::start_with(&env, None, |command| {
+    let mut engine = attached_with(&env, None, |command| {
         command.env(KEY_VARIABLE, &key);
     });
     let said = format!("the key is {key}");
@@ -308,7 +310,7 @@ fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
         .map(|record| record["value"].clone())
         .collect();
     let exports = decompressed_exports(&env, &mut engine, ("reflected", "pages"));
-    assert!(engine.finish());
+    assert!(engine.finished());
     let holding: BTreeSet<&str> = exports
         .iter()
         .filter(|(_, _, bytes)| {

@@ -21,11 +21,13 @@
 
 use std::time::{Duration, Instant};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -66,7 +68,7 @@ fn crawl(
         .iter()
         .map(|path| json!({ "url": proving_ground.url(host, path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     let report = crawl_with(
         &mut engine,
         run_id,
@@ -74,7 +76,7 @@ fn crawl(
         &settings(proving_ground, host, &json!({})),
         &mut |_, _| json!({ "result": { "records": [] } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     report
 }
@@ -192,7 +194,7 @@ fn crawl_seeds(
         .iter()
         .map(|(host, path)| json!({ "url": proving_ground.url(host, path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
@@ -214,7 +216,7 @@ fn crawl_seeds(
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     let outcomes = read["result"]["outcomes"]
         .as_array()
         .unwrap_or_else(|| panic!("{read}"))
@@ -430,7 +432,7 @@ fn an_operator_policy_lock_keeps_robots_txt_respected() {
         "version = \"0.1\"\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
     )
     .unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let started = engine.call(
         "start",
@@ -446,7 +448,7 @@ fn an_operator_policy_lock_keeps_robots_txt_respected() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -469,7 +471,7 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let delay = Duration::from_secs(2);
     let more = json!({ "politeness": { "domain": { "delay": 2_000 } } });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let started = Instant::now();
     let mut first_page = None;
@@ -483,7 +485,7 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -508,7 +510,7 @@ fn a_document_waiting_for_its_delay_after_robots_txt_keeps_its_lease() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     // The document waits out the delay with nothing to say.
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |_| {});
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |_| {});
     // A lease of 1 s plus the 10 s margin, shorter than the delay.
     let more = json!({
         "timeout": { "handler": 1_000 },
@@ -533,7 +535,7 @@ fn a_document_waiting_for_its_delay_after_robots_txt_keeps_its_lease() {
         &json!({ "run_id": "waits" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let outcome = &outcomes["result"]["outcomes"][0];
     assert_eq!(
@@ -585,7 +587,7 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
     let mut engines: Vec<(Attached, &str, bool)> = runs
         .iter()
         .map(|run| {
-            let mut engine = Attached::start(env);
+            let mut engine = attached(env);
             let mut settings = settings(proving_ground, host, &json!({}));
             settings["crawl"]["handler"] = json!({ "concurrency": 1 });
             let seeds: Vec<Value> = [1, 2]
@@ -626,7 +628,7 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
         }
     }
     for (engine, _, _) in engines {
-        assert!(engine.finish());
+        assert!(engine.finished());
     }
 }
 

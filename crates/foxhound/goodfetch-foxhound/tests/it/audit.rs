@@ -8,6 +8,8 @@
 use std::io::Write as _;
 use std::process::Stdio;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::hello;
 use goodfetch_test_support::{Canaries, SecretKind, StrictStdout, TestEnv, cli, record_command};
 use serde_json::{Value, json};
 
@@ -36,15 +38,7 @@ fn recorded_by_a_run(env: &TestEnv) -> Vec<Value> {
     let mut stdin = process.child().stdin.take().unwrap();
     let mut stdout = StrictStdout::of(&process).unwrap();
     for message in [
-        json!({
-            "jsonrpc": "2.0", "id": 0, "method": "hello",
-            "params": {
-                "protocol_version": "0.1",
-                "surface": "sdk_python",
-                "needs": "collie",
-                "product_version": "0.0.0",
-            },
-        }),
+        hello(Product::Collie),
         json!({ "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "audited" } }),
     ] {
         stdin.write_all(&line(&message)).unwrap();

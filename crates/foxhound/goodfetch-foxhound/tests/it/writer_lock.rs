@@ -22,8 +22,10 @@ use std::time::Duration;
 
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{Writer, test_writer};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Moment, ObservationLog, Operation, Process, Record, StrictStdout, TestEnv, kill_at,
@@ -43,10 +45,7 @@ const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 const WORK_ITEMS: u32 = 5;
 
 fn hello() -> Value {
-    json!({
-        "jsonrpc": "2.0", "id": "hello", "method": "hello",
-        "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": "0.0.0" },
-    })
+    Hello::needing(Product::Foxhound).id("hello").message()
 }
 
 /// An Attached engine logging at `trace`, into the home's log file as

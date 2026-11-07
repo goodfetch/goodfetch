@@ -11,7 +11,7 @@
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// The Proving ground's seed.
 const SEED: u64 = 1547;
@@ -60,7 +60,7 @@ enum Handling {
 fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling) -> Value {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let seeds: Vec<Value> = seeds
         .iter()
         .map(|seed| {
@@ -114,7 +114,7 @@ fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling)
     for request in held {
         engine.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "records": [] } }));
     }
-    assert!(engine.finish());
+    assert!(engine.finished());
     group
 }
 

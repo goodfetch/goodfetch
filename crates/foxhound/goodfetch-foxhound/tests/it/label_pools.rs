@@ -12,11 +12,12 @@
 use std::time::Duration;
 
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -28,7 +29,7 @@ const HOST: &str = "access.test";
 /// An engine whose pages launch Chrome for Testing from the test's cache.
 fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -143,7 +144,7 @@ fn a_label_with_a_session_source_keeps_its_cookies_in_its_own_pool_and_labels_wi
         &settings(&proving_ground, "browser"),
         &mut handler(&mut seen, &set),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (seen, &finished["result"]["lifecycle"]),
@@ -188,7 +189,7 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
             handler(&mut seen, &set)(inside, handle)
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

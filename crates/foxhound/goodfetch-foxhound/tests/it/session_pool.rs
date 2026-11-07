@@ -26,11 +26,12 @@
 use std::io::{Read as _, Write as _};
 use std::time::Duration;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// The Proving ground's seed.
 const SEED: u64 = 920;
@@ -180,7 +181,7 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let (sessions, lifecycle) = crawl(
         &mut engine,
@@ -196,7 +197,7 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
             First::Succeeds | First::Fails(_) | First::Lasts(_) => handle(&proving_ground, params),
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let ids: Vec<&str> = sessions
         .iter()
@@ -216,7 +217,7 @@ fn a_block_retires_its_session_and_one_that_escalates_opens_the_replacement_at_t
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let (sessions, lifecycle) = crawl(
         &mut engine,
@@ -225,7 +226,7 @@ fn a_block_retires_its_session_and_one_that_escalates_opens_the_replacement_at_t
         &settings(&json!({ "max_size": 1 })),
         &mut |_, params| handle(&proving_ground, params),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (sessions, lifecycle),
@@ -251,7 +252,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
         ],
     );
     let settings = settings(&json!({ "max_size": 2 }));
-    let mut killed = Attached::start(&env);
+    let mut killed = attached(&env);
     let mut before = Vec::new();
     killed.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
@@ -270,7 +271,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
         }
     }
     killed.kill();
-    let mut resuming = Attached::start(&env);
+    let mut resuming = attached(&env);
 
     let mut after: Vec<Value> = Vec::new();
     let mut answer = |params: &Value| {
@@ -289,7 +290,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
         &json!({ "run_id": "kept" }),
         &mut answer,
     );
-    assert!(resuming.finish());
+    assert!(resuming.finished());
 
     let first_seen = |n: usize, served: &Value| {
         !after[..n]

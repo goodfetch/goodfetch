@@ -12,6 +12,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{
     ExpectedError, HostileTables, LimitSetting, ProvingGround, ServedBy, TestEnv,
 };
@@ -59,7 +60,7 @@ const SAFE: &str = "bombs/6";
 
 /// Each request's end by its URL: its kind, its error's code and the
 /// setting its details name.
-fn ended(engine: &mut crate::crawl::Attached, run_id: &str) -> Vec<(String, Value, Value, Value)> {
+fn ended(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value, Value)> {
     let answer = engine.call(
         "outcomes",
         "run.outcomes",
@@ -142,7 +143,7 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
         },
     );
     let ended = ended(&mut engine, "body-limits");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let mut expected: Vec<(String, Value, Value, Value)> = refused

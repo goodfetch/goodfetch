@@ -21,10 +21,10 @@
 use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine, provenance, settings};
 use crate::frontier::{Inside, crawl_declaring};
 
@@ -162,7 +162,7 @@ fn the_built_in_content_types_skip_every_file_before_its_handler(#[case] tier: &
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     // Under `auto` the index is a sample, handled on each tier.
@@ -231,7 +231,7 @@ fn an_accepted_pdf_reaches_its_handler_with_its_bytes_and_no_document(#[case] ti
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert_eq!(
@@ -318,7 +318,7 @@ fn a_handlers_own_goto_to_a_pdf_answers_its_response_and_body_and_no_document(#[
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let [(went, read, formats, back, again)] = seen.as_slice() else {
@@ -391,7 +391,7 @@ fn a_programs_own_page_downloads_a_pdf_and_reads_an_unlabelled_page_as_chrome_do
         }),
         &mut none,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(pdf["result"], json!({ "response": null }), "{pdf}");
     let encoding = &unlabelled["result"]["response"]["encoding"];
@@ -450,7 +450,7 @@ fn provenance_names_each_documents_encoding_and_where_it_came_from() {
         &mut |_: &mut Inside<'_>, _: &Value| json!({ "result": { "records": [] } }),
     );
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     // Each page's encoding: where a document tier read it, else the
     // browser's guess.

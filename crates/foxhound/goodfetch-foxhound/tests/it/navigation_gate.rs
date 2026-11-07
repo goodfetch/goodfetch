@@ -21,11 +21,12 @@
 
 use std::time::{Duration, Instant};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::frontier::{Inside, crawl_with};
 
 /// The Proving ground's seed.
@@ -49,7 +50,7 @@ fn engine(env: &TestEnv) -> Attached {
     env.user_configuration(ADMITTED_WHATEVER_THE_LOAD);
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     // A navigation may wait out its domain's delay with nothing to say.
-    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -132,7 +133,7 @@ fn a_handlers_goto_robots_txt_disallows_is_refused_before_it_leaves() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -213,7 +214,7 @@ fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page()
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -352,7 +353,7 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let history = arrivals(&proving_ground, HISTORY, &["/robots.txt", "/", "/b", "/c"]);
     let edge = arrivals(
@@ -480,7 +481,7 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -592,7 +593,7 @@ fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u6
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     let arrived = arrivals(&proving_ground, SERVICE_WORKER_HOST, &[page.as_str()])
         .into_iter()
@@ -692,7 +693,7 @@ fn token_refusals(run_id: &str, more: &Value) -> Vec<bool> {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     refused
 }
@@ -767,7 +768,7 @@ fn a_handlers_refused_goto_escaping_it_ends_the_request_skipped_with_its_reason(
         &json!({ "run_id": "escapes" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let outcome = &outcomes["result"]["outcomes"][0];
     assert_eq!(
@@ -826,7 +827,7 @@ fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (&report["result"]["lifecycle"], statuses),
@@ -881,7 +882,7 @@ fn goto_declaring(host: &str, path: &str, site_preferences: &Value) -> (Value, V
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     (went, text)
 }
@@ -1023,7 +1024,7 @@ fn on_the_served_page(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     let mut sent: Vec<String> = proving_ground
         .received_requests()
@@ -1131,7 +1132,7 @@ fn a_handlers_goto_to_a_host_whose_declared_signals_refuse_the_purpose_is_never_
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
     assert_eq!(
@@ -1183,7 +1184,7 @@ fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
     assert_eq!(
@@ -1343,7 +1344,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             }));
         }
     };
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut targets: Vec<&str> = pages.iter().map(String::as_str).collect();
     targets.push("/robots.txt");
@@ -1551,7 +1552,7 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         "params": { "page_id": program_page, "url": url("/catalog/5") },
     }));
     let program_goto = answer_to(&mut engine, "program-goto", &mut others);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let (lease_ended, after) = requests.expect("the handler ran");
     assert_eq!(
@@ -1731,7 +1732,7 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let arrived = arrivals(
         &proving_ground,
@@ -1826,7 +1827,7 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let arrived = arrivals(&proving_ground, CATALOG_HOST, &pages);
     let gaps: Vec<u64> = arrived

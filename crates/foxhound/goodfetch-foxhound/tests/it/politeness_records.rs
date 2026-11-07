@@ -16,11 +16,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, cli};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, crawl_from};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -151,7 +152,7 @@ fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl(
         &mut engine,
@@ -160,7 +161,7 @@ fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
         &["/catalog/1"],
         &settings(&proving_ground, &more),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (weakened_politeness(&report), politeness_weakened(&env)),
@@ -184,7 +185,7 @@ fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
 fn the_built_in_default_or_a_gentler_value_records_nothing() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl(
         &mut engine,
@@ -202,7 +203,7 @@ fn the_built_in_default_or_a_gentler_value_records_nothing() {
             }),
         ),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (weakened_politeness(&report), politeness_weakened(&env)),
@@ -219,7 +220,7 @@ fn a_value_from_user_configuration_is_recorded_with_its_layer() {
     let env = TestEnv::new();
     env.user_configuration("politeness.domain.concurrency = 3\n");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl(
         &mut engine,
@@ -228,7 +229,7 @@ fn a_value_from_user_configuration_is_recorded_with_its_layer() {
         &["/catalog/1"],
         &settings(&proving_ground, &json!({})),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let layer = report["result"]["weakened"]
         .as_array()
@@ -318,7 +319,7 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let paths = ["/catalog/1", "/private/catalog/1"];
 
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(
         &mut engine,
         &proving_ground,
@@ -354,7 +355,7 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
     );
     let respecting = records(&mut engine, "respecting");
     let received_respecting = pages_received(&proving_ground);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

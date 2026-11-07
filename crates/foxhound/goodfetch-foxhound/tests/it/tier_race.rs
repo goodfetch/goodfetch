@@ -21,10 +21,10 @@
 
 mod scripted;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine, expecting, outcomes, provenance, settings, tiers};
 use crate::frontier::{Inside, added, crawl_declaring};
 use crate::staging::{keys, run_file, work_items};
@@ -147,7 +147,7 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
         },
     );
     let ended = outcomes(&mut engine, "won-by-fetch");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     // The case's one premise: a Proving ground executable that predates the
     // `hold` query (a stale test tool manifest) answers at once, and every
@@ -240,7 +240,7 @@ fn a_navigation_wins_when_browser_fetch_fails_the_page_check() {
         },
     );
     let ended = outcomes(&mut engine, "won-by-navigation");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let raced = |entries: Vec<Value>| -> Vec<Value> {
         entries
@@ -394,7 +394,7 @@ fn an_escalated_race_commits_what_its_browser_run_staged_once_and_nothing_of_its
 
     let (report, runs) = race_escalating(&mut engine, &proving_ground, "escalated", false);
     let ended = outcomes(&mut engine, "escalated");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let url = |path: &str| proving_ground.url(HOST, path);
     assert_eq!(
@@ -451,7 +451,7 @@ fn an_escalated_race_that_fails_in_the_browser_commits_nothing_either_run_staged
 
     let (report, runs) = race_escalating(&mut engine, &proving_ground, "failed", true);
     let ended = outcomes(&mut engine, "failed");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let url = |path: &str| proving_ground.url(HOST, path);
     assert_eq!(

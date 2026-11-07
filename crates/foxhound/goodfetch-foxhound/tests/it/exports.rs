@@ -23,13 +23,16 @@
 
 use std::path::{Path, PathBuf};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, unicode_record};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::crawl::Attached;
 use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
+
+use crate::attached;
+use crate::attached_spawned;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -209,7 +212,7 @@ fn names_in(folder: &Path) -> Vec<String> {
 #[test]
 fn json_and_jsonl_exports_are_utf_8_with_no_bom_and_hold_each_value_as_committed() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "unicode", 3);
     finish(&mut engine, "unicode", |page| {
         if page == 2 {
@@ -223,7 +226,7 @@ fn json_and_jsonl_exports_are_utf_8_with_no_bom_and_hold_each_value_as_committed
     let saved_to = env.home().join("saved").join("books.json");
     let saved = save_as(&mut engine, &json["result"]["export_id"], &saved_to);
     let (sent, stream_reply) = streamed(&mut engine, &jsonl["result"]["export_id"]);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let file = std::fs::read(&saved_to).unwrap();
     let text = String::from_utf8(file.clone()).unwrap();
@@ -309,7 +312,7 @@ fn lines_of(bytes: &[u8]) -> Vec<Value> {
 #[test]
 fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "live", 3);
     for _ in 0..2 {
         let request = next_request(&mut engine);
@@ -322,7 +325,7 @@ fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order()
     let after = export(&mut engine, "live", "jsonl");
     let live_bytes = streamed(&mut engine, &while_live["result"]["export_id"]).0;
     let after_bytes = streamed(&mut engine, &after["result"]["export_id"]).0;
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -354,7 +357,7 @@ fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order()
 #[test]
 fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "killed", 200);
     finish(&mut engine, "killed", book);
     let held = export(&mut engine, "killed", "json");
@@ -364,7 +367,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
     }));
     engine.kill();
 
-    let mut later = Attached::start(&env);
+    let mut later = attached(&env);
     let saved_to = env.home().join("books.json");
     let saved = save_as(&mut later, &held["result"]["export_id"], &saved_to);
     let exports = run_folder(&env, "killed").join("exports");
@@ -375,7 +378,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
         .collect();
     // The same Export again, on the engine that exits as it should.
     let again = export(&mut later, "killed", "json");
-    assert!(later.finish());
+    assert!(later.finished());
     let file = std::fs::read(&saved_to).unwrap();
     let values: Vec<Value> = serde_json::from_slice(&file).unwrap();
     assert_eq!(
@@ -407,7 +410,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
 fn an_export_answered_before_the_engine_is_killed_stays_in_the_tests_exercise_record() {
     let env = TestEnv::new();
     env.user_configuration("log.output = \"none\"");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "killed", 1);
     finish(&mut engine, "killed", book);
     let exported = export(&mut engine, "killed", "jsonl");
@@ -441,7 +444,7 @@ fn an_export_answered_before_the_engine_is_killed_stays_in_the_tests_exercise_re
 #[test]
 fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "declared", 1);
     finish(&mut engine, "declared", book);
     let unknown = engine.call(
@@ -452,7 +455,7 @@ fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown(
     );
     let named = format!("declared.export-{}", "0".repeat(64));
     let no_export = save_as(&mut engine, &json!(named), &env.home().join("x.json"));
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -467,7 +470,7 @@ fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown(
 /// What one host's crawl gives: its JSON and JSONL Exports' bytes and its
 /// Records as `run.records` reads them.
 fn crawled_on(env: &TestEnv) -> (Vec<u8>, Vec<u8>, Vec<Value>) {
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     crawl(&mut engine, "hosted", 3);
     finish(&mut engine, "hosted", |page| {
         if page == 2 {
@@ -486,7 +489,7 @@ fn crawled_on(env: &TestEnv) -> (Vec<u8>, Vec<u8>, Vec<Value>) {
     let json = streamed(&mut engine, &json["result"]["export_id"]).0;
     let jsonl = streamed(&mut engine, &jsonl["result"]["export_id"]).0;
     let read = records(&mut engine, "hosted");
-    assert!(engine.finish());
+    assert!(engine.finished());
     (json, jsonl, read)
 }
 
@@ -523,7 +526,7 @@ fn crawled_on_a_tmpfs(env: &TestEnv, settings: &str, run_id: &str) -> Attached {
     env.user_configuration(settings);
     let mut command = tmpfs_mounted_home(env, SIZE, FOXHOUND);
     command.arg("attached-engine");
-    let mut engine = Attached::spawned(env, None, &mut command);
+    let mut engine = attached_spawned(env, None, &mut command);
     crawl(&mut engine, run_id, 40);
     finish(
         &mut engine,
@@ -555,7 +558,7 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
     free_filesystem(&filler);
     let written = export(&mut engine, "full", "json");
     let kept = names_in(&inside_mount(pid, &folder.join("exports")));
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let data = &failed["error"]["data"];
     assert_eq!(
@@ -607,7 +610,7 @@ fn an_export_at_the_critical_storage_level_fails_before_writing() {
     let failed = export(&mut engine, "critical", "json");
     let exports = inside_mount(pid, &folder.join("exports")).exists();
     free_filesystem(&filler);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let data = &failed["error"]["data"];
     assert_eq!(
@@ -884,7 +887,7 @@ pub(crate) fn third_book() -> Value {
 #[test]
 fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "tables", 3);
     finish(&mut engine, "tables", |page| match page {
         1 => book(1),
@@ -900,7 +903,7 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
     let xlsx_bytes = saved(&mut engine, &env, &xlsx, "books.xlsx");
     let html_bytes = saved(&mut engine, &env, &html, "books.html");
     let markdown_bytes = saved(&mut engine, &env, &markdown, "books.md");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let columns = [
         "page",
@@ -954,7 +957,7 @@ fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order
 #[test]
 fn the_export_settings_shape_csv_and_name_the_xlsx_sheet() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "shaped", 3);
     finish(&mut engine, "shaped", |page| {
         if page == 3 { third_book() } else { book(page) }
@@ -985,7 +988,7 @@ fn the_export_settings_shape_csv_and_name_the_xlsx_sheet() {
     );
     let csv_bytes = saved(&mut engine, &env, &csv, "books.csv");
     let xlsx_bytes = saved(&mut engine, &env, &xlsx, "books.xlsx");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let flattened = json!({
         "author.name": "Zoé",

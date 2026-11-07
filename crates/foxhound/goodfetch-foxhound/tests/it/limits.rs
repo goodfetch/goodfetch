@@ -14,33 +14,28 @@
 //! case seeded by `GOODFETCH_TEST_SEED` takes new seeds in the nightly-only
 //! job.
 #![expect(
-    clippy::disallowed_types,
-    reason = "a test's own Clients reach the Daemon's socket from outside the engine (ADR 0060)"
-)]
-#![expect(
     clippy::disallowed_methods,
     reason = "each Client is a thread of the test's own, and the test reads the files the engines wrote"
 )]
 
-use std::io::{BufRead as _, BufReader, Read, Write};
+use std::io::Write as _;
 use std::path::Path;
 use std::process::Stdio;
 
-use goodfetch_test_client::HomeLayout;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::{Attached, DaemonClient, Hello, HomeLayout};
 use goodfetch_test_support::{
-    DAEMON_DEADLINE, Daemon, Moment, ObservationLog, Operation, Record, TestEnv, kill_at, limits,
-    record_command,
+    DAEMON_DEADLINE, Daemon, DaemonEndpoint, Moment, ObservationLog, Operation, Record, TestEnv,
+    kill_at, limits, record_command,
 };
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::governor::in_flight_whatever_the_machine;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The install Limit on requests.
 const LIMIT: i64 = 40;
@@ -79,10 +74,7 @@ fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
         let mut child = victim.child();
         let stdin = child.stdin.as_mut().unwrap();
         for message in [
-            json!({
-                "jsonrpc": "2.0", "id": "hello", "method": "hello",
-                "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": VERSION },
-            }),
+            Hello::needing(Product::Foxhound).id("hello").message(),
             json!({
                 "jsonrpc": "2.0", "id": "limit", "method": "usage.set",
                 "params": { "scope": "install", "usage_kind": "requests", "amount": LIMIT },
@@ -120,92 +112,31 @@ fn crawled_attached(mut engine: Attached, site: &str) -> Value {
         &json!({ "run_id": site }),
         &mut |params| Some(handled(params)),
     );
-    assert!(engine.finish(), "the Attached engine failed");
+    assert!(engine.finished(), "the Attached engine failed");
     report["result"].clone()
-}
-
-/// One Client's Connection to the Daemon.
-struct DaemonClient {
-    reader: BufReader<Box<dyn Read>>,
-    writer: Box<dyn Write>,
-}
-
-impl DaemonClient {
-    fn open(socket: &str, token: &str) -> Self {
-        let (reader, writer): (Box<dyn Read>, Box<dyn Write>) =
-            if cfg!(windows) || !Path::new(socket).is_absolute() {
-                let stream = std::net::TcpStream::connect(socket).unwrap();
-                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-            } else {
-                unix_socket(socket)
-            };
-        let mut client = Self {
-            reader: BufReader::new(reader),
-            writer,
-        };
-        client.call(
-            "hello",
-            "hello",
-            &json!({
-                "protocol_version": "0.1", "surface": "sdk_python", "token": token,
-                "needs": "foxhound", "product_version": VERSION,
-            }),
-        );
-        client
-    }
-
-    fn next(&mut self) -> Value {
-        let mut read = String::new();
-        assert_ne!(
-            self.reader.read_line(&mut read).unwrap(),
-            0,
-            "the Daemon closed"
-        );
-        serde_json::from_str(&read).unwrap()
-    }
-
-    /// Sends the call `id` and answers each handler request until its
-    /// reply comes.
-    fn call(&mut self, id: &str, method: &str, params: &Value) -> Value {
-        let call = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        self.writer.write_all(&line(&call)).unwrap();
-        self.writer.flush().unwrap();
-        loop {
-            let message = self.next();
-            if message["method"] == "crawl_request.handle" {
-                let mut reply = handled(&message["params"]);
-                reply["jsonrpc"] = json!("2.0");
-                reply["id"] = message["id"].clone();
-                self.writer.write_all(&line(&reply)).unwrap();
-                self.writer.flush().unwrap();
-            } else if message["id"] == id {
-                return message;
-            }
-        }
-    }
-}
-
-#[cfg(unix)]
-fn unix_socket(path: &str) -> (Box<dyn Read>, Box<dyn Write>) {
-    let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
-    (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-}
-
-#[cfg(not(unix))]
-fn unix_socket(_: &str) -> (Box<dyn Read>, Box<dyn Write>) {
-    unreachable!("a Daemon listens on loopback TCP on Windows")
 }
 
 /// Crawls `site` on the Daemon until its Run ends, and answers its Run
 /// report.
-fn crawled_on_the_daemon(socket: &str, token: &str, site: &str) -> Value {
-    let mut client = DaemonClient::open(socket, token);
-    client.call(
+fn crawled_on_the_daemon(endpoint: &DaemonEndpoint, token: &str, site: &str) -> Value {
+    let mut client = DaemonClient::opened(
+        endpoint,
+        &Hello::needing(Product::Foxhound).id("hello").token(token),
+    );
+    let mut handler = |params: &Value| Some(handled(params));
+    client.call_handling(
         "start",
         "crawl.start",
         &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
+        &mut handler,
     );
-    client.call("finish", "run.finish", &json!({ "run_id": site }))["result"].clone()
+    client.call_handling(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": site }),
+        &mut handler,
+    )["result"]
+        .clone()
 }
 
 /// What the ledger file the engines wrote holds of the install Limit: each
@@ -249,8 +180,8 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
     let env = TestEnv::new();
     env.user_configuration(&in_flight_whatever_the_machine(OCCURRENCES));
     let daemon = Daemon::start_program(&env, Path::new(FOXHOUND), DAEMON_DEADLINE).unwrap();
-    let (socket, token) = (
-        daemon.description().socket.clone(),
+    let (endpoint, token) = (
+        daemon.endpoint().clone(),
         daemon.description().token.clone(),
     );
     let moment = Moment::drawn(
@@ -262,8 +193,8 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
     killed_at(&env, &moment, &mut log);
 
     let (attached, on_the_daemon) = std::thread::scope(|scope| {
-        let on_the_daemon = scope.spawn(|| crawled_on_the_daemon(&socket, &token, "daemon"));
-        let attached = crawled_attached(Attached::start(&env), "attached");
+        let on_the_daemon = scope.spawn(|| crawled_on_the_daemon(&endpoint, &token, "daemon"));
+        let attached = crawled_attached(attached(&env), "attached");
         (attached, on_the_daemon.join().unwrap())
     });
     daemon.stop(&env).unwrap();

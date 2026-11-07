@@ -283,8 +283,13 @@ impl Attached {
     /// `attached-engine` and its exit code in the test's command record,
     /// for the exercise audit (ADR 0072).
     pub fn finish(mut self) -> (Vec<Value>, bool) {
-        let (rest, exited) = self.end();
-        (rest, exited)
+        self.end()
+    }
+
+    /// As [`Attached::finish`], answering only whether it exited
+    /// successfully.
+    pub fn finished(mut self) -> bool {
+        self.end().1
     }
 
     /// As [`Attached::finish`], answering what it still sent and

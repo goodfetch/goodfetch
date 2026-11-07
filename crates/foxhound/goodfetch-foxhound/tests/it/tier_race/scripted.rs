@@ -37,11 +37,13 @@ use goodfetch_page::page_value::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId,
 };
 use goodfetch_protocol::run::RunId;
+use goodfetch_test_client::Hello;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
@@ -267,7 +269,14 @@ pub(super) struct Ended {
 }
 
 /// `hello`'s line.
-const HELLO: &str = r#"{"jsonrpc":"2.0","id":"hello","method":"hello","params":{"protocol_version":"0.1","surface":"rust","needs":"foxhound","product_version":"1.4.0"}}"#;
+fn hello() -> String {
+    Hello::needing(Product::Foxhound)
+        .id("hello")
+        .surface(Surface::Rust)
+        .with(|params| params.product_version = ProductVersion::parse("1.4.0").unwrap())
+        .message()
+        .to_string()
+}
 
 /// How long of the paused clock `run.finish`, and the engine's end after
 /// its Connection closed, may take: far past any case's last answer.
@@ -339,7 +348,7 @@ fn crawl(env: &TestEnv, site: Site, seeds: &[Value], settings: &Value) -> Ended 
         let client = async {
             let (reader, mut writer) = dialer.connect().await.unwrap().split();
             let mut lines = BufReader::new(reader).lines();
-            send(&mut writer, HELLO).await;
+            send(&mut writer, &hello()).await;
             send(&mut writer, &start.to_string()).await;
             let finished = tokio::time::timeout(PATIENCE, talk(&mut lines, &mut writer))
                 .await

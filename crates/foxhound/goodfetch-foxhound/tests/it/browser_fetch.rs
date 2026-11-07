@@ -15,10 +15,11 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -35,7 +36,7 @@ fn engine(env: &TestEnv) -> Attached {
 /// [`engine`], whose messages may be `silent` apart.
 fn engine_silent_for(env: &TestEnv, silent: Duration) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, Some(silent), |command| {
+    attached_with(env, Some(silent), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -131,7 +132,7 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
         &settings(&proving_ground, "auto"),
         &mut handler(&mut set),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let who = json!([["who", "a"]]);
     let none = json!([]);
@@ -307,7 +308,7 @@ fn browser_fetch_passes_the_transport_conformance_gate() {
     );
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let timed_out = failures(&mut engine, "slow");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let decoding_failed = (
         json!("navigation_failed"),
@@ -443,7 +444,7 @@ fn a_forced_browser_fetch_tier_sends_from_inside_the_sessions_browser() {
         "browser",
         &https_url,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let browsers = handshakes(&proving_ground, HOST, seen);
     let all = handshakes(&proving_ground, HOST, 0);
@@ -481,7 +482,7 @@ fn a_session_that_may_move_shows_one_tls_fingerprint_on_the_http_and_browser_tie
     let moving = reach_over_tls(&mut engine, &proving_ground, "moving", "auto", &https_url);
     let seen = handshakes_so_far(&proving_ground);
     let staying = reach_over_tls(&mut engine, &proving_ground, "staying", "http", &https_url);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let reqwest = handshakes(&proving_ground, HOST, seen);
     let all = handshakes(&proving_ground, HOST, 0);
@@ -586,7 +587,7 @@ fn a_body_cut_once_the_browser_read_it_fails_each_attempt_on_the_browser_tiers(#
         },
     );
     let ended = ended(&mut engine, "late-cuts");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert_eq!(handled, Vec::<Value>::new(), "handed to the handler");

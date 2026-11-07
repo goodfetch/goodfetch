@@ -76,7 +76,7 @@ fn crawl_routes(label: &Value, run_id: &str) -> (Vec<Handled>, usize, Vec<String
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     let ended = outcomes["result"]["outcomes"]
         .as_array()
         .unwrap_or_else(|| panic!("no outcomes: {outcomes}"))
@@ -181,7 +181,7 @@ pub(crate) fn refused_start(run: &Value, label: &Value) -> (Value, Vec<String>) 
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     let received = arrivals(&proving_ground, HOST)
         .into_iter()
         .map(|(target, _)| target)

@@ -29,6 +29,8 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::Hello;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -130,16 +132,11 @@ struct Handled {
 async fn start(writer: &mut ConnectionWriter) {
     send(
         writer,
-        &call(
-            "hello",
-            "hello",
-            &json!({
-                "protocol_version": "0.1",
-                "surface": "rust",
-                "needs": "foxhound",
-                "product_version": "1.4.0",
-            }),
-        ),
+        &Hello::needing(Product::Foxhound)
+            .id("hello")
+            .surface(Surface::Rust)
+            .with(|params| params.product_version = ProductVersion::parse("1.4.0").unwrap())
+            .message(),
     )
     .await;
     send(

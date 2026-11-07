@@ -14,10 +14,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine, expecting, provenance, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
@@ -112,7 +112,7 @@ fn the_browser_tier_never_follows_a_link_a_person_cannot_see() {
     );
     let suspected = provenance(&env, "trap-links", "trap_link_suspected");
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let trap = || ("not_added".to_owned(), "trap_link".to_owned());
     let added = |number: u32| ("added".to_owned(), format!("/items/I-{number:04}"));
@@ -247,7 +247,7 @@ fn the_http_tier_adds_the_links_it_cannot_judge_and_marks_the_suspected_ones() {
     );
     let suspected = provenance(&env, "trap-links-http", "trap_link_suspected");
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let kinds: Vec<String> = answers(&answered)
         .into_iter()
@@ -323,7 +323,7 @@ fn a_page_reached_through_a_trap_ends_decoy_in_the_browser_and_is_never_fetched(
     );
     let ended = endings(&mut engine, "trap-links-decoy");
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let decoy = json!(["blocked", "decoy", 1]);
     let honeypots: Vec<&Value> = ended
@@ -385,7 +385,7 @@ fn a_noindex_page_failing_its_page_check_ends_decoy() {
         },
     );
     let ended = endings(&mut engine, "labyrinth");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let decoy = json!(["blocked", "decoy", 1]);
     assert_eq!(
@@ -446,7 +446,7 @@ fn a_page_also_reached_through_a_visible_link_is_fetched_in_the_browser() {
     let ended = endings(&mut engine, "trap-links-seen");
     let suspected = provenance(&env, "trap-links-seen", "trap_link_suspected");
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let succeeded = json!(["succeeded", null, 1]);
     let marked: Vec<String> = suspected
@@ -514,7 +514,7 @@ fn a_marked_request_in_a_sampling_label_is_weighed_and_never_a_decoy() {
             )
         })
         .collect();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let succeeded = json!(["succeeded", null, 1]);
     assert_eq!(
@@ -571,7 +571,7 @@ fn a_discarded_run_writes_no_suspected_trap_link_entry() {
     );
     let suspected = provenance(&env, "trap-links-discarded", "trap_link_suspected");
     let ended = endings(&mut engine, "trap-links-discarded");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let succeeded = json!(["succeeded", null, 1]);
     assert_eq!(

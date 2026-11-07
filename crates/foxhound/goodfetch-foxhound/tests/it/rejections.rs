@@ -12,10 +12,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, crawl_from};
 
 /// The Datasets the crawls declare: `books`, with a schema requiring
@@ -118,7 +119,7 @@ fn counts(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with_its_request() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597" });
     let cheap = json!({ "title": "Emma", "price": "cheap" });
     let untitled = json!({ "isbn": "0141439518" });
@@ -150,7 +151,7 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
     let books = rejected(&mut engine, "rejecting", "books", None);
     let notes = rejected(&mut engine, "rejecting", "notes", None);
     let read = counts(&mut engine, "rejecting");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let book_url = "https://shop.test/book";
     let other_url = "https://shop.test/other";
@@ -206,7 +207,7 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
 #[test]
 fn the_rejection_table_is_read_after_a_number_and_holds_only_the_committing_attempts_rejections() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let unkeyed = |handle: &Value, n: u32| {
         json!({
             "request": handle["crawl_request"]["id"],
@@ -244,7 +245,7 @@ fn the_rejection_table_is_read_after_a_number_and_holds_only_the_committing_atte
     let later = rejected(&mut engine, "resumed", "notes", Some(2));
     let past = rejected(&mut engine, "resumed", "notes", Some(4));
     let unknown = rejected(&mut engine, "resumed", "bokks", None);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let numbered = |page: &Value| -> Vec<(Value, Value)> {
         page["result"]["records"]

@@ -11,10 +11,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_from;
 use crate::provenance::{push, records};
@@ -164,7 +165,7 @@ fn an_invalid_certificate_fails_its_request_unretried_and_its_exception_marks_th
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     env.user_configuration(&trusting(&proving_ground));
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let (expired, verified) = (
         https(&proving_ground, EXPIRED),
         https(&proving_ground, VERIFIED),
@@ -178,7 +179,7 @@ fn an_invalid_certificate_fails_its_request_unretried_and_its_exception_marks_th
         "excepted",
         &json!({ "certificates.test": null }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (strict, strict_records, unsent),
@@ -243,7 +244,7 @@ fn a_browser_page_fetched_under_an_exception_marks_its_records() {
         ("browser-excepted", "browser"),
         &json!({ "certificates.test": null }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         outcomes,

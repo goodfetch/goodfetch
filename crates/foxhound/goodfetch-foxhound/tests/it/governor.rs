@@ -3,10 +3,11 @@
 //! admission from its governor, whose fixed cap holds both, and what one
 //! gives back goes to the other in turn.
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::fetch_tiers::settings;
 
 /// The user configuration of a home whose engines keep `in_flight` HTTP
@@ -143,7 +144,7 @@ fn answer(engine: &mut Attached, held: Vec<Value>) {
 fn two_crawls_take_the_governors_http_admissions_in_turn() {
     let env = TestEnv::new();
     env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut alone = Vec::new();
     start(
@@ -181,7 +182,7 @@ fn two_crawls_take_the_governors_http_admissions_in_turn() {
     for run_id in ["first", "second"] {
         engine.send(&json!({ "jsonrpc": "2.0", "id": run_id, "method": "run.finish", "params": { "run_id": run_id } }));
     }
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         turns,
@@ -229,7 +230,7 @@ fn wait_group(engine: &mut Attached, run_id: &str, reason: &str) -> Value {
 fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under_governor() {
     let env = TestEnv::new();
     env.user_configuration("governor.http.floor = 1\ngovernor.http.ceiling = 1\n");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut held = Vec::new();
     start(&mut engine, "held", &["a.test", "b.test"], &mut held);
@@ -237,7 +238,7 @@ fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under
     let group = wait_group(&mut engine, "held", "governor");
     answer(&mut engine, held);
     let _ = turn(&mut engine, (&[("held", 2)], 1), &[], Vec::new());
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         group,
@@ -257,7 +258,7 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
     let env = TestEnv::new();
     env.user_configuration(&in_flight_whatever_the_machine(1));
     let proving_ground = ProvingGround::start(&env, 1905).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let seeds = [
         proving_ground.url("extraction.test", "/values"),
         proving_ground.url("catalog.test", "/catalog/1"),
@@ -302,5 +303,5 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
     }
     answer(&mut engine, held);
     let _ = turn(&mut engine, (&[("analysed", 2)], 2), &[], Vec::new());
-    assert!(engine.finish());
+    assert!(engine.finished());
 }

@@ -28,10 +28,10 @@
 use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
@@ -217,7 +217,7 @@ fn every_encodings_page_reads_the_oracles_text_under_a_forced_tier(
         &mut reading(&mut read),
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert_eq!(
@@ -274,7 +274,7 @@ fn every_encodings_page_reads_the_same_text_on_browser_fetch_and_in_the_browser(
         &mut reading(&mut read),
     );
     let ended = ended(&mut engine, "encodings-auto");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert!(
@@ -356,7 +356,7 @@ fn the_browser_reads_every_page_as_the_http_tier_does_and_keeps_the_sites_header
         );
         assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     }
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let read = |tier: &str| -> BTreeMap<String, Value> {
         let entries = crate::fetch_tiers::provenance(&env, &format!("same-{tier}"), "fetch_tier");
@@ -424,7 +424,7 @@ fn fetch_encoding_on_a_label_reads_an_undeclared_page_and_a_bom_still_wins() {
         &on(&proving_ground, "http", &json!({})),
         &mut reading(&mut read),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let (wrong, missing) = judged(&proving_ground, &read, "http", &[]);
@@ -465,7 +465,7 @@ fn an_xhtml_page_declared_by_its_xml_declaration_reads_on_every_tier(#[case] tie
         &on(&proving_ground, tier, &json!({})),
         &mut reading(&mut read),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let tiers_read: Vec<&str> = read.keys().map(|(tier, _)| tier.as_str()).collect();
@@ -576,7 +576,7 @@ fn a_response_with_no_content_type_is_typed_as_the_pinned_chromium_sniffs_it() {
         );
         seen.insert(url.clone(), typed["result"]["value"].clone());
     }
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     for url in &urls {
         let body = bytes(&proving_ground, url);
@@ -630,7 +630,7 @@ fn a_listed_301_with_no_type_and_no_body_reaches_its_handler() {
         },
     );
     let ended = ended(&mut engine, "untyped-301");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert_eq!(handled, vec![(json!("http"), None)]);
@@ -683,7 +683,7 @@ fn content_codings_fail_as_chrome_fails_them_and_are_retried_on_the_crawl() {
         &json!({ "run_id": "codings" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let outcomes: BTreeMap<String, Value> = answer["result"]["outcomes"]

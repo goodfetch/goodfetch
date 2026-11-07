@@ -79,9 +79,11 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -93,7 +95,9 @@ fn scenario() -> Vec<Value> {
         call(
             0,
             "hello",
-            json!({ "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "0.0.0" }),
+            Hello::needing(Product::Foxhound)
+                .surface(Surface::Rust)
+                .params(),
         ),
         call(
             10,

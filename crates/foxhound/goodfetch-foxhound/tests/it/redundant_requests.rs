@@ -19,11 +19,12 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// The Proving ground's seed.
 const SEED: u64 = 238;
@@ -144,7 +145,7 @@ fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
 #[test]
 fn a_crawl_that_hedges_while_a_domain_admits_one_request_at_a_time_is_refused() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let refused = engine.call(
         "start",
@@ -159,7 +160,7 @@ fn a_crawl_that_hedges_while_a_domain_admits_one_request_at_a_time_is_refused() 
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -189,7 +190,7 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
     let env = TestEnv::new();
     env.user_configuration(TWO_FETCHES);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let quick: Vec<Value> = (1..=20)
         .map(|number| json!({ "url": proving_ground.url("pacing.test", &format!("/articles/1?quick={number}")), "label": "article", "key": format!("quick-{number}") }))
         .collect();
@@ -221,7 +222,7 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let get = connections_for(&proving_ground, "/articles/2?slow=get");
     let hedges: Vec<Value> = provenance(&env, "hedged", "hedged")
@@ -260,7 +261,7 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
     env.user_configuration(TWO_FETCHES);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     proving_ground.set_time_step(SLOW).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let url = proving_ground.url("pacing.test", "/articles/4");
 
     let finished = crawl_together(
@@ -281,7 +282,7 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
         }],
         &mut |_| {},
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let shared = provenance(&env, "shared", "response_shared");
     assert_eq!(
@@ -311,7 +312,7 @@ fn identical_gets_from_two_sessions_or_two_runs_each_reach_the_site() {
     env.user_configuration("governor.http.floor = 4\ngovernor.http.ceiling = 4\n");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     proving_ground.set_time_step(SLOW).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let two_sessions = proving_ground.url("pacing.test", "/articles/5");
     let two_runs = proving_ground.url("pacing.test", "/articles/6");
     let four_at_a_time = json!({ "politeness": { "domain": { "concurrency": 4 } } });
@@ -351,7 +352,7 @@ fn identical_gets_from_two_sessions_or_two_runs_each_reach_the_site() {
         ],
         &mut |_| {},
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let shared: usize = ["sessions", "first-run", "second-run"]
         .iter()

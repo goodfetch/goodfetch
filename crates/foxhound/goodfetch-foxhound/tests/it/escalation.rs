@@ -13,6 +13,7 @@
 //! page the tiers serve alike, so its later requests run on `http` under
 //! `auto`, not as samples, whose browser run would hide the move.
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
@@ -65,7 +66,7 @@ fn handled(path: &str, session: &str, tier: &str) -> (String, Value, Value) {
 
 /// The kind each request of `run_id` ended with and its Block cause, by
 /// its path.
-fn ended(engine: &mut crate::crawl::Attached, run_id: &str) -> Vec<(String, Value, Value)> {
+fn ended(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value)> {
     let answer = engine.call(
         "outcomes",
         "run.outcomes",
@@ -130,7 +131,7 @@ fn a_challenge_met_over_http_moves_its_request_to_the_browser_and_its_domain_sta
         },
     );
     let ended = ended(&mut engine, "moved");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -198,7 +199,7 @@ fn a_challenge_under_a_forced_http_tier_ends_its_request_blocked_and_never_moves
         },
     );
     let ended = ended(&mut engine, "forced");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -267,7 +268,7 @@ fn with_block_classification_off_a_challenge_page_is_handled_as_it_is() {
         },
     );
     let ended = ended(&mut engine, "unclassified");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -325,7 +326,7 @@ fn a_challenge_the_programs_code_names_moves_its_request_to_the_browser_as_a_det
         },
     );
     let ended = ended(&mut engine, "named");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -395,7 +396,7 @@ fn a_challenge_a_handlers_goto_meets_over_http_moves_its_request_to_the_browser(
         },
     );
     let ended = ended(&mut engine, "navigated");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -460,7 +461,7 @@ fn a_challenge_a_handlers_goto_meets_under_a_forced_http_tier_raises_blocked() {
         },
     );
     let ended = ended(&mut engine, "navigated-forced");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

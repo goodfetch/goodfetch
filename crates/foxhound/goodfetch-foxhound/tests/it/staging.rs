@@ -14,7 +14,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, added, crawl_declaring, crawl_under};
 
 /// The crawl's one seed.
@@ -118,7 +118,7 @@ fn record_the_page(handle: &Value) -> Value {
 #[test]
 fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut staged = Vec::new();
     let mut handled = Vec::new();
 
@@ -140,7 +140,7 @@ fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let deleted = json!({ "existed": true });
     assert_eq!(
@@ -199,7 +199,7 @@ fn kept_bytes() -> String {
 #[test]
 fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut read = Vec::new();
 
     crawl_under(
@@ -236,7 +236,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let rows: Vec<(String, Option<Vec<u8>>, Option<i64>)> = run_file(&env, "bytes")
         .prepare("SELECT key, content, file FROM key_values ORDER BY key")
@@ -269,7 +269,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
 #[test]
 fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handled = 0;
 
     crawl_under(
@@ -283,7 +283,7 @@ fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
             json!({ "error": { "code": -32003, "message": "my bug", "data": { "code": "handler_failed", "retryable": false } } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (handled, work_items(&env, "failed"), keys(&env, "failed")),
@@ -332,7 +332,7 @@ fn an_escalated_attempts_first_run_leaves_none_of_what_it_staged() {
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let from = |tier: &str| proving_ground.url("rendered.test", &format!("/feed?from={tier}"));
     assert_eq!(

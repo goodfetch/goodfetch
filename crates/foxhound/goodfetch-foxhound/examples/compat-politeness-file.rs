@@ -38,11 +38,20 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_test_client::Hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader, Lines};
 
 type Messages = Lines<BufReader<goodfetch_engine::transport::ConnectionReader>>;
+
+/// The program's `hello`: a Rust program's, needing Foxhound.
+fn hello_params() -> Value {
+    Hello::needing(Product::Foxhound)
+        .surface(Surface::Rust)
+        .params()
+}
 
 fn call(id: i64, method: &str, params: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
@@ -262,7 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &call(
                     0,
                     "hello",
-                    &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "0.0.0" }),
+                    &hello_params(),
                 ),
             )
             .await?;

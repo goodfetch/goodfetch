@@ -22,7 +22,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, added, attributes, crawl_with, fetch, not_added};
 
 /// The Proving ground's seed.
@@ -43,7 +43,7 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url(host, path), "label": "seed" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answers = Vec::new();
     let report = crawl_with(
@@ -75,7 +75,7 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
     let mut hosts: Vec<String> = ReceivedRequests::of(&observations)
@@ -182,7 +182,7 @@ fn a_www_seed_admits_its_bare_host_and_no_subdomain() {
 #[test]
 fn a_domain_policy_entry_that_is_no_host_fails_the_start() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let answer = engine.call(
         "start",
@@ -194,7 +194,7 @@ fn a_domain_policy_entry_that_is_no_host_fails_the_start() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let begun = HomeLayout::of(env.home()).run_folder("unread").exists();
     assert_eq!(
@@ -218,7 +218,7 @@ fn a_domain_policy_entry_that_is_no_host_fails_the_start() {
 #[test]
 fn a_scope_pattern_the_engine_cannot_match_fails_the_start() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let answer = engine.call(
         "start",
@@ -230,7 +230,7 @@ fn a_scope_pattern_the_engine_cannot_match_fails_the_start() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let begun = HomeLayout::of(env.home()).run_folder("unmatched").exists();
     assert_eq!(
@@ -327,7 +327,7 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
         "crawl": { "scope": { "strategy": "all" } },
         "egress": { "blocked_domains": ["elsewhere.test"] },
     });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut enqueued = Vec::new();
     let mut seeded = Vec::new();
@@ -365,7 +365,7 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
         &mut |_| None,
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let requests = ReceivedRequests::of(&observations);
     let refused_hosts = requests

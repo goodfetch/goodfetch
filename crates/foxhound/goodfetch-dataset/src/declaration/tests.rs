@@ -81,8 +81,6 @@ fn a_refused_push_validates_its_record_once() {
 /// Dataset (as `dataset.list` answers), and a read of any Dataset in it
 /// is refused with `dataset_unknown`, not as a Run whose state cannot be
 /// read.
-///
-/// Covers: error:dataset_unknown
 #[test]
 fn a_run_file_no_crawl_wrote_declares_no_dataset() {
     let unwritten = Connection::open_in_memory().unwrap();

@@ -16,8 +16,9 @@ mod tables;
 
 use std::sync::Arc;
 
+use goodfetch_dataset::open_run;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::run::{run_error, settings_error};
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Opening, Resolved, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::foxhound::sql_tab::{
@@ -74,13 +75,7 @@ async fn query(
     let mut selected = Vec::with_capacity(runs.len());
     let mut first = None;
     for run_id in runs {
-        let failed = |error| run_error(error, context.identity());
-        let mut reader = context
-            .runs()
-            .reader(run_id.clone())
-            .await
-            .map_err(failed)?;
-        reader.read(|_| Ok(())).await.map_err(failed)?;
+        let reader = open_run(&context, run_id.clone()).await?;
         let opener = reader.opener();
         let open: OpenRun = Arc::new(move || opener.open());
         selected.push((run_id.as_str().to_owned(), open));

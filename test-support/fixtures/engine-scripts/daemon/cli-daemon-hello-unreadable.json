@@ -1,0 +1,25 @@
+{
+  "description": "Collie's CLI built from this commit runs daemon status on the Daemon: the Daemon cannot read its hello, as it cannot a line past its message limit, so it answers an error whose id is null and keeps the Connection open, answering nothing more; the daemon command ends refused with that error rather than wait for an answer that never comes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "raw": {
+        "text": "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"a message is longer than 16777216 bytes\",\"data\":{\"code\":\"message_too_large\",\"retryable\":false}}}\n"
+      }
+    },
+    {
+      "stall": {}
+    }
+  ]
+}

@@ -16,7 +16,7 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
-use goodfetch_cli::output::{self, Human};
+use super::output::{self, Human};
 use goodfetch_protocol::console::ConsoleOpened;
 
 use super::daemon::Machine;

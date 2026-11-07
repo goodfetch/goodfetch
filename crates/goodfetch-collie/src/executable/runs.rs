@@ -14,7 +14,7 @@ use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsReindexOutput};
 
 use super::browsers::machine_settings;
-use goodfetch_cli::output;
+use super::output;
 
 /// Rebuilds the Run index from the configured locations and `paths`,
 /// relative ones read from `folder`.

@@ -11,13 +11,12 @@
 
 use std::process::ExitCode;
 
+use super::engine_choice::{Daemons, EngineChoice, EngineFlags};
+use super::exit_codes;
+use super::generated::{Joined, Joining};
+use super::operation::run_operation;
+use super::output::{self, Human};
 use clap::Subcommand;
-use goodfetch_cli::engine_choice::{
-    self, Answer, CommandCall, Daemons, EngineChoice, EngineFlags, Lifetime,
-};
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::generated::{Joined, Joining};
-use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
@@ -91,7 +90,7 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = reach(daemons, flags, &warn);
+            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
             accept(engine, dependencies, &reach, &host, json, human)
         }
         CertsCommand::Own(OwnCertsCommand::Forget {
@@ -100,25 +99,9 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = reach(daemons, flags, &warn);
+            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
             forget(engine, dependencies, &reach, &host, json, human)
         }
-    }
-}
-
-/// The engine a command's calls run on: as its `flags` choose, a command
-/// whose value does not outlive it, so the Daemon when one runs or
-/// `--daemon` is given, else an Attached engine ([`engine_choice`]).
-fn reach<'a>(
-    daemons: &'a dyn Daemons,
-    flags: EngineFlags,
-    warn: &'a dyn Fn(&str),
-) -> EngineChoice<'a> {
-    EngineChoice {
-        choice: flags.choice(),
-        lifetime: Lifetime::Passing,
-        daemons,
-        warn,
     }
 }
 
@@ -265,7 +248,17 @@ fn pin_of(
     host: &str,
     human: &Human,
 ) -> Result<Option<CertificatePin>, ExitCode> {
-    let listed = call(engine, dependencies, reach, &CERTS_LIST, json!({}), human)?;
+    // A person-only command takes no `--json`: its failure prints on
+    // stderr, as every command's does.
+    let listed = run_operation(
+        engine,
+        dependencies,
+        reach,
+        &CERTS_LIST,
+        json!({}),
+        false,
+        human,
+    )?;
     let listed: CertsListed =
         serde_json::from_value(listed).map_err(|_| ExitCode::from(exit_codes::unanswered()))?;
     let wanted = host.to_ascii_lowercase();
@@ -283,56 +276,14 @@ fn answered(
     params: Value,
     human: &Human,
 ) -> ExitCode {
-    match call(engine, dependencies, reach, operation, params, human) {
-        Ok(Value::Object(fields)) => {
-            for (name, value) in fields {
-                human.field(&name, &text(&value));
-            }
-            ExitCode::from(exit_codes::SUCCESS)
-        }
-        Ok(value) => {
-            output::line(&text(&value));
+    // A person-only command takes no `--json`: its failure prints on
+    // stderr, as every command's does.
+    match run_operation(engine, dependencies, reach, operation, params, false, human) {
+        Ok(result) => {
+            output::fields(&result, human);
             ExitCode::from(exit_codes::SUCCESS)
         }
         Err(exit) => exit,
-    }
-}
-
-/// `operation`'s result on the engine `reach` chooses, the Daemon or an
-/// Attached engine, `engine` on `dependencies`, or the exit code of its
-/// failure, which it printed.
-fn call(
-    engine: &Engine,
-    dependencies: Dependencies,
-    reach: &EngineChoice<'_>,
-    operation: &'static Operation,
-    params: Value,
-    human: &Human,
-) -> Result<Value, ExitCode> {
-    let call = CommandCall {
-        method: operation.name,
-        params,
-        cancellable: operation.cancellable,
-        follower: None,
-        pager: None,
-        stopper: None,
-        input: None,
-    };
-    let product = engine.identity().product;
-    // A person-only command takes no `--json`: its failure prints on
-    // stderr, as every command's does.
-    match engine_choice::call(engine, dependencies, product, reach, call) {
-        Answer::Result(value) => Ok(value),
-        Answer::Error(error) => Err(output::fail(error, Some(operation.name), false, human)),
-        Answer::Refused(error) => Err(output::fail_exiting(
-            error,
-            Some(operation.name),
-            exit_codes::DAEMON_REFUSED,
-            false,
-            human,
-        )),
-        Answer::Unanswered(error) => Err(output::fail(error, None, false, human)),
-        Answer::Interrupted(interrupt) => Err(ExitCode::from(interrupt.exit_code())),
     }
 }
 
@@ -367,12 +318,4 @@ fn person_required(operation: &Operation, json: bool, human: &Human) -> ExitCode
         PERSON_REQUIRED.name,
         PERSON_REQUIRED.group,
     ))
-}
-
-/// A value as human output shows it: text as it is, anything else as JSON.
-fn text(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        value => value.to_string(),
-    }
 }

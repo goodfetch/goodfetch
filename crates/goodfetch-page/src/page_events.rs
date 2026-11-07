@@ -117,7 +117,8 @@ use self::latest::Latest;
 use self::requests::Requests;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
-use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id, response_of};
+use crate::driver::cdp_response::{bytes_of, cut_by, declared_length, headers, response_of};
+use crate::driver::{Child, ChildKind, OnChild, PageDriver, browser_id, hop_id};
 use crate::page_value::{Kept, ObservedResponse, Observer};
 use crate::url_pattern::UrlPattern;
 
@@ -805,7 +806,10 @@ impl PageEvents {
                         tracked.request.url.clone(),
                         ended.clone(),
                         tracked.received,
-                        tracked.response.as_ref().and_then(declared_length),
+                        tracked
+                            .response
+                            .as_ref()
+                            .and_then(|response| declared_length(&response.headers)),
                     );
                 }
             }
@@ -829,9 +833,7 @@ impl PageEvents {
             .get(browser_id(request_id))
             .is_some_and(|tracked| tracked.response.is_some());
         match ended {
-            Ended::Failed(error)
-                if responded && error != NetError::Aborted && !error.fails_to_decode() =>
-            {
+            Ended::Failed(error) if responded && cut_by(&error) => {
                 Err(cut(&url, received, expected))
             }
             Ended::Failed(_) => Err(unavailable(&url, request_id, surface)),
@@ -860,14 +862,6 @@ fn kept_in(state: &State, request_id: &str) -> Option<Result<BodyHandle, CallErr
             expected,
         } => Some(Err(cut(url, *received, *expected))),
     }
-}
-
-/// The `Content-Length` a response declared.
-fn declared_length(response: &PageResponse) -> Option<u64> {
-    response
-        .headers
-        .get("content-length")
-        .and_then(|length| length.trim().parse().ok())
 }
 
 /// Why a finished request's body was not read.
@@ -945,11 +939,7 @@ async fn body_bytes(shared: &Shared, request_id: &str) -> Option<Vec<u8>> {
         None => shared.driver.command(&params).await,
     }
     .ok()?;
-    if read.base64_encoded {
-        BASE64.decode(read.body.as_bytes()).ok()
-    } else {
-        Some(read.body.into_bytes())
-    }
+    bytes_of(read.body, read.base64_encoded).ok()
 }
 
 /// Passes `response` to the page's response observer when it keeps its URL
@@ -974,7 +964,7 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
     run.spawn(async move {
         let body = match received {
             Some(received) => {
-                let counted = (received, declared_length(&response));
+                let counted = (received, declared_length(&response.headers));
                 judged_body(&shared, &response.request_id, &response.url, counted)
                     .await
                     .ok()
@@ -1385,9 +1375,10 @@ struct HowItFailed {
     /// The interception's refusal of it, and whether the Run trace records
     /// it.
     refusal: Option<(ErrorData, bool)>,
-    /// The site's own failure, when the Session's egress relay met it for
-    /// the browser, which sees only the relay's answer.
-    relayed: Option<&'static str>,
+    /// The network error: the site's own failure when the Session's egress
+    /// relay met it for the browser, which sees only the relay's answer,
+    /// else the browser's.
+    error: NetError,
 }
 
 /// Takes the interception's refusal of the request `failed` names and the
@@ -1397,14 +1388,17 @@ fn failure_of(shared: &Shared, failed: &network::LoadingFailedEvent) -> HowItFai
         .requests
         .get(&failed.request_id)
         .map(|tracked| tracked.request.url.clone());
+    let error = NetError::of(&failed.error_text);
     HowItFailed {
         refusal: shared.refusals.take(&failed.request_id),
-        relayed: url.and_then(|url| {
-            shared
-                .driver
-                .relay()
-                .and_then(|relay| relay.net_error(&url, &failed.error_text, None))
-        }),
+        error: url
+            .and_then(|url| {
+                shared
+                    .driver
+                    .relay()
+                    .and_then(|relay| relay.net_error(&url, &error, None))
+            })
+            .unwrap_or(error),
     }
 }
 
@@ -1417,11 +1411,10 @@ fn failed_request(
     failed: &network::LoadingFailedEvent,
     how: HowItFailed,
 ) {
-    let HowItFailed { refusal, relayed } = how;
+    let HowItFailed { refusal, error } = how;
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    let error = NetError::of(relayed.unwrap_or(&failed.error_text));
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
         error_text: error.name().to_owned(),
@@ -1558,7 +1551,7 @@ fn answer_waiters(
         }
         return;
     };
-    let declared = declared_length(&response);
+    let declared = declared_length(&response.headers);
     let shared = Arc::clone(shared);
     let run = shared.run.clone();
     run.spawn(async move {
@@ -1592,22 +1585,6 @@ fn answer_waiters(
             let _ = waiter.answer.send(answer);
         }
     });
-}
-
-/// A request's headers as strings, their names in lowercase, as Playwright
-/// gives them.
-pub(crate) fn headers(headers: &network::Headers) -> BTreeMap<String, String> {
-    headers
-        .iter()
-        .map(|(name, value)| {
-            (
-                name.to_ascii_lowercase(),
-                value
-                    .as_str()
-                    .map_or_else(|| value.to_string(), str::to_owned),
-            )
-        })
-        .collect()
 }
 
 /// A request's body in Base64, from its entries' bytes or else its text,

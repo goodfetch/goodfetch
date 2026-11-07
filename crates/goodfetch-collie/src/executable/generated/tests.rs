@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    Call, Generated, NAMESPACES, Namespace, Offer, OwnFlags, command, duration, member, members_of,
-    offer,
+    Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, command, duration, member, members,
+    members_of, offer,
 };
-use crate::engine_choice::{Choice, Lifetime};
+use crate::executable::engine_choice::{Choice, Lifetime};
 
 /// What the made-up operations take.
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -262,10 +262,23 @@ fn the_generated_namespaces_mark_the_two_only_foxhound_has() {
     assert_eq!(foxhounds, ["crawl", "dataset"]);
 }
 
+/// The generated commands of Foxhound's catalog, none written by hand:
+/// Foxhound's own commands are its crate's, which tests them.
+fn foxhounds_catalog_members(group: Command) -> Command {
+    members(group, Product::Foxhound, &[])
+}
+
 /// The command line of `product`'s executable, with no hand-written
 /// command, and the generated commands it carries.
 fn command_line(product: Product) -> (Command, Generated) {
-    let generated = Generated::beside(product, &Command::new("goodfetch"));
+    let own = match product {
+        Product::Collie => OwnCommands::COLLIE,
+        Product::Foxhound => OwnCommands {
+            commands: &[],
+            members: foxhounds_catalog_members,
+        },
+    };
+    let generated = Generated::beside(product, own, &Command::new("goodfetch"));
     (generated.add_to(Command::new("goodfetch")), generated)
 }
 
@@ -282,7 +295,8 @@ fn asked(product: Product, arguments: &[&str]) -> Result<Call, clap::Error> {
 
 /// Foxhound's executable carries a crawl command, a value-bound one taking
 /// the Run ID first; Collie's has no such command, which its executable
-/// refuses with `not_in_product` before clap reads it.
+/// refuses with `not_in_product` before clap reads it. Foxhound's crate
+/// tests its own commands, `crawl start` among them.
 ///
 /// Covers: story:11-1130, story:11-1131
 #[rstest]
@@ -293,14 +307,6 @@ fn asked(product: Product, arguments: &[&str]) -> Result<Call, clap::Error> {
 #[case::run_records(
     &["run", "records", "r1", "--dataset", "pages", "--after", "4"],
     ("run.records", json!({ "run_id": "r1", "dataset": "pages", "after": 4 }))
-)]
-#[case::crawl_start(
-    &["crawl", "start", "https://example.test/", "--run-id", "r1"],
-    ("crawl.start", json!({
-        "run_id": "r1",
-        "seeds": [{ "url": "https://example.test/", "label": "page" }],
-        "extraction": { "formats": { "markdown": true } },
-    }))
 )]
 fn foxhounds_executable_carries_the_crawl_commands_and_collies_does_not(
     #[case] arguments: &[&str],
@@ -330,233 +336,6 @@ fn foxhounds_executable_carries_the_crawl_commands_and_collies_does_not(
 #[case::pages_with(&["run", "outcomes", "r1", "--follow"], true)]
 fn a_crawls_reads_follow_only_under_follow(#[case] arguments: &[&str], #[case] follow: bool) {
     assert_eq!(asked(Product::Foxhound, arguments).unwrap().follow, follow);
-}
-
-/// `crawl start`'s flags give the code-free crawl's seeds and its
-/// `extraction`: each URL a seed of its Label, each `--format` a format,
-/// each `--field` a named field by a CSS selector or, after `xpath:`, an
-/// `XPath` expression, and `--links` its `follow`; with neither a format
-/// nor a field, each page's Markdown.
-///
-/// Covers: story:11-1132
-#[rstest]
-#[case::urls_formats_fields_and_links(
-    &[
-        "crawl", "start", "https://a.test/", "https://b.test/",
-        "--format", "markdown", "--format", "links",
-        "--field", "title=h1", "--field", "price=xpath://span[@class='price']",
-        "--field", "name=css:.name", "--links", "none",
-    ],
-    json!({
-        "seeds": [
-            { "url": "https://a.test/", "label": "page" },
-            { "url": "https://b.test/", "label": "page" },
-        ],
-        "extraction": {
-            "formats": { "markdown": true, "links": true },
-            "follow": "none",
-            "fields": {
-                "title": { "locator": { "kind": "css", "selector": "h1" } },
-                "price": { "locator": { "kind": "xpath", "selector": "//span[@class='price']" } },
-                "name": { "locator": { "kind": "css", "selector": ".name" } },
-            },
-        },
-    })
-)]
-#[case::a_url_alone(
-    &["crawl", "start", "https://a.test/"],
-    json!({
-        "seeds": [{ "url": "https://a.test/", "label": "page" }],
-        "extraction": { "formats": { "markdown": true } },
-    })
-)]
-#[case::a_field_alone(
-    &["crawl", "start", "https://a.test/", "--field", "title=h1", "--links", "sitemap"],
-    json!({
-        "seeds": [{ "url": "https://a.test/", "label": "page" }],
-        "extraction": {
-            "formats": {},
-            "follow": "sitemap",
-            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
-        },
-    })
-)]
-fn crawl_starts_flags_give_its_seeds_and_extraction(
-    #[case] arguments: &[&str],
-    #[case] params: Value,
-) {
-    let call = asked(Product::Foxhound, arguments).unwrap();
-
-    assert_eq!(Value::Object(call.params), params);
-}
-
-/// `--seeds-file` adds a seed per line, a URL or a seed as JSON, after the
-/// URLs; `--fields` reads named fields in the catalog's JSON form, which a
-/// `--field` of the same name beats.
-///
-/// Covers: story:11-1132
-#[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the files the flags read"
-)]
-fn crawl_start_reads_seeds_and_fields_from_files() {
-    let folder = tempfile::tempdir().unwrap();
-    let seeds = folder.path().join("seeds.txt");
-    std::fs::write(
-        &seeds,
-        "https://b.test/\n\n{\"url\":\"https://c.test/\",\"label\":\"page\",\"priority\":2}\n",
-    )
-    .unwrap();
-    let fields = folder.path().join("fields.json");
-    std::fs::write(
-        &fields,
-        r#"{"price":{"locator":{"kind":"css","selector":".price"},"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
-    )
-    .unwrap();
-
-    let call = asked(
-        Product::Foxhound,
-        &[
-            "crawl",
-            "start",
-            "https://a.test/",
-            "--seeds-file",
-            seeds.to_str().unwrap(),
-            "--fields",
-            fields.to_str().unwrap(),
-            "--field",
-            "title=h1",
-        ],
-    )
-    .unwrap();
-
-    assert_eq!(
-        (
-            call.params["seeds"].clone(),
-            call.params["extraction"].clone()
-        ),
-        (
-            json!([
-                { "url": "https://a.test/", "label": "page" },
-                { "url": "https://b.test/", "label": "page" },
-                { "url": "https://c.test/", "label": "page", "priority": 2 },
-            ]),
-            json!({
-                "formats": {},
-                "fields": {
-                    "price": {
-                        "locator": { "kind": "css", "selector": ".price" },
-                        "attribute": "data-price",
-                    },
-                    "title": { "locator": { "kind": "css", "selector": "h1" } },
-                },
-            })
-        )
-    );
-}
-
-/// A seeds file whose seeds would pass the engine's message limit in
-/// `crawl.start` leaves the seeds past half of it to `run.add_seeds`,
-/// after the URLs given: no message carries every seed.
-///
-/// Covers: story:11-1132
-#[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the seeds file the flag reads"
-)]
-fn a_seeds_file_past_half_the_message_limit_leaves_its_last_seeds_to_run_add_seeds() {
-    let folder = tempfile::tempdir().unwrap();
-    let seeds = folder.path().join("seeds.txt");
-    let url = |n: usize| format!("https://a.test/{n}?{}", "q".repeat(1000));
-    let lines: Vec<String> = (0..20_000).map(url).collect();
-    std::fs::write(&seeds, lines.join("\n")).unwrap();
-
-    let call = asked(
-        Product::Foxhound,
-        &[
-            "crawl",
-            "start",
-            "https://first.test/",
-            "--seeds-file",
-            seeds.to_str().unwrap(),
-        ],
-    )
-    .unwrap();
-
-    let Some(OwnFlags::CrawlStart(flags)) = &call.own else {
-        panic!("crawl start takes flags of its own");
-    };
-    let started = call.params["seeds"].as_array().unwrap();
-    let start_bytes = call.params["seeds"].to_string().len();
-    let urls: Vec<&str> = started
-        .iter()
-        .chain(&flags.added)
-        .map(|seed| seed["url"].as_str().unwrap())
-        .collect();
-    let mut expected = vec!["https://first.test/".to_owned()];
-    expected.extend(lines);
-    // Compared whole but shown short: the seeds hold 20 MB.
-    assert_eq!(
-        (
-            start_bytes <= goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES / 2,
-            !flags.added.is_empty(),
-            urls == expected.iter().map(String::as_str).collect::<Vec<_>>(),
-        ),
-        (true, true, true),
-        "{start_bytes} bytes in crawl.start, {} seeds left to run.add_seeds",
-        flags.added.len()
-    );
-}
-
-/// A seeds file within half the message limit goes whole into
-/// `crawl.start`, which then leaves nothing to `run.add_seeds`.
-///
-/// Covers: story:11-1132
-#[test]
-fn a_small_seeds_list_goes_whole_into_crawl_start() {
-    let call = asked(Product::Foxhound, &["crawl", "start", "https://a.test/"]).unwrap();
-
-    let Some(OwnFlags::CrawlStart(flags)) = &call.own else {
-        panic!("crawl start takes flags of its own");
-    };
-    assert_eq!(flags.added, Vec::<Value>::new());
-}
-
-/// `crawl start` offers no `--datasets`, which a code-free crawl refuses,
-/// and has a help of its own, not `crawl.start`'s of a handler's crawl.
-///
-/// Covers: story:11-1132
-#[test]
-fn crawl_start_offers_no_datasets_flag_and_tells_of_a_code_free_crawl() {
-    let (mut command, _) = command_line(Product::Foxhound);
-    command.build();
-    let start = command
-        .find_subcommand_mut("crawl")
-        .and_then(|crawl| {
-            crawl.build();
-            crawl.find_subcommand("start").cloned()
-        })
-        .unwrap();
-
-    let flags: Vec<String> = start
-        .get_arguments()
-        .filter_map(|argument| argument.get_long().map(str::to_owned))
-        .collect();
-    let about = start
-        .get_about()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    assert_eq!(
-        (
-            flags.contains(&"datasets".to_owned()),
-            about.contains("code-free"),
-            about.contains("handler")
-        ),
-        (false, true, false),
-        "{flags:?}\n{about}"
-    );
 }
 
 /// An optional boolean's flag takes `true` or `false`, so `run records
@@ -612,82 +391,6 @@ fn stdin_values_stop_at_a_line_that_is_not_utf8_naming_its_number() {
     );
 }
 
-/// What `crawl start` cannot read is a usage error before any engine call:
-/// no seed, a format `page.formats` does not take, a `--links` value
-/// `extraction.follow` does not take, a field with no name or locator, and
-/// `--require-verified` without `--follow`.
-///
-/// Covers: story:11-1132
-#[rstest]
-#[case::no_seed(&["crawl", "start", "--format", "markdown"], ErrorKind::MissingRequiredArgument)]
-#[case::unknown_format(&["crawl", "start", "https://a.test/", "--format", "pdf"], ErrorKind::InvalidValue)]
-#[case::unknown_links(&["crawl", "start", "https://a.test/", "--links", "everywhere"], ErrorKind::InvalidValue)]
-#[case::field_without_a_locator(&["crawl", "start", "https://a.test/", "--field", "title"], ErrorKind::ValueValidation)]
-#[case::field_without_a_name(&["crawl", "start", "https://a.test/", "--field", "=h1"], ErrorKind::ValueValidation)]
-#[case::require_verified_without_follow(&["crawl", "start", "https://a.test/", "--require-verified"], ErrorKind::MissingRequiredArgument)]
-fn crawl_start_refuses_what_it_cannot_read(#[case] arguments: &[&str], #[case] kind: ErrorKind) {
-    let refused = asked(Product::Foxhound, arguments).err().unwrap();
-
-    assert_eq!(refused.kind(), kind, "{refused}");
-}
-
-/// `crawl start` takes `--follow`, and under it `--require-verified`.
-///
-/// Covers: story:11-1132
-#[rstest]
-#[case::not_followed(&["crawl", "start", "https://a.test/"], (false, false))]
-#[case::followed(&["crawl", "start", "https://a.test/", "--follow"], (true, false))]
-#[case::verified(
-    &["crawl", "start", "https://a.test/", "--follow", "--require-verified"],
-    (true, true)
-)]
-fn crawl_start_follows_its_run_under_follow(
-    #[case] arguments: &[&str],
-    #[case] expected: (bool, bool),
-) {
-    let call = asked(Product::Foxhound, arguments).unwrap();
-
-    let Some(OwnFlags::CrawlStart(flags)) = call.own else {
-        panic!("crawl start takes flags of its own");
-    };
-    assert_eq!((flags.follow, flags.require_verified), expected);
-}
-
-/// `run export` takes the Dataset as its second positional argument, after
-/// the Run ID, and needs `--out`.
-///
-/// Covers: story:11-1132
-#[rstest]
-#[case::to_standard_output(
-    &["run", "export", "r1", "pages", "--format", "jsonl", "--out", "-"],
-    Ok(json!({ "run_id": "r1", "dataset": "pages", "format": "jsonl" }))
-)]
-#[case::compressed(
-    &["run", "export", "r1", "pages", "--format", "csv", "--compression", "zstd", "--out", "pages.csv.zst"],
-    Ok(json!({ "run_id": "r1", "dataset": "pages", "format": "csv", "compression": "zstd" }))
-)]
-#[case::without_out(
-    &["run", "export", "r1", "pages", "--format", "jsonl"],
-    Err(ErrorKind::MissingRequiredArgument)
-)]
-#[case::without_a_dataset(
-    &["run", "export", "r1", "--format", "jsonl", "--out", "-"],
-    Err(ErrorKind::MissingRequiredArgument)
-)]
-fn run_export_takes_its_dataset_second_and_out(
-    #[case] arguments: &[&str],
-    #[case] expected: Result<Value, ErrorKind>,
-) {
-    let asked = asked(Product::Foxhound, arguments);
-
-    assert_eq!(
-        asked
-            .map(|call| Value::Object(call.params))
-            .map_err(|refused| refused.kind()),
-        expected
-    );
-}
-
 static SPIN: Operation = operation("widget.spin", OperationKind::RoundTrip, Reach::AllSurfaces);
 static FRAMES: Operation = operation("widget.frames", OperationKind::Sequence, Reach::AllSurfaces);
 static WAIT_FOR_STOP: Operation = operation(
@@ -698,11 +401,11 @@ static WAIT_FOR_STOP: Operation = operation(
 
 /// The params `arguments` give `operation`'s command, or clap's refusal.
 fn parse(operation: &'static Operation, arguments: &[&str]) -> Result<Value, clap::Error> {
-    let matches = command(operation).try_get_matches_from(
+    let matches = command(operation, None).try_get_matches_from(
         std::iter::once(member(operation)).chain(arguments.iter().copied()),
     )?;
     Ok(Value::Object(
-        Call::of(Product::Collie, operation, &matches).params,
+        Call::of(Product::Collie, operation, None, &matches).params,
     ))
 }
 
@@ -712,6 +415,7 @@ fn an_entry_of_an_offered_kind_adds_its_command() {
     let group = members_of(
         Command::new("widget"),
         [&SPIN, &FRAMES, &WAIT_FOR_STOP].into_iter(),
+        &[],
     );
 
     let names: Vec<&str> = group.get_subcommands().map(Command::get_name).collect();
@@ -774,10 +478,10 @@ fn collies(name: &str) -> &'static Operation {
 
 /// The call a command line gives `operation`'s command.
 fn call(operation: &'static Operation, arguments: &[&str]) -> Result<Call, clap::Error> {
-    let matches = command(operation).try_get_matches_from(
+    let matches = command(operation, None).try_get_matches_from(
         std::iter::once(member(operation)).chain(arguments.iter().copied()),
     )?;
-    Ok(Call::of(Product::Collie, operation, &matches))
+    Ok(Call::of(Product::Collie, operation, None, &matches))
 }
 
 /// An opener's new value and the value a value-bound command names outlive

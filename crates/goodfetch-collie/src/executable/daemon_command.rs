@@ -3,8 +3,8 @@
 
 use std::process::ExitCode;
 
+use super::output::Human;
 use clap::Subcommand;
-use goodfetch_cli::output::Human;
 use goodfetch_engine::{Dependencies, Engine};
 
 use super::{daemon, service};

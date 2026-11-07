@@ -118,14 +118,14 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference",
     ),
     (
-        "crates/goodfetch-cli/src/output.rs",
-        4,
-        "masked: the CLI prints what the engine's replies hold, masked by the RPC layer as `Scope::Returned`, and its own messages",
-    ),
-    (
         "crates/goodfetch-collie/src/executable/logs.rs",
         5,
         "masked: every log writer is `Masked`, `Scope::KeptOutput`",
+    ),
+    (
+        "crates/goodfetch-collie/src/executable/output.rs",
+        4,
+        "masked: the CLI prints what the engine's replies hold, masked by the RPC layer as `Scope::Returned`, and its own messages",
     ),
     (
         "crates/goodfetch-collie/src/executable/service.rs",

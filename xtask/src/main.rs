@@ -127,7 +127,7 @@ enum Command {
     /// Regenerates every file generated from `goodfetch-protocol`'s types:
     /// the JSON Schema bundle and catalog file, each Product's projection,
     /// the names only Foxhound carries, the namespaces of the commands
-    /// `goodfetch-cli` generates, the cargo-deny `wrappers` list and each
+    /// Collie's executable generates, the cargo-deny `wrappers` list and each
     /// SDK package's `generated/` layer (ADR 0038).
     Codegen(codegen::Arguments),
     /// The floor guard (ADR 0140): fails on what the change from the merge base

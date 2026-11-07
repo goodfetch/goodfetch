@@ -19,8 +19,8 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::foxhound_names;
 use serde_json::Value;
 
-use crate::exit_codes;
-use crate::output::{self, Human};
+use super::exit_codes;
+use super::output::{self, Human};
 
 /// The flag whose value follows it, which is no word of the command.
 const COLOR: &str = "--color";
@@ -30,18 +30,18 @@ const JSON: &str = "--json";
 
 /// What only Foxhound carries that a command line names.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Named {
+pub(super) struct Named {
     /// Its name as the catalog or the table writes it: an operation's
     /// (`crawl.start`), a command's path (`crawl.serve`) or a namespace's
     /// (`crawl_request`).
-    pub name: String,
+    pub(super) name: String,
     /// Whether it is an operation, which the failure names.
-    pub operation: bool,
+    pub(super) operation: bool,
 }
 
 /// What only Foxhound carries that `arguments`, a command line `command`
 /// cannot read, names, if anything does.
-pub fn foxhound_only(command: &Command, arguments: &[OsString]) -> Option<Named> {
+pub(super) fn foxhound_only(command: &Command, arguments: &[OsString]) -> Option<Named> {
     let words = words(arguments);
     let (first, second) = (words.first()?, words.get(1));
     let operation = foxhound_names::OPERATIONS.iter().find(|name| {
@@ -85,7 +85,7 @@ pub fn foxhound_only(command: &Command, arguments: &[OsString]) -> Option<Named>
 /// Refuses `named` on the engine `identity` runs as, with `not_in_product`,
 /// printed as the command line asks, `arguments` holding `--json` or not,
 /// and answers its exit code.
-pub fn refuse(
+pub(super) fn refuse(
     identity: &Identity,
     named: &Named,
     arguments: &[OsString],

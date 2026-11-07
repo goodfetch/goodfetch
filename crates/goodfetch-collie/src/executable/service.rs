@@ -41,7 +41,7 @@ use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
 use super::browsers;
 use super::daemon::{Failure, Machine};
-use goodfetch_cli::output::{self, Human};
+use super::output::{self, Human};
 
 fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))

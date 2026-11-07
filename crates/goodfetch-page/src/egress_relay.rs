@@ -64,6 +64,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use data_encoding::BASE64;
+use goodfetch_cdp::NetError;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -582,23 +583,28 @@ impl EgressRelay {
 }
 
 impl EgressRelay {
-    /// The browser's own name of the failure of a request to `url` that
-    /// failed with `error`, when the relay could not reach its site
-    /// itself: the browser sees only the relay's answer, such as
-    /// `net::ERR_TUNNEL_CONNECTION_FAILED` or `net::ERR_EMPTY_RESPONSE`,
-    /// where it would name the site's failure, such as
-    /// `net::ERR_NAME_NOT_RESOLVED`. With `mark`, where the relay stood as
-    /// a navigation to `url` began, the latest such failure since then
-    /// names a later hop's when `url`'s site was reached.
+    /// The browser's own network error for the failure of a request to
+    /// `url` that failed with `error`, when the relay could not reach its
+    /// site itself: the browser sees only the relay's answer, such as
+    /// [`NetError::TunnelRefused`] or [`NetError::EmptyResponse`], where it
+    /// would name the site's failure, such as [`NetError::NameNotResolved`].
+    /// With `mark`, where the relay stood as a navigation to `url` began,
+    /// the latest such failure since then names a later hop's when `url`'s
+    /// site was reached.
     pub(crate) fn net_error(
         &self,
         url: &str,
-        error: &str,
+        error: &NetError,
         mark: Option<u64>,
-    ) -> Option<&'static str> {
+    ) -> Option<NetError> {
+        // An error the browser does not name is reported as its generic
+        // one, which the relay's answer can be.
         let relayed = matches!(
-            error.strip_prefix("net::").unwrap_or(error),
-            "ERR_TUNNEL_CONNECTION_FAILED" | "ERR_EMPTY_RESPONSE" | "ERR_FAILED"
+            error,
+            NetError::TunnelRefused
+                | NetError::EmptyResponse
+                | NetError::Failed
+                | NetError::Unrecognized(_)
         );
         if !relayed {
             return None;

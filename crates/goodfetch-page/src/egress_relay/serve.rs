@@ -9,6 +9,7 @@
 //! opens has its connect deadline, so a proxy that never answers is the
 //! proxy's failure.
 
+use goodfetch_cdp::NetError;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -115,13 +116,13 @@ pub(crate) enum Unreached {
 }
 
 impl Unreached {
-    /// The browser's own name of the failure.
-    pub(crate) fn net_error(self) -> &'static str {
+    /// The browser's own network error for the failure.
+    pub(crate) fn net_error(self) -> NetError {
         match self {
-            Self::NameNotResolved => "net::ERR_NAME_NOT_RESOLVED",
-            Self::ConnectionRefused => "net::ERR_CONNECTION_REFUSED",
-            Self::TimedOut => "net::ERR_CONNECTION_TIMED_OUT",
-            Self::ConnectionFailed => "net::ERR_CONNECTION_FAILED",
+            Self::NameNotResolved => NetError::NameNotResolved,
+            Self::ConnectionRefused => NetError::ConnectionRefused,
+            Self::TimedOut => NetError::ConnectionTimedOut,
+            Self::ConnectionFailed => NetError::ConnectionFailed,
         }
     }
 

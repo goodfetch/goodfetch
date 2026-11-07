@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use goodfetch_cdp::{Connection, Failure, Framer};
+use goodfetch_cdp::{Connection, Failure, Framer, NetError};
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::page::BrowserExit;
@@ -254,7 +254,7 @@ fn a_certificate_chromium_refused_is_named_as_the_wire_names_it(
     #[case] error: &str,
     #[case] expected: Option<CertificateFailure>,
 ) {
-    assert_eq!(super::certificate_failure(error), expected);
+    assert_eq!(super::certificate_failure(&NetError::of(error)), expected);
 }
 
 fn known(failure: KnownCertificateFailure) -> CertificateFailure {

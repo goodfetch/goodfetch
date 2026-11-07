@@ -21,7 +21,9 @@ use std::path::Path;
 use std::process::Command;
 
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
     cli, runtime,
@@ -430,13 +432,7 @@ pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
 /// The CDP methods the Run's trace recorded.
 #[cfg(unix)]
 pub(crate) fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("cdp-commands.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
     std::fs::read_to_string(&file)
         .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
         .lines()

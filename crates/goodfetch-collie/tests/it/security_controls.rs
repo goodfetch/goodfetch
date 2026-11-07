@@ -14,6 +14,7 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Mode, TestEnv, cli};
 use serde_json::{Value, json};
 
@@ -106,10 +107,10 @@ fn config_explain_security_lists_every_switchable_control_with_the_layer_that_se
 
 /// Writes an Operator policy that locks `security.audit_chain` on.
 fn locking_the_audit_chain(env: &TestEnv) {
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.security]\naudit_chain = true\n",
     )
     .unwrap();

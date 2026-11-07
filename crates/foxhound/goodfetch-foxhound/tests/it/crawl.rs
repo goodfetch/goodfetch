@@ -16,6 +16,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{AnsweredCalls, Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -236,14 +237,7 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
     );
     let exited = engine.finish();
 
-    let file = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("shop")
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let file = Connection::open(HomeLayout::of(env.home()).run_file("shop")).unwrap();
     let records: Vec<String> = file
         .prepare("SELECT data FROM records ORDER BY number")
         .unwrap()
@@ -399,14 +393,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
     }
     let exited = engine.finish();
 
-    let file = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("held")
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let file = Connection::open(HomeLayout::of(env.home()).run_file("held")).unwrap();
     let (records, work_items): (i64, i64) = file
         .query_row(
             "SELECT count(*), count(DISTINCT work_item) FROM records",

@@ -20,6 +20,8 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
+use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, Canary, Output, ProvingGround, SecretKind, TestEnv, browser_cache,
 };
@@ -771,13 +773,7 @@ fn a_body_past_network_max_body_size_raises_response_limit_exceeded() {
 
 /// The lines of the Run trace's request log.
 fn request_log(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()

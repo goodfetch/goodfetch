@@ -14,6 +14,7 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};
 
@@ -24,10 +25,10 @@ const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 /// Writes an Operator policy that caps `crawl.max_requests` at 100 and
 /// locks robots.txt respected.
 fn capping_and_locking(env: &TestEnv) {
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        folder.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[cap.crawl]\nmax_requests = 100\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
     )
     .unwrap();

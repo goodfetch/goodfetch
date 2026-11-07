@@ -16,6 +16,7 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -33,14 +34,7 @@ fn seed(url: &str, priority: i64) -> Value {
 }
 
 fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// Crawls `seeds` under `settings` and answers, in turn, each set of
@@ -238,10 +232,10 @@ fn a_crawls_own_domain_keys_put_two_sites_in_one_queue() {
 #[test]
 fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     let env = TestEnv::new();
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        folder.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[cap.admission]\nmax_requests_per_minute = 1\n",
     )
     .unwrap();

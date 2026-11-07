@@ -20,6 +20,8 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Cli, TestEnv, Tool, cli, tools};
 use serde_json::{Value, json};
 
@@ -78,7 +80,8 @@ impl Drop for RemovesTheService<'_> {
 /// Opens a Connection to the service's socket with its persistent token,
 /// which starts the Daemon, and asks it `daemon.status`.
 fn status_through(env: &TestEnv, socket: &Path) -> Value {
-    let token = std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap();
+    let token =
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::Token)).unwrap();
     let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);

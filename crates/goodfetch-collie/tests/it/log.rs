@@ -26,6 +26,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::sync::mpsc;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
@@ -363,10 +364,10 @@ fn a_collector_on_loopback_is_refused_only_under_an_operator_policy_of_no_privat
     let (endpoint, exports, connections) = recorded_collector();
     env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
     if refused {
-        let major = env.home().join("0.0");
-        std::fs::create_dir_all(&major).unwrap();
+        let layout = HomeLayout::of(env.home());
+        std::fs::create_dir_all(layout.per_major()).unwrap();
         std::fs::write(
-            major.join("operator-policy.toml"),
+            layout.operator_policy(),
             "version = \"0.1\"\n\n[settings.egress]\nno_private_endpoints = true\n",
         )
         .unwrap();

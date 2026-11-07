@@ -9,6 +9,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -99,14 +100,7 @@ pub(crate) fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
 }
 
 pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The handler's answer that commits one Record naming its page.
@@ -251,12 +245,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    let kept = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("bytes")
-        .join("files");
+    let kept = HomeLayout::of(env.home()).run_folder("bytes").join("files");
     #[expect(
         clippy::disallowed_methods,
         reason = "the test lists the run folder's kept files on its own thread, never an async worker"

@@ -19,7 +19,8 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, robots_txt_readings};
+use goodfetch_test_client::{HomeLayout, robots_txt_readings};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -614,12 +615,7 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
 /// The identity seed of each Session the Run's run state keeps, by its
 /// position.
 fn identity_seeds(env: &TestEnv, run_id: &str) -> Vec<(u32, i64)> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("run.sqlite");
+    let file = HomeLayout::of(env.home()).run_file(run_id);
     let connection = rusqlite::Connection::open(file).unwrap();
     let mut statement = connection
         .prepare("SELECT position, identity_seed FROM page_sessions ORDER BY position")

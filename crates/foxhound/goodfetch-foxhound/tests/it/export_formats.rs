@@ -16,6 +16,7 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray as _;
 use arrow_array::types::{Float64Type, Int64Type};
 use arrow_schema::DataType;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
@@ -521,14 +522,8 @@ fn every_format_plain_gzip_and_zstd_opens_in_a_reference_reader_and_gives_the_re
 /// writes its Provenance (ADR 0052): the engine sets no Wall marker in M1,
 /// so the test writes the Provenance a Record past a Wall carries.
 fn mark_wall(env: &TestEnv, run_id: &str, number: i64) {
-    let connection = rusqlite::Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection =
+        rusqlite::Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let changed = connection
         .execute(
             "UPDATE records SET provenance = json_set(provenance, '$.wall', json(?1))

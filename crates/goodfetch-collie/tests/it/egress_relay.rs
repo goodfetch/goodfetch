@@ -32,7 +32,9 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli, robots_txt_read};
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
+use goodfetch_test_client::{HomeLayout, robots_txt_read};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
@@ -148,13 +150,7 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 
 /// A file of the Run `run_id`'s trace, one JSON value a line.
 fn trace(env: &TestEnv, run_id: &str, file: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join(file);
+    let file = HomeLayout::of(env.home()).run_trace(run_id, file);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -164,7 +160,7 @@ fn trace(env: &TestEnv, run_id: &str, file: &str) -> Vec<Value> {
 
 /// The Run `run_id`'s Provenance entries of `action`.
 pub(crate) fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
-    trace(env, run_id, "provenance.jsonl")
+    trace(env, run_id, RUN_TRACE_PROVENANCE)
         .into_iter()
         .filter(|entry| entry["action"] == json!(action))
         .collect()
@@ -173,7 +169,7 @@ pub(crate) fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value
 /// The failures the Run trace recorded for requests to `host` no call
 /// waited on, each as its method and Error code.
 fn failed_requests(env: &TestEnv, run_id: &str, host: &str) -> Vec<(Value, Value)> {
-    trace(env, run_id, "requests.jsonl")
+    trace(env, run_id, RUN_TRACE_REQUESTS)
         .into_iter()
         .filter(|line| line["event"] == json!("page.request_failed"))
         .filter(|line| {

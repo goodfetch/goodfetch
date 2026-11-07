@@ -2333,6 +2333,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-secret-providers",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2655,6 +2656,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-sql-tab",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2726,6 +2728,7 @@ dependencies = [
  "goodfetch-extractor",
  "goodfetch-protocol",
  "goodfetch-recording-gate",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2920,6 +2923,16 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "goodfetch-test-client"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]

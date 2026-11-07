@@ -24,6 +24,7 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::home::{RUN_FILE, RUNS, per_major};
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use rusqlite::Connection;
@@ -32,6 +33,9 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 /// The Run ID of the crawl the cases start again.
 const RUN_ID: &str = "restarted";
+
+/// The Product version the engine runs as.
+const PRODUCT_VERSION: &str = "1.4.0";
 
 /// The site, served from memory: `/a`, `/b` and `/c`, each page naming
 /// itself in its `<title>`, its `<h1>` and its `<h2>`.
@@ -86,7 +90,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
     let tiers = FetchTiers::serving(Arc::new(Site));
     let identity = Identity {
         product: Product::Foxhound,
-        product_version: ProductVersion::parse("1.4.0").unwrap(),
+        product_version: ProductVersion::parse(PRODUCT_VERSION).unwrap(),
         channel: Channel::CratesIo,
     };
     let composition = goodfetch_collie::composition_with(tiers.clone())
@@ -115,7 +119,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
                     "protocol_version": "0.1",
                     "surface": "rust",
                     "needs": "foxhound",
-                    "product_version": "1.4.0",
+                    "product_version": PRODUCT_VERSION,
                 }),
             );
             for (index, (method, params)) in std::iter::once(&hello).chain(calls).enumerate() {
@@ -196,7 +200,14 @@ fn finish() -> (&'static str, Value) {
 
 /// The run file of the Run.
 fn run_file(home: &Path) -> Connection {
-    Connection::open(home.join("1").join("runs").join(RUN_ID).join("run.sqlite")).unwrap()
+    let version = ProductVersion::parse(PRODUCT_VERSION).unwrap();
+    Connection::open(
+        per_major(home, &version)
+            .join(RUNS)
+            .join(RUN_ID)
+            .join(RUN_FILE),
+    )
+    .unwrap()
 }
 
 /// The data of each Record of `pages`, in number order.

@@ -11,6 +11,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{LazyFs, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -33,12 +34,7 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
     drop(home);
     let _home = LazyFs::mount(&env, env.home()).unwrap();
 
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("cut")
-        .join("run.sqlite");
+    let file = HomeLayout::of(env.home()).run_file("cut");
     let (integrity, run, tags) = {
         let connection = Connection::open(&file).unwrap();
         let integrity: String = connection
@@ -108,12 +104,7 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
     drop(home);
     let _home = LazyFs::mount(&env, env.home()).unwrap();
 
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("fast")
-        .join("run.sqlite");
+    let file = HomeLayout::of(env.home()).run_file("fast");
     let integrity: String = Connection::open(&file)
         .unwrap()
         .pragma_query_value(None, "integrity_check", |row| row.get(0))
@@ -134,7 +125,7 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
 )]
 fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
     let env = TestEnv::for_lazyfs();
-    let file = env.home().join("0.0").join("configuration.toml");
+    let file = HomeLayout::of(env.home()).user_configuration();
     let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);
     engine.send(&from_the_cli());

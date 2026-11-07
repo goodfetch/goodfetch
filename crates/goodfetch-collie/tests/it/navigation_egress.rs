@@ -23,9 +23,10 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache, robots_txt_read,
+    SsrfTable, TestEnv, browser_cache,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};

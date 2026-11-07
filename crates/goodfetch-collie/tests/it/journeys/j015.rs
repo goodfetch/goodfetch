@@ -15,6 +15,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, DaemonEndpoint, JourneyRun, ProvingGround, RuntimeFile, browser_cache,
 };
@@ -255,7 +256,7 @@ fn cli() {
     run.check(
         "On `SIGTERM` the Daemon refused new runs, checkpointed both runs as resumable and exited within its drain grace period",
         |_| {
-            let runs = home.join("0.0").join("runs");
+            let runs = HomeLayout::of(&home).runs();
             let late = late_start.clone().unwrap_or(Value::Null);
             let refused = late.is_null() || late["error"]["data"]["code"] == json!("daemon_draining");
             let checkpointed = SHARES.map(|(run_id, _)| runs.join(run_id).join("checkpoint.sqlite").is_file());

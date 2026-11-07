@@ -1,0 +1,4 @@
+# Which of goodfetch-test-client's top-level modules may import which (ADR 0126).
+[modules]
+home = []
+run_trace = ["home"]

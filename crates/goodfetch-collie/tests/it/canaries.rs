@@ -34,6 +34,8 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, Output, ProvingGround, SecretKind, TestEnv, browser_cache, chrome_for_testing_files,
 };
@@ -400,8 +402,8 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
     let key_id = canaries.iter().last().unwrap().id().to_owned();
     let token = canaries.plant(SecretKind::EndpointToken);
     let (token_id, token) = (token.id().to_owned(), token.value().to_owned());
-    let ops_token = env.home().join("0.0").join("ops.token");
-    std::fs::create_dir_all(env.home().join("0.0")).unwrap();
+    let ops_token = HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken);
+    std::fs::create_dir_all(HomeLayout::of(env.home()).per_major()).unwrap();
     std::fs::write(&ops_token, &token).unwrap();
     canaries.record_planted(&token_id, &ops_token.display().to_string());
     let server = stand_in(key.clone());

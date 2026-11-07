@@ -17,6 +17,7 @@
     reason = "the tests write the encrypted local files of the test's Goodfetch home themselves"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -95,7 +96,7 @@ fn a_raw_value_as_the_key_reference_is_refused_with_setting_invalid_naming_no_va
     let env = TestEnv::new();
     let (mut canaries, id, value) = planted(&env);
     env.user_configuration(&format!("run_state.key_reference = \"{value}\"\n"));
-    let configuration = env.home().join("0.0").join("configuration.toml");
+    let configuration = HomeLayout::of(env.home()).user_configuration();
     canaries.record_planted(&id, &configuration.display().to_string());
 
     let replies = started(&env, &[], "raw");
@@ -250,7 +251,7 @@ fn a_run_whose_key_variable_is_unset_is_refused_with_secret_unavailable_before_i
         (
             data,
             fix.is_some_and(|fix| fix.is_string()),
-            env.home().join("0.0").join("runs").join("unkeyed").exists()
+            HomeLayout::of(env.home()).run_folder("unkeyed").exists()
         ),
         (
             json!({
@@ -701,6 +702,7 @@ mod keychain {
 pub(crate) mod external_providers {
     use std::os::unix::fs::PermissionsExt as _;
 
+    use goodfetch_test_client::HomeLayout;
     use goodfetch_test_support::TestEnv;
     use rstest::rstest;
     use serde_json::json;
@@ -821,10 +823,8 @@ pub(crate) mod external_providers {
                     .as_str()
                     .is_some_and(|fix| fix
                         .contains(&format!("secret_providers.{}.command", vendor.scheme()))),
-                env.home()
-                    .join("0.0")
-                    .join("runs")
-                    .join("unconfigured")
+                HomeLayout::of(env.home())
+                    .run_folder("unconfigured")
                     .exists()
             ),
             (

@@ -37,6 +37,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
+use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Redirect, Refusal, Runner, SsrfCase,
     SsrfTable, TestEnv, browser_cache,
@@ -358,13 +360,7 @@ fn error(answer: &Value) -> (Value, Value) {
 
 /// The Run trace's Provenance entries of the Run `run_id`.
 fn provenance(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("provenance.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_PROVENANCE);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -742,15 +738,15 @@ fn a_borrowed_browser_that_went_under_a_call_cancels_it_naming_the_browser() {
 /// Writes an Operator policy whose `session.source` is the `cdp_url`
 /// `url`, and that sets `egress.no_private_endpoints` when `no_private`.
 fn operator_policy(env: &TestEnv, url: &str, no_private: bool) {
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     let mut policy = format!(
         "version = \"0.1\"\n\n[settings.session.source]\nkind = \"cdp_url\"\nurl = \"{url}\"\n"
     );
     if no_private {
         policy.push_str("\n[settings.egress]\nno_private_endpoints = true\n");
     }
-    std::fs::write(major.join("operator-policy.toml"), policy).unwrap();
+    std::fs::write(layout.operator_policy(), policy).unwrap();
 }
 
 /// A `cdp_url` set in Operator policy is an Operator-configured endpoint:

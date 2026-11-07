@@ -16,6 +16,7 @@
 use std::fs;
 
 use goodfetch_protocol::foxhound_names;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -41,10 +42,10 @@ enum Mode {
 /// key, user configuration that sets one key and one only Foxhound honours,
 /// and a project configuration that sets one key again and a second.
 fn lay_out(env: &TestEnv) {
-    let major = env.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.network.resolve]\n\"staging.example\" = [\"127.0.0.1\"]\n",
     )
     .unwrap();
@@ -149,10 +150,10 @@ fn config_explain_shows_one_line_per_key_with_its_origin(#[case] mode: Mode) {
 #[test]
 fn config_explain_shows_the_happy_eyeballs_delays() {
     let env = TestEnv::new();
-    let major = env.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("configuration.toml"),
+        layout.user_configuration(),
         "version = \"0.1\"\n\n[settings.resolver]\nattempt_delay = 100\n",
     )
     .unwrap();
@@ -293,10 +294,10 @@ fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_
     };
     let by_default = TestEnv::new();
     let configured = TestEnv::new();
-    let major = configured.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(configured.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("configuration.toml"),
+        layout.user_configuration(),
         "version = \"0.1\"\n\n[settings.browser]\nheadless = false\n",
     )
     .unwrap();

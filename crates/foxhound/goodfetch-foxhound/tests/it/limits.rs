@@ -26,6 +26,7 @@ use std::io::{BufRead as _, BufReader, Read, Write};
 use std::path::Path;
 use std::process::Stdio;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     DAEMON_DEADLINE, Daemon, Moment, ObservationLog, Operation, Record, TestEnv, kill_at, limits,
     record_command,
@@ -225,14 +226,7 @@ fn slices(env: &TestEnv) -> Vec<(i64, Option<i64>, String)> {
 /// What the Run `run_id` journaled of its Slices, and the Records it
 /// committed.
 fn journaled_and_committed(env: &TestEnv, run_id: &str) -> (i64, i64) {
-    let file = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let file = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let journaled: i64 = file
         .query_row("SELECT COALESCE(SUM(used), 0) FROM usage", [], |row| {
             row.get(0)

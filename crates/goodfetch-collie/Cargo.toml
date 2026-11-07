@@ -72,6 +72,7 @@ goodfetch-collie = { path = ".", features = ["executable"] }
 # The embedded Clean-up rules' digest and manifest, which a Run holds to by
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
+goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The Clean-up rules sources' HTTPS stand-in, its authority and its

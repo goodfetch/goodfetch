@@ -80,7 +80,9 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
+use goodfetch_test_client::HomeLayout;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -706,7 +708,7 @@ async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// Writes each Run's file in `runs`, as SQL text, into `folder`.
 fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::Error>> {
     for run_id in ["crawl", "code-free", "aborted", "paused", "unclean"] {
-        let connection = rusqlite::Connection::open(runs.join(run_id).join("run.sqlite"))?;
+        let connection = rusqlite::Connection::open(runs.join(run_id).join(RUN_FILE))?;
         std::fs::write(
             folder.join(format!("{run_id}.sql")),
             goodfetch_test_support::sql_dump(&connection)?,
@@ -728,9 +730,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let engine = Engine::new(identity, &goodfetch_foxhound::composition().with(bound()))?;
     let home = tempfile::tempdir()?;
-    std::fs::create_dir_all(home.path().join("0.0"))?;
+    std::fs::create_dir_all(HomeLayout::of(home.path()).per_major())?;
     std::fs::write(
-        home.path().join("0.0").join("operator-policy.toml"),
+        HomeLayout::of(home.path()).operator_policy(),
         "version = \"0.1\"\n",
     )?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -795,8 +797,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         served?;
         talked
     })?;
-    let runs = home.path().join("0.0").join("runs");
-    runtime.block_on(leave_unclean(&runs.join("unclean").join("run.sqlite")))?;
+    let runs = HomeLayout::of(home.path()).runs();
+    runtime.block_on(leave_unclean(&runs.join("unclean").join(RUN_FILE)))?;
     dump_run_files(&runs, &folder)?;
     std::fs::copy(
         runs.join("paused").join("checkpoint.sqlite"),

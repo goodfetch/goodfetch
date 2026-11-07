@@ -37,6 +37,7 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::needs_you::NeedsYouItem;
 use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_test_client::HomeLayout;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -334,7 +335,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
     drop(runtime);
-    let index = rusqlite::Connection::open(home.path().join("0.0").join("run-index.sqlite"))?;
+    let index = rusqlite::Connection::open(HomeLayout::of(home.path()).run_index())?;
     std::fs::write(
         folder.join("run-index.sql"),
         goodfetch_test_support::sql_dump(&index)?,

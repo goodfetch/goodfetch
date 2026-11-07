@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use goodfetch_protocol::home::RUNS;
 use goodfetch_test_support::{
     CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
@@ -109,7 +110,7 @@ fn calendar_free_report(stdout: &str) -> String {
 pub(crate) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     std::fs::read_dir(env.home())
         .unwrap()
-        .map(|entry| entry.unwrap().path().join("runs").join(run_id))
+        .map(|entry| entry.unwrap().path().join(RUNS).join(run_id))
         .find(|folder| folder.is_dir())
         .unwrap()
 }

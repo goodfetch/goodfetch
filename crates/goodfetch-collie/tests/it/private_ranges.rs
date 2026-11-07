@@ -16,6 +16,7 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use serde_json::{Map, Value, json};
 
@@ -222,10 +223,10 @@ fn with_the_resolved_address_check_off_the_loopback_host_loads_and_the_switch_is
 #[test]
 fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
     let env = TestEnv::new();
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.security]\nresolved_ip_check = true\n",
     )
     .unwrap();

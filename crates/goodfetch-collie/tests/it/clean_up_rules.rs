@@ -26,8 +26,10 @@ mod stand_in;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
+use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_PROVENANCE};
 use goodfetch_protocol::page::PageOpened;
 use goodfetch_protocol::run::warning::CLEAN_UP_RULES_STALE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
@@ -59,12 +61,12 @@ pub(crate) fn calendar_free(warnings: &[Value]) -> Vec<Value> {
 
 /// The folder of the Run `run_id` in the Goodfetch home `home`.
 fn run_folder(home: &Path, run_id: &str) -> PathBuf {
-    home.join("0.0").join("runs").join(run_id)
+    HomeLayout::of(home).run_folder(run_id)
 }
 
 /// The Clean-up rules digest the run state of `run_id` records.
 fn recorded_digest(home: &Path, run_id: &str) -> Option<String> {
-    Connection::open(run_folder(home, run_id).join("run.sqlite"))
+    Connection::open(run_folder(home, run_id).join(RUN_FILE))
         .unwrap()
         .query_row("SELECT clean_up_digest FROM run", [], |row| row.get(0))
         .unwrap()
@@ -72,7 +74,7 @@ fn recorded_digest(home: &Path, run_id: &str) -> Option<String> {
 
 /// The Provenance entries of the Run `run_id` that name its Clean-up rules.
 fn rules_provenance(home: &Path, run_id: &str) -> Vec<Value> {
-    std::fs::read_to_string(run_folder(home, run_id).join("trace/provenance.jsonl"))
+    std::fs::read_to_string(run_folder(home, run_id).join(RUN_TRACE_PROVENANCE))
         .unwrap_or_default()
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
@@ -409,11 +411,8 @@ fn runs_pinned_to_two_days_versions_keep_their_own_and_a_resume_in_another_home_
         &json!({ "run_id": "first" }),
     ));
     let _ = first.finish();
-    let checkpoint = first_home
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("first")
+    let checkpoint = HomeLayout::of(first_home.home())
+        .run_folder("first")
         .join("checkpoint.sqlite");
 
     let second_cache = browser_cache(&second_home).unwrap();

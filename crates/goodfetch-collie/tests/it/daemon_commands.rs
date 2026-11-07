@@ -12,6 +12,8 @@
 
 use std::fmt::Write as _;
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CliOutput, TestEnv, cli};
 use serde_json::{Value, json};
 
@@ -137,7 +139,10 @@ fn daemon_http_listener_token_prints_the_credential_on_stdout_and_nowhere_else()
         .unwrap();
 
     let token = printed["token"].as_str().unwrap().to_owned();
-    let file = std::fs::read_to_string(env.home().join("0.0").join("http-listener.token")).unwrap();
+    let file = std::fs::read_to_string(
+        HomeLayout::of(env.home()).daemon_file(DaemonFile::HttpListenerToken),
+    )
+    .unwrap();
     let logged = logs_holding(&env, &token);
     assert_eq!(
         (

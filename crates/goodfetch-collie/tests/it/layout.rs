@@ -8,9 +8,9 @@
 )]
 
 use std::io::{BufRead as _, BufReader};
-use std::path::PathBuf;
 use std::process::Stdio;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -27,13 +27,13 @@ fn per_install(env: &TestEnv) {
     env.user_configuration("daemon.idle_timeout = 60000\nrun_state.layout = \"per_install\"\n");
 }
 
-fn major(env: &TestEnv) -> PathBuf {
-    env.home().join("0.0")
+fn layout(env: &TestEnv) -> HomeLayout {
+    HomeLayout::of(env.home())
 }
 
 /// The Run index row of `run_id`: its owner and lifecycle.
 fn index_row(env: &TestEnv, run_id: &str) -> Value {
-    let index = Connection::open(major(env).join("run-index.sqlite")).unwrap();
+    let index = Connection::open(layout(env).run_index()).unwrap();
     let row: String = index
         .query_row(
             "SELECT json_object('owner', json(owner), 'lifecycle', lifecycle) FROM runs WHERE run_id = ?1",
@@ -63,12 +63,8 @@ fn an_attached_engine_in_the_per_install_layout_hands_its_runs_to_the_daemon() {
             opened["result"]["product"].clone(),
             started["result"]["started_as"].clone(),
             owner.get("daemon").is_some(),
-            major(&env).join("run-state.sqlite").is_file(),
-            major(&env)
-                .join("runs")
-                .join("handed")
-                .join("run.sqlite")
-                .exists(),
+            layout(&env).per_major().join("run-state.sqlite").is_file(),
+            layout(&env).run_file("handed").exists(),
         ),
         (json!("collie"), json!("new"), true, true, false),
         "{owner}"
@@ -109,11 +105,7 @@ fn a_killed_daemon_in_the_per_install_layout_leaves_every_run_resumable() {
         (
             first["result"]["started_as"].clone(),
             second["result"]["started_as"].clone(),
-            major(&env)
-                .join("runs")
-                .join("first")
-                .join("run.sqlite")
-                .exists(),
+            layout(&env).run_file("first").exists(),
         ),
         (json!("resumed"), json!("resumed"), false),
         "{first} {second}"

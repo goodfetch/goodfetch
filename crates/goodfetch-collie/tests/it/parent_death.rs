@@ -20,6 +20,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use goodfetch_engine::runs::{Writer, test_writer};
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Moment, ObservationLog, Operation, Record, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -149,7 +150,7 @@ fn an_attached_engine_ends_when_its_client_is_killed_without_closing_its_stdin(
         }
     }
 
-    let runs = env.home().join("0.0").join("runs");
+    let runs = HomeLayout::of(env.home()).runs();
     let writers: Vec<Writer> = started
         .iter()
         .map(|run_id| test_writer(&runs.join(run_id)).unwrap())

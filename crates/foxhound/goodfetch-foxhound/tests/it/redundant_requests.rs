@@ -18,6 +18,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
@@ -125,13 +127,7 @@ fn connections_for(proving_ground: &ProvingGround, target: &str) -> Vec<u64> {
     reason = "the test reads the Run's Provenance log from outside the engine, on no async worker"
 )]
 fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
-    let file: PathBuf = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("provenance.jsonl");
+    let file: PathBuf = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_PROVENANCE);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()

@@ -18,6 +18,7 @@
 
 use std::collections::BTreeSet;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -184,14 +185,7 @@ fn every_record_names_its_request_tier_encoding_and_clean_up_rules_in_its_proven
 
 /// The Run file of the Run `run_id`.
 fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The Export of `dataset` of `run_id` in `format`, compressed as
@@ -350,7 +344,7 @@ fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
             kept,
             rejected,
             canaries
-                .leaks(&[Output::Path(&env.home().join("0.0").join("runs"))])
+                .leaks(&[Output::Path(&HomeLayout::of(env.home()).runs())])
                 .unwrap()
         ),
         (

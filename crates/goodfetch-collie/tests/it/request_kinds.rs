@@ -23,6 +23,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, Runner, SsrfCase,
     SsrfTable, TestEnv, browser_cache,
@@ -235,13 +237,7 @@ fn arrives(arrived: impl Fn() -> bool) -> bool {
 /// The Error codes of the Run trace's `page.request_failed` lines whose
 /// URL is on `host`, of the Run `run_id`.
 fn refusals_recorded(env: &TestEnv, run_id: &str, host: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -453,13 +449,7 @@ fn host_of(url: &str) -> Option<String> {
 /// The refusals the Run trace of `run_id` recorded from its line `from` on,
 /// as `(host, Error code, rule)`.
 fn refusals_from(env: &TestEnv, run_id: &str, from: usize) -> (usize, Vec<(String, Value, Value)>) {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     let lines: Vec<Value> = std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()

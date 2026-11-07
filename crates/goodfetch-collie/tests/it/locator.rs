@@ -19,7 +19,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
 };
@@ -383,13 +385,7 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
 
 /// How many times the Run's trace records each CDP method.
 fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("locators")
-        .join("trace")
-        .join("cdp-commands.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace("locators", RUN_TRACE_CDP_COMMANDS);
     let mut counts = BTreeMap::new();
     for line in std::fs::read_to_string(&file)
         .unwrap_or_else(|error| panic!("{}: {error}", file.display()))

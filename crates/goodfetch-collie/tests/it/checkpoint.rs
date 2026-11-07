@@ -18,6 +18,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
@@ -125,7 +126,7 @@ fn a_checkpoint_of_a_run_whose_folder_is_on_a_full_disk_fails_and_leaves_no_file
         command.env("GOODFETCH_HOME", &home_for_engine);
     });
     started(&mut engine, "filled");
-    let folder = home.join("0.0").join("runs").join("filled");
+    let folder = HomeLayout::of(&home).run_folder("filled");
     let before = files(&folder);
     fill(&disk.mount);
 

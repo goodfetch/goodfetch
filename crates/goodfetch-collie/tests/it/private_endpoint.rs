@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress, ListenerKind,
     RuntimeFile, TestEnv,
@@ -141,7 +142,7 @@ fn the_private_endpoint_passes_its_endpoint_table_rows() {
 
 /// The owner the Run index names for `run_id`.
 fn owner(env: &TestEnv, run_id: &str) -> Value {
-    let owner: Option<String> = Connection::open(env.home().join("0.0").join("run-index.sqlite"))
+    let owner: Option<String> = Connection::open(HomeLayout::of(env.home()).run_index())
         .unwrap()
         .query_row(
             "SELECT owner FROM runs WHERE run_id = ?1",

@@ -11,6 +11,8 @@
 
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
@@ -217,13 +219,7 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
     reason = "the test reads the Run's CDP trace from outside the engine, on no async worker"
 )]
 fn contexts(env: &TestEnv, run_id: &str) -> Vec<&'static str> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("cdp-commands.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()

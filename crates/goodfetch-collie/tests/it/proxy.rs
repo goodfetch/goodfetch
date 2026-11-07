@@ -26,9 +26,10 @@
 use std::collections::BTreeSet;
 use std::sync::mpsc;
 
+use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
-    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, pty, robots_txt_read,
+    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, pty,
 };
 use rstest::rstest;
 use serde_json::{Value, json};

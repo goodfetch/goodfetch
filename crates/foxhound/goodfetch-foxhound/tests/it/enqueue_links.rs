@@ -13,6 +13,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -66,14 +67,7 @@ fn enqueue_links(inside: &mut Inside<'_>, handle: &Value, selector: &str, fields
 
 /// The Records of the Dataset `pages` in the Run `run_id`, in order.
 fn pages(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let connection = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let mut statement = connection
         .prepare("SELECT data FROM records WHERE dataset = 'pages' ORDER BY rowid")
         .unwrap();

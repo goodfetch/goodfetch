@@ -21,6 +21,7 @@
 
 use std::time::{Duration, Instant};
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
@@ -422,10 +423,10 @@ fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
 fn an_operator_policy_lock_keeps_robots_txt_respected() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        folder.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
     )
     .unwrap();

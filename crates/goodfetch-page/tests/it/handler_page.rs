@@ -25,7 +25,9 @@ use goodfetch_page::blocks::NoBlocks;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_REQUESTS};
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
@@ -280,13 +282,7 @@ impl Program {
         reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
     )]
     pub(crate) fn cdp_commands(&self) -> Vec<String> {
-        let file = self
-            .home
-            .join("0.0")
-            .join("runs")
-            .join(RUN)
-            .join("trace")
-            .join("cdp-commands.jsonl");
+        let file = HomeLayout::of(&self.home).run_trace(RUN, RUN_TRACE_CDP_COMMANDS);
         std::fs::read_to_string(file)
             .unwrap_or_default()
             .lines()
@@ -301,13 +297,7 @@ impl Program {
         reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
     )]
     pub(crate) fn request_log(&self) -> Vec<Value> {
-        let file = self
-            .home
-            .join("0.0")
-            .join("runs")
-            .join(RUN)
-            .join("trace")
-            .join("requests.jsonl");
+        let file = HomeLayout::of(&self.home).run_trace(RUN, RUN_TRACE_REQUESTS);
         std::fs::read_to_string(file)
             .unwrap_or_default()
             .lines()

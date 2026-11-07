@@ -17,6 +17,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
 use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
@@ -87,7 +89,8 @@ impl Drop for RemovesTheService<'_> {
 /// the persistent token.
 #[cfg(unix)]
 pub(crate) fn service_reach(env: &TestEnv, service: &Value) -> RuntimeFile {
-    let token = std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap();
+    let token =
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::Token)).unwrap();
     RuntimeFile {
         endpoint: DaemonEndpoint::Unix(PathBuf::from(service["socket"].as_str().unwrap())),
         token,
@@ -124,7 +127,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let status = client.call(1, "daemon.status", &json!({}));
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
     drop(client);
-    let token_mode = mode(&env.home().join("0.0").join("daemon.token"));
+    let token_mode = mode(&HomeLayout::of(env.home()).daemon_file(DaemonFile::Token));
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
@@ -150,7 +153,9 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
             files,
             after["service"].clone(),
             after["pid"].clone(),
-            env.home().join("0.0").join("daemon.token").exists(),
+            HomeLayout::of(env.home())
+                .daemon_file(DaemonFile::Token)
+                .exists(),
         ),
         (
             Value::Null,

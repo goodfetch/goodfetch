@@ -20,6 +20,7 @@
 
 use std::io::{Read as _, Write as _};
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -411,20 +412,14 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
 
-    let books = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("links")
-            .join("run.sqlite"),
-    )
-    .unwrap()
-    .query_row(
-        "SELECT count(*) FROM records WHERE dataset = 'books' AND data ->> '$.status' = 200",
-        [],
-        |row| row.get::<_, i64>(0),
-    )
-    .unwrap();
+    let books = Connection::open(HomeLayout::of(env.home()).run_file("links"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM records WHERE dataset = 'books' AND data ->> '$.status' = 200",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
     let expected: Vec<String> = (1..=8)
         .map(|book| proving_ground.url("1.links.test", &format!("/library/shelves/book/{book}")))
         .chain(

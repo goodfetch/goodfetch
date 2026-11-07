@@ -173,7 +173,7 @@ pub use proving_ground::{
     ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
-pub use received_requests::{OWN_TARGETS, ReceivedRequests, robots_txt_read, robots_txt_readings};
+pub use received_requests::{OWN_TARGETS, ReceivedRequests};
 pub use resident::{peak_resident_bytes, peak_resident_bytes_of, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};

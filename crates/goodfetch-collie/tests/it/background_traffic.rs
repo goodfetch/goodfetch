@@ -25,6 +25,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
@@ -44,10 +45,8 @@ const PORT_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The Browser data folder the engine launches the Run's browser on.
 fn launch_data_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
+    HomeLayout::of(env.home())
+        .run_folder(run_id)
         .join("browser-data")
         .join("1")
 }

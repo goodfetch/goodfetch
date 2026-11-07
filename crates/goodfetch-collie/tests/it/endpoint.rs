@@ -14,6 +14,8 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 use goodfetch_engine::home::Home;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     AuditUnreadable, Canaries, Canary, DaemonEndpoint, Endpoint, EndpointRunner, Listener,
     ListenerKind, MESSAGE_DEADLINE, Output, Rule, RuntimeFile, SecretKind, TestEnv,
@@ -103,9 +105,9 @@ pub(crate) fn audit_verifier<'env>(
 /// and returns it.
 pub(crate) fn provision_ops_token(env: &TestEnv, canaries: &mut Canaries) -> String {
     let token = canaries.plant(SecretKind::EndpointToken).value().to_owned();
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(folder.join("ops.token"), &token).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(layout.daemon_file(DaemonFile::OpsToken), &token).unwrap();
     token
 }
 
@@ -200,7 +202,8 @@ fn cve_2025_49596_a_browser_pages_request_without_a_header_token_is_refused_by_t
     let listener = Listener::new(
         ListenerKind::OpsListener,
         Endpoint::Http { address },
-        std::fs::read_to_string(env.home().join("0.0").join("ops.token")).unwrap(),
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken))
+            .unwrap(),
     );
 
     let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener"))
@@ -240,7 +243,8 @@ fn cve_2025_66414_a_dns_rebinding_pages_host_is_refused_by_the_ops_listener() {
     let listener = Listener::new(
         ListenerKind::OpsListener,
         Endpoint::Http { address },
-        std::fs::read_to_string(env.home().join("0.0").join("ops.token")).unwrap(),
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken))
+            .unwrap(),
     );
 
     let ran = EndpointRunner::new(audit_verifier(&env, "ops_listener"))

@@ -17,6 +17,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use rusqlite::Connection;
@@ -152,14 +153,7 @@ fn push_under(
 /// Each committed Record of the run file of `run_id`, in Dataset and
 /// number order: its Dataset, its number, its crawl request and its data.
 fn committed(env: &TestEnv, run_id: &str) -> Vec<(String, i64, String, Value)> {
-    let connection = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let mut select = connection
         .prepare("SELECT dataset, number, work_item, data FROM records ORDER BY dataset, number")
         .unwrap();
@@ -451,14 +445,7 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
 
 /// The run file of the Run `run_id`.
 fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The reply of a start under the Run ID `run_id` of the seed

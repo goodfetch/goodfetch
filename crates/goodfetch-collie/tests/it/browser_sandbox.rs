@@ -23,6 +23,7 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     ProvingGround, TestEnv, apparmor_restricts_user_namespaces, browser_cache, cli,
     under_apparmor_restriction, under_default_seccomp,
@@ -231,10 +232,10 @@ fn on_a_platform_that_allows_no_sandbox_the_run_proceeds_with_it_off_and_reporte
 
 /// Writes an Operator policy that switches the sandbox off.
 fn switching_the_sandbox_off(env: &TestEnv) {
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[settings.security]\nbrowser_sandbox = false\n",
     )
     .unwrap();

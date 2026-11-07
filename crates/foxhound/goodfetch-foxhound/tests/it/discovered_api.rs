@@ -14,6 +14,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -142,14 +143,7 @@ fn body_of(path: &str) -> Vec<u8> {
 
 /// The Records the Run `run_id` committed, sorted.
 fn committed(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let connection = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let mut statement = connection.prepare("SELECT data FROM records").unwrap();
     let mut records: Vec<Value> = statement
         .query_map([], |row| row.get::<_, String>(0))

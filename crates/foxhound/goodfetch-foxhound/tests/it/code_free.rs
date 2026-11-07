@@ -13,6 +13,8 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
@@ -612,13 +614,7 @@ fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothi
         .map(|outcome| outcome["nothing_committed"].to_string())
         .collect();
     let codes = |field: &str, key: &str| strings(&report["result"][field], key);
-    let log = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("throughput")
-        .join("trace")
-        .join("provenance.jsonl");
+    let log = HomeLayout::of(env.home()).run_trace("throughput", RUN_TRACE_PROVENANCE);
     assert_eq!(
         (
             started["result"]["run_id"].clone(),

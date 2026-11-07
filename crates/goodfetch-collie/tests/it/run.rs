@@ -10,6 +10,7 @@
 
 use std::path::Path;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -65,9 +66,9 @@ fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per
     let report = start_and_finish(&mut engine, "first");
     let (rest, exited) = engine.finish();
 
-    let per_major = env.home().join("0.0");
-    let file = per_major.join("runs").join("first").join("run.sqlite");
-    let listed: String = Connection::open(per_major.join("run-index.sqlite"))
+    let layout = HomeLayout::of(env.home());
+    let file = layout.run_file("first");
+    let listed: String = Connection::open(layout.run_index())
         .unwrap()
         .query_row(
             "SELECT lifecycle FROM runs WHERE run_id = 'first'",
@@ -82,11 +83,7 @@ fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per
                 &report["result"]["completeness"]
             ),
             journal_mode(&file),
-            per_major
-                .join("runs")
-                .join("first")
-                .join("run.lock")
-                .exists(),
+            layout.run_folder("first").join("run.lock").exists(),
             listed,
             (rest, exited),
         ),
@@ -123,14 +120,9 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
     } else {
         Path::new(&env.env()["XDG_DATA_HOME"]).to_owned()
     };
-    let file = data
-        .join("goodfetch")
-        .join("0.0")
-        .join("runs")
-        .join("usual")
-        .join("run.sqlite");
+    let file = HomeLayout::of(&data.join("goodfetch")).run_file("usual");
     assert_eq!(
-        (file.exists(), env.home().join("0.0").join("runs").exists()),
+        (file.exists(), HomeLayout::of(env.home()).runs().exists()),
         (true, false)
     );
 }
@@ -251,8 +243,8 @@ fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
     }
     let (_, exited) = engine.finish();
 
-    let per_major = env.home().join("0.0");
-    let in_index: Option<String> = Connection::open(per_major.join("run-index.sqlite"))
+    let layout = HomeLayout::of(env.home());
+    let in_index: Option<String> = Connection::open(layout.run_index())
         .unwrap()
         .query_row(
             "SELECT progress_message FROM runs WHERE run_id = 'noted'",
@@ -260,11 +252,10 @@ fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
             |row| row.get(0),
         )
         .unwrap();
-    let in_state: Option<String> =
-        Connection::open(per_major.join("runs").join("noted").join("run.sqlite"))
-            .unwrap()
-            .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
-            .unwrap();
+    let in_state: Option<String> = Connection::open(layout.run_file("noted"))
+        .unwrap()
+        .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
+        .unwrap();
     let expected = json!({
         "run_id": "noted",
         "lifecycle": "running",

@@ -23,6 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, unicode_record};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
@@ -181,7 +182,7 @@ fn sha256(bytes: &[u8]) -> String {
 
 /// The Run folder of `run_id` in the test's home.
 fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home().join("0.0").join("runs").join(run_id)
+    HomeLayout::of(env.home()).run_folder(run_id)
 }
 
 /// The names in `folder`, sorted, none when it does not exist.

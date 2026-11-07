@@ -24,6 +24,7 @@ use std::process::{ChildStdin, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{DaemonEndpoint, Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -237,22 +238,16 @@ fn started(
 }
 
 fn work_items(env: &TestEnv, run_id: &str) -> Vec<(String, String, i64, Option<String>)> {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
-    .prepare("SELECT url, status, attempts, error_code FROM work_items ORDER BY position")
-    .unwrap()
-    .query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-    })
-    .unwrap()
-    .map(Result::unwrap)
-    .collect()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id))
+        .unwrap()
+        .prepare("SELECT url, status, attempts, error_code FROM work_items ORDER BY position")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
 }
 
 /// The Error codes the engine `pid` recorded in its Runs' state, in order,
@@ -272,20 +267,14 @@ fn outcomes(env: &TestEnv, pid: u32) -> Vec<String> {
 }
 
 fn records(env: &TestEnv, run_id: &str) -> Vec<String> {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
-    .prepare("SELECT data FROM records ORDER BY data")
-    .unwrap()
-    .query_map([], |row| row.get(0))
-    .unwrap()
-    .map(Result::unwrap)
-    .collect()
+    Connection::open(HomeLayout::of(env.home()).run_file(run_id))
+        .unwrap()
+        .prepare("SELECT data FROM records ORDER BY data")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
 }
 
 /// Covers: story:3-17, operation:crawl.serve, operation:crawl.start

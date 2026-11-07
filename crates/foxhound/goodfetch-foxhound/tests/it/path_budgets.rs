@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
@@ -253,12 +254,7 @@ fn a_path_budget_pattern_the_engine_cannot_match_fails_the_start() {
     );
     assert!(engine.finish());
 
-    let begun = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("unmatched")
-        .exists();
+    let begun = HomeLayout::of(env.home()).run_folder("unmatched").exists();
     assert_eq!(
         (
             &answer["error"]["data"]["code"],

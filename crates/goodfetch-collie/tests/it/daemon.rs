@@ -24,6 +24,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
     ListenerKind, Process, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
@@ -113,7 +115,7 @@ pub(crate) fn wait_until_stopped(env: &TestEnv) {
         .create(true)
         .truncate(false)
         .write(true)
-        .open(env.home().join("0.0").join("daemon.lock"))
+        .open(HomeLayout::of(env.home()).daemon_file(DaemonFile::ServingLock))
         .unwrap();
     lock.lock().unwrap();
 }
@@ -310,7 +312,9 @@ fn with_no_service_installed_uninstall_removes_nothing_and_rotate_token_replaces
             uninstalled,
             rotated.exit,
             status["service"].clone(),
-            env.home().join("0.0").join("daemon.token").exists(),
+            HomeLayout::of(env.home())
+                .daemon_file(DaemonFile::Token)
+                .exists(),
         ),
         (json!({ "removed": null }), Some(0), Value::Null, true)
     );
@@ -503,14 +507,7 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
     daemon.child().wait().unwrap();
     let restarted = json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
 
-    let run = rusqlite::Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("cut")
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let run = rusqlite::Connection::open(HomeLayout::of(env.home()).run_file("cut")).unwrap();
     let lifecycle: String = run
         .query_row("SELECT lifecycle FROM run", [], |row| row.get(0))
         .unwrap();

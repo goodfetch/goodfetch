@@ -36,6 +36,7 @@ serde_json.workspace = true
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
+goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 # The robots.txt URLs the run state's corpus writer keeps copies of
 # (examples/compat-run-state.rs).

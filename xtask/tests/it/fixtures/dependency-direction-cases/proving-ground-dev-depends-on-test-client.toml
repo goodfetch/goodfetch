@@ -1,0 +1,8 @@
+[package]
+name = "goodfetch-proving-ground"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+goodfetch-test-client = { path = "../crates/goodfetch-test-client" }

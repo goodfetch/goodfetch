@@ -17,6 +17,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -195,7 +196,7 @@ fn a_domain_policy_entry_that_is_no_host_fails_the_start() {
     );
     assert!(engine.finish());
 
-    let begun = env.home().join("0.0").join("runs").join("unread").exists();
+    let begun = HomeLayout::of(env.home()).run_folder("unread").exists();
     assert_eq!(
         (
             &answer["error"]["data"]["code"],
@@ -231,12 +232,7 @@ fn a_scope_pattern_the_engine_cannot_match_fails_the_start() {
     );
     assert!(engine.finish());
 
-    let begun = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("unmatched")
-        .exists();
+    let begun = HomeLayout::of(env.home()).run_folder("unmatched").exists();
     assert_eq!(
         (
             &answer["error"]["data"]["code"],

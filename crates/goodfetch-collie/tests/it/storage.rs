@@ -42,6 +42,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -107,7 +109,7 @@ impl<'env> Engine<'env> {
                 let pid = daemon.process.child().id();
                 let token = std::fs::read_to_string(inside_mount(
                     pid,
-                    &env.home().join("0.0").join("daemon.token"),
+                    &HomeLayout::of(env.home()).daemon_file(DaemonFile::Token),
                 ))
                 .unwrap();
                 let client = RawClient::opened_at(&endpoint, &token, "collie");
@@ -185,7 +187,7 @@ impl<'env> Engine<'env> {
 }
 
 fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home().join("0.0").join("runs").join(run_id)
+    HomeLayout::of(env.home()).run_folder(run_id)
 }
 
 /// The codes of `report`'s warnings, but the calendar's
@@ -284,7 +286,7 @@ fn past_critical_free_a_run_stops_resumably_and_nothing_new_is_written_there(#[c
     engine.stop();
 
     let folder = run_folder(&env, "full").display().to_string();
-    let runs = env.home().join("0.0").join("runs").display().to_string();
+    let runs = HomeLayout::of(env.home()).runs().display().to_string();
     assert_eq!(
         (
             (
@@ -423,7 +425,7 @@ fn per_install_daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String
     let mut command = tmpfs_mounted_home(env, SIZE, "sh");
     command
         .args(["-c", OWN_RUNS, "sh"])
-        .arg(env.home().join("0.0").join("runs"))
+        .arg(HomeLayout::of(env.home()).runs())
         .arg(RUNS_SIZE.to_string())
         .args([COLLIE, "daemon", "run"]);
     daemon_from(env, command)
@@ -440,9 +442,11 @@ fn daemon_from(env: &TestEnv, mut command: Command) -> (Foreground, SocketAddr, 
         .parse()
         .unwrap();
     let pid = daemon.process.child().id();
-    let token =
-        std::fs::read_to_string(inside_mount(pid, &env.home().join("0.0").join("ops.token")))
-            .unwrap();
+    let token = std::fs::read_to_string(inside_mount(
+        pid,
+        &HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken),
+    ))
+    .unwrap();
     (daemon, address, token)
 }
 
@@ -591,7 +595,7 @@ fn in_the_per_install_layout_readyz_follows_the_install_databases_filesystem() {
     let filler = fill_filesystem(pid, env.home(), CRITICAL_ROOM);
     let critical = storage_at(address, &token, pid, env.home(), "2");
     let ready_at_critical = get(address, "/readyz", None).0;
-    let runs_left = left(&inside_mount(pid, &env.home().join("0.0").join("runs")));
+    let runs_left = left(&inside_mount(pid, &HomeLayout::of(env.home()).runs()));
     let home_left = left(&inside_mount(pid, env.home()));
     free_filesystem(&filler);
     storage_at(address, &token, pid, env.home(), "0");

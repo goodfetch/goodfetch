@@ -23,6 +23,7 @@ use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, U
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::sql_tab::DatasetQueryParams;
+use goodfetch_protocol::home::DaemonFile;
 use goodfetch_protocol::needs_you::{
     NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
     NeedsYouRemoveRefetchDomainParams,
@@ -360,7 +361,7 @@ fn a_runtime_file_written_while_no_daemon_runs_makes_the_client_look_again() {
     // A runtime file in a per-major folder that did not exist when the
     // Client started, whose serving lock nobody holds.
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    File::create(major.join("daemon.lock")).unwrap();
+    File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
 
     assert_eq!(before, [ConnectionChange::NoDaemon]);
     assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
@@ -580,14 +581,14 @@ fn dead_daemons_runtime_file(home: &Path, major: &str) -> std::path::PathBuf {
     let folder = home.join(major);
     fs::create_dir_all(&folder).unwrap();
     let runtime = DaemonRuntimeFile {
-        endpoint: DaemonEndpoint::Unix(folder.join("daemon.sock")),
+        endpoint: DaemonEndpoint::Unix(folder.join(DaemonFile::Socket.name())),
         token: DaemonToken::new(TOKEN),
         version: ProductVersion::parse("0.1.0").unwrap(),
         pid: 1,
         console: ConsoleState::Absent,
     };
     fs::write(
-        folder.join("daemon.json"),
+        folder.join(DaemonFile::RuntimeFile.name()),
         serde_json::to_vec(&runtime).unwrap(),
     )
     .unwrap();
@@ -598,7 +599,7 @@ fn dead_daemons_runtime_file(home: &Path, major: &str) -> std::path::PathBuf {
 fn a_runtime_file_whose_serving_lock_nobody_holds_is_no_daemon() {
     let folder = tempfile::tempdir().unwrap();
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    File::create(major.join("daemon.lock")).unwrap();
+    File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
 
     let seen = first_reports(&Home::new(folder.path()), 1);
 
@@ -609,7 +610,7 @@ fn a_runtime_file_whose_serving_lock_nobody_holds_is_no_daemon() {
 fn a_held_serving_lock_beside_a_socket_nothing_listens_on_is_no_daemon() {
     let folder = tempfile::tempdir().unwrap();
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    let lock = File::create(major.join("daemon.lock")).unwrap();
+    let lock = File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
     lock.try_lock().unwrap();
 
     let seen = first_reports(&Home::new(folder.path()), 1);

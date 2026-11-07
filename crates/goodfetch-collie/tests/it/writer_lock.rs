@@ -14,6 +14,8 @@ use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 
+use goodfetch_protocol::home::RUN_FILE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -25,7 +27,7 @@ use crate::run::call;
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
 fn index(env: &TestEnv) -> Connection {
-    Connection::open(env.home().join("0.0").join("run-index.sqlite")).unwrap()
+    Connection::open(HomeLayout::of(env.home()).run_index()).unwrap()
 }
 
 /// The Run index row of `run_id`: its lifecycle, owner, presence and
@@ -43,14 +45,14 @@ fn row(env: &TestEnv, run_id: &str) -> Value {
 }
 
 fn lifecycle(folder: &Path) -> String {
-    Connection::open(folder.join("run.sqlite"))
+    Connection::open(folder.join(RUN_FILE))
         .unwrap()
         .query_row("SELECT lifecycle FROM run", [], |row| row.get(0))
         .unwrap()
 }
 
 fn runs(env: &TestEnv) -> std::path::PathBuf {
-    env.home().join("0.0").join("runs")
+    HomeLayout::of(env.home()).runs()
 }
 
 /// Starts the Daemon of the test's home as a child of the test, and

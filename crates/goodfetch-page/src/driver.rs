@@ -50,7 +50,7 @@ use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
-    Command, Connection, Failure, Refusal, SessionId as TargetSession, Subscription,
+    Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
     SubscriptionEnd,
 };
 use goodfetch_counted_work::{CountedWork, Row};
@@ -1760,7 +1760,7 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(arrived)) => Ok(arrived),
-            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, error.name(), relay_mark).await),
+            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, &error, relay_mark).await),
             Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
             Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
             Ok(Err(Ended::Truncated { received, expected })) => {
@@ -1818,15 +1818,15 @@ impl PageDriver {
     /// connects itself, since behind the relay it sees only the relay's
     /// answer. A certificate the browser refused is `certificate_invalid`,
     /// named by the relay's own look at it where it can.
-    async fn failed(&self, url: &str, error: &str, mark: Option<u64>) -> CallError {
-        let name = self
+    async fn failed(&self, url: &str, error: &NetError, mark: Option<u64>) -> CallError {
+        let relayed = self
             .relay()
-            .and_then(|relay| relay.net_error(url, error, mark))
-            .unwrap_or(error);
+            .and_then(|relay| relay.net_error(url, error, mark));
+        let error = relayed.as_ref().unwrap_or(error);
         if let Some(refused) = self.refused_by_relay(mark, url) {
             return refused;
         }
-        if let Some(failure) = errors::certificate_failure(name) {
+        if let Some(failure) = errors::certificate_failure(error) {
             let examined = match self.relay() {
                 Some(relay) => relay.examine(url).await,
                 None => None,
@@ -1842,8 +1842,8 @@ impl PageDriver {
         self.egress
             .proxy
             .as_ref()
-            .and_then(|proxy| proxy.failure(url, name))
-            .unwrap_or_else(|| network_error(url, name))
+            .and_then(|proxy| proxy.failure(url, error))
+            .unwrap_or_else(|| network_error(url, error.name()))
     }
 
     /// `egress_refused` when the Session's egress relay refused a

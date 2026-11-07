@@ -1385,9 +1385,10 @@ struct HowItFailed {
     /// The interception's refusal of it, and whether the Run trace records
     /// it.
     refusal: Option<(ErrorData, bool)>,
-    /// The site's own failure, when the Session's egress relay met it for
-    /// the browser, which sees only the relay's answer.
-    relayed: Option<&'static str>,
+    /// The network error: the site's own failure when the Session's egress
+    /// relay met it for the browser, which sees only the relay's answer,
+    /// else the browser's.
+    error: NetError,
 }
 
 /// Takes the interception's refusal of the request `failed` names and the
@@ -1397,14 +1398,17 @@ fn failure_of(shared: &Shared, failed: &network::LoadingFailedEvent) -> HowItFai
         .requests
         .get(&failed.request_id)
         .map(|tracked| tracked.request.url.clone());
+    let error = NetError::of(&failed.error_text);
     HowItFailed {
         refusal: shared.refusals.take(&failed.request_id),
-        relayed: url.and_then(|url| {
-            shared
-                .driver
-                .relay()
-                .and_then(|relay| relay.net_error(&url, &failed.error_text, None))
-        }),
+        error: url
+            .and_then(|url| {
+                shared
+                    .driver
+                    .relay()
+                    .and_then(|relay| relay.net_error(&url, &error, None))
+            })
+            .unwrap_or(error),
     }
 }
 
@@ -1417,11 +1421,10 @@ fn failed_request(
     failed: &network::LoadingFailedEvent,
     how: HowItFailed,
 ) {
-    let HowItFailed { refusal, relayed } = how;
+    let HowItFailed { refusal, error } = how;
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    let error = NetError::of(relayed.unwrap_or(&failed.error_text));
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
         error_text: error.name().to_owned(),

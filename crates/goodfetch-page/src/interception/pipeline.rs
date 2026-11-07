@@ -1183,7 +1183,7 @@ impl PageContext {
             proxy.refusal(
                 &document,
                 proxy::Answer::Failure {
-                    error: &failed.error_text,
+                    error: &NetError::of(&failed.error_text),
                 },
                 None,
             )

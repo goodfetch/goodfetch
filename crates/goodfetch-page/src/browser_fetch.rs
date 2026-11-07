@@ -567,11 +567,11 @@ impl<'a> Load<'a> {
             Some((response, bytes)) if !error.fails_to_decode() => Ok(cut(response, &bytes)),
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
-                let name = self
+                let relayed = self
                     .driver
                     .relay()
-                    .and_then(|relay| relay.net_error(url, error.name(), self.relay_mark))
-                    .unwrap_or(error.name());
+                    .and_then(|relay| relay.net_error(url, error, self.relay_mark));
+                let error = relayed.as_ref().unwrap_or(error);
                 Err(self
                     .driver
                     .relay()
@@ -581,9 +581,9 @@ impl<'a> Load<'a> {
                     .or_else(|| {
                         self.driver
                             .proxy()
-                            .and_then(|proxy| proxy.failure(url, name))
+                            .and_then(|proxy| proxy.failure(url, error))
                     })
-                    .unwrap_or_else(|| network_error(url, name)))
+                    .unwrap_or_else(|| network_error(url, error.name())))
             }
         }
     }

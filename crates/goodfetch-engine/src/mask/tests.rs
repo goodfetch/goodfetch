@@ -1,9 +1,7 @@
 //! The run's `Mask` through its interface (spec #564's seam): every form
 //! of a value replaced by its `%name%` in each scope, the short-value rule,
-//! the redaction switch, a Run's end, JSON messages and streams.
+//! the redaction switch, a Run's end and JSON messages.
 //! Covers: story:4-56
-
-use std::io::Write as _;
 
 use goodfetch_test_support::{Canaries, Canary, Output, SecretKind};
 use proptest::prelude::*;
@@ -253,39 +251,6 @@ fn a_value_whose_raw_form_spans_a_json_messages_syntax_leaves_the_message_whole(
     );
 }
 
-#[test]
-fn a_value_split_across_writes_is_masked_in_what_the_writer_passes_on() {
-    let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
-    let mut writer = masks.writer(Vec::new(), Scope::KeptOutput);
-
-    for chunk in ["line pa s", "s\"w/r", "d>?9~ end\n"] {
-        writer
-            .write_all(chunk.as_bytes())
-            .expect("a Vec takes every write");
-    }
-    let written = writer.finish().expect("a Vec takes every write");
-
-    assert_eq!(
-        String::from_utf8(written).expect("the text stays UTF-8"),
-        "line %proxy.password% end\n"
-    );
-}
-
-#[test]
-fn a_writer_dropped_unfinished_still_writes_what_it_held_back_masked() {
-    let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
-    let mut written = Vec::new();
-
-    {
-        let mut writer = masks.writer(&mut written, Scope::KeptOutput);
-        writer
-            .write_all(b"tail pa ss\"w/rd>?9~")
-            .expect("a Vec takes every write");
-    }
-
-    assert_eq!(written, b"tail %proxy.password%");
-}
-
 /// One of Goodfetch's encodings of `value` inside a longer text, built by
 /// the libraries the formatters use, never by the `Mask`.
 #[derive(Clone, Copy, Debug)]
@@ -430,34 +395,6 @@ proptest! {
     }
 
     #[test]
-    fn a_stream_cut_anywhere_is_masked_as_its_whole_text_is(
-        value in value(),
-        forms in prop::collection::vec(form(), 1..4),
-        cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..8),
-    ) {
-        let (masks, _mask) = joined_as(SHORT_NAME, &value, Reach::Value, Redaction::On);
-        let text = forms
-            .iter()
-            .map(|form| encoded(&value, *form))
-            .collect::<Vec<_>>()
-            .join(" | ")
-            .into_bytes();
-        let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(text.len() + 1)).collect();
-        cuts.push(0);
-        cuts.push(text.len());
-        cuts.sort_unstable();
-        let mut writer = masks.writer(Vec::new(), Scope::KeptOutput);
-
-        for pair in cuts.windows(2) {
-            writer.write_all(&text[pair[0]..pair[1]]).expect("a Vec takes every write");
-        }
-        let written = writer.finish().expect("a Vec takes every write");
-
-        prop_assert_eq!(&written, &masks.apply_bytes(&text, Scope::KeptOutput).into_owned());
-        prop_assert_eq!(leaks(&value, &written), Vec::<String>::new());
-    }
-
-    #[test]
     fn a_json_message_never_holds_a_value_in_any_string_once_masked(
         value in value(),
         before in around(),
@@ -491,8 +428,8 @@ fn hard_value() -> impl Strategy<Value = String> {
 /// Every formatter and serializer the Mask writes through, each with the
 /// output it makes of `text`: `apply` in each scope, `apply_bytes`,
 /// `apply_value` over a JSON value holding the text, `apply_json_line` over
-/// a message holding it, a writer given it in two writes, and
-/// `apply_typed` for a read of a field the values were typed in.
+/// a message holding it, and `apply_typed` for a read of a field the
+/// values were typed in.
 fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(String, Vec<u8>)> {
     let mut outputs: Vec<(String, Vec<u8>)> = EVERY_SCOPE
         .iter()
@@ -516,18 +453,6 @@ fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(St
     outputs.push((
         "apply_json_line".to_owned(),
         masks.apply_json_line(line, Scope::Returned),
-    ));
-    let mut writer = masks.writer(Vec::new(), Scope::KeptOutput);
-    let half = text.len() / 2;
-    writer
-        .write_all(&text.as_bytes()[..half])
-        .expect("a Vec takes every write");
-    writer
-        .write_all(&text.as_bytes()[half..])
-        .expect("a Vec takes every write");
-    outputs.push((
-        "writer".to_owned(),
-        writer.finish().expect("a Vec takes every write"),
     ));
     outputs.push((
         "apply_typed".to_owned(),

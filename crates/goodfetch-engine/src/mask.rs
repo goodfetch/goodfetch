@@ -38,7 +38,6 @@
 )]
 
 use std::borrow::Cow;
-use std::io::{self, Write};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
 use aho_corasick::{AhoCorasick, MatchKind};
@@ -138,12 +137,11 @@ impl State {
     }
 }
 
-/// One scope's automaton: every form of every value it masks, each
-/// pattern's replacement, and the longest pattern's length.
+/// One scope's automaton: every form of every value it masks, and each
+/// pattern's replacement.
 struct Automaton {
     searcher: AhoCorasick,
     replacements: Vec<Arc<str>>,
-    longest: usize,
 }
 
 impl Automaton {
@@ -159,7 +157,9 @@ impl Automaton {
                 patterns.push(form);
             }
         }
-        let longest = patterns.iter().map(|pattern| pattern.len()).max()?;
+        if patterns.is_empty() {
+            return None;
+        }
         let searcher = AhoCorasick::builder()
             .match_kind(MatchKind::LeftmostLongest)
             .build(patterns.iter().map(|pattern| pattern.as_slice()))
@@ -167,7 +167,6 @@ impl Automaton {
         Some(Self {
             searcher,
             replacements,
-            longest,
         })
     }
 
@@ -410,22 +409,6 @@ impl Masks {
         rewritten
     }
 
-    /// A writer that masks what it passes to `inner` as `scope` says, a
-    /// value split across writes included: it holds back the end of what
-    /// it was given, as long as the longest form less one byte, until more
-    /// comes, it is finished or it drops. It hands `inner` what it was given
-    /// in pieces, so a writer that takes each write as a whole line, such as
-    /// a log file other threads write too, needs each line masked whole
-    /// instead ([`Masks::apply_bytes`]).
-    pub fn writer<W: Write>(&self, inner: W, scope: Scope) -> MaskWriter<W> {
-        MaskWriter {
-            masks: self.clone(),
-            scope,
-            inner: Some(inner),
-            pending: Vec::new(),
-        }
-    }
-
     /// Adds `value` under `name` for `run`, and rebuilds the automata,
     /// unless `run` holds it under `name` already: whether it joined.
     fn join(
@@ -528,91 +511,6 @@ impl Mask {
     /// Whether the Run's values are masked in its kept outputs.
     pub fn redaction(&self) -> Redaction {
         self.0.redaction
-    }
-}
-
-/// A writer that masks what passes through it ([`Masks::writer`]).
-pub struct MaskWriter<W: Write> {
-    masks: Masks,
-    scope: Scope,
-    inner: Option<W>,
-    pending: Vec<u8>,
-}
-
-impl<W: Write> MaskWriter<W> {
-    /// Writes what it holds back, masked, and gives `inner` back.
-    ///
-    /// # Errors
-    ///
-    /// When `inner` fails.
-    pub fn finish(mut self) -> io::Result<W> {
-        self.drain(true)?;
-        Ok(self
-            .inner
-            .take()
-            .expect("invariant: a writer holds its inner writer until it finishes"))
-    }
-
-    /// Writes what it holds, masked: all of it, or all but the end where a
-    /// form that more bytes would complete could start. A match is written
-    /// only once every longer form starting where it starts is in view, so
-    /// a later write never turns it into a longer one.
-    fn drain(&mut self, all: bool) -> io::Result<()> {
-        let Some(inner) = self.inner.as_mut() else {
-            return Ok(());
-        };
-        let state = self.masks.read();
-        let Some(automaton) = state.automaton(self.scope) else {
-            inner.write_all(&self.pending)?;
-            self.pending.clear();
-            return Ok(());
-        };
-        let held = self.pending.len();
-        let safe = if all {
-            held
-        } else {
-            held.saturating_sub(automaton.longest - 1)
-        };
-        let mut cursor = 0;
-        for found in automaton.searcher.find_iter(&self.pending) {
-            if found.start() >= safe {
-                break;
-            }
-            inner.write_all(&self.pending[cursor..found.start()])?;
-            inner.write_all(automaton.replacement(found.pattern()))?;
-            cursor = found.end();
-        }
-        let written = if all { held } else { cursor.max(safe) };
-        if cursor < written {
-            inner.write_all(&self.pending[cursor..written])?;
-        }
-        drop(state);
-        self.pending.drain(..written);
-        Ok(())
-    }
-}
-
-impl<W: Write> Write for MaskWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.pending.extend_from_slice(buf);
-        self.drain(false)?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.drain(false)?;
-        match self.inner.as_mut() {
-            Some(inner) => inner.flush(),
-            None => Ok(()),
-        }
-    }
-}
-
-impl<W: Write> Drop for MaskWriter<W> {
-    fn drop(&mut self) {
-        if self.inner.is_some() && !self.pending.is_empty() {
-            let _ = self.drain(true);
-        }
     }
 }
 

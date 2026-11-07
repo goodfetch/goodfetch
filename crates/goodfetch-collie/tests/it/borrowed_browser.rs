@@ -37,6 +37,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
@@ -45,12 +46,12 @@ use goodfetch_test_support::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::background_traffic::{chrome_for_testing, reported_debugging_port};
 use crate::page::{BROWSER_DEADLINE, opened};
 use crate::page_ends::{call_in_flight, crashes_counted};
 use crate::page_events::Exchange;
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// What the engine resolves the site's public name to: a globally
 /// reachable address, which the test's browser never connects to, since
@@ -287,17 +288,17 @@ fn stand_in() -> (u16, Arc<AtomicUsize>) {
 }
 
 /// A Connection to an Attached engine whose `hello` names `surface`.
-struct Program<'env> {
-    engine: Attached<'env>,
+struct Program {
+    engine: Attached,
     next_id: i64,
 }
 
-impl<'env> Program<'env> {
-    fn start(env: &'env TestEnv, cache: &Path, surface: &str) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+impl Program {
+    fn start(env: &TestEnv, cache: &Path, surface: &str) -> Self {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut greeting = hello("collie", "0.1");
+        let mut greeting = hello(Product::Collie);
         greeting["params"]["surface"] = json!(surface);
         engine.send(&greeting);
         let _ = engine.next();
@@ -306,7 +307,7 @@ impl<'env> Program<'env> {
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     /// Starts the Run `run_id` whose `network.resolve` maps each of
@@ -969,7 +970,7 @@ fn mapping_of(case: &SsrfCase) -> Mapping {
 /// The page of the Run whose mapping is `names`, started with a Session on
 /// the browser at `cdp_url` the first time.
 fn borrowed_page(
-    program: &mut Program<'_>,
+    program: &mut Program,
     cdp_url: &str,
     sessions: &mut Vec<(Mapping, String)>,
     names: Mapping,

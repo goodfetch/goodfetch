@@ -19,17 +19,18 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_client::hello;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -71,15 +72,15 @@ impl Step {
 
 /// A Run's page on the Proving ground's task `task`, its engine's
 /// `hello` naming `surface`, its Run's `timeout.action` `action_timeout`.
-struct OnTask<'env> {
-    engine: Attached<'env>,
+struct OnTask {
+    engine: Attached,
     page: Value,
     next_id: i64,
 }
 
-impl<'env> OnTask<'env> {
+impl OnTask {
     fn open(
-        env: &'env TestEnv,
+        env: &TestEnv,
         cache: &Path,
         proving_ground: &ProvingGround,
         task: &str,
@@ -99,7 +100,7 @@ impl<'env> OnTask<'env> {
 
     /// [`Self::open`], the Run's settings holding `settings` too.
     fn open_with(
-        env: &'env TestEnv,
+        env: &TestEnv,
         cache: &Path,
         proving_ground: &ProvingGround,
         task: &str,
@@ -107,20 +108,12 @@ impl<'env> OnTask<'env> {
         action_timeout: u64,
         settings: &Map<String, Value>,
     ) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        engine.send(&json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "hello",
-            "params": {
-                "protocol_version": "0.1",
-                "surface": surface,
-                "needs": "collie",
-                "product_version": "0.0.0",
-            },
-        }));
+        let mut hello = hello(Product::Collie);
+        hello["params"]["surface"] = json!(surface);
+        engine.send(&hello);
         let _ = engine.next();
         let resolve: Map<String, Value> = proving_ground
             .description()
@@ -132,29 +125,18 @@ impl<'env> OnTask<'env> {
         crate::page::allow_private(&mut run_settings, resolve.keys());
         run_settings.insert("network".to_owned(), json!({ "resolve": resolve }));
         run_settings.insert("timeout".to_owned(), json!({ "action": action_timeout }));
-        let started = call(
-            &mut engine,
+        let started = engine.ask(
             1,
             "run.start",
             &json!({ "run_id": "locators", "settings": run_settings }),
         );
         assert!(started.get("result").is_some(), "{started}");
-        let opened = call(
-            &mut engine,
-            2,
-            "run.new_page",
-            &json!({ "run_id": "locators" }),
-        );
+        let opened = engine.ask(2, "run.new_page", &json!({ "run_id": "locators" }));
         let opened: PageOpened = serde_json::from_value(opened["result"].clone())
             .unwrap_or_else(|error| panic!("{error}: {opened}"));
         let page = json!(opened.page_id);
         let url = proving_ground.start_url(task).unwrap();
-        let went = call(
-            &mut engine,
-            3,
-            "page.goto",
-            &json!({ "page_id": page, "url": url }),
-        );
+        let went = engine.ask(3, "page.goto", &json!({ "page_id": page, "url": url }));
         assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
         Self {
             engine,
@@ -167,18 +149,15 @@ impl<'env> OnTask<'env> {
         let (method, params) = step.call(&self.page);
         let id = self.next_id;
         self.next_id += 1;
-        call(&mut self.engine, id, method, &params)
+        self.engine.ask(id, method, &params)
     }
 
     /// Finishes the Run and stops the engine.
     fn finish(mut self) {
         let id = self.next_id;
-        let _ = call(
-            &mut self.engine,
-            id,
-            "run.finish",
-            &json!({ "run_id": "locators" }),
-        );
+        let _ = self
+            .engine
+            .ask(id, "run.finish", &json!({ "run_id": "locators" }));
         let _ = self.engine.finish();
     }
 }

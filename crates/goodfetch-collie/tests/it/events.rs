@@ -6,10 +6,13 @@
 
 use std::collections::BTreeSet;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
-use crate::attached::{Attached, hello};
+use goodfetch_test_client::{Attached, hello};
+
+use crate::COLLIE;
 
 /// How many lossless events a subscription's queue holds by default.
 const QUEUE: usize = 64;
@@ -20,8 +23,8 @@ fn a_subscriber_that_grants_no_credits_holds_back_none_of_collies_runs_and_then_
  {
     const RUNS: usize = QUEUE + 3;
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),

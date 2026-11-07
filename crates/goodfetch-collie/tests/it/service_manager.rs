@@ -18,15 +18,16 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
 use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
 use serde_json::{Value, json};
 
-#[cfg(unix)]
-use crate::daemon::RawClient;
 use crate::daemon::{short_idle, validate};
+#[cfg(unix)]
+use crate::daemon_hello;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -123,7 +124,10 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
     let service = installed["service"].clone();
     let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
-    let mut client = RawClient::opened(&service_reach(&env, &service), "collie");
+    let mut client = {
+        let found = service_reach(&env, &service);
+        DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+    };
     let status = client.call(1, "daemon.status", &json!({}));
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
     drop(client);
@@ -248,7 +252,10 @@ fn a_reload_of_the_users_systemd_keeps_both_of_the_services_sockets() {
         .args(["--user", "daemon-reload"])
         .status()
         .unwrap();
-    let mut client = RawClient::opened(&service_reach(&env, &installed["service"]), "collie");
+    let mut client = {
+        let found = service_reach(&env, &installed["service"]);
+        DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+    };
     let status = client.call(1, "daemon.status", &json!({}));
     let page = crate::sign_in::agent()
         .get(format!("http://{console}/"))
@@ -346,12 +353,15 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
     let _removes = RemovesTheService(&env);
     let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
     let old = service_reach(&env, &installed["service"]);
-    drop(RawClient::opened(&old, "collie"));
+    drop(DaemonClient::opened(
+        &old.endpoint,
+        &daemon_hello(&old.token),
+    ));
 
     let rotated = json_in_session(&env, COLLIE, &["daemon", "rotate-token", "--json"]);
-    let refused = RawClient::refused(&old);
+    let refused = DaemonClient::refuses(&old.endpoint, &daemon_hello(&old.token));
     let new = service_reach(&env, &installed["service"]);
-    let mut client = RawClient::opened(&new, "collie");
+    let mut client = DaemonClient::opened(&new.endpoint, &daemon_hello(&new.token));
     let status = client.call(1, "daemon.status", &json!({}));
 
     validate(&rotated, "TokenRotated");

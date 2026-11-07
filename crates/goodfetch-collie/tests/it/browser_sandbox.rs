@@ -23,6 +23,7 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     ProvingGround, TestEnv, apparmor_restricts_user_namespaces, browser_cache, cli,
@@ -31,9 +32,8 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::page::{browser_command_lines, opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -59,12 +59,12 @@ fn open_a_page(env: &TestEnv, run_id: &str, change: impl FnOnce(&mut Command)) -
     let settings = json!({ "egress": { "private_ranges": [] } });
     let settings: Map<String, Value> = settings.as_object().cloned().unwrap_or_default();
     let mut engine = started_with(env, &cache, &proving_ground, run_id, &settings, change);
-    let opened = call(&mut engine, 2, "run.new_page", &json!({ "run_id": run_id }));
+    let opened = engine.ask(2, "run.new_page", &json!({ "run_id": run_id }));
     let command_lines = browser_command_lines(env)
         .into_iter()
         .filter(|line| !line.contains("--type="))
         .collect();
-    let report = call(&mut engine, 3, "run.finish", &json!({ "run_id": run_id }));
+    let report = engine.ask(3, "run.finish", &json!({ "run_id": run_id }));
     let (_, stderr) = engine.finish_with_stderr();
     Seen {
         opened,
@@ -253,16 +253,15 @@ fn an_operator_policy_switches_the_sandbox_off_audited_and_a_clients_own_switch_
     switching_the_sandbox_off(&policy_env);
 
     let seen = open_a_page(&policy_env, "policy", |_| {});
-    let mut engine = Attached::start(&client_env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&client_env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let switched = call(
-        &mut engine,
+    let switched = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "client", "settings": { "security": { "browser_sandbox": false } } }),
     );
-    let started = call(&mut engine, 2, "run.start", &json!({ "run_id": "on" }));
+    let started = engine.ask(2, "run.start", &json!({ "run_id": "on" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -356,14 +355,8 @@ fn every_renderer_of_a_launched_chromium_is_sandboxed() {
         &Map::new(),
         |_| {},
     );
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "sandboxed" }),
-    ));
-    let went = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "sandboxed" })));
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({
@@ -390,12 +383,7 @@ fn every_renderer_of_a_launched_chromium_is_sandboxed() {
     let own_namespaces = renderers
         .iter()
         .all(|pid| Some(user_namespace_of(*pid)) != browser_namespace);
-    call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "sandboxed" }),
-    );
+    engine.ask(4, "run.finish", &json!({ "run_id": "sandboxed" }));
     let _ = engine.finish();
 
     assert!(went.get("result").is_some(), "{went}");

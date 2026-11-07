@@ -11,22 +11,20 @@
     reason = "the tests start processes, read the Daemon's files and logs and write its configuration themselves"
 )]
 #![expect(
-    clippy::disallowed_types,
-    reason = "a test's own Client reaches the Daemon's socket from outside the engine (ADR 0060)"
-)]
-#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_engine::run_state::run_row;
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::DaemonFile;
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
@@ -34,6 +32,8 @@ use goodfetch_test_support::{
     record_command, reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
+
+use crate::daemon_hello;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -126,120 +126,6 @@ pub(crate) fn wait_until_stopped(env: &TestEnv) {
 fn mode(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-}
-
-/// A test's own Client of the Daemon, over its socket or loopback TCP.
-pub(crate) struct RawClient {
-    reader: BufReader<Box<dyn std::io::Read>>,
-    writer: Box<dyn std::io::Write>,
-}
-
-impl RawClient {
-    /// Connects to the Daemon `found` names, and says `hello` needing
-    /// `product`.
-    pub(crate) fn opened(found: &RuntimeFile, product: &str) -> Self {
-        Self::opened_at(&found.endpoint, &found.token, product)
-    }
-
-    /// Connects to `endpoint`, a Daemon's or an Attached engine's private
-    /// endpoint, and says `hello` with `token`, needing `product`.
-    pub(crate) fn opened_at(endpoint: &DaemonEndpoint, token: &str, product: &str) -> Self {
-        let mut client = Self::connected(endpoint);
-        let answer = client.call(
-            0,
-            "hello",
-            &json!({
-                "protocol_version": PROTOCOL_VERSION.to_string(),
-                "surface": "sdk_typescript",
-                "token": token,
-                "needs": product,
-                "product_version": VERSION,
-            }),
-        );
-        assert!(answer.get("result").is_some(), "{answer}");
-        client
-    }
-
-    /// Whether the Daemon `found` names closes, unanswered, a Connection
-    /// whose `hello` carries `found`'s token.
-    #[cfg(unix)]
-    pub(crate) fn refused(found: &RuntimeFile) -> bool {
-        Self::refused_at(&found.endpoint, &found.token)
-    }
-
-    /// Whether the Daemon at `endpoint` closes, unanswered, a Connection
-    /// whose `hello` carries `token`.
-    pub(crate) fn refused_at(endpoint: &DaemonEndpoint, token: &str) -> bool {
-        let mut client = Self::connected(endpoint);
-        client.send(&json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "hello",
-            "params": {
-                "protocol_version": PROTOCOL_VERSION.to_string(),
-                "surface": "sdk_typescript",
-                "token": token,
-                "needs": "collie",
-                "product_version": VERSION,
-            },
-        }));
-        client.next().is_none()
-    }
-
-    /// Connects to `endpoint`, without a word.
-    fn connected(endpoint: &DaemonEndpoint) -> Self {
-        let (reader, writer): (Box<dyn std::io::Read>, Box<dyn std::io::Write>) = match endpoint {
-            #[cfg(unix)]
-            DaemonEndpoint::Unix(path) => {
-                let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
-                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-            }
-            #[cfg(not(unix))]
-            DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
-            DaemonEndpoint::Tcp(address) => {
-                let stream = std::net::TcpStream::connect(address).unwrap();
-                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
-            }
-        };
-        Self {
-            reader: BufReader::new(reader),
-            writer,
-        }
-    }
-
-    fn send(&mut self, message: &Value) {
-        writeln!(self.writer, "{message}").unwrap();
-        self.writer.flush().unwrap();
-    }
-
-    /// The next message, or `None` once the Daemon closed the Connection.
-    pub(crate) fn next(&mut self) -> Option<Value> {
-        let mut line = String::new();
-        let read = self.reader.read_line(&mut line).unwrap_or(0);
-        (read > 0).then(|| serde_json::from_str(&line).unwrap())
-    }
-
-    /// Sends `message` unless the Daemon closed the Connection already.
-    pub(crate) fn try_send(&mut self, message: &Value) {
-        let _ = writeln!(self.writer, "{message}").and_then(|()| self.writer.flush());
-    }
-
-    pub(crate) fn call(&mut self, id: i64, method: &str, params: &Value) -> Value {
-        let request = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        writeln!(self.writer, "{request}").unwrap();
-        self.writer.flush().unwrap();
-        loop {
-            let mut line = String::new();
-            assert!(
-                self.reader.read_line(&mut line).unwrap() > 0,
-                "the Daemon closed the Connection"
-            );
-            let message: Value = serde_json::from_str(&line).unwrap();
-            if message["id"] == json!(id) {
-                return message;
-            }
-        }
-    }
 }
 
 /// Covers: story:3-11, story:3-12, story:3-20, story:3-22, story:3-139, command:daemon.start, command:daemon.status, command:daemon.stop, operation:daemon.status, operation:daemon.stop
@@ -502,7 +388,7 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
         .read_line(&mut ready)
         .unwrap();
     let found: RuntimeFile = serde_json::from_str(&ready).unwrap();
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
     client.call(1, "run.start", &json!({ "run_id": "cut" }));
 
     daemon.child().kill().unwrap();
@@ -536,12 +422,9 @@ pub(crate) fn socket_listener(env: &TestEnv) -> Listener {
         DaemonEndpoint::Unix(_) => unreachable!("a Daemon listens on TCP here"),
         DaemonEndpoint::Tcp(address) => ListenerAddress::Tcp(*address),
     };
-    let hello = json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "sdk_typescript",
-        "needs": "collie",
-        "product_version": VERSION,
-    });
+    let hello = goodfetch_test_client::Hello::needing(Product::Collie)
+        .surface(Surface::SdkTypescript)
+        .params();
     Listener::new(
         ListenerKind::DaemonSocket,
         Endpoint::JsonRpc {
@@ -711,7 +594,7 @@ fn the_protocols_client_transcript_replays_against_the_daemon() {
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
-    let mut client = RawClient::connected(&found.endpoint);
+    let mut client = DaemonClient::connect(&found.endpoint);
     let expected: Vec<Value> = ENGINE_TRANSCRIPT
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())

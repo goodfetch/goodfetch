@@ -96,11 +96,11 @@ fn renderer(line: &str) -> bool {
 /// An engine with the Run `run_id` and one page on the catalog, listening
 /// to the page's `crash`, `close` and `console`: the exchange, the page and
 /// its Session.
-fn on_a_page<'env>(
-    env: &'env TestEnv,
+fn on_a_page(
+    env: &TestEnv,
     proving_ground: &ProvingGround,
     run_id: &str,
-) -> (Exchange<'env>, String, String) {
+) -> (Exchange, String, String) {
     let cache = browser_cache(env).unwrap();
     let engine = started_with(env, &cache, proving_ground, run_id, &Map::new(), |_| {});
     let mut exchange = Exchange::new(engine);
@@ -117,7 +117,7 @@ fn on_a_page<'env>(
 
 /// Starts a page function on `page` that never settles, and waits until it
 /// runs: answers its request's ID.
-pub(crate) fn call_in_flight(exchange: &mut Exchange<'_>, page: &str) -> i64 {
+pub(crate) fn call_in_flight(exchange: &mut Exchange, page: &str) -> i64 {
     let id = exchange.request(
         "page.evaluate",
         &json!({ "page_id": page, "function": NEVER_SETTLES }),
@@ -131,7 +131,7 @@ pub(crate) fn call_in_flight(exchange: &mut Exchange<'_>, page: &str) -> i64 {
 /// Reads until the engine's `$/log` says that a body read of the request
 /// `request_id` waits for its response to end, so the page's end now ends
 /// the read in flight.
-fn body_read_waits(exchange: &mut Exchange<'_>, request_id: &Value) {
+fn body_read_waits(exchange: &mut Exchange, request_id: &Value) {
     loop {
         let Some(message) = exchange.read() else {
             continue;
@@ -147,7 +147,7 @@ fn body_read_waits(exchange: &mut Exchange<'_>, request_id: &Value) {
 
 /// The answers to the requests `ids`, in that order, whatever order they
 /// came in.
-fn answers(exchange: &mut Exchange<'_>, ids: &[i64]) -> Vec<Value> {
+fn answers(exchange: &mut Exchange, ids: &[i64]) -> Vec<Value> {
     ids.iter().map(|id| exchange.answer(*id)).collect()
 }
 
@@ -164,7 +164,7 @@ fn failure(answer: &Value) -> (Value, Value) {
 }
 
 /// What a later call on `page` raises.
-fn later_on_page(exchange: &mut Exchange<'_>, page: &str) -> Value {
+fn later_on_page(exchange: &mut Exchange, page: &str) -> Value {
     failure(&exchange.call(
         "page.formats",
         &json!({ "page_id": page, "formats": { "markdown": true } }),
@@ -173,7 +173,7 @@ fn later_on_page(exchange: &mut Exchange<'_>, page: &str) -> Value {
 }
 
 /// The amounts of `page_crashes` the Run `run_id` counted in Usage.
-pub(crate) fn crashes_counted(exchange: &mut Exchange<'_>, run_id: &str) -> Vec<Value> {
+pub(crate) fn crashes_counted(exchange: &mut Exchange, run_id: &str) -> Vec<Value> {
     let usage = exchange.call("run.usage", &json!({ "run_id": run_id }));
     usage["result"]["other"]
         .as_array()

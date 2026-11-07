@@ -15,16 +15,18 @@ use std::path::Path;
 use std::process::Stdio;
 
 use goodfetch_engine::run_state::run_row;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::daemon::{RawClient, StopsTheDaemon, json_of, short_idle, validate};
-use crate::run::call;
+use crate::daemon::{StopsTheDaemon, json_of, short_idle, validate};
+use crate::daemon_hello;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -73,10 +75,10 @@ fn launched(env: &TestEnv) -> (goodfetch_test_support::Process, RuntimeFile) {
 
 /// Aborts `run_id` through an Attached engine of the test's home.
 fn aborted_by_an_attached_engine(env: &TestEnv, run_id: &str) -> Value {
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let aborted = call(&mut engine, 1, "run.abort", &json!({ "run_id": run_id }));
+    let aborted = engine.ask(1, "run.abort", &json!({ "run_id": run_id }));
     engine.finish();
     aborted
 }
@@ -90,7 +92,7 @@ fn an_abort_of_a_run_the_daemon_writes_goes_to_the_daemon_the_run_index_names() 
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
     client.call(1, "run.start", &json!({ "run_id": "live" }));
     let owned = row(&env, "live");
 
@@ -116,7 +118,7 @@ fn a_killed_daemons_stale_row_never_blocks_another_engines_takeover() {
     let env = TestEnv::new();
     short_idle(&env, 60_000);
     let (daemon, found) = launched(&env);
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
     client.call(1, "run.start", &json!({ "run_id": "cut" }));
     daemon.child().kill().unwrap();
     daemon.child().wait().unwrap();
@@ -139,17 +141,12 @@ fn a_killed_daemons_stale_row_never_blocks_another_engines_takeover() {
 #[test]
 fn runs_reindex_rebuilds_the_run_index_keeping_missing_rows_and_erased_ones() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     for (id, run_id) in (1..).step_by(2).zip(["kept", "gone", "erased", "moved"]) {
-        call(&mut engine, id, "run.start", &json!({ "run_id": run_id }));
-        call(
-            &mut engine,
-            id + 1,
-            "run.finish",
-            &json!({ "run_id": run_id }),
-        );
+        engine.ask(id, "run.start", &json!({ "run_id": run_id }));
+        engine.ask(id + 1, "run.finish", &json!({ "run_id": run_id }));
     }
     engine.finish();
     let elsewhere = env.folder().join("elsewhere");

@@ -16,7 +16,9 @@
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv, cli};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
@@ -24,10 +26,9 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::{StopsTheDaemon, short_idle};
 use crate::engine_choice::{On, daemon_dispatched};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -66,10 +67,10 @@ fn verified_both_ways(env: &TestEnv) -> (Value, Value) {
         .args(["audit", "verify", "--json"])
         .run()
         .unwrap();
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let answered = call(&mut engine, 1, "audit.verify", &json!({}));
+    let answered = engine.ask(1, "audit.verify", &json!({}));
     let _ = engine.finish();
     (serde_json::from_str(&printed.stdout).unwrap(), answered)
 }
@@ -279,11 +280,11 @@ fn audit_export_answers_over_the_protocol_the_entries_the_cli_writes() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
-    let answered = call(&mut engine, 1, "audit.export", &json!({}));
+    let answered = engine.ask(1, "audit.export", &json!({}));
 
     let _ = engine.finish();
     assert_eq!(answered["result"]["entries"], Value::Array(printed));
@@ -406,18 +407,13 @@ const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
 pub(crate) fn recorded_by_a_run(env: &TestEnv) -> Value {
     let mut canaries = Canaries::new(env.seed());
     let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
-    let mut engine = Attached::start_with(env, |command| {
+    let mut engine = Attached::start_with(env, COLLIE, MESSAGE_DEADLINE, |command| {
         command.env(KEY_VARIABLE, &key);
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    call(&mut engine, 1, "run.start", &json!({ "run_id": "audited" }));
-    let finished = call(
-        &mut engine,
-        2,
-        "run.finish",
-        &json!({ "run_id": "audited" }),
-    );
+    engine.ask(1, "run.start", &json!({ "run_id": "audited" }));
+    let finished = engine.ask(2, "run.finish", &json!({ "run_id": "audited" }));
     let _ = engine.finish();
     finished["result"]["lifecycle"].clone()
 }

@@ -16,10 +16,12 @@
 
 use std::path::Path;
 
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
-use crate::daemon::{RawClient, StopsTheDaemon, json_of};
+use crate::daemon::{StopsTheDaemon, json_of};
+use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground, opened};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -54,10 +56,10 @@ fn daemon_files(folder: &Path) -> Vec<(String, Vec<String>)> {
 
 /// Starts the test home's Daemon with `daemon start`, and opens a Client of
 /// it.
-fn started(env: &TestEnv) -> RawClient {
+fn started(env: &TestEnv) -> DaemonClient {
     json_of(COLLIE.as_ref(), env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    RawClient::opened(&found, "collie")
+    DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
 }
 
 /// `daemon run` keeps ADR 0049's JSON lines on stdout, for its platform to

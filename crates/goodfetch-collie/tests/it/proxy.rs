@@ -26,6 +26,7 @@
 use std::collections::BTreeSet;
 use std::sync::mpsc;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
@@ -34,9 +35,8 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -68,12 +68,11 @@ fn a_proxy_server_on_socks4_or_with_credentials_in_its_url_is_refused_naming_the
     #[case] server: &str,
 ) {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "refused", "settings": { "proxy": { "server": server } } }),
@@ -98,7 +97,7 @@ fn a_proxy_server_on_socks4_or_with_credentials_in_its_url_is_refused_naming_the
 
 /// A `hello` from the MCP server, a Client acting for a model.
 fn hello_for_a_model() -> Value {
-    let mut hello = hello("collie", "0.1");
+    let mut hello = hello(Product::Collie);
     hello["params"]["surface"] = json!("mcp");
     hello
 }
@@ -107,12 +106,11 @@ fn hello_for_a_model() -> Value {
 #[test]
 fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     engine.send(&hello_for_a_model());
     let _ = engine.next();
 
-    let on_the_run = call(
-        &mut engine,
+    let on_the_run = engine.ask(
         1,
         "run.start",
         &json!({
@@ -120,9 +118,8 @@ fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
             "settings": { "proxy": { "server": "http://127.0.0.1:3128" } },
         }),
     );
-    let _ = call(&mut engine, 2, "run.start", &json!({ "run_id": "plain" }));
-    let on_a_session = call(
-        &mut engine,
+    let _ = engine.ask(2, "run.start", &json!({ "run_id": "plain" }));
+    let on_a_session = engine.ask(
         3,
         "run.new_session",
         &json!({
@@ -130,7 +127,7 @@ fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
             "settings": { "proxy": { "password": "env:PROXY_PASSWORD" } },
         }),
     );
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "plain" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "plain" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -153,12 +150,11 @@ fn a_client_acting_for_a_model_sets_no_proxy_on_a_run_or_a_session() {
 #[test]
 fn a_client_acting_for_a_model_sets_no_proxy_through_the_project_configuration_it_sends() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     engine.send(&hello_for_a_model());
     let _ = engine.next();
 
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         "run.start",
         &json!({
@@ -211,14 +207,14 @@ fn proxy_settings(
 
 /// Starts an engine whose environment holds `password`, and a Run whose
 /// `proxy` settings are `proxy`.
-fn started_through<'env>(
-    env: &'env TestEnv,
+fn started_through(
+    env: &TestEnv,
     cache: &std::path::Path,
     proving_ground: &ProvingGround,
     run_id: &str,
     proxy: Value,
     password: &str,
-) -> Attached<'env> {
+) -> Attached {
     let mut settings = serde_json::Map::new();
     settings.insert("proxy".to_owned(), proxy);
     crate::page::started_with(env, cache, proving_ground, run_id, &settings, |command| {
@@ -284,25 +280,14 @@ fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
         }
     };
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "failing" }),
-    ));
-    let navigated = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "failing" })));
+    let navigated = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
     );
     let arguments = crate::page::browser_command_lines(&env);
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "failing" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "failing" }));
     let (_, stderr) = engine.finish_with_stderr();
 
     let data = &navigated["error"]["data"];
@@ -380,14 +365,8 @@ fn a_failing_socks5_proxy_raises_a_proxy_error_on_an_http_navigation(
     let proxy = proxy_settings(&proving_ground, "socks5", name, username);
     let mut engine = started_through(&env, &cache, &proving_ground, "socks", proxy, password);
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "socks" }),
-    ));
-    let navigated = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "socks" })));
+    let navigated = engine.ask(
         3,
         "page.goto",
         &json!({
@@ -396,7 +375,7 @@ fn a_failing_socks5_proxy_raises_a_proxy_error_on_an_http_navigation(
         }),
     );
     let arguments = crate::page::browser_command_lines(&env);
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "socks" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "socks" }));
     let (_, stderr) = engine.finish_with_stderr();
 
     let data = &navigated["error"]["data"];
@@ -466,20 +445,13 @@ fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
     );
     let url = |mark: &str| proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
 
-    let default_page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "two-proxies" }),
-    ));
-    let session = call(
-        &mut engine,
+    let default_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "two-proxies" })));
+    let session = engine.ask(
         3,
         "run.new_session",
         &json!({ "run_id": "two-proxies", "settings": { "proxy": own } }),
     );
-    let own_page = opened(&call(
-        &mut engine,
+    let own_page = opened(&engine.ask(
         4,
         "session.new_page",
         &json!({ "session_id": session["result"]["session_id"] }),
@@ -490,20 +462,14 @@ fn two_sessions_of_one_run_reach_the_site_each_through_its_own_proxy() {
         (7, &default_page, "default"),
     ]
     .map(|(id, page, mark)| {
-        call(
-            &mut engine,
+        engine.ask(
             id,
             "page.goto",
             &json!({ "page_id": page.page_id, "url": url(mark) }),
         )["result"]["response"]["status"]
             .clone()
     });
-    let _ = call(
-        &mut engine,
-        8,
-        "run.finish",
-        &json!({ "run_id": "two-proxies" }),
-    );
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "two-proxies" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -540,18 +506,8 @@ fn a_proxy_that_fails_the_sessions_open_names_no_url() {
     });
     let mut engine = started_through(&env, &cache, &proving_ground, "nowhere", proxy, "secret");
 
-    let opened = call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "nowhere" }),
-    );
-    let _ = call(
-        &mut engine,
-        3,
-        "run.finish",
-        &json!({ "run_id": "nowhere" }),
-    );
+    let opened = engine.ask(2, "run.new_page", &json!({ "run_id": "nowhere" }));
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "nowhere" }));
     let _ = engine.finish();
 
     let data = &opened["error"]["data"];
@@ -577,14 +533,8 @@ fn a_host_proxy_bypass_names_is_reached_without_the_proxy() {
     proxy["bypass"] = json!("other.test, scope.test");
     let mut engine = started_through(&env, &cache, &proving_ground, "bypassed", proxy, "");
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "bypassed" }),
-    ));
-    let navigated = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "bypassed" })));
+    let navigated = engine.ask(
         3,
         "page.goto",
         &json!({
@@ -592,12 +542,7 @@ fn a_host_proxy_bypass_names_is_reached_without_the_proxy() {
             "url": proving_ground.url("scope.test", "/storage?mark=bypassed"),
         }),
     );
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "bypassed" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "bypassed" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -641,23 +586,13 @@ fn a_proxy_per_page_or_per_request_is_refused(
     #[case] refusal: (&str, Option<&str>),
 ) {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let _ = call(
-        &mut engine,
-        1,
-        "run.start",
-        &json!({ "run_id": "per-page" }),
-    );
+    let _ = engine.ask(1, "run.start", &json!({ "run_id": "per-page" }));
 
-    let refused = call(&mut engine, 2, method, &params);
-    let _ = call(
-        &mut engine,
-        3,
-        "run.finish",
-        &json!({ "run_id": "per-page" }),
-    );
+    let refused = engine.ask(2, method, &params);
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "per-page" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -767,14 +702,8 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
         },
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "relayed" }),
-    ));
-    let navigated = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "relayed" })));
+    let navigated = engine.ask(
         3,
         "page.goto",
         &json!({
@@ -783,12 +712,7 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
         }),
     );
     let arguments = crate::page::browser_command_lines(&env);
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "relayed" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "relayed" }));
     let (_, stderr) = engine.finish_with_stderr();
 
     let port = proving_ground
@@ -888,15 +812,15 @@ const THREE_SERVERS: [Listed<'static>; 3] = [
 /// Starts an engine whose user configuration is `configuration` and whose
 /// environment holds the Proving ground's proxy password, has it answer
 /// `before`, then starts a Run of `settings`.
-fn started_listing<'env>(
-    env: &'env TestEnv,
+fn started_listing(
+    env: &TestEnv,
     cache: &std::path::Path,
     proving_ground: &ProvingGround,
     run_id: &str,
     configuration: &str,
     settings: &Value,
     before: &[(&str, Value)],
-) -> Attached<'env> {
+) -> Attached {
     env.user_configuration(configuration);
     let password = proving_ground
         .description()
@@ -939,8 +863,7 @@ fn each_session_of_a_list_provider_leaves_from_one_of_its_servers_for_its_life()
     let mut id = 10;
     let mut visit = |engine: &mut Attached, page: &str, mark: &str| {
         id += 1;
-        let navigated = call(
-            engine,
+        let navigated = engine.ask(
             id,
             "page.goto",
             &json!({ "page_id": page, "url": url(mark) }),
@@ -948,23 +871,16 @@ fn each_session_of_a_list_provider_leaves_from_one_of_its_servers_for_its_life()
         assert!(navigated.get("result").is_some(), "{navigated}");
     };
 
-    let default = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "listed" }),
-    ));
+    let default = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "listed" })));
     let mut sessions = Vec::new();
     for (position, own) in [(3, json!({})), (4, json!({ "proxy": { "kind": "isp" } }))] {
-        let session = call(
-            &mut engine,
+        let session = engine.ask(
             position,
             "run.new_session",
             &json!({ "run_id": "listed", "settings": own }),
         );
         let session = session["result"]["session_id"].clone();
-        let page = call(
-            &mut engine,
+        let page = engine.ask(
             position + 10,
             "session.new_page",
             &json!({ "session_id": session }),
@@ -976,12 +892,7 @@ fn each_session_of_a_list_provider_leaves_from_one_of_its_servers_for_its_life()
         visit(&mut engine, &sessions[0].0, &format!("second-{round}"));
         visit(&mut engine, &sessions[1].0, &format!("third-{round}"));
     }
-    let _ = call(
-        &mut engine,
-        50,
-        "run.finish",
-        &json!({ "run_id": "listed" }),
-    );
+    let _ = engine.ask(50, "run.finish", &json!({ "run_id": "listed" }));
     let _ = engine.finish();
 
     // The proxies each Session's requests left from, and the rounds that
@@ -1030,28 +941,21 @@ fn a_session_the_provider_cannot_serve_is_refused_with_setting_invalid(
     env.user_configuration(
         "[settings.proxy.providers.list]\nservers = [{ server = \"http://127.0.0.1:3001\", kind = \"datacenter\" }, { server = \"socks5://127.0.0.1:3002\", kind = \"isp\", country = \"US\" }]\n",
     );
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "refused", "settings": { "proxy": runs } }),
     );
-    let opened = call(
-        &mut engine,
+    let opened = engine.ask(
         2,
         "run.new_session",
         &json!({ "run_id": "refused", "settings": own }),
     );
-    let _ = call(
-        &mut engine,
-        3,
-        "run.finish",
-        &json!({ "run_id": "refused" }),
-    );
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "refused" }));
     let _ = engine.finish();
 
     let data = &opened["error"]["data"];
@@ -1167,26 +1071,14 @@ fn a_sessions_proxy_bytes_count_by_proxy_kind_at_the_providers_price() {
         &[],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "counted" }),
-    ));
-    let navigated = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "counted" })));
+    let navigated = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=counted") }),
     );
     page_load_settled(&proving_ground);
-    let finished = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "counted" }),
-    );
-    let used = call(&mut engine, 5, "run.usage", &json!({ "run_id": "counted" }));
+    let finished = engine.ask(4, "run.finish", &json!({ "run_id": "counted" }));
+    let used = engine.ask(5, "run.usage", &json!({ "run_id": "counted" }));
     let _ = engine.finish();
 
     let carried = carried_by(&proving_ground, "isp");
@@ -1309,12 +1201,7 @@ fn a_run_ending_mid_upload_counts_every_byte_its_proxy_took() {
         &[],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "uploading" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "uploading" })));
     // The sink never answers, so the request is still sending when the Run
     // ends, which answers it.
     let zeros = "A".repeat(usize::try_from(UPLOAD / 3 * 4).unwrap());
@@ -1340,12 +1227,7 @@ fn a_run_ending_mid_upload_counts_every_byte_its_proxy_took() {
     let finished = std::iter::from_fn(|| engine.next())
         .find(|answer| answer["id"] == json!(4))
         .unwrap();
-    let used = call(
-        &mut engine,
-        5,
-        "run.usage",
-        &json!({ "run_id": "uploading" }),
-    );
+    let used = engine.ask(5, "run.usage", &json!({ "run_id": "uploading" }));
     let _ = engine.finish();
     let read = sunk_once_ended(address, &sunk, read);
 
@@ -1386,19 +1268,12 @@ fn a_currency_limit_caps_the_bytes_of_a_priced_proxy_and_stops_the_run() {
         &[a_dollar_limit(100)],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "capped" }),
-    ));
-    let navigated = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    let navigated = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
     );
-    let finished = call(&mut engine, 4, "run.finish", &json!({ "run_id": "capped" }));
+    let finished = engine.ask(4, "run.finish", &json!({ "run_id": "capped" }));
     let _ = engine.finish();
 
     let report = &finished["result"];
@@ -1470,19 +1345,12 @@ fn a_run_a_limit_stopped_waits_in_needs_you_until_a_person_raises_the_limit() {
         &json!({ "proxy": { "provider": "list" } }),
         &[a_dollar_limit(100)],
     );
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "capped" }),
-    ));
-    call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "capped" })));
+    engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=capped") }),
     );
-    let finished = call(&mut engine, 4, "run.finish", &json!({ "run_id": "capped" }));
+    let finished = engine.ask(4, "run.finish", &json!({ "run_id": "capped" }));
     let _ = engine.finish();
     assert_eq!(
         finished["result"]["stop_reason"]["kind"],
@@ -1533,30 +1401,19 @@ fn an_unpriced_provider_under_a_currency_limit_is_refused_naming_its_price() {
     env.user_configuration(
         "[settings.proxy.providers.list]\nservers = [{ server = \"http://127.0.0.1:3001\", kind = \"datacenter\" }]\n",
     );
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     let (method, limit) = a_dollar_limit(1_000_000);
 
-    let limited = call(&mut engine, 1, method, &limit);
-    let _ = call(
-        &mut engine,
+    let limited = engine.ask(1, method, &limit);
+    let _ = engine.ask(
         2,
         "run.start",
         &json!({ "run_id": "unpriced", "settings": { "proxy": { "provider": "list" } } }),
     );
-    let opened = call(
-        &mut engine,
-        3,
-        "run.new_session",
-        &json!({ "run_id": "unpriced" }),
-    );
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "unpriced" }),
-    );
+    let opened = engine.ask(3, "run.new_session", &json!({ "run_id": "unpriced" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "unpriced" }));
     let _ = engine.finish();
 
     let data = &opened["error"]["data"];
@@ -1600,29 +1457,22 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
     let proxy = proxy_settings(&proving_ground, "http", "open", None);
     let run_id = "engine-pages";
     let mut engine = started_through(&env, &cache, &proving_ground, run_id, proxy, "");
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": run_id }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": run_id })));
     let document = proving_ground.url("scope.test", "/quiet?mark=read");
     let requested = proving_ground.url("1.incidents.test", "/robots.txt");
 
-    let went = call(
-        &mut engine,
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": document }),
     );
-    let sent = call(
-        &mut engine,
+    let sent = engine.ask(
         4,
         "page.request",
         &json!({ "page_id": page.page_id, "url": requested }),
     );
     robots_txt_read(&env, run_id);
-    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": run_id }));
     let _ = engine.finish();
     let observations = proving_ground.observations().unwrap();
     let relays: Vec<(Value, Value)> = observations["relays"]
@@ -1678,16 +1528,14 @@ pub(crate) fn adapter_configuration(proving_ground: &ProvingGround, name: &str) 
 /// Opens a Session of `run_id` with `own` settings and a page in it, as
 /// the `position`-th call: the Session's and the page's IDs.
 fn session_page(engine: &mut Attached, position: i64, run_id: &str, own: &Value) -> (Value, Value) {
-    let session = call(
-        engine,
+    let session = engine.ask(
         position,
         "run.new_session",
         &json!({ "run_id": run_id, "settings": own }),
     );
     let session = session["result"]["session_id"].clone();
     assert!(!session.is_null(), "{session}");
-    let page = call(
-        engine,
+    let page = engine.ask(
         position + 1,
         "session.new_page",
         &json!({ "session_id": session }),
@@ -1705,8 +1553,7 @@ pub(crate) fn visit_marked(
     mark: &str,
 ) {
     let url = proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
-    let went = call(
-        engine,
+    let went = engine.ask(
         position,
         "page.goto",
         &json!({ "page_id": page, "url": url }),
@@ -1771,7 +1618,7 @@ fn each_adapters_session_leaves_from_one_sticky_exit_named_in_its_providers_user
             );
         }
     }
-    let _ = call(&mut engine, 50, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.ask(50, "run.finish", &json!({ "run_id": run_id }));
     let _ = engine.finish();
 
     // Whether each Session's two visits were relayed (a page may ask for
@@ -1832,20 +1679,10 @@ fn a_session_that_outlives_its_sticky_lifetime_is_named_by_proxy_exit_may_change
     visit_marked(&mut engine, &proving_ground, 6, &short_page, "short");
     visit_marked(&mut engine, &proving_ground, 7, &long_page, "long");
     for (position, session) in [(8, &short), (9, &long)] {
-        let closed = call(
-            &mut engine,
-            position,
-            "session.close",
-            &json!({ "session_id": session }),
-        );
+        let closed = engine.ask(position, "session.close", &json!({ "session_id": session }));
         assert!(closed.get("result").is_some(), "{closed}");
     }
-    let finished = call(
-        &mut engine,
-        10,
-        "run.finish",
-        &json!({ "run_id": "outlived" }),
-    );
+    let finished = engine.ask(10, "run.finish", &json!({ "run_id": "outlived" }));
     let _ = engine.finish();
 
     let warned: Vec<Value> = finished["result"]["warnings"]
@@ -1895,12 +1732,7 @@ fn sessions_that_outlive_their_sticky_lifetime_and_end_with_their_run_are_named_
         &[],
     );
 
-    let default = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "ended-with-run" }),
-    ));
+    let default = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "ended-with-run" })));
     let (left_open, left_open_page) = session_page(&mut engine, 3, "ended-with-run", &json!({}));
     visit_marked(
         &mut engine,
@@ -1920,12 +1752,7 @@ fn sessions_that_outlive_their_sticky_lifetime_and_end_with_their_run_are_named_
     // navigation is no check (ADR 0021's #891 note).
     std::thread::sleep(lifetime + std::time::Duration::from_millis(500));
     visit_marked(&mut engine, &proving_ground, 7, &left_open_page, "again");
-    let finished = call(
-        &mut engine,
-        10,
-        "run.finish",
-        &json!({ "run_id": "ended-with-run" }),
-    );
+    let finished = engine.ask(10, "run.finish", &json!({ "run_id": "ended-with-run" }));
     let _ = engine.finish();
 
     let warned: BTreeSet<String> = finished["result"]["warnings"]
@@ -1972,12 +1799,7 @@ fn the_sessions_of_one_providers_account_share_its_proxy_limit() {
     let (_, second) = session_page(&mut engine, 4, "one-account", &json!({}));
     visit_marked(&mut engine, &proving_ground, 6, &first, "first");
     visit_marked(&mut engine, &proving_ground, 7, &second, "second");
-    let _ = call(
-        &mut engine,
-        8,
-        "run.finish",
-        &json!({ "run_id": "one-account" }),
-    );
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "one-account" }));
     let _ = engine.finish();
 
     let stickies: BTreeSet<String> = sticky_relays(&proving_ground, "mark=")
@@ -2027,24 +1849,12 @@ fn a_provider_refusing_the_accounts_credentials_names_its_own_keys() {
         &[],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "refused" }),
-    ));
-    let navigated = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "refused" })));
+    let navigated = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=refused") }),
     );
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "refused" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "refused" }));
     let _ = engine.finish();
 
     let message = navigated["error"]["message"].as_str().unwrap_or_default();
@@ -2113,12 +1923,7 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
         &[a_bytes_limit()],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "allowances" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "allowances" })));
     let zeros = "A".repeat(usize::try_from(UPLOAD / 3 * 4).unwrap());
     engine.send(&json!({
         "jsonrpc": "2.0", "id": 3, "method": "page.request",
@@ -2144,12 +1949,7 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
     let finished = std::iter::from_fn(|| engine.next())
         .find(|answer| answer["id"] == json!(4))
         .unwrap();
-    let used = call(
-        &mut engine,
-        5,
-        "run.usage",
-        &json!({ "run_id": "allowances" }),
-    );
+    let used = engine.ask(5, "run.usage", &json!({ "run_id": "allowances" }));
     let (_, stderr) = engine.finish_with_stderr();
     let read = sunk_once_ended(address, &sunk, read);
 
@@ -2198,31 +1998,14 @@ fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
         &[a_bytes_limit()],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "socks-counted" }),
-    ));
-    let navigated = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "socks-counted" })));
+    let navigated = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=socks-counted") }),
     );
     tunnels_settled(&proving_ground);
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "socks-counted" }),
-    );
-    let used = call(
-        &mut engine,
-        5,
-        "run.usage",
-        &json!({ "run_id": "socks-counted" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "socks-counted" }));
+    let used = engine.ask(5, "run.usage", &json!({ "run_id": "socks-counted" }));
     let _ = engine.finish();
 
     let carried = carried_by_every_relay(&proving_ground);

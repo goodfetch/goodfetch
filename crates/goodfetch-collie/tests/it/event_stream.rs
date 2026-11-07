@@ -10,7 +10,9 @@
 
 use std::io::{BufRead as _, BufReader, Read};
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{Form, Surface};
+use goodfetch_test_client::Hello;
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};
 
@@ -19,9 +21,6 @@ use crate::lasting_sign_ins::audit_entries;
 use crate::sign_in::{agent, console_url, origin, runtime_file};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
-
-/// This commit's Product version.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A signed-in page of the Console of `env`'s Daemon: its URL, its cookie
 /// pair and its CSRF token.
@@ -121,19 +120,11 @@ impl Events {
 
 /// The `hello` the Console's page sends, as a line.
 fn hello() -> String {
-    json!({
-        "jsonrpc": "2.0",
-        "id": 0,
-        "method": "hello",
-        "params": {
-            "protocol_version": PROTOCOL_VERSION.to_string(),
-            "surface": "console",
-            "form": "catalog",
-            "needs": "collie",
-            "product_version": VERSION,
-        },
-    })
-    .to_string()
+    Hello::needing(Product::Collie)
+        .surface(Surface::Console)
+        .with(|params| params.form = Some(Form::Catalog))
+        .message()
+        .to_string()
 }
 
 /// Covers: story:12-124, operation:engine.info

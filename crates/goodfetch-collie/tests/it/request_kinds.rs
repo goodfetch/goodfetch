@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
@@ -32,9 +33,9 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 632;
@@ -58,18 +59,18 @@ const MARGIN: Duration = Duration::from_millis(750);
 
 /// A Connection to an Attached engine, the Proving ground's hosts and
 /// [`REFUSED`] mapped in each Run's `network.resolve`.
-struct Program<'env> {
-    engine: Attached<'env>,
+struct Program {
+    engine: Attached,
     next_id: i64,
     resolve: Map<String, Value>,
 }
 
-impl<'env> Program<'env> {
-    fn start(env: &'env TestEnv, cache: &Path, proving_ground: &ProvingGround) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+impl Program {
+    fn start(env: &TestEnv, cache: &Path, proving_ground: &ProvingGround) -> Self {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        engine.send(&hello("collie", "0.1"));
+        engine.send(&hello(Product::Collie));
         let _ = engine.next();
         let mut resolve: Map<String, Value> = proving_ground
             .description()
@@ -90,7 +91,7 @@ impl<'env> Program<'env> {
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     /// Starts the Run `run_id`, whose domain policy allows the pages' hosts

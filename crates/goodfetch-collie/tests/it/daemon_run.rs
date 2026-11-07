@@ -22,11 +22,12 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use goodfetch_protocol::home::{DaemonFile, RUN_FILE};
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{DaemonEndpoint, Process, RuntimeFile, TestEnv, record_command_in};
 use serde_json::{Value, json};
 
-use crate::daemon::RawClient;
+use crate::daemon_hello;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -179,8 +180,8 @@ pub(crate) fn token(env: &TestEnv) -> String {
 }
 
 /// A Client of the foreground Daemon at `endpoint`.
-pub(crate) fn opened(env: &TestEnv, endpoint: &DaemonEndpoint) -> RawClient {
-    RawClient::opened_at(endpoint, &token(env), "collie")
+pub(crate) fn opened(env: &TestEnv, endpoint: &DaemonEndpoint) -> DaemonClient {
+    DaemonClient::opened(endpoint, &daemon_hello(&token(env)))
 }
 
 fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {

@@ -13,12 +13,13 @@
 
 use std::path::Path;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 624;
@@ -44,11 +45,11 @@ fn configure(env: &TestEnv, proving_ground: &ProvingGround) {
 
 /// An Attached engine whose Browser cache is `cache`, greeted by a Client
 /// acting for a model (the `mcp` surface).
-fn for_a_model<'env>(env: &'env TestEnv, cache: &Path) -> Attached<'env> {
-    let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+fn for_a_model(env: &TestEnv, cache: &Path) -> Attached {
+    let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
     });
-    let mut greeting = hello("collie", "0.1");
+    let mut greeting = hello(Product::Collie);
     greeting["params"]["surface"] = json!("mcp");
     engine.send(&greeting);
     let _ = engine.next();
@@ -57,9 +58,8 @@ fn for_a_model<'env>(env: &'env TestEnv, cache: &Path) -> Attached<'env> {
 
 /// The answer to `run.start` of `run_id` with `egress` as its `egress`
 /// settings.
-fn start(engine: &mut Attached<'_>, id: i64, run_id: &str, egress: &Value) -> Value {
-    call(
-        engine,
+fn start(engine: &mut Attached, id: i64, run_id: &str, egress: &Value) -> Value {
+    engine.ask(
         id,
         "run.start",
         &json!({ "run_id": run_id, "settings": { "egress": egress } }),
@@ -111,17 +111,11 @@ fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
         "narrowed",
         &json!({ "allowed_domains": ["catalog.test"] }),
     );
-    let page = opened(&call(
-        &mut engine,
-        4,
-        "run.new_page",
-        &json!({ "run_id": "narrowed" }),
-    ))
-    .page_id
-    .0;
-    let goto = |engine: &mut Attached<'_>, id: i64, host: &str| {
-        call(
-            engine,
+    let page = opened(&engine.ask(4, "run.new_page", &json!({ "run_id": "narrowed" })))
+        .page_id
+        .0;
+    let goto = |engine: &mut Attached, id: i64, host: &str| {
+        engine.ask(
             id,
             "page.goto",
             &json!({ "page_id": page, "url": proving_ground.url(host, "/catalog/1?run=narrowed") }),
@@ -138,12 +132,7 @@ fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
             .count()
     };
     let (catalog, shop) = (reached("catalog.test"), reached("shop.test"));
-    let _ = call(
-        &mut engine,
-        7,
-        "run.finish",
-        &json!({ "run_id": "narrowed" }),
-    );
+    let _ = engine.ask(7, "run.finish", &json!({ "run_id": "narrowed" }));
     let _ = engine.finish();
 
     assert_eq!(

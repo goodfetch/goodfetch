@@ -18,10 +18,11 @@
 
 use std::process::{Command, Stdio};
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -75,7 +76,7 @@ fn needs_user_scopes(env: &TestEnv) {
 }
 
 /// The next `engine.system_info` the engine sends.
-fn next_sample(engine: &mut Attached<'_>) -> Value {
+fn next_sample(engine: &mut Attached) -> Value {
     loop {
         let message = engine
             .next()
@@ -113,7 +114,7 @@ fn in_a_memory_limited_cgroup_the_allowance_is_its_limit_and_follows_a_change_in
         .arg("attached-engine");
     env.log_level("trace");
     let mut engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "samples", "method": "events.subscribe",

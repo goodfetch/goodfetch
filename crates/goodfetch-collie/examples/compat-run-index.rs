@@ -35,8 +35,10 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::needs_you::NeedsYouItem;
 use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -45,11 +47,9 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 fn scenario() -> Vec<Value> {
     let call = |id: i64, method: &str, params: Value| json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
     vec![
-        call(
-            0,
-            "hello",
-            json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
-        ),
+        Hello::needing(Product::Collie)
+            .surface(Surface::Rust)
+            .message(),
         call(
             1,
             "run.start",
@@ -200,11 +200,10 @@ const TOKEN: &str = "corpus";
 fn daemon_scenario() -> Vec<Value> {
     let call = |id: i64, method: &str, params: Value| json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
     vec![
-        call(
-            0,
-            "hello",
-            json!({ "protocol_version": "0.1", "surface": "cli", "token": TOKEN, "needs": "collie", "product_version": "0.0.0" }),
-        ),
+        Hello::needing(Product::Collie)
+            .surface(Surface::Cli)
+            .token(TOKEN)
+            .message(),
         call(
             1,
             "run.start",

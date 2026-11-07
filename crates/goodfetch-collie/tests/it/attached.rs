@@ -7,179 +7,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::Write as _;
-use std::process::{ChildStdin, Command, Stdio};
-use std::time::Duration;
-
-use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{
-    AnsweredCalls, MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command,
-};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::{Attached, Hello, hello, newer_minor};
+use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-/// A running Attached engine of Collie's executable, started in a test's
-/// setup. When it ends without exiting by itself, killed or left to the
-/// test's teardown, it records the calls it read answered in the test's
-/// answer record: the killed engine's log loses the dispatch records its
-/// writer's thread had not written yet (ADR 0122), which the exercise audit
-/// reads (#1779).
-pub(crate) struct Attached<'env> {
-    env: &'env TestEnv,
-    process: Process,
-    stdin: Option<ChildStdin>,
-    stdout: StrictStdout,
-    answered: AnsweredCalls,
-    /// Whether the engine exited by itself, its log written whole.
-    exited: bool,
-}
-
-impl<'env> Attached<'env> {
-    pub(crate) fn start(env: &'env TestEnv) -> Self {
-        Self::start_with(env, |_| {})
-    }
-
-    /// Starts it after `configure` changed its command, such as its
-    /// environment.
-    pub(crate) fn start_with(env: &'env TestEnv, configure: impl FnOnce(&mut Command)) -> Self {
-        Self::start_waiting(env, MESSAGE_DEADLINE, configure)
-    }
-
-    /// Starts it as [`Attached::start_with`] does, each message awaited for
-    /// up to `deadline`, as a call that launches a browser needs.
-    pub(crate) fn start_waiting(
-        env: &'env TestEnv,
-        deadline: Duration,
-        configure: impl FnOnce(&mut Command),
-    ) -> Self {
-        Self::start_logging(env, deadline, "trace", configure)
-    }
-
-    /// Starts it as [`Attached::start_waiting`] does, its `log.level` at
-    /// `level` rather than `trace`.
-    pub(crate) fn start_logging(
-        env: &'env TestEnv,
-        deadline: Duration,
-        level: &str,
-        configure: impl FnOnce(&mut Command),
-    ) -> Self {
-        env.log_level(level);
-        let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-collie"));
-        command.arg("attached-engine");
-        configure(&mut command);
-        Self::spawned(env, deadline, &mut command)
-    }
-
-    /// Starts `command`, which runs Collie's `attached-engine` as its last
-    /// arguments, such as inside a cgroup a service manager made, each
-    /// message awaited for up to `deadline`.
-    pub(crate) fn spawned(env: &'env TestEnv, deadline: Duration, command: &mut Command) -> Self {
-        command.stderr(Stdio::piped());
-        let process = env.spawn(command).unwrap();
-        let stdin = process.child().stdin.take();
-        let stdout = StrictStdout::of(&process).unwrap().within(deadline);
-        Self {
-            env,
-            process,
-            stdin,
-            stdout,
-            answered: AnsweredCalls::default(),
-            exited: false,
-        }
-    }
-
-    pub(crate) fn send(&mut self, message: &Value) {
-        self.answered.sent(message);
-        let stdin = self.stdin.as_mut().unwrap();
-        let mut line = serde_json::to_vec(message).unwrap();
-        line.push(b'\n');
-        stdin.write_all(&line).unwrap();
-        stdin.flush().unwrap();
-    }
-
-    /// The next message, read as one of the protocol's (ADR 0038).
-    pub(crate) fn next(&mut self) -> Option<Value> {
-        let message = self.stdout.try_next().unwrap()?;
-        serde_json::from_value::<Message>(message.clone()).unwrap();
-        self.answered.read(&message);
-        Some(message)
-    }
-
-    /// The engine's process ID, which names its log file.
-    pub(crate) fn pid(&self) -> u32 {
-        self.process.child().id()
-    }
-
-    /// Kills the engine (`kill -9`) and waits for it to end, as a power cut
-    /// or a crash ends it; the calls it answered go to the test's answer
-    /// record.
-    #[cfg_attr(
-        not(unix),
-        expect(
-            dead_code,
-            reason = "only the LazyFS power cut, on Linux, and the Sessions' resume, on Unix, kill the engine"
-        )
-    )]
-    pub(crate) fn kill(self) {
-        self.process.stop().unwrap();
-    }
-
-    /// Ends the input and waits for the engine to exit, returning whatever
-    /// it still sent.
-    /// Records `attached-engine` and its exit code in the test's command
-    /// record, for the exercise audit (ADR 0072).
-    pub(crate) fn finish(mut self) -> (Vec<Value>, bool) {
-        drop(self.stdin.take());
-        let mut rest = Vec::new();
-        while let Some(message) = self.next() {
-            rest.push(message);
-        }
-        let status = self.process.child().wait().unwrap();
-        self.exited = status.success();
-        record_command(self.env, &["attached-engine"], status.code()).unwrap();
-        (rest, status.success())
-    }
-
-    /// As [`Attached::finish`], answering what it still sent and everything
-    /// it wrote on stderr.
-    pub(crate) fn finish_with_stderr(mut self) -> (Vec<Value>, String) {
-        drop(self.stdin.take());
-        let mut rest = Vec::new();
-        while let Some(message) = self.next() {
-            rest.push(message);
-        }
-        let status = self.process.child().wait().unwrap();
-        self.exited = status.success();
-        record_command(self.env, &["attached-engine"], status.code()).unwrap();
-        (rest, self.stdout.stderr_to_end())
-    }
-}
-
-impl Drop for Attached<'_> {
-    fn drop(&mut self) {
-        if self.exited {
-            return;
-        }
-        if let Err(error) = self.answered.record_in(self.env.folder())
-            && !std::thread::panicking()
-        {
-            panic!("the test's answer record cannot be written: {error}");
-        }
-    }
-}
-
-pub(crate) fn hello(needs: &str, protocol_version: &str) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": 0,
-        "method": "hello",
-        "params": {
-            "protocol_version": protocol_version,
-            "surface": "sdk_python",
-            "needs": needs,
-            "product_version": "0.0.0",
-        },
-    })
-}
+use crate::COLLIE;
 
 fn request(id: i64, method: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
@@ -189,9 +22,9 @@ fn request(id: i64, method: &str) -> Value {
 #[test]
 fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
 
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let mut reply = engine.next().unwrap();
     let private_endpoint = reply["result"]
         .as_object_mut()
@@ -225,9 +58,13 @@ fn an_attached_engine_answers_hello_over_stdio_and_stops_at_the_end_of_its_input
 #[test]
 fn a_hello_of_a_newer_minor_is_refused_before_any_other_message_and_stdout_closes() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
 
-    engine.send(&hello("collie", "0.2"));
+    engine.send(
+        &Hello::needing(Product::Collie)
+            .protocol_version(newer_minor())
+            .message(),
+    );
     let reply = engine.next().unwrap();
     let after = engine.next();
 
@@ -242,9 +79,9 @@ fn a_hello_of_a_newer_minor_is_refused_before_any_other_message_and_stdout_close
 #[test]
 fn collies_engine_refuses_a_client_that_needs_foxhound_and_stdout_closes() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
 
-    engine.send(&hello("foxhound", "0.1"));
+    engine.send(&hello(Product::Foxhound));
     let reply = engine.next().unwrap();
     let after = engine.next();
 
@@ -263,8 +100,8 @@ fn collies_engine_refuses_a_client_that_needs_foxhound_and_stdout_closes() {
 #[test]
 fn engine_info_answers_collie_and_its_versions() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     engine.send(&request(1, "engine.info"));
@@ -286,8 +123,8 @@ fn engine_info_answers_collie_and_its_versions() {
 #[test]
 fn an_operation_only_foxhound_carries_is_refused_naming_foxhound_and_its_install() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     engine.send(&request(1, "sample.crawl"));
@@ -317,8 +154,8 @@ fn an_operation_only_foxhound_carries_is_refused_naming_foxhound_and_its_install
 #[test]
 fn cancel_of_a_finished_call_leaves_the_connection_answering() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&request(1, "engine.info"));
     let _ = engine.next();
@@ -348,8 +185,8 @@ const REUSES: usize = 5_000;
 #[test]
 fn an_id_is_free_again_once_its_call_was_answered() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     let refused: Vec<Value> = (0..REUSES)
@@ -367,8 +204,8 @@ fn an_id_is_free_again_once_its_call_was_answered() {
 #[test]
 fn a_failure_carries_its_error_code_and_retryable_flag_under_its_json_rpc_class() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     engine.send(&request(1, "page.levitate"));

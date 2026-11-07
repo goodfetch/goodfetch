@@ -32,6 +32,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
 use goodfetch_test_client::{HomeLayout, robots_txt_read};
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
@@ -39,9 +40,8 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::attached::Attached;
 use crate::page::{opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -53,15 +53,15 @@ const SEED: u64 = 634;
 pub(crate) const PAST_AUTO_RELOAD: Duration = Duration::from_secs(2);
 
 /// A Connection's calls, each with the next ID.
-pub(crate) struct Program<'env> {
-    engine: Attached<'env>,
+pub(crate) struct Program {
+    engine: Attached,
     next_id: i64,
 }
 
-impl Program<'_> {
+impl Program {
     pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     pub(crate) fn new_page(&mut self, run_id: &str) -> String {
@@ -83,13 +83,13 @@ impl Program<'_> {
 /// An Attached engine and its Run `run_id`, with `settings` beside the
 /// Proving ground's `network.resolve` mapping, and `variables` in the
 /// engine's environment.
-pub(crate) fn started<'env>(
-    env: &'env TestEnv,
+pub(crate) fn started(
+    env: &TestEnv,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Value,
     variables: &[(&str, &str)],
-) -> Program<'env> {
+) -> Program {
     let cache = browser_cache(env).unwrap();
     let settings: Map<String, Value> = settings.as_object().cloned().unwrap_or_default();
     let engine = started_with(env, &cache, proving_ground, run_id, &settings, |command| {
@@ -634,13 +634,13 @@ fn browsers_ja4(
     settings["network"] = json!({ "resolve": { "hello.test": ["127.0.0.1"] } });
     settings["egress"] = json!({ "private_ranges": ["hello.test"] });
     let cache = browser_cache(env).unwrap();
-    let engine = Attached::start_waiting(env, crate::page::BROWSER_DEADLINE, |command| {
+    let engine = Attached::start_with(env, COLLIE, crate::page::BROWSER_DEADLINE, |command| {
         command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
     });
     let mut program = Program { engine, next_id: 0 };
     program
         .engine
-        .send(&crate::attached::hello("collie", "0.1"));
+        .send(&goodfetch_test_client::hello(Product::Collie));
     let _ = program.engine.next();
     let started = program.call(
         "run.start",

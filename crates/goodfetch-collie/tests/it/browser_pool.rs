@@ -24,9 +24,8 @@ use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::page::{opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 235;
@@ -113,21 +112,15 @@ fn a_crashed_renderer_of_a_pooled_browser_writes_its_dump_in_the_tests_crash_dum
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started_with(&env, &cache, &proving_ground, "crash", &Map::new(), |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "crash" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "crash" })));
 
-    let crashed = call(
-        &mut engine,
+    let crashed = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": "chrome://crash" }),
     );
     let dumps = crash_dumps(&env);
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "crash" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "crash" }));
     let _ = engine.finish();
     // The dump was the point: it would fail teardown.
     for dump in &dumps {
@@ -162,31 +155,17 @@ fn a_navigation_abandoned_on_a_live_renderer_raises_navigation_failed_and_the_pa
         &Map::new(),
         |_| {},
     );
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "abandoned" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "abandoned" })));
 
-    let abandoned = call(
-        &mut engine,
-        3,
+    let abandoned = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("fetch-edge.test", "/no-content") }),
     );
-    let next = call(
-        &mut engine,
-        4,
+    let next = engine.ask(4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("fetch-edge.test", "/target") }),
     );
-    let _ = call(
-        &mut engine,
-        5,
-        "run.finish",
-        &json!({ "run_id": "abandoned" }),
-    );
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "abandoned" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -206,19 +185,14 @@ fn a_navigation_abandoned_on_a_live_renderer_raises_navigation_failed_and_the_pa
 
 /// The Session `run.new_session` answered for `run_id`.
 fn new_session(engine: &mut Attached, id: i64, run_id: &str) -> SessionId {
-    let answer = call(engine, id, "run.new_session", &json!({ "run_id": run_id }));
+    let answer = engine.ask(id, "run.new_session", &json!({ "run_id": run_id }));
     serde_json::from_value(answer["result"]["session_id"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
 
 /// Opens a page in the Session `session`.
 fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
-    opened(&call(
-        engine,
-        id,
-        "session.new_page",
-        &json!({ "session_id": session }),
-    ))
+    opened(&engine.ask(id, "session.new_page", &json!({ "session_id": session })))
 }
 
 /// Loads the storage page on `page` with `mark`, which keeps it in a
@@ -231,8 +205,7 @@ fn store(
     mark: &str,
 ) -> Value {
     let url = proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
-    call(
-        engine,
+    engine.ask(
         id,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
@@ -283,11 +256,11 @@ fn sessions_of_one_run_share_a_browser_process_up_to_its_contexts_and_never_anot
         let _ = new_session(&mut engine, id, "shared");
     }
     let one_run = browsers_once(&env, 2);
-    let other = call(&mut engine, 5, "run.start", &json!({ "run_id": "other" }));
+    let other = engine.ask(5, "run.start", &json!({ "run_id": "other" }));
     let _ = new_session(&mut engine, 6, "other");
     let two_runs = browsers_once(&env, 3);
-    let _ = call(&mut engine, 7, "run.finish", &json!({ "run_id": "other" }));
-    let _ = call(&mut engine, 8, "run.finish", &json!({ "run_id": "shared" }));
+    let _ = engine.ask(7, "run.finish", &json!({ "run_id": "other" }));
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "shared" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -325,19 +298,9 @@ fn a_recycled_browser_hands_its_session_over_with_its_cookies_and_storage(#[case
     let second = page_in(&mut engine, 5, &session);
     let carried = store(&mut engine, 6, &proving_ground, &second, "second");
     let while_left_open = browsers_once(&env, 2);
-    let closed = call(
-        &mut engine,
-        7,
-        "session.close",
-        &json!({ "session_id": session }),
-    );
+    let closed = engine.ask(7, "session.close", &json!({ "session_id": session }));
     let once_closed = browsers_once(&env, 1);
-    let _ = call(
-        &mut engine,
-        8,
-        "run.finish",
-        &json!({ "run_id": "recycled" }),
-    );
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "recycled" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -390,18 +353,13 @@ fn an_idle_browser_closes_and_the_next_session_gets_a_new_one() {
     let page = page_in(&mut engine, 3, &session);
     let stored = store(&mut engine, 4, &proving_ground, &page, "idle");
     let while_open = browsers_once(&env, 1);
-    let _ = call(
-        &mut engine,
-        5,
-        "session.close",
-        &json!({ "session_id": session }),
-    );
+    let _ = engine.ask(5, "session.close", &json!({ "session_id": session }));
     let once_idle = browsers_once(&env, 0);
     let next = new_session(&mut engine, 6, "idle");
     let next_page = page_in(&mut engine, 7, &next);
     let stored_again = store(&mut engine, 8, &proving_ground, &next_page, "again");
     let relaunched = browsers_once(&env, 1);
-    let _ = call(&mut engine, 9, "run.finish", &json!({ "run_id": "idle" }));
+    let _ = engine.ask(9, "run.finish", &json!({ "run_id": "idle" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -444,8 +402,7 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
 
     let session = new_session(&mut engine, 2, "stalled");
     let page = page_in(&mut engine, 3, &session);
-    let went = call(
-        &mut engine,
+    let went = engine.ask(
         4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
@@ -454,19 +411,9 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
     // The engine's page took the robots.txt's body as a stream, which never
     // ends.
     let reading = traced_once(&env, "stalled", "Fetch.takeResponseBodyAsStream");
-    let _ = call(
-        &mut engine,
-        5,
-        "session.close",
-        &json!({ "session_id": session }),
-    );
+    let _ = engine.ask(5, "session.close", &json!({ "session_id": session }));
     let once_idle = browsers_once(&env, 0);
-    let _ = call(
-        &mut engine,
-        6,
-        "run.finish",
-        &json!({ "run_id": "stalled" }),
-    );
+    let _ = engine.ask(6, "run.finish", &json!({ "run_id": "stalled" }));
     let _ = engine.finish();
 
     assert_eq!((went, reading, once_idle), (json!(200), true, 0));
@@ -491,8 +438,7 @@ fn a_robots_txt_read_that_stalls_past_the_navigation_timeout_is_unreachable() {
 
     let session = new_session(&mut engine, 2, "stalls");
     let page = page_in(&mut engine, 3, &session);
-    let went = call(
-        &mut engine,
+    let went = engine.ask(
         4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
@@ -507,7 +453,7 @@ fn a_robots_txt_read_that_stalls_past_the_navigation_timeout_is_unreachable() {
             .map(|entry| entry["file"].clone())
             .collect();
     }
-    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "stalls" }));
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "stalls" }));
     let _ = engine.finish();
 
     assert_eq!((went, files), (json!(200), vec![json!("unreachable")]));
@@ -536,12 +482,7 @@ fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
     let session = new_session(&mut engine, 2, "launching");
     let page = page_in(&mut engine, 3, &session);
     let stored = store(&mut engine, 4, &proving_ground, &page, "launching");
-    let _ = call(
-        &mut engine,
-        5,
-        "run.finish",
-        &json!({ "run_id": "launching" }),
-    );
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "launching" }));
     let _ = engine.finish();
 
     assert_eq!(stored, json!(200));
@@ -573,26 +514,11 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
         |_| {},
     );
 
-    let first = call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "slow-start" }),
-    );
+    let first = engine.ask(2, "run.new_page", &json!({ "run_id": "slow-start" }));
     let after_first = browsers_once(&env, 0);
-    let second = call(
-        &mut engine,
-        3,
-        "run.new_page",
-        &json!({ "run_id": "slow-start" }),
-    );
+    let second = engine.ask(3, "run.new_page", &json!({ "run_id": "slow-start" }));
     let after_second = browsers_once(&env, 0);
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "slow-start" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "slow-start" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -651,7 +577,7 @@ fn each_session_keeps_its_own_identity_seed_in_run_state_across_a_recycle() {
     let _ = page_in(&mut engine, 4, &first);
     let _ = page_in(&mut engine, 5, &first);
     let after = identity_seeds(&env, "seeded");
-    let _ = call(&mut engine, 6, "run.finish", &json!({ "run_id": "seeded" }));
+    let _ = engine.ask(6, "run.finish", &json!({ "run_id": "seeded" }));
     let _ = engine.finish();
 
     assert_eq!(

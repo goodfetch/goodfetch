@@ -13,12 +13,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{
     RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
 };
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, runtime_file, scripted_daemon, short_idle};
+use crate::daemon_hello;
 #[cfg(unix)]
 use crate::daemon_run::{ANY_PORT, Foreground, token};
 
@@ -37,8 +39,11 @@ fn daemon(env: &TestEnv) -> Value {
         return Value::Null;
     }
     let found = RuntimeFile::read(&runtime_file(env)).unwrap();
-    crate::daemon::RawClient::opened(&found, "collie").call(1, "daemon.status", &json!({}))
-        ["result"]
+    DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token)).call(
+        1,
+        "daemon.status",
+        &json!({}),
+    )["result"]
         .clone()
 }
 

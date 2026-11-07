@@ -42,17 +42,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::clean_up_rules::calendar_free;
-use crate::daemon::RawClient;
+use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
+use goodfetch_test_client::{Attached, hello};
 use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -76,19 +78,19 @@ enum Mode {
 }
 
 /// The engine of a test, on its tmpfs.
-enum Engine<'env> {
-    Attached(Attached<'env>),
+enum Engine {
+    Attached(Attached),
     Daemon {
         daemon: Foreground,
-        client: RawClient,
+        client: DaemonClient,
     },
 }
 
-impl<'env> Engine<'env> {
+impl Engine {
     /// Starts Collie's executable in `mode` with a tmpfs over the test's
     /// home, its user configuration holding `settings`, and opens the
     /// Connection subscribed to every event.
-    fn start(env: &'env TestEnv, mode: Mode, settings: &str) -> Self {
+    fn start(env: &TestEnv, mode: Mode, settings: &str) -> Self {
         let mut engine = match mode {
             Mode::Attached => {
                 env.user_configuration(settings);
@@ -96,7 +98,7 @@ impl<'env> Engine<'env> {
                 command.arg("attached-engine");
                 let mut engine =
                     Self::Attached(Attached::spawned(env, MESSAGE_DEADLINE, &mut command));
-                engine.send(&hello("collie", "0.1"));
+                engine.send(&hello(Product::Collie));
                 let _ = engine.next();
                 engine
             }
@@ -112,7 +114,7 @@ impl<'env> Engine<'env> {
                     &HomeLayout::of(env.home()).daemon_file(DaemonFile::Token),
                 ))
                 .unwrap();
-                let client = RawClient::opened_at(&endpoint, &token, "collie");
+                let client = DaemonClient::opened(&endpoint, &daemon_hello(&token));
                 Self::Daemon { daemon, client }
             }
         };

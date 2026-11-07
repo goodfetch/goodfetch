@@ -30,7 +30,6 @@ use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, b
 use serde_json::{Value, json};
 
 use crate::page::{opened, started, started_with};
-use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 639;
@@ -112,26 +111,17 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
         &proving_ground.description().fixtures.proxies["open"],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "quiet" }),
-    ));
-    let first = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "quiet" })));
+    let first = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
     );
-    let second = call(
-        &mut engine,
-        4,
+    let second = engine.ask(4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/2") }),
     );
     std::thread::sleep(IDLE);
-    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "quiet" }));
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "quiet" }));
     let _ = engine.finish();
     let hosts = relayed_hosts(&proving_ground.observations().unwrap());
 
@@ -256,15 +246,8 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "piped");
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "piped" }),
-    ));
-    let went = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "piped" })));
+    let went = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
     );
@@ -292,7 +275,7 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
     let tests = processes_on(&env, "debugging-port-profile");
     debugging.interrupt().unwrap();
     let _ = debugging.child().wait();
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "piped" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "piped" }));
     let _ = engine.finish();
     assert_eq!(
         (

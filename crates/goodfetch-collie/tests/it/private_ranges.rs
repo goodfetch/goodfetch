@@ -16,13 +16,13 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::page::{opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -44,17 +44,11 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
     let cache = browser_cache(env).unwrap();
     let settings: Map<String, Value> = settings.as_object().cloned().unwrap_or_default();
     let mut engine = started_with(env, &cache, proving_ground, run_id, &settings, |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": run_id }),
-    ))
-    .page_id
-    .0;
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": run_id })))
+        .page_id
+        .0;
     let target = format!("/catalog/1?run={run_id}");
-    let went = call(
-        &mut engine,
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page, "url": proving_ground.url("catalog.test", &target) }),
@@ -65,7 +59,7 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
         .of_the_case()
         .filter(|request| request["target"] == json!(target))
         .count();
-    let report = call(&mut engine, 4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();
+    let report = engine.ask(4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();
     let (_, stderr) = engine.finish_with_stderr();
     Met {
         went,
@@ -230,12 +224,11 @@ fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
         "version = \"0.1\"\n\n[lock.security]\nresolved_ip_check = true\n",
     )
     .unwrap();
-    let mut engine = Attached::start(&env);
-    engine.send(&crate::attached::hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = engine.next();
 
-    let refused = call(
-        &mut engine,
+    let refused = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "locked", "settings": { "security": { "resolved_ip_check": false } } }),
@@ -265,15 +258,14 @@ fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
 fn a_client_acting_for_a_model_lists_no_private_range() {
     let env = TestEnv::new();
     let start = |surface: Option<&str>| {
-        let mut engine = Attached::start(&env);
-        let mut hello = crate::attached::hello("collie", "0.1");
+        let mut engine = Attached::start(&env, COLLIE);
+        let mut hello = goodfetch_test_client::hello(Product::Collie);
         if let Some(surface) = surface {
             hello["params"]["surface"] = json!(surface);
         }
         engine.send(&hello);
         let _ = engine.next();
-        let answered = call(
-            &mut engine,
+        let answered = engine.ask(
             1,
             "run.start",
             &json!({

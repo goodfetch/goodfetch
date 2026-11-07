@@ -318,7 +318,7 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
     let page = program.new_page("web-socket");
     let setter = program.new_page("web-socket");
     let socket = format!("wss://{host}:{}/ws", proving_ground.address().port());
-    let open = |program: &mut Program<'_>| {
+    let open = |program: &mut Program| {
         program.call(
             "page.evaluate",
             &json!({ "page_id": page, "function": web_socket(&socket) }),

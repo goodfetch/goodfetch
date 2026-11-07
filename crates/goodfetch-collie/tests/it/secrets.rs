@@ -17,13 +17,14 @@
     reason = "the tests write the encrypted local files of the test's Goodfetch home themselves"
 )]
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -46,26 +47,16 @@ fn planted(env: &TestEnv) -> (Canaries, String, String) {
 /// The replies of an Attached engine started with `variables`, to a `run.start`
 /// of `run_id` and, when it started, its `run.finish`.
 fn started(env: &TestEnv, variables: &[(&str, &str)], run_id: &str) -> Vec<Value> {
-    let mut engine = Attached::start_with(env, |command| {
+    let mut engine = Attached::start_with(env, COLLIE, MESSAGE_DEADLINE, |command| {
         for (name, value) in variables {
             command.env(name, value);
         }
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let mut replies = vec![call(
-        &mut engine,
-        1,
-        "run.start",
-        &json!({ "run_id": run_id }),
-    )];
+    let mut replies = vec![engine.ask(1, "run.start", &json!({ "run_id": run_id }))];
     if replies[0].get("result").is_some() {
-        replies.push(call(
-            &mut engine,
-            2,
-            "run.finish",
-            &json!({ "run_id": run_id }),
-        ));
+        replies.push(engine.ask(2, "run.finish", &json!({ "run_id": run_id })));
     }
     let (rest, _) = engine.finish();
     replies.extend(rest);
@@ -125,12 +116,11 @@ fn a_raw_client_certificate_key_is_refused_with_setting_invalid_naming_no_value(
     let env = TestEnv::new();
     let mut canaries = Canaries::new(env.seed());
     let value = canaries.plant(SecretKind::EndpointToken).value().to_owned();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
-    let mut replies = vec![call(
-        &mut engine,
+    let mut replies = vec![engine.ask(
         1,
         "run.start",
         &json!({
@@ -345,12 +335,8 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
     let proving_ground = goodfetch_test_support::ProvingGround::start(&env, 697).unwrap();
     let cache = goodfetch_test_support::browser_cache(&env).unwrap();
     let mut engine = crate::page::started(&env, &cache, &proving_ground, "going-on");
-    let page = crate::page::opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "going-on" }),
-    ));
+    let page =
+        crate::page::opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "going-on" })));
     let identity = identity(&env);
     let pipe = secret_files(&env).join("proxy-password.age");
     let made = std::process::Command::new("mkfifo")
@@ -367,8 +353,7 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
             std::fs::write(pipe, value).unwrap();
         })
     };
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         3,
         "run.start",
         &json!({ "run_id": "waiting", "settings": { "proxy": {

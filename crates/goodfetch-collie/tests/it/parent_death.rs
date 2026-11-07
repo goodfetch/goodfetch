@@ -20,6 +20,8 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use goodfetch_engine::runs::{Writer, test_writer};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Moment, ObservationLog, Operation, Record, TestEnv};
 use rstest::rstest;
@@ -93,10 +95,7 @@ fn an_attached_engine_ends_when_its_client_is_killed_without_closing_its_stdin(
     };
     send(
         &mut stdin,
-        &json!({
-            "jsonrpc": "2.0", "id": "hello", "method": "hello",
-            "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "collie", "product_version": "0.0.0" },
-        }),
+        &Hello::needing(Product::Collie).id("hello").message(),
     );
     send(
         &mut stdin,

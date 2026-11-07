@@ -13,11 +13,13 @@
 use std::fmt::Write as _;
 
 use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CliOutput, TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::daemon::{RawClient, StopsTheDaemon};
+use crate::daemon::StopsTheDaemon;
+use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground, opened, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -195,7 +197,7 @@ fn daemon_rotate_token_makes_the_old_token_refuse() {
     assert!(first.exited(), "{:#?}", first.logged);
     let mut second = Foreground::start(&env, COLLIE, &[]);
     let endpoint = second.serving();
-    let refused = RawClient::refused_at(&endpoint, &old);
+    let refused = DaemonClient::refuses(&endpoint, &daemon_hello(&old));
     drop(opened(&env, &endpoint));
     let (_, new_listener) = checked(
         &env,

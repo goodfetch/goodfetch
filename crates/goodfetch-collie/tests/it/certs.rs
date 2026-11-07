@@ -19,15 +19,15 @@
 
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_support::{TestEnv, cli, pty};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::{StopsTheDaemon, short_idle};
 use crate::engine_choice::{On, daemon_dispatched};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -76,10 +76,10 @@ fn listed_both_ways(env: &TestEnv) -> (Value, Value) {
         .args(["certs", "list", "--json"])
         .run()
         .unwrap();
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let answered = call(&mut engine, 1, "certs.list", &json!({}));
+    let answered = engine.ask(1, "certs.list", &json!({}));
     let _ = engine.finish();
     (serde_json::from_str(&printed.stdout).unwrap(), answered)
 }
@@ -208,14 +208,14 @@ fn audit_entries(env: &TestEnv) -> Vec<Value> {
 /// An Attached engine's answers to `calls`, made after a `hello` from
 /// `surface`.
 fn answers_from(env: &TestEnv, surface: &str, calls: &[(&str, Value)]) -> Vec<Value> {
-    let mut engine = Attached::start(env);
-    let mut opening = hello("collie", "0.1");
+    let mut engine = Attached::start(env, COLLIE);
+    let mut opening = hello(Product::Collie);
     opening["params"]["surface"] = json!(surface);
     engine.send(&opening);
     let _ = engine.next();
     let answers = (1..)
         .zip(calls)
-        .map(|(id, (method, params))| call(&mut engine, id, method, params))
+        .map(|(id, (method, params))| engine.ask(id, method, params))
         .collect();
     let _ = engine.finish();
     answers

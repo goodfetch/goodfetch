@@ -26,6 +26,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::sync::mpsc;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -33,7 +34,9 @@ use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
+use goodfetch_test_client::{Attached, hello};
+
+use crate::COLLIE;
 
 /// Every JSON line of the log files in the home's log folder.
 fn log_lines(home: &Path) -> Vec<Value> {
@@ -62,8 +65,8 @@ fn log_lines(home: &Path) -> Vec<Value> {
 #[test]
 fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_into_the_home() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "sample.crawl", "params": {} }));
     let _ = engine.next();
@@ -97,8 +100,8 @@ fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_int
 fn with_log_output_none_the_engine_writes_no_log_file() {
     let env = TestEnv::new();
     env.user_configuration("log.output = \"none\"\n");
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     let _ = engine.finish();
@@ -115,7 +118,7 @@ fn with_log_output_none_the_engine_writes_no_log_file() {
 fn log_output_stdout_on_an_attached_engine_fails_with_setting_not_applicable() {
     let env = TestEnv::new();
     env.user_configuration("log.output = \"stdout\"\n");
-    let engine = Attached::start(&env);
+    let engine = Attached::start(&env, COLLIE);
 
     let (sent, stderr) = engine.finish_with_stderr();
 
@@ -154,11 +157,12 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
     }
     let mut engine = Attached::start_logging(
         &env,
+        COLLIE,
         MESSAGE_DEADLINE,
         "info,goodfetch::rpc::dispatch=trace",
         |_| {},
     );
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }));
     let _ = engine.next();
@@ -193,7 +197,7 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
 
 /// Every message `engine` sends until the reply to the request `id`, that
 /// reply included.
-fn until_reply(engine: &mut Attached<'_>, id: i64) -> Vec<Value> {
+fn until_reply(engine: &mut Attached, id: i64) -> Vec<Value> {
     let mut read = Vec::new();
     while let Some(message) = engine.next() {
         let replied = message["id"] == json!(id);
@@ -209,8 +213,8 @@ fn until_reply(engine: &mut Attached<'_>, id: i64) -> Vec<Value> {
 #[test]
 fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log_notifications() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    let mut hello = hello("collie", "0.1");
+    let mut engine = Attached::start(&env, COLLIE);
+    let mut hello = hello(Product::Collie);
     hello["params"]["log_level"] = json!("trace");
     let mut sent = Vec::new();
     engine.send(&hello);
@@ -372,8 +376,8 @@ fn a_collector_on_loopback_is_refused_only_under_an_operator_policy_of_no_privat
         )
         .unwrap();
     }
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "traced" },
@@ -404,8 +408,8 @@ fn with_otlp_traces_endpoint_set_the_collector_receives_each_runs_span_with_its_
     let env = TestEnv::new();
     let (endpoint, exports) = collector();
     env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "traced" },
@@ -448,8 +452,8 @@ fn with_otlp_traces_endpoint_set_a_requests_server_span_continues_the_trace_its_
     let env = TestEnv::new();
     let (endpoint, exports) = collector();
     env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "engine.info",
@@ -512,8 +516,8 @@ fn no_secret_canary_a_client_sends_reaches_the_engines_logs() {
         percent_encoded(&token),
         percent_encoded(&token)
     );
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     for request in [
         json!({

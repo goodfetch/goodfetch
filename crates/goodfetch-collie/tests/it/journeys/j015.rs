@@ -15,13 +15,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, DaemonEndpoint, JourneyRun, ProvingGround, RuntimeFile, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
-use crate::daemon::RawClient;
 use crate::daemon_run::{ANY_PORT, Foreground, opened, took_a_free_port};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -58,7 +58,7 @@ fn resolving(proving_ground: &ProvingGround) -> Value {
 /// Opens a page in `run_id`'s default Session and visits `numbers`'
 /// product pages one after another, each answered with its document.
 fn visit(
-    client: &mut RawClient,
+    client: &mut DaemonClient,
     next_id: &mut i64,
     run_id: &str,
     numbers: &[u32],
@@ -108,7 +108,7 @@ fn cli() {
     let mut variables: Vec<(&str, &str)> = vec![(BROWSERS_PATH_VARIABLE, &cache)];
     let mut first: Option<Foreground> = None;
     let mut endpoint: Option<DaemonEndpoint> = None;
-    let mut client: Option<RawClient> = None;
+    let mut client: Option<DaemonClient> = None;
     let mut next_id = 0;
     let mut still_serving = Value::Null;
     let mut late_start: Option<Value> = None;

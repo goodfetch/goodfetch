@@ -15,14 +15,15 @@
 
 use std::fs;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound_names;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::StopsTheDaemon;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -370,8 +371,8 @@ fn an_unknown_goodfetch_variable_stops_the_executable_before_its_command() {
 #[test]
 fn every_key_only_foxhound_honours_is_not_in_product_on_collies_engine() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     let mut answers = Vec::new();
@@ -404,8 +405,8 @@ fn every_key_only_foxhound_honours_is_not_in_product_on_collies_engine() {
 #[test]
 fn a_foxhound_keys_refusal_names_foxhound_and_its_install() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     engine.send(&json!({

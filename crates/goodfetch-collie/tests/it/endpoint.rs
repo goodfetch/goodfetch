@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 use goodfetch_engine::home::Home;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::DaemonFile;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
@@ -22,11 +23,11 @@ use goodfetch_test_support::{
 };
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::{StopsTheDaemon, json_of, runtime_file, short_idle, socket_listener};
 use crate::daemon_run::{ANY_PORT, Foreground, token};
 use crate::lasting_sign_ins::audit_entries;
 use crate::ops::{Browsers, with_ops};
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -154,8 +155,8 @@ fn every_listener_binds_to_loopback_unless_configured_otherwise() {
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let daemon_socket = RuntimeFile::read(&runtime_file(&env)).unwrap().endpoint;
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let reply = engine.next().unwrap();
     let _ = engine.finish();
     let private_endpoint: DaemonEndpoint =

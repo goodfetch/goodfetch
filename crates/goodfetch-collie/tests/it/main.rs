@@ -7,6 +7,17 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+/// Collie's executable, which every test drives.
+const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// The `hello` these tests say to a Daemon, or to an Attached engine's
+/// private endpoint: the TypeScript SDK's, needing Collie, with `token`.
+fn daemon_hello(token: &str) -> goodfetch_test_client::Hello {
+    goodfetch_test_client::Hello::needing(goodfetch_protocol::catalog::Product::Collie)
+        .surface(goodfetch_protocol::connection::Surface::SdkTypescript)
+        .token(token)
+}
+
 mod attached;
 mod audit;
 #[cfg(unix)]

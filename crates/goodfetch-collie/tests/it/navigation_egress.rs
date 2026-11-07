@@ -23,6 +23,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
@@ -31,9 +32,9 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 631;
@@ -54,25 +55,20 @@ const HOP_DEADLINE: Duration = Duration::from_secs(10);
 /// which a program's Run lists in `egress.private_ranges`, since the relay
 /// judges a mapping's answers as any other; a Client acting for a model
 /// lists none.
-struct Program<'env> {
-    engine: Attached<'env>,
+struct Program {
+    engine: Attached,
     next_id: i64,
     resolve: Map<String, Value>,
     private_ranges: Vec<String>,
     for_model: bool,
 }
 
-impl<'env> Program<'env> {
-    fn start(
-        env: &'env TestEnv,
-        cache: &Path,
-        proving_ground: &ProvingGround,
-        surface: &str,
-    ) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+impl Program {
+    fn start(env: &TestEnv, cache: &Path, proving_ground: &ProvingGround, surface: &str) -> Self {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut greeting = hello("collie", "0.1");
+        let mut greeting = hello(Product::Collie);
         greeting["params"]["surface"] = json!(surface);
         engine.send(&greeting);
         let _ = engine.next();
@@ -104,7 +100,7 @@ impl<'env> Program<'env> {
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     /// Starts the Run `run_id` whose domain policy allows `allowed`.
@@ -257,7 +253,7 @@ fn host_and_path(url: &str) -> (String, String) {
 /// but the case's own page, which a hop reached, by the Proving ground's
 /// address.
 fn run_case(
-    program: &mut Program<'_>,
+    program: &mut Program,
     proving_ground: &ProvingGround,
     run_id: &str,
     case: &SsrfCase,
@@ -380,7 +376,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     }
     // One Run per domain policy, which its pages share.
     let mut runs: Vec<Vec<String>> = Vec::new();
-    let mut run_for = |program: &mut Program<'_>, case: &SsrfCase| -> String {
+    let mut run_for = |program: &mut Program, case: &SsrfCase| -> String {
         let allowed = case
             .domains
             .as_ref()
@@ -439,7 +435,7 @@ fn navigated_url(case: &SsrfCase, port: u16) -> String {
 /// `egress.private_ranges`, and the Proving ground's open proxy for an
 /// upstream proxy case.
 fn case_settings(
-    program: &Program<'_>,
+    program: &Program,
     proving_ground: &ProvingGround,
     case: &SsrfCase,
     listed: &[String],
@@ -486,7 +482,7 @@ fn case_settings(
 /// to the case's target for each connection its open proxy accepted, which
 /// the proxy would pass on.
 fn navigation(
-    program: &mut Program<'_>,
+    program: &mut Program,
     proving_ground: &ProvingGround,
     run_id: &str,
     case: &SsrfCase,

@@ -17,7 +17,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::{RepoPath, imports};
-use crate::{console, metadata, package_dependencies, tlc};
+use crate::{console, metadata, package_dependencies, tlc, tree};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -170,15 +170,6 @@ fn runner_config_imports(root: &Path, names: &BTreeSet<String>) -> Result<BTreeS
     Ok(loaded)
 }
 
-/// Folders the visual projects never look in, wherever they are: build
-/// outputs, installed packages and fixtures (`playwright.config.ts`'s
-/// `testIgnore`); dot-folders are skipped too.
-const NOT_SEARCHED_FOR_VISUAL_TESTS: [&str; 4] = ["target", "node_modules", ".venv", "fixtures"];
-
-/// Folders from the root the visual projects never look in: the frozen R&D
-/// archive and the static checks' proofs.
-const ROOT_FOLDERS_WITHOUT_VISUAL_TESTS: [&str; 2] = ["rnd", "ci/proofs"];
-
 /// Whether the file name is a visual test's: `*.visual.spec.ts` for
 /// Playwright, `*.visual.test.ts[x]` for Vitest (TESTING.md).
 pub(crate) fn is_visual_test(name: &str) -> bool {
@@ -198,9 +189,13 @@ fn find_visual_tests(root: &Path, folder: &Path, found: &mut Vec<RepoPath>) -> R
         let metadata = std::fs::symlink_metadata(&path)
             .with_context(|| format!("reading {}", path.display()))?;
         if metadata.is_dir() {
-            let skipped = name.starts_with('.')
-                || NOT_SEARCHED_FOR_VISUAL_TESTS.contains(&name)
-                || ROOT_FOLDERS_WITHOUT_VISUAL_TESTS.contains(&relative(root, &path)?.as_str());
+            // The visual projects look in no fixtures folder and not in the
+            // proofs either (`playwright.config.ts`'s `testIgnore`).
+            let folder = relative(root, &path)?;
+            let skipped = tree::hidden(name)
+                || tree::never_entered(folder.as_str())
+                || name == tree::FIXTURES
+                || folder.as_str() == tree::PROOFS;
             if !skipped {
                 find_visual_tests(root, &path, found)?;
             }

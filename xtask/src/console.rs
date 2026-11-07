@@ -26,6 +26,7 @@ use sha2::{Digest as _, Sha256};
 use crate::environment::Environment;
 use crate::output;
 use crate::products;
+use crate::tree;
 
 /// Collie's Console package, from the root.
 pub(crate) const PACKAGE: &str = "console/collie";
@@ -323,7 +324,7 @@ fn collect(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     {
         let entry = entry.with_context(|| format!("reading {}", folder.display()))?;
         if entry.file_type()?.is_dir() {
-            if entry.file_name() != "node_modules" {
+            if !tree::generated(&entry.file_name().to_string_lossy()) {
                 collect(&entry.path(), files)?;
             }
         } else {

@@ -45,14 +45,6 @@ const SHARED_CONFIG: &str = "test-support/typescript/src/visual-config.ts";
 /// ADR 0073's limit for one Reference screenshot: 512 KiB.
 const REFERENCE_LIMIT_BYTES: u64 = 512 * 1024;
 
-/// Folders the walk never enters, wherever they are: build outputs and
-/// installed packages. Hidden folders (version control, other checkouts'
-/// worktrees, environments) are never entered either.
-const SKIPPED: [&str; 2] = ["target", "node_modules"];
-
-/// The frozen R&D archive at the root (ADR 0032).
-const FROZEN: &str = "rnd";
-
 /// An image's content digest, `sha256:` and 64 lowercase hexadecimal digits.
 #[derive(Debug, PartialEq, Eq)]
 struct Digest(String);
@@ -320,10 +312,7 @@ fn walk(root: &Path, folder: &Path, references: &mut Vec<String>) -> Result<()> 
             .with_context(|| format!("reading {}", path.display()))?;
         let relative = path.strip_prefix(root)?;
         if metadata.is_dir() {
-            if name.starts_with('.')
-                || SKIPPED.contains(&name)
-                || (folder == root && name == FROZEN)
-            {
+            if tree::hidden(name) || tree::never_entered(&slash_path(relative)) {
                 continue;
             }
             walk(root, &path, references)?;

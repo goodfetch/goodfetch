@@ -1,12 +1,7 @@
 //! The Cargo workspace's own packages, read from `cargo metadata --no-deps`.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
-)]
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -82,7 +77,7 @@ pub(crate) fn target_directory(cargo: &OsStr, root: &Path) -> Result<PathBuf> {
 }
 
 fn read(cargo: &OsStr, root: &Path) -> Result<Metadata> {
-    let output = Command::new(cargo)
+    let output = crate::child_cargo::command(cargo)
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .current_dir(root)
         .output()

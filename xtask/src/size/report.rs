@@ -10,7 +10,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -33,17 +32,14 @@ pub(crate) struct Report {
 
 /// The tree of `reference`, a commit-ish of the repository at `root`.
 pub(crate) fn tree(root: &Path, reference: &str) -> Result<Tree> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", "--quiet"])
-        .arg(format!("{reference}^{{tree}}"))
-        .current_dir(root)
-        .output()
-        .context("running git rev-parse")?;
-    if !output.status.success() {
-        bail!("git cannot resolve the tree of `{reference}`");
+    let tree = format!("{reference}^{{tree}}");
+    match crate::git::line(root, &["rev-parse", "--verify", "--quiet", &tree]) {
+        Ok(name) => Ok(Tree(name)),
+        Err(crate::git::Error::Refused { .. }) => {
+            bail!("git cannot resolve the tree of `{reference}`")
+        }
+        Err(error) => Err(error.into()),
     }
-    let name = String::from_utf8(output.stdout).context("reading git rev-parse's output")?;
-    Ok(Tree(name.trim().to_owned()))
 }
 
 /// Saves the report of `files`, keyed by the tree of the workspace's `HEAD`,

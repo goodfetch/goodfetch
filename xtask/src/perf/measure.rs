@@ -45,7 +45,7 @@ use std::process::{Child, Command, Stdio};
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::metadata;
+use crate::{git, metadata};
 
 use super::budget;
 use super::gungraun;
@@ -224,10 +224,14 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
 
 /// The commit `revision` names.
 fn commit_of(root: &Path, revision: &str) -> Result<String> {
-    let commit = git(
+    let commit = git::text(
         root,
-        &["rev-parse", "--verify", "--end-of-options"],
-        &[&format!("{revision}^{{commit}}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{revision}^{{commit}}"),
+        ],
     )?;
     Ok(commit.trim().to_owned())
 }
@@ -239,12 +243,11 @@ fn move_tree(root: &Path, tree: &Path, commit: &str) -> Result<()> {
     if !tree.join(".git").exists() {
         return check_out(root, tree, commit);
     }
-    git(
+    git::text(
         tree,
-        &["checkout", "--force", "--detach", "--quiet"],
-        &[commit],
+        &["checkout", "--force", "--detach", "--quiet", commit],
     )?;
-    git(tree, &["clean", "-ffdxq"], &[])?;
+    git::text(tree, &["clean", "-ffdxq"])?;
     Ok(())
 }
 
@@ -252,10 +255,17 @@ fn move_tree(root: &Path, tree: &Path, commit: &str) -> Result<()> {
 fn check_out(root: &Path, tree: &Path, commit: &str) -> Result<()> {
     // `--force`: a tree whose folder went without Git (a cleared `target/`)
     // leaves its record, which a plain `add` refuses to reuse.
-    git(
+    git::text(
         root,
-        &["worktree", "add", "--force", "--detach", "--quiet"],
-        &[&tree.to_string_lossy(), commit],
+        &[
+            "worktree",
+            "add",
+            "--force",
+            "--detach",
+            "--quiet",
+            &tree.to_string_lossy(),
+            commit,
+        ],
     )?;
     Ok(())
 }
@@ -596,17 +606,16 @@ fn bench_targets(cargo: &OsStr, root: &Path) -> Result<BTreeSet<String>> {
 fn remove_reference_tree(root: &Path) -> Result<()> {
     let tree = reference_tree(root);
     if tree.exists() {
-        git(
+        git::text(
             root,
-            &["worktree", "remove", "--force"],
-            &[&tree.to_string_lossy()],
+            &["worktree", "remove", "--force", &tree.to_string_lossy()],
         )?;
     }
     Ok(())
 }
 
 fn cargo_command(cargo: &OsStr, folder: &Path, target_directory: &Path) -> Command {
-    let mut command = Command::new(cargo);
+    let mut command = crate::child_cargo::command(cargo);
     command
         .current_dir(folder)
         .env("CARGO_TARGET_DIR", target_directory);
@@ -668,22 +677,4 @@ impl StatusChecked for Command {
         }
         Ok(())
     }
-}
-
-fn git(root: &Path, args: &[&str], operands: &[&str]) -> Result<String> {
-    let mut command = Command::new("git");
-    command.args(args);
-    if !operands.is_empty() {
-        command.args(operands);
-    }
-    let output = command.current_dir(root).output().context("running git")?;
-    if !output.status.success() {
-        bail!(
-            "git {} {} failed: {}",
-            args.join(" "),
-            operands.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    String::from_utf8(output.stdout).context("reading git's output")
 }

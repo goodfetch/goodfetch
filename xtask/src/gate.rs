@@ -49,7 +49,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
-use crate::{metadata, output};
+use crate::{git, metadata, output};
 use evidence::RustInputs;
 use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
 
@@ -257,12 +257,15 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     let root = environment.root.as_path();
     let head = commit(root, "HEAD")?;
     let plan_file = runs::plan_file(records, &head);
-    let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
+    let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
     if dirty && !options.dry_run {
         return plan_dirty(&plan_file);
     }
 
-    let base = commit(root, &git(root, &["merge-base", BASE_BRANCH, "HEAD"])?)?;
+    let base = commit(
+        root,
+        &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
+    )?;
     let host = host_fingerprint(root, &environment.cargo, &options.variables);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
@@ -561,14 +564,14 @@ fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
         let (program, rest) = arguments.split_first().unwrap_or((&"true", &[]));
         probe(Process::new(program).args(rest));
     }
-    probe(Process::new(cargo).args(["nextest", "--version"]));
+    probe(crate::child_cargo::command(cargo).args(["nextest", "--version"]));
     digest.update(variables.as_bytes());
     format!("{:x}", digest.finalize())
 }
 
 /// A full green run on `assumed` on this host, now, for a dry run.
 fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun> {
-    let tree = git(
+    let tree = git::line(
         root,
         &["rev-parse", "--verify", &format!("{assumed}^{{tree}}")],
     )?;
@@ -601,23 +604,20 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
 fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
     let mut nearest: Option<(u64, String)> = None;
     for candidate in runs::heads(records)? {
-        let ancestor = Process::new("git")
-            .args([
+        let ancestor = git::succeeds(
+            root,
+            &[
                 "merge-base",
                 "--is-ancestor",
                 "--end-of-options",
                 &candidate,
                 head,
-            ])
-            .current_dir(root)
-            .output()
-            .context("running git")?
-            .status
-            .success();
+            ],
+        )?;
         if !ancestor {
             continue;
         }
-        let distance: u64 = git(
+        let distance: u64 = git::line(
             root,
             &["rev-list", "--count", &format!("{candidate}..{head}")],
         )?
@@ -773,7 +773,7 @@ fn snapshot_holders(root: &Path, members: &WorkspaceMembers) -> Result<BTreeSet<
         .filter(|(_, kind)| *kind == affected::Kind::Crate)
         .map(|(name, _)| name)
         .collect();
-    Ok(git(root, &["ls-files", "--", "*.snap"])?
+    Ok(git::line(root, &["ls-files", "--", "*.snap"])?
         .lines()
         .filter_map(|path| members.owner(path))
         .filter(|owner| crates.contains(owner))
@@ -801,7 +801,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
         return Ok(());
     };
     let checked_out = commit(root, "HEAD")?;
-    let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
+    let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
     if &checked_out != head || dirty {
         std::fs::remove_file(&plan_file)
             .with_context(|| format!("removing {}", plan_file.display()))?;
@@ -838,7 +838,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
         Some(evidence) if *status == Status::Fail => passed_in_full(*step, &members, evidence),
         _ => BTreeSet::new(),
     };
-    let tree = git(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
+    let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
     let outcome = |green: bool| Outcome {
         green,
         origin: head.clone(),
@@ -913,7 +913,7 @@ fn listed(crates: &BTreeSet<String>) -> String {
 
 /// The commit `revision` names, in full.
 fn commit(root: &Path, revision: &str) -> Result<String> {
-    git(
+    Ok(git::line(
         root,
         &[
             "rev-parse",
@@ -921,27 +921,7 @@ fn commit(root: &Path, revision: &str) -> Result<String> {
             "--end-of-options",
             &format!("{revision}^{{commit}}"),
         ],
-    )
-}
-
-/// Runs git with `args` in `root`, and returns its trimmed output.
-fn git(root: &Path, args: &[&str]) -> Result<String> {
-    let output = Process::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .context("running git")?;
-    if !output.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8(output.stdout)
-        .context("reading git's output")?
-        .trim()
-        .to_owned())
+    )?)
 }
 
 #[cfg(test)]

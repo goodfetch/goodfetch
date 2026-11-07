@@ -11,7 +11,7 @@
 )]
 
 use std::path::Path;
-use std::process::{Command as Process, ExitCode, Output};
+use std::process::{ExitCode, Output};
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -166,7 +166,7 @@ fn checked_out_unchanged(checkout: &Path, commit: &str) -> Result<bool> {
 /// Runs `git <args>` in `folder`, with no user or system configuration, so
 /// a host's settings never change what is checked out.
 fn git(folder: &Path, args: &[&str]) -> Result<Output> {
-    Process::new("git")
+    crate::git::command(folder)
         .args([
             "-c",
             "init.defaultBranch=pinned",
@@ -174,11 +174,8 @@ fn git(folder: &Path, args: &[&str]) -> Result<Output> {
             "advice.detachedHead=false",
         ])
         .args(args)
-        .current_dir(folder)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
         .output()
         .context("running git")
 }

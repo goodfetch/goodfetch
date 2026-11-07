@@ -8,7 +8,7 @@
 //! not run exits 2, never 0.
 #![expect(
     clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
+    reason = "xtask compiles each of its patterns once, in a `LazyLock`; `CountedWork` counts the engine's compilations (ADR 0140)"
 )]
 
 mod diff;
@@ -17,40 +17,24 @@ mod register;
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 
 use crate::check::{self, Finding};
 
 const REGISTER_FILE: &str = "TESTING.md";
 
-/// Runs `git <args>` in `root` and answers its standard output.
+/// Runs `git <args>` in `root` and answers its standard output, a byte that
+/// is no UTF-8 replaced: a diff may show a file of any encoding.
 fn git(root: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
-    if !output.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&crate::git::bytes(root, args)?).into_owned())
 }
 
 /// A file at a commit, or `None` when the commit has no such file.
 fn file_at(root: &Path, commit: &str, path: &str) -> Result<Option<String>> {
     let object = format!("{commit}:{path}");
-    let known = Command::new("git")
-        .args(["cat-file", "-e", &object])
-        .current_dir(root)
-        .output()
-        .context("running git cat-file")?;
-    if !known.status.success() {
+    if !crate::git::succeeds(root, &["cat-file", "-e", &object])? {
         return Ok(None);
     }
     git(root, &["show", &object]).map(Some)

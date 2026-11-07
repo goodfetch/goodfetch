@@ -3,8 +3,9 @@
 //! `CARGO_PKG_NAME`, …), and a Cargo that inherits them sees each build
 //! script that names one in `rerun-if-env-changed`, as `ring`'s does, as
 //! changed: it reruns the script and rebuilds every crate above it, which
-//! the next Cargo `just` starts, without them, rebuilds again. Each Cargo
-//! `xtask` starts for a build therefore runs without them.
+//! the next Cargo `just` starts, without them, rebuilds again. Every Cargo
+//! `xtask` starts therefore starts here, a build's and a query's alike, and
+//! runs without them.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"

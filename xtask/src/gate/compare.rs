@@ -9,7 +9,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 
 use super::plan::Step;
-use super::{commit, git, runs};
+use super::{commit, runs};
+use crate::git;
 use crate::output;
 
 /// For the full run on `full`, whose record is in `records`, each result
@@ -33,7 +34,7 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
         ));
         return Ok(ExitCode::FAILURE);
     }
-    let tree = git(
+    let tree = git::line(
         root,
         &["rev-parse", "--verify", &format!("{full}^{{tree}}")],
     )?;
@@ -41,7 +42,7 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
         if head == full {
             continue;
         }
-        let same_tree = git(
+        let same_tree = git::line(
             root,
             &["rev-parse", "--verify", &format!("{head}^{{tree}}")],
         )

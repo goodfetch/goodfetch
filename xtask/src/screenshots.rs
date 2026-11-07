@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command as Process, ExitCode};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -136,18 +136,10 @@ fn pinned_digest(root: &Path) -> Result<Digest> {
 
 /// The commit checked out in the workspace at `root`.
 fn head(root: &Path) -> Result<CommitId> {
-    let output = Process::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(root)
-        .output()
-        .context("running git rev-parse HEAD")?;
-    if !output.status.success() {
-        bail!(
-            "git rev-parse HEAD failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    CommitId::parse(&String::from_utf8_lossy(&output.stdout))
+    CommitId::parse(&String::from_utf8_lossy(&crate::git::bytes(
+        root,
+        &["rev-parse", "HEAD"],
+    )?))
 }
 
 /// Applies every screenshot of the downloaded run at `run` to the workspace,

@@ -34,6 +34,7 @@ use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
 use crate::check::{self, Finding};
 use crate::console;
 use crate::environment::Environment;
+use crate::git;
 use crate::metadata::{self, Package};
 use crate::output;
 use crate::quarantine::listing::{self, Listed, Location};
@@ -155,10 +156,9 @@ impl Narrowing {
 
 /// The paths the working tree at `root` changes since `commit`.
 fn changed_since(root: &Path, commit: &str) -> Result<BTreeSet<String>> {
-    Ok(git(
+    Ok(git::text(
         root,
-        &["diff", "--name-only", "--no-renames", "-z"],
-        &[commit, "--"],
+        &["diff", "--name-only", "--no-renames", "-z", commit, "--"],
     )?
     .split('\0')
     .filter(|path| !path.is_empty())
@@ -261,17 +261,10 @@ fn select(
 /// The base commit's quarantine list; none when it has no list.
 fn base_quarantine(root: &Path, base: &str) -> Result<Vec<quarantine::Entry>> {
     let object = format!("{base}:{}", quarantine::LIST);
-    let exists = Process::new("git")
-        .args(["cat-file", "-e", "--end-of-options", &object])
-        .current_dir(root)
-        .output()
-        .context("running git")?
-        .status
-        .success();
-    if !exists {
+    if !git::succeeds(root, &["cat-file", "-e", "--end-of-options", &object])? {
         return Ok(Vec::new());
     }
-    quarantine::parse(&git(root, &["show", "--end-of-options"], &[&object])?)
+    quarantine::parse(&git::text(root, &["show", "--end-of-options", &object])?)
         .with_context(|| format!("reading {object}"))
 }
 
@@ -410,10 +403,17 @@ impl<'a> Checkout<'a> {
     fn new(root: &'a Path, commit: &str) -> Result<Self> {
         let folder = tempfile::tempdir().context("creating a folder for the base's checkout")?;
         let path = folder.path().join("base");
-        git(
+        git::text(
             root,
-            &["worktree", "add", "--detach", "--quiet", "--end-of-options"],
-            &[&path.to_string_lossy(), commit],
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                "--quiet",
+                "--end-of-options",
+                &path.to_string_lossy(),
+                commit,
+            ],
         )?;
         let checkout = Self {
             root,
@@ -475,10 +475,15 @@ impl<'a> Checkout<'a> {
     }
 
     fn remove(self) -> Result<()> {
-        git(
+        git::text(
             self.root,
-            &["worktree", "remove", "--force", "--end-of-options"],
-            &[&self.path.to_string_lossy()],
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                "--end-of-options",
+                &self.path.to_string_lossy(),
+            ],
         )?;
         Ok(())
     }
@@ -500,10 +505,14 @@ fn save(root: &Path, runners: &Runners<'_>, folder: &Path) -> Result<PathBuf> {
 
 /// The commit `revision` names, in full.
 fn commit(root: &Path, revision: &str) -> Result<String> {
-    Ok(git(
+    Ok(git::text(
         root,
-        &["rev-parse", "--verify", "--end-of-options"],
-        &[&format!("{revision}^{{commit}}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{revision}^{{commit}}"),
+        ],
     )?
     .trim()
     .to_owned())
@@ -511,25 +520,6 @@ fn commit(root: &Path, revision: &str) -> Result<String> {
 
 fn canonical(path: &Path) -> Result<PathBuf> {
     std::fs::canonicalize(path).with_context(|| format!("resolving {}", path.display()))
-}
-
-/// Runs git with `args` then `operands` in `root`, and returns its output.
-fn git(root: &Path, args: &[&str], operands: &[&str]) -> Result<String> {
-    let output = Process::new("git")
-        .args(args)
-        .args(operands)
-        .current_dir(root)
-        .output()
-        .context("running git")?;
-    if !output.status.success() {
-        bail!(
-            "git {} {} failed: {}",
-            args.join(" "),
-            operands.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    String::from_utf8(output.stdout).context("reading git's output")
 }
 
 /// `xtask stress`'s commands.

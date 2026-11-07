@@ -36,6 +36,7 @@ mod fixture_size;
 mod floor_guard;
 mod foxhound_side;
 mod gate;
+mod git;
 mod github;
 mod image_pins;
 mod issues;

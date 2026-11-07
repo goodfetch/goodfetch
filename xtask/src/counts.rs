@@ -1273,7 +1273,7 @@ fn run_valgrind_target(
     // where a relative path would make a `target/` of the package's own.
     let gungraun_home =
         std::path::absolute(out.join("gungraun")).context("resolving gungraun's folder")?;
-    let mut command = Command::new(&environment.cargo);
+    let mut command = crate::child_cargo::command(&environment.cargo);
     command
         .args(["bench", "--locked", "--package", family.package])
         .args(["--bench", target, "--"])
@@ -1373,7 +1373,7 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     {
         console::build(&environment.root)?;
     }
-    let output = Command::new(&environment.cargo)
+    let output = crate::child_cargo::command(&environment.cargo)
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target])
         .current_dir(&environment.root)

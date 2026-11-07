@@ -564,16 +564,6 @@ impl Secrets {
         &self.0.masks
     }
 
-    /// The Audit log every resolution is recorded in.
-    pub(crate) fn audit(&self) -> &AuditLog {
-        &self.0.audit
-    }
-
-    /// The engine's environment map.
-    pub(crate) fn environment(&self) -> &BTreeMap<OsString, OsString> {
-        &self.0.environment
-    }
-
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
     /// handle drops, its values masked in its kept outputs too.

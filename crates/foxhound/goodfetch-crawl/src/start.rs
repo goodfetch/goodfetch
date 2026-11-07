@@ -177,7 +177,7 @@ async fn start(
     let run_id = run_id(params.run_id.as_deref())?;
     code_free::declare(&mut params)?;
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: Some(Product::Foxhound),

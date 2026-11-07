@@ -34,7 +34,7 @@ use goodfetch_protocol::response_limits::{
     ResponseLimitExceededDetails,
 };
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::settings::Resolved;
 
 /// The largest window, as a power of two, a zstd frame may ask for: 8 MiB

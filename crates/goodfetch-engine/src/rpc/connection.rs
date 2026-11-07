@@ -62,13 +62,15 @@ use super::{
     failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
     record, record_cancel, success_line, trace_context,
 };
+use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallError, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
-    Driver, Handler, InputSender,
+    CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
+    Handler, InputSender,
 };
 use crate::endpoint::{REFUSAL_TARGET, same_token};
+use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
@@ -259,7 +261,7 @@ enum Writing {
 async fn carriage(
     connection: Connection,
     access: &Access,
-    runs: &Runs,
+    engine: &EngineContext,
 ) -> Option<(Reading, Writing, &'static str)> {
     let (mut reader, writer) = connection.split();
     let Access::Exposed(_, authorities) = access else {
@@ -288,7 +290,8 @@ async fn carriage(
             WEBSOCKET_LISTENER,
         )),
         Err(NotOpened::Refused(refusal)) => {
-            runs.refusals()
+            engine
+                .refusals()
                 .refused(WEBSOCKET_LISTENER, refusal.reason())
                 .await;
             None
@@ -300,8 +303,8 @@ async fn carriage(
     }
 }
 
-/// Serves `connection` until it ends, its tasks those of `owner`, lingering
-/// on `clock` after the engine closes it.
+/// Serves `connection` until it ends, its tasks those of `owner`, its calls
+/// given `engine`, lingering on its clock after the engine closes it.
 ///
 /// # Cancel safety
 ///
@@ -314,9 +317,9 @@ pub(crate) async fn serve(
     runs: Runs,
     events: Events,
     access: Access,
-    clock: Clock,
+    engine: EngineContext,
 ) {
-    let Some((reading, writing, listener)) = carriage(connection, &access, &runs).await else {
+    let Some((reading, writing, listener)) = carriage(connection, &access, &engine).await else {
         return;
     };
     serve_carried(
@@ -330,7 +333,7 @@ pub(crate) async fn serve(
         runs,
         events,
         access,
-        clock,
+        engine,
     )
     .await;
 }
@@ -345,8 +348,8 @@ pub(crate) enum ConsoleConnection {
 }
 
 /// Serves the Console's Connection `console`, a Connection of the Daemon
-/// `daemon` reaches, until it ends, its tasks those of `owner`, lingering
-/// on `clock` after the engine closes it.
+/// `daemon` reaches, until it ends, its tasks those of `owner`, its calls
+/// given `engine`, lingering on its clock after the engine closes it.
 ///
 /// # Cancel safety
 ///
@@ -359,7 +362,7 @@ pub(crate) async fn serve_console(
     runs: Runs,
     events: Events,
     side: ConsoleSide,
-    clock: Clock,
+    engine: EngineContext,
 ) {
     let (reading, writing) = match console {
         ConsoleConnection::WebSocket(socket) => (
@@ -383,7 +386,7 @@ pub(crate) async fn serve_console(
         runs,
         events,
         Access::Console(side),
-        clock,
+        engine,
     )
     .await;
 }
@@ -395,8 +398,8 @@ struct Carried {
     listener: &'static str,
 }
 
-/// Serves the Connection `carried` gives until it ends, lingering on
-/// `clock` after the engine closes it.
+/// Serves the Connection `carried` gives until it ends, its calls given
+/// `engine`, lingering on its clock after the engine closes it.
 async fn serve_carried(
     dispatch: Arc<Dispatch>,
     carried: Carried,
@@ -404,8 +407,9 @@ async fn serve_carried(
     runs: Runs,
     events: Events,
     access: Access,
-    clock: Clock,
+    engine: EngineContext,
 ) {
+    let clock = engine.clock();
     let Carried {
         mut reading,
         writing,
@@ -445,6 +449,7 @@ async fn serve_carried(
         drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
+        engine,
         daemon,
         log,
         work: dispatch.work.clone(),
@@ -1210,7 +1215,7 @@ impl Session<'_> {
             sign_ins.refused(listener, reason).await;
         } else {
             self.connection
-                .runs
+                .engine
                 .refusals()
                 .refused(listener, reason)
                 .await;

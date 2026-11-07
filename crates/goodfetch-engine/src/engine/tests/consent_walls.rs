@@ -31,7 +31,8 @@ use super::events::credit;
 use super::needs_you::{SUBSCRIPTION, Seen, listed};
 use super::run::call;
 use super::{Client, attached_on, engine_with};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::home::Home;
 

@@ -33,7 +33,8 @@ use serde_json::{Value, json};
 
 use super::run::{call, run_folder};
 use super::{Client, attached_on, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::run_state::RunStateError;
 use crate::runs::{EndedBy, Ending, ReportPart, Run, Start, Started};
 

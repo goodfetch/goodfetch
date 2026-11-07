@@ -36,8 +36,8 @@ use tokio::sync::Mutex;
 
 use super::{InvalidDomain, covered, domain_key};
 use crate::audit::{AuditLog, Origin};
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 use crate::known_certificates::{ExceptionKind, Found, KeyHash, KnownCertificates, Pinned};
 use crate::secrets::ExceptionHosts;
 use crate::tasks::TaskOwner;

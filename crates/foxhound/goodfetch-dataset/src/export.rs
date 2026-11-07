@@ -275,7 +275,7 @@ async fn options(
     context: &CallContext,
 ) -> Result<ExportOptions, CallError> {
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: None,

@@ -65,7 +65,7 @@ async fn query(
         ));
     }
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening::default())
         .await
@@ -102,7 +102,7 @@ async fn query(
     let limit = params.limit;
     let answered = deadline
         .within(
-            &context.runs().clock(),
+            &context.engine().clock(),
             "query",
             reader.blocking(move || sandbox.query(&sql, limit)),
         )

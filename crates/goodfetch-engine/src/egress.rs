@@ -45,7 +45,7 @@ use goodfetch_protocol::security::SECURITY_RESOLVED_IP_CHECK;
 use serde_json::{Map, Value};
 use url::{Host, Url};
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::settings::{HostEntry, Resolved, without_root};
 
 mod address;

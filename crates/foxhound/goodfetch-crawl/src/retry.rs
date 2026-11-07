@@ -96,7 +96,7 @@ async fn reopened(
         project,
     } = params;
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: None,

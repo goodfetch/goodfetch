@@ -15,6 +15,7 @@ pub mod audit;
 mod audit_operations;
 mod body;
 pub mod browser_cache;
+mod call_error;
 mod certs_operations;
 pub mod checkpoint;
 pub mod children;
@@ -33,6 +34,7 @@ mod durable;
 pub mod egress;
 pub mod endpoint;
 mod engine;
+mod engine_context;
 pub mod entropy;
 pub mod events;
 pub mod executables;
@@ -91,10 +93,12 @@ pub mod transport;
 pub mod upgrade;
 mod usage;
 
+pub use call_error::CallError;
 pub use composition::{
-    CallContext, CallError, CallInput, CallStream, Composition, CompositionError, ConsoleBuild,
-    ConsoleFile, Contribution, Driver, Guard, GuardAnswer, Handler,
+    CallContext, CallInput, CallStream, Composition, CompositionError, ConsoleBuild, ConsoleFile,
+    Contribution, Driver, Guard, GuardAnswer, Handler,
 };
 pub use engine::{Dependencies, Engine};
+pub use engine_context::EngineContext;
 pub use info::contribution;
 pub use product::{CHANNEL_VARIABLE, Channel, Identity, Requested};

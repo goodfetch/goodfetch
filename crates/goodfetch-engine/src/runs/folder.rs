@@ -16,9 +16,9 @@ use goodfetch_protocol::settings::WeakenedSetting;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
-use super::CALLER;
 use crate::clock::Clock;
 use crate::durable;
+use crate::engine_context::CALLER;
 use crate::mask::{Masks, Scope};
 use crate::sqlite_store::{Access, File};
 

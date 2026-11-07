@@ -50,8 +50,8 @@ use hickory_resolver::proto::rr::{RData, RecordType};
 use tokio::sync::Mutex;
 
 use self::cache::{AnswerCache, Kept, Outcome};
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 
 /// The `resolve` setting's value: host names mapped to the addresses they
 /// resolve to before any lookup (ADR 0059). A name matches whatever its case

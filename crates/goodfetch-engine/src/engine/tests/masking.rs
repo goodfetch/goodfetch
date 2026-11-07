@@ -26,7 +26,8 @@ use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::{Client, attached_with, dependencies, engine_with};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
 use crate::run_trace::RequestLog;

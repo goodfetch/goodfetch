@@ -28,7 +28,7 @@ use serde_json::Value;
 use tokio::sync::OnceCell;
 
 use super::{covered, domain_key, read_certificates, read_private_key};
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::secrets::{Purpose, RunSecrets, SecretError};
 
 /// The client certificates `tls.client_certificates` lists for a Run's

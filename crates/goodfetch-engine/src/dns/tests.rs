@@ -13,8 +13,8 @@ use goodfetch_protocol::dns::NameResolver;
 use rstest::rstest;
 
 use super::{AnsweredBy, Dns, HostMapping, LookupError, Resolution, ResolverConfiguration, Route};
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 
 const PINNED: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 7));
 

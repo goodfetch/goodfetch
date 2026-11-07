@@ -14,25 +14,26 @@ mod call_streams;
 mod params;
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting, SharedTypeValue};
+use goodfetch_protocol::catalog::{Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
-use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
+use crate::call_error::CallError;
 use crate::client::Client;
 use crate::controls::Controls;
+use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::log::ConnectionLog;
 use crate::needs_you::NeedsYouSource;
@@ -48,147 +49,6 @@ use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
 pub(crate) use call_streams::{CallNotifier, InputSender};
-
-/// A failure a call answers with: an Error code of the catalog, with its
-/// message and details, or a failure of the protocol itself.
-#[derive(Clone)]
-pub struct CallError(Box<Failure>);
-
-#[derive(Clone)]
-enum Failure {
-    Code {
-        definition: &'static ErrorCodeDefinition,
-        message: String,
-        details: Map<String, Value>,
-    },
-    Protocol {
-        failure: ProtocolFailure,
-        message: String,
-    },
-}
-
-impl CallError {
-    /// A failure with an Error code of the catalog and the code's details,
-    /// which serialize to a JSON object.
-    pub fn new(
-        definition: &'static ErrorCodeDefinition,
-        message: impl Into<String>,
-        details: &impl Serialize,
-    ) -> Self {
-        let details = match serde_json::to_value(details) {
-            Ok(Value::Object(details)) => details,
-            _ => Map::new(),
-        };
-        Self(Box::new(Failure::Code {
-            definition,
-            message: message.into(),
-            details,
-        }))
-    }
-
-    /// A failure of the protocol itself, such as params that are not the
-    /// operation's.
-    pub fn protocol(failure: ProtocolFailure, message: impl Into<String>) -> Self {
-        Self(Box::new(Failure::Protocol {
-            failure,
-            message: message.into(),
-        }))
-    }
-
-    /// Its Error code, or the protocol failure's name.
-    pub fn code(&self) -> &'static str {
-        match &*self.0 {
-            Failure::Code { definition, .. } => definition.name,
-            Failure::Protocol { failure, .. } => failure.name(),
-        }
-    }
-
-    /// Its Error code's details; none for a protocol failure.
-    pub fn details(&self) -> Option<&Map<String, Value>> {
-        match &*self.0 {
-            Failure::Code { details, .. } => Some(details),
-            Failure::Protocol { .. } => None,
-        }
-    }
-
-    /// What it says, for people.
-    pub fn message(&self) -> &str {
-        match &*self.0 {
-            Failure::Code { message, .. } | Failure::Protocol { message, .. } => message,
-        }
-    }
-
-    /// Whether a retry may succeed, as its Error code says; never for a
-    /// protocol failure.
-    pub fn retryable(&self) -> bool {
-        match &*self.0 {
-            Failure::Code { definition, .. } => definition.retryable,
-            Failure::Protocol { .. } => false,
-        }
-    }
-
-    /// Its numeric code on the wire: a predefined JSON-RPC code or its
-    /// group's class.
-    pub(crate) fn wire_code(&self) -> i32 {
-        match &*self.0 {
-            Failure::Code { definition, .. } => definition.group.json_rpc_class(),
-            Failure::Protocol { failure, .. } => failure.code(),
-        }
-    }
-
-    /// Its numeric class on the wire, whether a retry may succeed and its
-    /// details, for the RPC layer.
-    pub(crate) fn wire_parts(&self) -> (i32, bool, Map<String, Value>) {
-        match &*self.0 {
-            Failure::Code {
-                definition,
-                details,
-                ..
-            } => (
-                definition.group.json_rpc_class(),
-                definition.retryable,
-                details.clone(),
-            ),
-            Failure::Protocol { failure, .. } => (failure.code(), false, Map::new()),
-        }
-    }
-
-    /// Its error object, as the wire carries it and as a CLI command that
-    /// fails before any call prints it.
-    pub fn to_error_object(&self) -> ErrorObject {
-        let (code, retryable, details) = self.wire_parts();
-        ErrorObject {
-            code,
-            message: self.message().to_owned(),
-            data: ErrorData {
-                code: self.code().to_owned(),
-                retryable,
-                details,
-            },
-        }
-    }
-}
-
-impl fmt::Debug for CallError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (_, retryable, details) = self.wire_parts();
-        formatter
-            .debug_struct("CallError")
-            .field("code", &self.code())
-            .field("message", &self.message())
-            .field("retryable", &retryable)
-            .field("details", &details)
-            .finish()
-    }
-}
-
-impl fmt::Display for CallError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: {}", self.code(), self.message())
-    }
-}
-
-impl std::error::Error for CallError {}
 
 /// What a handler is given beside its params: its Connection's handles,
 /// shared by every call of that Connection, its cancellation, and for a
@@ -206,7 +66,7 @@ pub struct CallContext {
 
 /// What every call of one Connection is given: the engine's identity, the
 /// Connection's Client and the surface its `hello` named, the engine's
-/// Runs and event stream, and on a Daemon the Daemon itself. The protocol
+/// Runs, event stream and context, and on a Daemon the Daemon itself. The protocol
 /// server builds it once per Connection and sets the surface at `hello`.
 pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
@@ -220,6 +80,9 @@ pub(crate) struct ConnectionContext {
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
+    /// What the engine gives every call: its home, clock and settings, and
+    /// the user's stores.
+    pub(crate) engine: EngineContext,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
     /// The log events the Connection receives, at the level it asks for.
     pub(crate) log: ConnectionLog,
@@ -356,6 +219,13 @@ impl CallContext {
         &self.connection.runs
     }
 
+    /// What the engine gives every call: its home, clock and settings, the
+    /// user's Audit log, known-certificates store and Usage ledger, and
+    /// where blocking work on them runs.
+    pub fn engine(&self) -> &EngineContext {
+        &self.connection.engine
+    }
+
     /// The running engine's Product and version.
     pub fn identity(&self) -> &Identity {
         &self.connection.identity
@@ -379,7 +249,7 @@ impl CallContext {
         self.daemon()
             .and_then(|daemon| daemon.sign_ins())
             .map_or_else(
-                || self.runs().person(),
+                || self.engine().person().to_owned(),
                 |sign_ins| sign_ins.person().to_owned(),
             )
     }

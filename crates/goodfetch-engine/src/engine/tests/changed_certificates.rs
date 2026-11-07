@@ -23,10 +23,11 @@ use super::consent_walls::{audit_entries, configure, opened};
 use super::disk_view::DiskView;
 use super::needs_you::{Seen, listed};
 use super::{attached_on, engine_with};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
+use crate::engine_context::CALLER;
 use crate::known_certificates::KeyHash;
-use crate::runs::CALLER;
 
 const MB: u64 = 1_000_000;
 
@@ -64,15 +65,15 @@ fn changes() -> Contribution {
         &CERTIFICATE_CHANGED,
         |params: Value, context: CallContext| async move {
             let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
-            let limits = context.runs().limits().clone();
+            let engine = context.engine();
             let (first, changed) = keys();
-            let now = limits.now();
-            limits
-                .known_certificates
+            let now = engine.now();
+            engine
+                .known_certificates()
                 .pin(CALLER, HOST, &first, Some(&run_id), now)
                 .unwrap();
-            limits
-                .known_certificates
+            engine
+                .known_certificates()
                 .record_change(CALLER, HOST, &changed, Some(&run_id), now)
                 .unwrap();
             Ok::<Value, CallError>(json!({}))

@@ -15,7 +15,8 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::formats::{self, Compatibility, Rule};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
-use crate::composition::{CallError, Holding};
+use crate::call_error::CallError;
+use crate::composition::Holding;
 use crate::product::{Identity, Requested};
 
 /// A `hello` the engine accepted.

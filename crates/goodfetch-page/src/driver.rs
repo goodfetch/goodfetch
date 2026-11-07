@@ -61,6 +61,7 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
@@ -130,10 +131,11 @@ pub(crate) struct Deadlines {
 impl Deadlines {
     /// The deadlines of `run`'s settings.
     fn of(run: &Run) -> Arc<Self> {
+        let settings = run.settings().map(RunSettings::resolved);
         Arc::new(Self {
-            navigation: Deadline::of_run(run, &TIMEOUT_NAVIGATION),
-            action: Deadline::of_run(run, &TIMEOUT_ACTION),
-            close: Deadline::of_run(run, &TIMEOUT_CLOSE),
+            navigation: Deadline::of_resolved(settings, &TIMEOUT_NAVIGATION),
+            action: Deadline::of_resolved(settings, &TIMEOUT_ACTION),
+            close: Deadline::of_resolved(settings, &TIMEOUT_CLOSE),
         })
     }
 

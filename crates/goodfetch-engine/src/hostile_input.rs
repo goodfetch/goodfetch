@@ -27,7 +27,7 @@ use goodfetch_protocol::hostile_input::{
 };
 use icu_normalizer::ComposingNormalizerBorrowed;
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 
 /// The most bytes one part of a path holds: a file system's name.
 const NAME_MAX_BYTES: usize = 255;

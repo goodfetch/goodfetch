@@ -999,7 +999,7 @@ impl Sessions {
             .map_err(|error| unavailable(run, &error, context))?;
         let (pool, losses) = Pool::new(
             run.clone(),
-            context.runs().home().clone(),
+            context.engine().home().clone(),
             Pins {
                 pinned_by: PinnedBy {
                     product: context.identity().product,
@@ -1793,11 +1793,11 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
 
 /// The Run's `timeout.wait`, an app-state wait's deadline.
 fn wait_deadline(run: &Run) -> Deadline {
-    Deadline::of_run(run, &TIMEOUT_WAIT)
+    Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_WAIT)
 }
 
 /// The Run's `timeout.action`, with where it was set.
 fn action_timeout(run: &Run) -> (SettingLimit, Duration) {
-    let action = Deadline::of_run(run, &TIMEOUT_ACTION);
+    let action = Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_ACTION);
     (action.limit().clone(), action.duration())
 }

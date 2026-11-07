@@ -7,14 +7,19 @@
 //! as aborted by their Client (ADRs 0024 and 0078). A Daemon serves every Connection its
 //! listener gives it until it stops: idle, asked to, or handing over to its
 //! major's pick (the `daemon` module).
+//!
+//! Size: one concern, an engine's start: the values its Runs and calls are
+//! given, built once from its dependencies, its Run registry and its
+//! startup writes, then the Connections it serves as an Attached engine or
+//! a Daemon.
 
 use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
 
-use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::PrivateEndpoint;
+use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::RunOwner;
@@ -24,12 +29,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::attached::{ParentWatch, PrivateFiles, relay};
-use crate::audit::AuditEvents;
+use crate::audit::{AuditEvents, AuditLog};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError, ConsoleBuild};
 use crate::console;
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonConsole, DaemonEnd, DaemonOptions};
+use crate::engine_context::EngineContext;
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
@@ -49,7 +55,7 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe;
-use crate::secrets::{self, Keychain, ProviderFactory};
+use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -220,8 +226,8 @@ impl Engine {
     }
 
     /// Serves `connection` until it ends, its tasks those of `owner`, its
-    /// calls reaching the Runs of `runs` and the event stream `events`, on
-    /// `clock`.
+    /// calls reaching the Runs of `runs`, the event stream `events` and
+    /// what `context` gives them.
     ///
     /// # Cancel safety
     ///
@@ -232,7 +238,7 @@ impl Engine {
         owner: &TaskOwner,
         runs: Runs,
         events: Events,
-        clock: Clock,
+        context: EngineContext,
     ) {
         rpc::serve(
             Arc::clone(&self.dispatch),
@@ -241,7 +247,7 @@ impl Engine {
             runs,
             events,
             Access::Attached(None, None),
-            clock,
+            context,
         )
         .await;
     }
@@ -264,7 +270,7 @@ impl Engine {
         let clock = dependencies.clock;
         let home = dependencies.home.clone();
         let person = os_user(&dependencies.environment);
-        let (runs, events) = self.start_runs(
+        let (runs, events, context) = self.start_runs(
             dependencies,
             &owner,
             Some(RunOwner::Daemon(options.endpoint.clone())),
@@ -276,6 +282,7 @@ impl Engine {
             home: &home,
             person,
             runs: &runs,
+            context: &context,
             clock,
             owner: &owner,
         };
@@ -288,7 +295,7 @@ impl Engine {
                 dispatch: Arc::clone(&self.dispatch),
                 runs: runs.clone(),
                 events,
-                clock,
+                engine: context,
                 console,
                 console_connections,
                 metrics: self.metrics.clone(),
@@ -342,9 +349,10 @@ impl Engine {
         governor
     }
 
-    /// The engine's event stream and Runs registry, tasks of `owner`; the
-    /// Run index names `reached_at` as the owner of its live Runs, whose
-    /// run state is in `install` in the per-install layout.
+    /// The engine's event stream, Runs registry and what its Runs and
+    /// calls are given, tasks of `owner`; the Run index names `reached_at`
+    /// as the owner of its live Runs, whose run state is in `install` in
+    /// the per-install layout.
     fn start_runs(
         &self,
         mut dependencies: Dependencies,
@@ -352,7 +360,7 @@ impl Engine {
         reached_at: Option<RunOwner>,
         install: Option<InstallDatabase>,
         console: Option<String>,
-    ) -> (Runs, Events) {
+    ) -> (Runs, Events, EngineContext) {
         dependencies.run_state.work = self.metrics.counted_work().clone();
         dependencies.politeness.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
@@ -397,18 +405,16 @@ impl Engine {
             version: self.identity().product_version.clone(),
             clock: dependencies.clock,
         });
+        let (context, secrets) = self.engine_context(&mut dependencies, settings, needs_you, owner);
         let runs = Runs::start_registry(
             RunsSetup {
-                keychain: dependencies.keychain,
-                settings,
-                audit_events: self.audit_events.clone(),
+                engine: context.clone(),
+                secrets,
                 product: self.identity().product,
                 reached_at,
                 forwarder,
-                home: dependencies.home,
                 version: self.identity().product_version.clone(),
                 location: dependencies.run_state_location,
-                ledger_vfs: dependencies.run_state.vfs.clone(),
                 run_state: match &install {
                     Some(install) => RunStateOptions {
                         vfs: Some(install.vfs().to_owned()),
@@ -425,20 +431,70 @@ impl Engine {
                 gates: self.gates.clone(),
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),
-                clock: dependencies.clock,
                 entropy: dependencies.entropy,
                 events: events.clone(),
                 metrics: self.metrics.clone(),
                 governor,
-                environment: dependencies.environment,
-                needs_you,
                 controls: self.controls.clone(),
                 masks: self.dispatch.masks.clone(),
-                secret_providers: self.secret_providers.clone(),
             },
+            Box::pin(write_managed(
+                context.clone(),
+                self.identity().product_version.clone(),
+            )),
             owner,
         );
-        (runs, events)
+        (runs, events, context)
+    }
+
+    /// What the engine's Runs and calls are given, under `settings` with
+    /// `needs_you`, its blocking work a child of `owner`, and the engine's
+    /// Secret-provider driver, which records in the same Audit log: both
+    /// over `dependencies`' home and clock, the driver over its environment
+    /// map, its keychain and a fork of its entropy. Nothing here opens the
+    /// keychain: it opens on the first reference that needs it.
+    fn engine_context(
+        &self,
+        dependencies: &mut Dependencies,
+        settings: Settings,
+        needs_you: NeedsYou,
+        owner: &TaskOwner,
+    ) -> (EngineContext, Secrets) {
+        let audit = Arc::new(
+            AuditLog::of(&dependencies.home, dependencies.run_state.vfs.clone())
+                .counting_on(dependencies.run_state.work.clone())
+                .retained_under(settings.files().clone(), settings.product())
+                .sending_to(self.audit_events.clone()),
+        );
+        let context = EngineContext::new(
+            dependencies.home.clone(),
+            dependencies.clock,
+            settings,
+            Arc::clone(&audit),
+            Arc::new(owner.child()),
+            needs_you,
+            os_user(&dependencies.environment),
+            dependencies.run_state.vfs.clone(),
+        );
+        let secrets = Secrets::new(
+            Carried {
+                environment: std::mem::take(&mut dependencies.environment),
+                keychain: dependencies.keychain.clone(),
+                home: dependencies.home.clone(),
+                entropy: dependencies.entropy.fork(),
+            },
+            audit,
+            Arc::clone(context.owner()),
+            dependencies.clock,
+        )
+        .masked_by(self.dispatch.masks.clone());
+        let secrets = self
+            .secret_providers
+            .iter()
+            .fold(secrets, |secrets, (provider, factory)| {
+                secrets.with_configured(*provider, Arc::clone(factory))
+            });
+        (context, secrets)
     }
 
     /// Runs as an Attached engine in the per-install layout, which hands
@@ -522,7 +578,7 @@ impl Engine {
         } else {
             None
         };
-        let (runs, events) = self.start_runs(
+        let (runs, events, context) = self.start_runs(
             dependencies,
             &owner,
             private
@@ -543,6 +599,7 @@ impl Engine {
                 home: &home,
                 person,
                 runs: &runs,
+                context: &context,
                 clock,
                 owner: &owner,
             },
@@ -556,7 +613,7 @@ impl Engine {
             runs.clone(),
             events.clone(),
             Access::Attached(reported, console_link),
-            clock,
+            context.clone(),
         );
         let gone = async {
             match parent {
@@ -573,7 +630,7 @@ impl Engine {
                 accepting.child(),
                 runs.clone(),
                 events,
-                clock,
+                context,
             ));
             private_files = Some(files);
         }
@@ -606,6 +663,9 @@ struct ConsoleOpening<'a> {
     /// The OS user its single-user sign-in names.
     person: String,
     runs: &'a Runs,
+    /// What the engine's calls are given: its Audit log records the
+    /// Console's sign-ins, and its settings its offline cache.
+    context: &'a EngineContext,
     clock: Clock,
     owner: &'a TaskOwner,
 }
@@ -648,7 +708,7 @@ impl Engine {
             }
         };
         let runs = opening.runs.clone();
-        let clock = opening.clock;
+        let context = opening.context.clone();
         let opening = ConsoleOpening {
             token: token.clone(),
             ..opening
@@ -662,7 +722,7 @@ impl Engine {
                     connections.child(),
                     runs,
                     events.clone(),
-                    clock,
+                    context,
                 ));
                 Some(format!("{url}#token={token}"))
             }
@@ -689,6 +749,7 @@ impl Engine {
             home,
             person,
             runs,
+            context,
             clock,
             owner,
         } = opening;
@@ -708,7 +769,7 @@ impl Engine {
                     person,
                     store: AccountsStore::at(home.accounts_store(&self.identity().product_version)),
                     key: ConsoleKey::at(home.console_key()),
-                    audit: runs.audit().clone(),
+                    audit: context.audit().clone(),
                     policy: sign_in,
                     clock,
                     owner: Arc::new(owner.child()),
@@ -724,6 +785,7 @@ impl Engine {
                         ),
                         connections: opened_connections,
                         runs: runs.clone(),
+                        settings: context.settings().clone(),
                         clock,
                         content,
                     },
@@ -750,7 +812,7 @@ async fn serve_attached_console(
     owner: TaskOwner,
     runs: Runs,
     events: Events,
-    clock: Clock,
+    context: EngineContext,
 ) {
     let stopped = owner.token().clone();
     loop {
@@ -763,11 +825,12 @@ async fn serve_attached_console(
                 None => return,
             },
         };
-        let (dispatch, sign_ins, runs, events) = (
+        let (dispatch, sign_ins, runs, events, context) = (
             Arc::clone(&dispatch),
             sign_ins.clone(),
             runs.clone(),
             events.clone(),
+            context.clone(),
         );
         let its_owner = owner.child();
         let closed = its_owner.token().clone();
@@ -776,8 +839,9 @@ async fn serve_attached_console(
                 daemon: None,
                 sign_ins,
             };
-            let served =
-                rpc::serve_console(dispatch, connection, &its_owner, runs, events, side, clock);
+            let served = rpc::serve_console(
+                dispatch, connection, &its_owner, runs, events, side, context,
+            );
             // The engine's stop closes the Console's Connections with it.
             tokio::select! {
                 biased;
@@ -786,6 +850,38 @@ async fn serve_attached_console(
             }
             its_owner.stop().await;
         });
+    }
+}
+
+/// Writes the install Limits the managed Operator policy of the engine's
+/// major, `version`'s, names as that major's managed rows in the Usage
+/// ledger of `context`, as each engine does when it starts (ADR 0041); a
+/// policy that names none, or none at all, leaves that major no managed
+/// row. The Run registry answers no command before it ends.
+async fn write_managed(context: EngineContext, version: ProductVersion) {
+    let machine = match context.settings().machine().await {
+        Ok(machine) => machine,
+        Err(error) => {
+            tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
+            return;
+        }
+    };
+    let limits: Vec<goodfetch_protocol::usage::Limit> = machine
+        .operator_policy
+        .managed
+        .iter()
+        .flat_map(|managed| managed.install_limits.iter())
+        .map(goodfetch_protocol::usage::ManagedLimit::limit)
+        .collect();
+    let ledger = context.ledger().clone();
+    let major = major_name(&version);
+    let now = context.now();
+    let written = context
+        .owner()
+        .blocking(move || ledger.write_managed(&major, &limits, now))
+        .await;
+    if let Err(error) = written {
+        tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
     }
 }
 
@@ -888,7 +984,7 @@ async fn serve_private_endpoint(
     owner: TaskOwner,
     runs: Runs,
     events: Events,
-    clock: Clock,
+    context: EngineContext,
 ) {
     loop {
         let connection = tokio::select! {
@@ -902,17 +998,18 @@ async fn serve_private_endpoint(
                 }
             },
         };
-        let (dispatch, token, runs, events) = (
+        let (dispatch, token, runs, events, context) = (
             Arc::clone(&dispatch),
             Arc::clone(&token),
             runs.clone(),
             events.clone(),
+            context.clone(),
         );
         let its_owner = owner.child();
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}
-                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), clock) => {}
+                () = rpc::serve(dispatch, connection, &its_owner, runs, events, Access::PrivateEndpoint(token), context) => {}
             }
             its_owner.stop().await;
         });

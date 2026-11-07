@@ -179,8 +179,8 @@ pub struct Upgraded {
 ///
 /// # Errors
 ///
-/// [`UpgradeError`]'s refusals, before any file is written, and `Io` when a
-/// file cannot be copied.
+/// [`UpgradeError`]'s refusals, before any file is written, and `Io` when
+/// Goodfetch home cannot be read or a file cannot be copied.
 pub fn upgrade_files(
     home: &Home,
     version: &ProductVersion,
@@ -196,7 +196,7 @@ pub fn upgrade_files(
             })?;
             Some((order, source.to_owned()))
         }
-        None => newest_older_major(home.root(), current_order),
+        None => newest_older_major(home.root(), current_order)?,
     };
     let Some((order, source)) = source else {
         return Ok(Upgraded {
@@ -264,19 +264,27 @@ pub fn upgrade_files(
 }
 
 /// The newest major older than `current` whose folder Goodfetch home at
-/// `root` holds.
-fn newest_older_major(root: &Path, current: (u64, u64)) -> Option<((u64, u64), String)> {
-    std::fs::read_dir(root)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_dir())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            major_order(&name)
-                .filter(|order| *order < current)
-                .map(|order| (order, name))
-        })
-        .max()
+/// `root` holds; none when there is no Goodfetch home yet.
+fn newest_older_major(
+    root: &Path,
+    current: (u64, u64),
+) -> Result<Option<((u64, u64), String)>, UpgradeError> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(root, &error)),
+    };
+    let mut newest = None;
+    for entry in entries {
+        let entry = entry.map_err(|error| io_error(root, &error))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir()
+            && let Some(order) = major_order(&name).filter(|order| *order < current)
+        {
+            newest = newest.max(Some((order, name)));
+        }
+    }
+    Ok(newest)
 }
 
 /// The major after the one of `order`: the next `0.y` during previews.

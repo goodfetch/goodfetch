@@ -633,7 +633,7 @@ impl Site {
                 self.plain(StatusCode::SERVICE_UNAVAILABLE)
             }
             Err(SignInFailure::People(error)) => {
-                tracing::error!(%error, "the accounts store or the Console key failed, so nobody signed in");
+                tracing::error!(%error, "the accounts store, the Console key or the Audit log failed, so nobody signed in");
                 self.plain(StatusCode::SERVICE_UNAVAILABLE)
             }
         }

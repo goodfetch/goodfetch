@@ -716,7 +716,16 @@ impl Row {
 /// which every owner it is given to compiles through, so a text compiles once
 /// for the engine and its compilation counts once.
 #[derive(Clone, Debug, Default)]
-pub struct CountedWork(Arc<Counts>, Arc<Compiled>);
+pub struct CountedWork(Arc<Shared>);
+
+/// What every clone of a [`CountedWork`] shares, behind its one `Arc`: a
+/// clone costs one reference count and its handle stays a pointer wide, as
+/// each dispatched message's handler future holds one (E1.instructions).
+#[derive(Debug, Default)]
+struct Shared {
+    counts: Counts,
+    compiled: Compiled,
+}
 
 #[derive(Debug)]
 struct Counts([Count; Row::ALL.len()]);
@@ -731,18 +740,18 @@ impl Default for Counts {
 impl CountedWork {
     /// Counts one unit of `row`'s work.
     pub fn count(&self, row: Row) {
-        self.0.0[row.index()].add_one();
+        self.0.counts.0[row.index()].add_one();
     }
 
     /// Counts `units` units of `row`'s work.
     pub fn count_many(&self, row: Row, units: u64) {
-        self.0.0[row.index()].add(units);
+        self.0.counts.0[row.index()].add(units);
     }
 
     /// The units of `row`'s work counted so far.
     #[must_use]
     pub fn read(&self, row: Row) -> u64 {
-        self.0.0[row.index()].read()
+        self.0.counts.0[row.index()].read()
     }
 
     /// `html` parsed into a tree, counted on `row`: the one function an HTML
@@ -794,7 +803,8 @@ impl CountedWork {
     /// `select("…")` that compiles on each call (ADR 0138).
     #[must_use]
     pub fn selector(&self, row: Row, selector: &str) -> Option<dom_query::Matcher> {
-        self.1
+        self.0
+            .compiled
             .selector(None, selector, || self.compile_selector(row, selector))
     }
 
@@ -807,7 +817,7 @@ impl CountedWork {
         rules: &str,
         selector: &str,
     ) -> Option<dom_query::Matcher> {
-        self.1.selector(Some(rules), selector, || {
+        self.0.compiled.selector(Some(rules), selector, || {
             self.compile_selector(row, selector)
         })
     }
@@ -831,7 +841,9 @@ impl CountedWork {
     ///
     /// When `pattern` is no regular expression.
     pub fn regex(&self, row: Row, pattern: &str) -> Result<regex::Regex, regex::Error> {
-        self.1.regex(pattern, || self.compile_regex(row, pattern))
+        self.0
+            .compiled
+            .regex(pattern, || self.compile_regex(row, pattern))
     }
 
     /// The glob `pattern`, from the engine's cache, compiled through
@@ -842,13 +854,15 @@ impl CountedWork {
     ///
     /// When `pattern` is no glob.
     pub fn glob(&self, row: Row, pattern: &str) -> Result<glob::Pattern, Arc<glob::PatternError>> {
-        self.1.glob(pattern, || self.compile_glob(row, pattern))
+        self.0
+            .compiled
+            .glob(pattern, || self.compile_glob(row, pattern))
     }
 
     /// How many selectors the engine's cache keeps, at most [`CAPACITY`].
     #[must_use]
     pub fn kept(&self) -> u64 {
-        self.1.selectors()
+        self.0.compiled.selectors()
     }
 
     /// `pattern` compiled, counted on `row`: the one function a regular

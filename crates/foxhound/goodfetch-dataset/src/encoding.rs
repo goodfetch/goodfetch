@@ -39,11 +39,11 @@ use serde_json::Value;
 
 use self::avro::Avro;
 use self::columnar::Columnar;
-pub use self::columnar::ParquetCodec;
-pub use self::columns::{Columns, Nested};
-pub use self::compression::Compressor;
+pub(crate) use self::columnar::ParquetCodec;
+pub(crate) use self::columns::{Columns, Nested};
+pub(crate) use self::compression::Compressor;
 use self::csv::Csv;
-pub use self::feed::FeedFields;
+pub(crate) use self::feed::FeedFields;
 use self::feed::{Feed, Flavor};
 use self::html::HtmlTable;
 use self::markdown::Markdown;
@@ -57,11 +57,11 @@ const SHEET_NAME_MAX: usize = 31;
 const NOT_IN_SHEET_NAMES: [char; 7] = [':', '\\', '/', '?', '*', '[', ']'];
 
 /// The field a Record's Wall marker is written in.
-pub const WALL_FIELD: &str = "#wall";
+pub(crate) const WALL_FIELD: &str = "#wall";
 
 /// One committed Record as an Export writes it.
 #[derive(Clone, Copy, Debug)]
-pub struct Exported<'a> {
+pub(crate) struct Exported<'a> {
     /// Its number in its Dataset.
     pub number: u64,
     /// Its value's JSON text, as committed.
@@ -77,7 +77,7 @@ impl Exported<'_> {
     /// Its value's JSON text with its Wall marker as a `#wall` field, which
     /// replaces any of its own; as committed where it has none.
     #[must_use]
-    pub fn marked(&self) -> Cow<'_, str> {
+    pub(crate) fn marked(&self) -> Cow<'_, str> {
         let Some(wall) = self.wall else {
             return Cow::Borrowed(self.value);
         };
@@ -183,7 +183,7 @@ impl ExportOptions {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub fn csv_delimiter(text: &str) -> Result<char, &'static str> {
+pub(crate) fn csv_delimiter(text: &str) -> Result<char, &'static str> {
     let mut characters = text.chars();
     match (characters.next(), characters.next()) {
         (Some('"' | '\r' | '\n'), None) => {
@@ -199,7 +199,7 @@ pub fn csv_delimiter(text: &str) -> Result<char, &'static str> {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub fn xml_name(text: &str) -> Result<String, &'static str> {
+pub(crate) fn xml_name(text: &str) -> Result<String, &'static str> {
     if xml::is_name(text) {
         Ok(text.to_owned())
     } else {
@@ -212,7 +212,7 @@ pub fn xml_name(text: &str) -> Result<String, &'static str> {
 /// # Errors
 ///
 /// What is wrong with `count`.
-pub fn json_indent(count: u64) -> Result<usize, String> {
+pub(crate) fn json_indent(count: u64) -> Result<usize, String> {
     if count <= JSON_INDENT_MAX {
         Ok(usize::try_from(count).expect("invariant: at most `JSON_INDENT_MAX`"))
     } else {
@@ -225,7 +225,7 @@ pub fn json_indent(count: u64) -> Result<usize, String> {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub fn feed_field(text: &str) -> Result<String, &'static str> {
+pub(crate) fn feed_field(text: &str) -> Result<String, &'static str> {
     if text.is_empty() {
         Err("is empty")
     } else {
@@ -253,7 +253,7 @@ fn urn_text(text: &str) -> String {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub fn sheet_name(text: &str) -> Result<String, String> {
+pub(crate) fn sheet_name(text: &str) -> Result<String, String> {
     if text.is_empty() {
         return Err("is empty".to_owned());
     }
@@ -315,7 +315,7 @@ enum Writer {
 
 /// The writer of one Export's bytes, value by value.
 #[derive(Debug)]
-pub struct ExportEncoder {
+pub(crate) struct ExportEncoder {
     writer: Writer,
     columns: Columns,
     values: u64,
@@ -327,7 +327,7 @@ impl ExportEncoder {
     /// write, each as [`Exported::marked`] gives it, which the other
     /// formats ignore.
     #[must_use]
-    pub fn new(format: ExportFormat, options: &ExportOptions, columns: Columns) -> Self {
+    pub(crate) fn new(format: ExportFormat, options: &ExportOptions, columns: Columns) -> Self {
         let feed = |flavor| {
             Writer::Feed(Box::new(Feed {
                 flavor,
@@ -377,7 +377,7 @@ impl ExportEncoder {
     }
 
     /// Writes what comes before the first value into `out`.
-    pub fn begin(&mut self, out: &mut Vec<u8>) {
+    pub(crate) fn begin(&mut self, out: &mut Vec<u8>) {
         let names = self.columns.names();
         match &mut self.writer {
             Writer::Json(_) => out.push(b'['),
@@ -394,7 +394,7 @@ impl ExportEncoder {
     }
 
     /// Writes the next Record into `out`.
-    pub fn value(&mut self, record: &Exported<'_>, out: &mut Vec<u8>) {
+    pub(crate) fn value(&mut self, record: &Exported<'_>, out: &mut Vec<u8>) {
         let marked = record.marked();
         let json = marked.as_ref();
         match &mut self.writer {
@@ -424,7 +424,7 @@ impl ExportEncoder {
     }
 
     /// Writes what comes after the last value into `out`.
-    pub fn end(&mut self, out: &mut Vec<u8>) {
+    pub(crate) fn end(&mut self, out: &mut Vec<u8>) {
         match &mut self.writer {
             Writer::Json(indent) => {
                 if *indent > 0 && self.values > 0 {
@@ -444,7 +444,7 @@ impl ExportEncoder {
 
     /// How many values it wrote.
     #[must_use]
-    pub fn values(&self) -> u64 {
+    pub(crate) fn values(&self) -> u64 {
         self.values
     }
 }

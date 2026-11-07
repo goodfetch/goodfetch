@@ -20,7 +20,9 @@
 mod declaration;
 mod encoding;
 mod export;
+mod open;
 mod page;
+mod pipeline;
 mod reader;
 mod records;
 mod rejected_records;
@@ -32,13 +34,10 @@ use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Declarations, Refused, counted_validator};
-pub use encoding::{
-    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, ParquetCodec,
-    WALL_FIELD, csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
-};
-pub use records::{
-    Checked, CommittedText, Committing, Query, commit, last_number, read, read_values,
-};
+pub use encoding::ExportOptions;
+pub use open::open_run;
+pub use pipeline::write_export;
+pub use records::{Checked, Committing, Query, commit, read};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
 pub use run_tables::{RUN_FILE_TABLES, RunFileTable};

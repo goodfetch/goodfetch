@@ -2,8 +2,8 @@
 //! declares `books`, commits three Records through the Datasets' own
 //! commit at ADR 0059's test `Clock` start, the shared Unicode record the
 //! second and the third read past a paywall, in a run file in memory, then
-//! writes their Export in each format through the encoder `run.export`
-//! uses, `books.json`, `books.jsonl`, `books.csv`, `books.xlsx`,
+//! writes their Export in each format through `run.export`'s pipeline,
+//! `books.json`, `books.jsonl`, `books.csv`, `books.xlsx`,
 //! `books.html`, `books.md`, `books.xml`, `books.parquet`, `books.avro`,
 //! `books.arrow`, `books.rss` and `books.atom`, into the folder given as
 //! the only argument. `xtask compat write` runs it.
@@ -14,14 +14,11 @@
 
 use std::path::{Path, PathBuf};
 
-use goodfetch_dataset::{
-    Columns, CommittedText, Committing, Datasets, ExportEncoder, ExportOptions, Exported, Query,
-    TABLES, commit, read_values,
-};
+use goodfetch_dataset::{Committing, Datasets, ExportOptions, TABLES, commit, write_export};
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
-use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
 use goodfetch_protocol::foxhound::provenance::{RecordProvenance, WallKind, WallMarker};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::unicode_record;
@@ -41,8 +38,8 @@ fn main() {
     write(&output, &committed);
 }
 
-/// The three Records, committed and read back as an Export reads them.
-fn committed() -> Vec<CommittedText> {
+/// A run file in memory holding the three Records, committed.
+fn committed() -> Connection {
     let connection = Connection::open_in_memory().expect("invariant: SQLite opens in memory");
     for statement in TABLES.statements {
         connection
@@ -115,31 +112,12 @@ fn committed() -> Vec<CommittedText> {
         )
         .expect("invariant: each Record commits");
     }
-    read_values(
-        &connection,
-        Query {
-            dataset: "books",
-            after: 0,
-            through: None,
-            wall: None,
-        },
-        usize::MAX,
-    )
-    .expect("invariant: the Records read back")
+    connection
 }
 
-/// Writes the Export of `committed` in each format into `output`.
-fn write(output: &Path, committed: &[CommittedText]) {
-    let options = ExportOptions::of("books");
-    let records: Vec<Exported<'_>> = committed
-        .iter()
-        .map(|record| Exported {
-            number: record.number,
-            value: &record.value,
-            wall: record.wall.as_deref(),
-            committed_at: &record.committed_at,
-        })
-        .collect();
+/// Writes the Export of `books` in the run file `committed` in each
+/// format into `output`.
+fn write(output: &Path, committed: &Connection) {
     for (format, name) in [
         (ExportFormat::Json, "books.json"),
         (ExportFormat::Jsonl, "books.jsonl"),
@@ -154,19 +132,14 @@ fn write(output: &Path, committed: &[CommittedText]) {
         (ExportFormat::Rss, "books.rss"),
         (ExportFormat::Atom, "books.atom"),
     ] {
-        let mut columns = Columns::new(options.nested(format));
-        if format.is_table() {
-            for record in &records {
-                columns.see(&record.marked());
-            }
-        }
-        let mut encoder = ExportEncoder::new(format, &options, columns);
-        let mut bytes = Vec::new();
-        encoder.begin(&mut bytes);
-        for record in &records {
-            encoder.value(record, &mut bytes);
-        }
-        encoder.end(&mut bytes);
+        let bytes = write_export(
+            committed,
+            "books",
+            format,
+            ExportOptions::of("books"),
+            ExportCompression::None,
+        )
+        .expect("invariant: the Records read back");
         std::fs::write(output.join(name), bytes).expect("invariant: the output folder is writable");
     }
 }

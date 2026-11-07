@@ -89,11 +89,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
         product_version: ProductVersion::parse("1.4.0").unwrap(),
         channel: Channel::CratesIo,
     };
-    let composition = goodfetch_collie::composition_with(tiers.clone())
-        .with(goodfetch_frontier::contribution())
-        .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
-        .with(goodfetch_crawl::contribution(tiers));
+    let composition = goodfetch_foxhound::composition_with(tiers);
     let engine = Engine::new(identity, &composition).unwrap();
     goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(start);

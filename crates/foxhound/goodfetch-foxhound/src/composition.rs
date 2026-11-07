@@ -18,7 +18,23 @@ use crate::sample;
 /// assert!(composition.operations().any(|operation| operation == "sample.crawl"));
 /// ```
 pub fn composition() -> Composition {
-    let tiers = FetchTiers::new();
+    composition_with(FetchTiers::new())
+}
+
+/// Foxhound's composition on the fetch tiers `tiers`, such as a test's or
+/// a benchmark's that serve their pages from memory: what [`composition`]
+/// is, on the tiers it is given.
+///
+/// # Examples
+///
+/// ```
+/// use goodfetch_fetch_tier::FetchTiers;
+///
+/// let composition = goodfetch_foxhound::composition_with(FetchTiers::new());
+///
+/// assert!(composition.operations().any(|operation| operation == "crawl.start"));
+/// ```
+pub fn composition_with(tiers: FetchTiers) -> Composition {
     goodfetch_collie::composition_with(tiers.clone())
         .with(sample::contribution())
         .with(goodfetch_frontier::contribution())

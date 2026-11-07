@@ -1,8 +1,8 @@
 //! A Dataset's Export (ADRs 0103, 0116, 0119 and 0122): `run.export` reads
 //! the number of the Dataset's last committed Record when the call is
 //! made, then streams the Records up to it, in number order, a page at a
-//! time on the Run reader's read-only connection, through the encoder into
-//! the engine's keeping of an Export, which writes them whole into the
+//! time on the Run reader's read-only connection, through the Export's
+//! pipeline into the engine's keeping of an Export, which writes them whole into the
 //! Run's folder or not at all; so it serves a live Run and one that ended,
 //! and Records committed meanwhile are not in it. A table format reads the
 //! same Records twice: once for the columns, the fields every Record holds
@@ -35,15 +35,13 @@ use goodfetch_protocol::settings::{
 };
 use tokio::sync::mpsc;
 
-use crate::declaration::Declarations;
 use crate::encoding::{
-    Columns, Compressor, ExportEncoder, ExportOptions, Exported, Nested, ParquetCodec,
-    csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
+    ExportOptions, Nested, ParquetCodec, csv_delimiter, feed_field, json_indent, sheet_name,
+    xml_name,
 };
-use crate::records::{self, CommittedText, Query};
-
-/// The most Records one read of the run file takes.
-const PAGE: usize = 256;
+use crate::open::{open_dataset, open_run};
+use crate::pipeline::{Encoding, Pipeline};
+use crate::records::{self, Pages};
 
 /// How many encoded pages wait for the file's writer at most.
 const QUEUED: usize = 4;
@@ -105,16 +103,7 @@ impl Read for Parts {
 async fn export(params: RunExportParams, context: CallContext) -> Result<Export, CallError> {
     let options = options(&params, &context).await?;
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(params.run_id.clone())
-        .await
-        .map_err(failed)?;
-    reader
-        .read(Declarations::read)
-        .await
-        .map_err(failed)?
-        .readable(&params.dataset)?;
+    let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset.clone();
     let through = reader
         .read(move |connection| records::last_number(connection, &dataset))
@@ -127,39 +116,22 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         read: 0,
         ended: false,
     };
-    let mut columns = Columns::new(options.nested(params.format));
-    if params.format.is_table() {
-        let mut last = 0;
+    let compression = params.compression.unwrap_or_default();
+    let mut pipeline = Pipeline::new(params.format, options, compression);
+    if pipeline.reads_columns() {
+        let mut pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
         loop {
-            let page = page(&mut reader, &params.dataset, last, through, params.wall)
-                .await
-                .map_err(failed)?;
-            let full = page.len() == PAGE;
-            for record in page {
-                columns.see(&exported(&record).marked());
-                last = record.number;
-            }
+            let (page, full) = pages.next_values(&mut reader).await.map_err(failed)?;
+            pipeline.see(&page);
             if !full {
                 break;
             }
         }
     }
-    let encoder = ExportEncoder::new(params.format, &options, columns);
-    let compression = params.compression.unwrap_or_default();
-    let reading = Reading {
-        dataset: &params.dataset,
-        through,
-        wall: params.wall,
-    };
+    let pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
     let (kept, written) = tokio::join!(
         context.runs().keep_export(params.run_id.clone(), source),
-        encode(
-            &mut reader,
-            reading,
-            encoder,
-            Compressor::new(compression),
-            send
-        ),
+        encode(&mut reader, pages, pipeline.encoding(), send),
     );
     let (records, last_number) = written.map_err(failed)?;
     let kept = match kept {
@@ -184,88 +156,31 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     })
 }
 
-/// Which Records an Export reads: its Dataset's, through a number, with
-/// or without a Wall marker.
-#[derive(Clone, Copy)]
-struct Reading<'a> {
-    dataset: &'a str,
-    through: u64,
-    wall: Option<bool>,
-}
-
-/// A committed Record as the encoder takes it.
-fn exported(record: &CommittedText) -> Exported<'_> {
-    Exported {
-        number: record.number,
-        value: &record.value,
-        wall: record.wall.as_deref(),
-        committed_at: &record.committed_at,
-    }
-}
-
-/// Reads the Records `reading` takes, in number order, a page at a time,
-/// and sends their encoded bytes, compressed by `compressor`, to `send`,
-/// then the end; answers how many it encoded and the last one's number. It
-/// stops, sending no end, once the file's writer stops taking them.
+/// Reads the Records `pages` takes, a page at a time, and sends their
+/// compressed bytes as `encoding` writes them to `send`, then the end;
+/// answers how many it encoded and the last one's number. It stops,
+/// sending no end, once the file's writer stops taking them.
 async fn encode(
     reader: &mut RunReader,
-    reading: Reading<'_>,
-    mut encoder: ExportEncoder,
-    mut compressor: Compressor,
+    mut pages: Pages,
+    mut encoding: Encoding,
     send: mpsc::Sender<Part>,
 ) -> Result<(u64, u64), RunError> {
-    let mut bytes = Vec::new();
-    encoder.begin(&mut bytes);
-    let mut last = 0;
     loop {
-        let page = page(reader, reading.dataset, last, reading.through, reading.wall).await?;
-        let full = page.len() == PAGE;
-        for record in &page {
-            encoder.value(&exported(record), &mut bytes);
-            last = record.number;
-        }
+        let (page, full) = pages.next_values(reader).await?;
+        encoding.write(&page);
         if !full {
             break;
         }
-        let compressed = compressor.write(std::mem::take(&mut bytes));
-        if send.send(Part::Bytes(compressed)).await.is_err() {
-            return Ok((encoder.values(), last));
+        if send.send(Part::Bytes(encoding.take())).await.is_err() {
+            return Ok((encoding.records(), pages.after()));
         }
     }
-    encoder.end(&mut bytes);
-    let mut compressed = compressor.write(bytes);
-    compressed.append(&mut compressor.finish());
-    if send.send(Part::Bytes(compressed)).await.is_ok() {
+    let encoded = (encoding.records(), pages.after());
+    if send.send(Part::Bytes(encoding.finish())).await.is_ok() {
         let _ = send.send(Part::End).await;
     }
-    Ok((encoder.values(), last))
-}
-
-/// The next page of `dataset`'s Records after the number `after`, through
-/// the number `through`, with or without a Wall marker as `wall` says, as
-/// committed.
-async fn page(
-    reader: &mut RunReader,
-    dataset: &str,
-    after: u64,
-    through: u64,
-    wall: Option<bool>,
-) -> Result<Vec<CommittedText>, RunError> {
-    let dataset = dataset.to_owned();
-    reader
-        .read(move |connection| {
-            records::read_values(
-                connection,
-                Query {
-                    dataset: &dataset,
-                    after,
-                    through: Some(through),
-                    wall,
-                },
-                PAGE,
-            )
-        })
-        .await
+    Ok(encoded)
 }
 
 /// What the `export.*` settings of the call make of its format, resolved
@@ -386,12 +301,7 @@ async fn kept_export(
         return Err(no_export(export_id));
     };
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(run_id.clone())
-        .await
-        .map_err(failed)?;
-    reader.read(Declarations::read).await.map_err(failed)?;
+    open_run(context, RunId::clone(&run_id)).await?;
     let folder = context
         .runs()
         .folder(RunId::clone(&run_id))

@@ -8,4 +8,4 @@
 mod composition;
 mod sample;
 
-pub use composition::composition;
+pub use composition::{composition, composition_with};

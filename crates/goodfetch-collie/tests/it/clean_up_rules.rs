@@ -817,6 +817,60 @@ fn upstream_lists_refused_or_stalled_fall_back_to_the_embedded_part_with_a_warni
     );
 }
 
+/// A Filter lists' author is trusted only under the certificate
+/// authorities `tls.trusted_cas` lists for its own domain, as a site is
+/// (ADR 0042): with the stand-in's authority listed for the daily
+/// channel's registry alone, no list is asked for and a new Run holds to
+/// the embedded part, while with it listed for the lists' domain too, the
+/// Run holds to the lists it fetched.
+/// Covers: story:5-97, setting:tls.trusted_cas, setting:clean_up.update, setting:clean_up.lists
+#[test]
+fn upstream_lists_are_trusted_only_under_the_authorities_listed_for_their_own_domain() {
+    let (elsewhere, own) = (TestEnv::new(), TestEnv::new());
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    for list in [
+        "/easylist.txt",
+        "/easyprivacy.txt",
+        "/fanboy-annoyance.txt",
+        "/brave-unbreak.txt",
+    ] {
+        stand_in.serve(list, b"[Adblock Plus 2.0]\n! Expires: 4 days\n".to_vec());
+    }
+    let authority = elsewhere.folder().join("stand-in authority.pem");
+    stand_in.write_authority(&authority);
+    elsewhere.user_configuration(&format!(
+        "[settings.tls.trusted_cas]\n\"{REGISTRY}\" = ['{}']\n{}",
+        authority.display(),
+        lists_configuration(&stand_in)
+    ));
+    configure(&own, &stand_in, &lists_configuration(&stand_in));
+    let upstream = Value::Object(settings(None, json!({ "update": "upstream" })));
+
+    let refused = start_and_finish(&elsewhere, "elsewhere", &upstream);
+    let asked_while_refused = stand_in.asked();
+    let fetched = start_and_finish(&own, "own", &upstream);
+
+    assert_eq!(
+        (
+            asked_while_refused,
+            fallback_reasons(elsewhere.home(), "elsewhere"),
+            held(own.home(), "own")
+                .into_iter()
+                .map(|(source, _, _)| source)
+                .collect::<Vec<_>>(),
+            [refused, fetched].map(|report| {
+                warning_codes(&report).contains(&"clean_up_rules_fallback".to_owned())
+            }),
+        ),
+        (
+            Vec::<String>::new(),
+            vec![json!("unreachable")],
+            vec![json!("upstream")],
+            [true, false],
+        )
+    );
+}
+
 /// A Run whose version's files go from the Browser cache before its first
 /// page loads blocks with the embedded part, and Provenance and the Run
 /// report say so, naming the version it recorded.

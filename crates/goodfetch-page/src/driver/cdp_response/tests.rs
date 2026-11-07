@@ -11,7 +11,7 @@ use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::fetch::HeaderEntry;
 use rstest::rstest;
 
-use super::{cut_by, cut_though_finished, declared_length, paused_headers};
+use super::{cut_after_sent_on, cut_by, cut_though_finished, declared_length, paused_headers};
 
 fn entry(name: &str, value: &str) -> HeaderEntry {
     HeaderEntry {
@@ -72,6 +72,23 @@ fn a_failure_after_the_response_cuts_its_body_unless_cancelled_or_undecodable(
     #[case] cut: bool,
 ) {
     assert_eq!(cut_by(&NetError::of(error)), cut);
+}
+
+/// A network error after the engine read a response and sent it on to its
+/// own page cuts the body it read, the browser's cancel included: the
+/// browser cancels such a load when it turns the page's copy into a
+/// download. Only a content coding that failed to decode does not.
+#[rstest]
+#[case::length_mismatch("net::ERR_CONTENT_LENGTH_MISMATCH", true)]
+#[case::connection_reset("net::ERR_CONNECTION_RESET", true)]
+#[case::the_browsers_cancel("net::ERR_ABORTED", true)]
+#[case::decoding_failed("net::ERR_CONTENT_DECODING_FAILED", false)]
+#[case::zstd_window_too_big("net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG", false)]
+fn a_failure_after_a_response_sent_on_cuts_its_body_unless_undecodable(
+    #[case] error: &str,
+    #[case] cut: bool,
+) {
+    assert_eq!(cut_after_sent_on(&NetError::of(error)), cut);
 }
 
 /// A load from the network the browser finished with no bytes counted is

@@ -51,8 +51,8 @@ use goodfetch_protocol::page::{
 
 use crate::driver::PageDriver;
 use crate::driver::cdp_response::{
-    bodiless, coded, cut_by, cut_though_finished, declared_length, encoded_bytes, from_the_network,
-    paused_headers, paused_status, whole_body,
+    bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
+    from_the_network, paused_headers, paused_status, whole_body,
 };
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
@@ -535,7 +535,7 @@ impl<'a> Load<'a> {
     /// failed to decode, or a request with no response, fails.
     fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
-            Some((response, bytes)) if cut_by(error) => Ok(cut(response, &bytes)),
+            Some((response, bytes)) if cut_after_sent_on(error) => Ok(cut(response, &bytes)),
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
                 let relayed = self

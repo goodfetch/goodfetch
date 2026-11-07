@@ -19,7 +19,7 @@ use goodfetch_protocol::tls::{
 };
 use serde_json::json;
 
-use crate::audit::Origin;
+use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::engine_context::CALLER;
@@ -86,17 +86,14 @@ async fn accept(
                 "pinned_spki_sha256": pinned,
                 "accepted_spki_sha256": key.to_string(),
             });
-            if let Err(error) =
-                engine
-                    .audit()
-                    .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
-            {
-                tracing::warn!(%error, "the Audit log cannot record an accepted change");
-            }
+            engine
+                .audit()
+                .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
+                .map_err(Failed::Unrecorded)?;
             Ok(accepted.pin)
         })
         .await
-        .map_err(|error| refusal(error, "written"))
+        .map_err(|failed: Failed| failed.call_error("written"))
 }
 
 async fn forget(
@@ -120,19 +117,15 @@ async fn forget(
             let forgotten = engine.known_certificates().forget(CALLER, &removed)?;
             if forgotten {
                 let details = json!({ "host": removed });
-                if let Err(error) = engine.audit().record(
-                    &origin,
-                    &CERTIFICATE_PIN_FORGOTTEN,
-                    details,
-                    engine.now(),
-                ) {
-                    tracing::warn!(%error, "the Audit log cannot record a forgotten pin");
-                }
+                engine
+                    .audit()
+                    .record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, engine.now())
+                    .map_err(Failed::Unrecorded)?;
             }
             Ok(forgotten)
         })
         .await
-        .map_err(|error| refusal(error, "written"))?;
+        .map_err(|failed: Failed| failed.call_error("written"))?;
     Ok(CertsForgotten { host, forgotten })
 }
 
@@ -144,6 +137,34 @@ fn host_of(host: &str) -> Result<String, CallError> {
             format!("`{host}` names no host"),
         )
     })
+}
+
+/// Why a person's answer failed.
+enum Failed {
+    /// The store refused it, or could not be read or written.
+    Store(KnownCertificatesError),
+    /// It was made, but the Audit log could not record it.
+    Unrecorded(AuditError),
+}
+
+impl From<KnownCertificatesError> for Failed {
+    fn from(error: KnownCertificatesError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl Failed {
+    /// The failure a call answers when the store could not be `done`, or
+    /// its answer was not recorded.
+    fn call_error(self, done: &str) -> CallError {
+        match self {
+            Self::Store(error) => refusal(error, done),
+            Self::Unrecorded(error) => CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("the answer was made, but the Audit log cannot record it: {error}"),
+            ),
+        }
+    }
 }
 
 /// The failure a call answers when the store could not be `done`.

@@ -32,7 +32,7 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Value, json};
 
-use crate::audit::{AuditLog, Origin};
+use crate::audit::{AuditError, AuditLog, Origin};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::durable;
@@ -83,7 +83,7 @@ async fn explain(
     Ok(run.resolved().explain(&params.keys, files))
 }
 
-/// Why a person's entry wrote nothing.
+/// Why a person's entry failed: each but `Unrecorded` wrote nothing.
 enum Refused {
     /// A setting's refusal, such as an unknown key or an Operator policy's
     /// lock.
@@ -92,6 +92,8 @@ enum Refused {
     Conflict { read: String, current: String },
     /// A file could not be read or written.
     File(io::Error),
+    /// The entry was written, but the Audit log could not record it.
+    Unrecorded(AuditError),
 }
 
 impl From<SettingsError> for Refused {
@@ -142,12 +144,17 @@ impl Edit {
         }
     }
 
-    /// Records `details` under `kind` in the Audit log; a failure is
-    /// logged, since the write it records is made.
-    fn record(&self, kind: &goodfetch_protocol::catalog::SharedTypeValue, details: Value) {
-        if let Err(error) = self.audit.record(&self.origin, kind, details, self.now) {
-            tracing::warn!(%error, kind = kind.name, "the Audit log cannot record a settings write");
-        }
+    /// Records `details` under `kind` in the Audit log; its failure comes
+    /// after the write it records, which is made.
+    fn record(
+        &self,
+        kind: &goodfetch_protocol::catalog::SharedTypeValue,
+        details: Value,
+    ) -> Result<(), Refused> {
+        self.audit
+            .record(&self.origin, kind, details, self.now)
+            .map(drop)
+            .map_err(Refused::Unrecorded)
     }
 }
 
@@ -177,6 +184,10 @@ async fn blocking<T: Send + 'static>(
         Refused::File(error) => CallError::protocol(
             ProtocolFailure::InternalError,
             format!("the settings file cannot be read or written: {error}"),
+        ),
+        Refused::Unrecorded(error) => CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!("the settings file was written, but the Audit log cannot record it: {error}"),
         ),
     })
 }
@@ -268,7 +279,7 @@ async fn policy_write(
         edit.record(
             &OPERATOR_POLICY_WRITTEN,
             json!({ "digest_before": current, "digest_after": digest, "diff": diff }),
-        );
+        )?;
         Ok(PolicyWritten { digest, diff })
     })
     .await
@@ -318,7 +329,7 @@ async fn user_write(
             |_, key| value_of(&after, key),
         );
         replace(&edit.path, &written)?;
-        edit.record(&USER_CONFIGURATION_WRITTEN, json!({ "diff": diff }));
+        edit.record(&USER_CONFIGURATION_WRITTEN, json!({ "diff": diff }))?;
         Ok(UserConfigurationWritten { diff })
     })
     .await

@@ -29,7 +29,7 @@ use goodfetch_protocol::needs_you::{
 use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
 
-use crate::audit::{AuditLog, Origin};
+use crate::audit::{AuditError, AuditLog, Origin};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::durable;
@@ -120,7 +120,7 @@ enum Written {
     Added,
 }
 
-/// Why an answer wrote nothing.
+/// Why an answer failed: each but `Unrecorded` wrote nothing.
 enum Refused {
     /// A setting's refusal, such as an Operator policy's lock.
     Settings(SettingsError),
@@ -128,6 +128,17 @@ enum Refused {
     File(io::Error),
     /// The answer does not fit what the file lists, which this says.
     Params(String),
+    /// The answer was written, but the Audit log could not record it.
+    Unrecorded(AuditError),
+}
+
+/// The call error of an answer written that the Audit log could not
+/// record.
+fn unrecorded(error: &AuditError) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the answer was written, but the Audit log cannot record it: {error}"),
+    )
 }
 
 /// One answer's inputs, as its blocking write takes them.
@@ -193,6 +204,7 @@ async fn allow_consent_domain(
                 format!("user configuration cannot be written: {error}"),
             ));
         }
+        Err(Refused::Unrecorded(error)) => return Err(unrecorded(&error)),
     };
     Ok(ConsentDomainAllowed {
         domain,
@@ -263,9 +275,9 @@ fn write(answer: Answer) -> Result<Written, Refused> {
     resolve(&layers, product, product).map_err(Refused::Settings)?;
     replace(&path, &rewritten).map_err(Refused::File)?;
     let details = json!({ "domain": domain, "warning": warning });
-    if let Err(error) = audit.record(&origin, &CONSENT_DOMAIN_ALLOWED, details, now) {
-        tracing::warn!(%error, "the Audit log cannot record an allowed consent domain");
-    }
+    audit
+        .record(&origin, &CONSENT_DOMAIN_ALLOWED, details, now)
+        .map_err(Refused::Unrecorded)?;
     Ok(Written::Added)
 }
 

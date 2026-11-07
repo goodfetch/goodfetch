@@ -21,7 +21,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::consent_walls::audit_entries;
+use super::consent_walls::{audit_entries, unrecordable};
 use super::run::call;
 use super::{Client, attached_on, engine_with};
 
@@ -364,5 +364,43 @@ fn a_policy_write_from_an_sdk_is_refused() {
             file(&env, "operator-policy.toml").exists()
         ),
         (true, false)
+    );
+}
+
+/// A user-level value the Audit log cannot record is written all the same,
+/// and the write answers `internal_error` saying the entry is missing
+/// rather than succeeding unrecorded.
+///
+/// Covers: operation:config.user_write
+#[test]
+fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
+    let env = TestEnv::new();
+    let home = env.home().to_path_buf();
+
+    let written = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "console", "collie").await;
+            unrecordable(&home);
+            call(
+                &mut client,
+                1,
+                "config.user_write",
+                json!({ "changes": [{ "key": "timeout.navigation", "value": 45_000 }] }),
+            )
+            .await
+        },
+    );
+
+    assert_eq!(
+        (
+            &written["error"]["code"],
+            std::fs::read_to_string(file(&env, "configuration.toml"))
+                .unwrap()
+                .contains("navigation = 45000"),
+        ),
+        (&json!(-32603), true),
+        "{written}"
     );
 }

@@ -26,7 +26,7 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::consent_walls::{audit_entries, configure, opened, write};
+use super::consent_walls::{audit_entries, configure, opened, unrecordable, write};
 use super::disk_view::DiskView;
 use super::needs_you::{Seen, listed};
 use super::run::call;
@@ -516,6 +516,47 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
             audit_entries(&env).len()
         ),
         (Some(code), true, 0),
+        "{answer}"
+    );
+}
+
+/// A removal the Audit log cannot record is written all the same, since
+/// the person gave it, and answers `internal_error` saying the entry is
+/// missing rather than succeeding unrecorded.
+///
+/// Covers: operation:needs_you.remove_refetch_domain
+#[test]
+fn a_removal_the_audit_log_cannot_record_is_written_and_says_so() {
+    let env = TestEnv::new();
+    configure(
+        &env,
+        "wall.refetch_domains = [\"other.test\", \"walled.test\"]\n",
+    );
+    let home = env.home().to_path_buf();
+
+    let answer = attached_on(&stopping_engine(&env), &env, |mut client| async move {
+        opened(&mut client, "console").await;
+        let mut seen = Seen::default();
+        stopped(&mut client, &mut seen, None).await;
+        seen.until(&mut client, |items| items.len() == 1).await;
+        unrecordable(&home);
+        seen.call(
+            &mut client,
+            10,
+            "needs_you.remove_refetch_domain",
+            json!({ "domain": STOPPED }),
+        )
+        .await
+    });
+
+    assert_eq!(
+        (
+            &answer["error"]["code"],
+            std::fs::read_to_string(file(&env, "configuration.toml"))
+                .unwrap()
+                .contains("refetch_domains = [\"other.test\"]"),
+        ),
+        (&json!(-32603), true),
         "{answer}"
     );
 }

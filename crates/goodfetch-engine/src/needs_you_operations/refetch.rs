@@ -30,7 +30,7 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Value, json};
 
-use super::{Refused, consent_domain, replace};
+use super::{Refused, consent_domain, replace, unrecorded};
 use crate::audit::{AuditLog, Origin};
 use crate::call_error::CallError;
 use crate::composition::CallContext;
@@ -164,13 +164,14 @@ impl Machine {
         replace(path, &rewritten).map_err(Refused::File)
     }
 
-    /// Records the answer `kind` with `details`, from `layer`.
+    /// Records the answer `kind` with `details`, from `layer`; its failure
+    /// comes after the write it records, which is made.
     fn record(
         &self,
         kind: &goodfetch_protocol::catalog::SharedTypeValue,
         layer: SettingsLayer,
         details: Value,
-    ) {
+    ) -> Result<(), Refused> {
         let origin = Origin {
             actor: Actor::Person {
                 name: self.person.clone(),
@@ -179,9 +180,10 @@ impl Machine {
             layer: Some(layer),
             run_id: None,
         };
-        if let Err(error) = self.audit.record(&origin, kind, details, self.now) {
-            tracing::warn!(%error, kind = kind.name, "the Audit log cannot record a person's answer");
-        }
+        self.audit
+            .record(&origin, kind, details, self.now)
+            .map(drop)
+            .map_err(Refused::Unrecorded)
     }
 }
 
@@ -197,6 +199,7 @@ fn refused(refused: Refused, context: &CallContext) -> CallError {
             format!("a settings file cannot be written: {error}"),
         ),
         Refused::Params(message) => CallError::protocol(ProtocolFailure::InvalidParams, message),
+        Refused::Unrecorded(error) => unrecorded(&error),
     }
 }
 
@@ -284,7 +287,7 @@ fn remove(
         &REFETCH_DOMAIN_REMOVED,
         listing.layer,
         json!({ "domain": domain, "domains": domains }),
-    );
+    )?;
     Ok(RefetchDomainRemoved {
         domain: domain.to_owned(),
         removed: true,
@@ -346,7 +349,7 @@ fn deny(machine: &Machine, domain: String, reason: String) -> Result<WallDomainD
         &WALL_DOMAIN_DENIED,
         layer,
         json!({ "domain": domain, "reason": reason }),
-    );
+    )?;
     Ok(WallDomainDenied {
         domain,
         added: true,

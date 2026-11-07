@@ -576,7 +576,7 @@ impl SignInDriver {
 impl Inner {
     /// Wall time now.
     fn now(&self) -> Timestamp {
-        Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
+        self.clock.timestamp()
     }
 
     /// Counts an attempt to sign in from `from`: whether the address may

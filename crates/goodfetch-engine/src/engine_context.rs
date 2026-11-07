@@ -95,7 +95,7 @@ impl EngineContext {
 
     /// The wall time now, as the Audit log and the Usage ledger record it.
     pub(crate) fn now(&self) -> Timestamp {
-        Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
+        self.clock.timestamp()
     }
 
     /// The engine's settings, which each Run resolves its own under.

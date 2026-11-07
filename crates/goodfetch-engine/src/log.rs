@@ -381,8 +381,7 @@ pub struct ClockTime(pub Clock);
 
 impl FormatTime for ClockTime {
     fn format_time(&self, writer: &mut Writer<'_>) -> fmt::Result {
-        let now = jiff::Timestamp::try_from(self.0.wall()).map_err(|_| fmt::Error)?;
-        write!(writer, "{now}")
+        write!(writer, "{}", self.0.timestamp())
     }
 }
 

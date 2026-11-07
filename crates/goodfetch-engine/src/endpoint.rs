@@ -20,7 +20,6 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED};
-use jiff::Timestamp;
 use serde_json::json;
 use subtle::ConstantTimeEq as _;
 
@@ -101,7 +100,7 @@ impl Refusals {
     pub async fn refused(&self, listener: &'static str, reason: &'static str) {
         tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a listener refused an attempt");
         let audit = self.audit.clone();
-        let now = Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH);
+        let now = self.clock.timestamp();
         self.owner
             .blocking(move || {
                 let origin = Origin {

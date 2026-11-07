@@ -45,7 +45,6 @@ use goodfetch_protocol::secrets::{
     SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
 };
 use goodfetch_protocol::settings::SettingsLayer;
-use jiff::Timestamp;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
 use subtle::ConstantTimeEq as _;
@@ -885,8 +884,7 @@ impl RunSecrets {
             "reference": reference.as_str(),
             "domain": purpose.domain,
         });
-        let now =
-            Timestamp::try_from(self.0.secrets.0.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH);
+        let now = self.0.secrets.0.clock.timestamp();
         self.0
             .secrets
             .0

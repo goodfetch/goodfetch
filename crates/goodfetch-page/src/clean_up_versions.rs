@@ -488,7 +488,7 @@ fn readable_manifest(files: &[(String, Vec<u8>)]) -> Result<CleanUpRulesManifest
 
 /// Wall time now on `clock`.
 fn now_of(clock: Clock) -> jiff::Timestamp {
-    jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+    clock.timestamp()
 }
 
 /// `fetching`, ended as [`Unobtained::TimedOut`] once `limit` passed on

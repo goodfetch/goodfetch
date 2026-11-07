@@ -467,6 +467,6 @@ impl PinBook {
 
     /// Now, on the book's clock.
     fn now(&self) -> Timestamp {
-        Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
+        self.clock.timestamp()
     }
 }

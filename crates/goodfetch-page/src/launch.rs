@@ -125,7 +125,7 @@ async fn executable(
                     },
                 )
             })?;
-            let now = jiff::Timestamp::try_from(run.clock().wall()).unwrap_or_default();
+            let now = run.clock().timestamp();
             let prepared = cache
                 .prepare(
                     pinned,

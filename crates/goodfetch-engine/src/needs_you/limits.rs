@@ -42,8 +42,7 @@ impl Primitives for RunsStopped {
         let path = context.run_index.clone();
         let version = context.version.clone();
         let ledger = context.ledger.clone();
-        let now = Timestamp::try_from(context.clock.wall())
-            .expect("invariant: the clock reads a time jiff can hold");
+        let now = context.clock.timestamp();
         Box::pin(async move {
             context
                 .blocking(move || {

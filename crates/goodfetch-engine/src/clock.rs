@@ -4,9 +4,15 @@
 //! [`Clock::paused`], runs on Tokio's paused clock, wall time being a fixed
 //! start plus the time the paused clock advanced, so the two never
 //! disagree. Rules that depend on time take a reading as an argument.
+//! Wall time is written in two forms: a timestamp at the clock's own
+//! precision, as the Audit log, the Usage ledger and the known certificates
+//! record it, and a point in time to the millisecond, as a Run and "Needs
+//! you" write theirs; both are RFC 3339 in UTC.
 
 use std::time::{Duration, SystemTime};
 
+use goodfetch_protocol::run::PointInTime;
+use jiff::Timestamp;
 use tokio::time::Instant;
 
 /// Where the engine reads time.
@@ -54,6 +60,35 @@ impl Clock {
         }
     }
 
+    /// Wall time as a timestamp, at the clock's own precision.
+    ///
+    /// # Panics
+    ///
+    /// When the wall time is outside the years 1 to 9999, which no OS
+    /// clock reads.
+    pub fn timestamp(&self) -> Timestamp {
+        timestamp(self.wall())
+    }
+
+    /// Wall time as a point in time, to the millisecond (ADR 0102).
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::timestamp`].
+    pub fn point_in_time(&self) -> PointInTime {
+        to_the_millisecond(self.timestamp())
+    }
+
+    /// The wall time `wait` from now as a point in time, to the
+    /// millisecond, such as when a domain is next admitted.
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::timestamp`].
+    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+        to_the_millisecond(timestamp(self.wall() + wait))
+    }
+
     /// Monotonic time, which only goes up.
     pub fn now(&self) -> Instant {
         monotonic()
@@ -76,6 +111,14 @@ impl Clock {
     pub async fn sleep(&self, duration: Duration) {
         self.sleep_until(self.now() + duration).await;
     }
+}
+
+fn timestamp(wall: SystemTime) -> Timestamp {
+    Timestamp::try_from(wall).expect("invariant: the clock reads a time jiff can hold")
+}
+
+fn to_the_millisecond(at: Timestamp) -> PointInTime {
+    PointInTime::from_rfc3339(at.round(jiff::Unit::Millisecond).unwrap_or(at).to_string())
 }
 
 fn monotonic() -> Instant {

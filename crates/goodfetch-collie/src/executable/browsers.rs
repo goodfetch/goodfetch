@@ -107,8 +107,7 @@ fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human
 
 /// The time the command runs at, on the engine's Clock.
 fn now(clock: Clock) -> jiff::Timestamp {
-    jiff::Timestamp::try_from(clock.wall())
-        .expect("invariant: the system clock reads a representable time")
+    clock.timestamp()
 }
 
 fn runtime() -> tokio::runtime::Runtime {

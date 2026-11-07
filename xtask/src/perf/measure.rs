@@ -11,7 +11,9 @@
 //!   head's Console build when its Collie executable embeds one, and builds the
 //!   head's selected bench targets and every bench target the base has in a
 //!   selected crate, into the one target folder, so the base's dependencies
-//!   come from the same cache;
+//!   come from the same cache. The base's build and the head's run at the same
+//!   time, each with the commands, folders and order it would have alone, so
+//!   their binaries are the ones a build of one after the other makes;
 //! - **run**, under the deny: runs the base targets with
 //!   `--save-baseline=base`, then the head targets with `--baseline=base`,
 //!   then twenty more runs of each head target holding a benchmark the base
@@ -32,20 +34,26 @@
 //! `.size-limit.json`, so its figures come from this job and this runner.
 #![expect(
     clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
+    reason = "xtask is synchronous; the blocking-process, blocking-fs and thread bans target async crates (STYLE.md)"
+)]
+#![expect(
+    clippy::disallowed_types,
+    reason = "xtask is no engine crate loom models (ADR 0060): the two builds share their stop flag through std's atomics"
 )]
 
 use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::{BufRead as _, BufReader, Read};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::metadata;
+use crate::{metadata, output};
 
 use super::budget;
 use super::gungraun;
@@ -172,44 +180,59 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
             })
             .collect()
     };
-    build_side(
-        cargo,
-        root,
-        &Side {
-            name: "base",
-            tree: &tree,
-            target_directory: &target_directory.join(BASE_TARGET),
-        },
-        &base_targets,
-    )?;
-    let reference = reference
-        .map(|commit| -> Result<Reference> {
-            let tree = reference_tree(root);
-            check_out(root, &tree, &commit)?;
-            let has = bench_targets(cargo, &tree)?;
-            let targets: Vec<String> = targets
-                .iter()
-                .filter(|target| has.contains(*target))
-                .cloned()
-                .collect();
+    // The head's Console and the base's list of targets are ready above, so
+    // the base's build (then the reference's) and the head's run at the same
+    // time: each side runs its own commands, in its own folder and target
+    // folder, in the order it ran them alone, so only their overlap is new.
+    let (reference, ()) = at_once(
+        |builds| {
             build_side(
                 cargo,
                 root,
+                builds,
                 &Side {
-                    name: "reference",
+                    name: "base",
                     tree: &tree,
-                    target_directory: &target_directory.join(REFERENCE_TARGET),
+                    target_directory: &target_directory.join(BASE_TARGET),
                 },
-                &targets,
+                &base_targets,
             )?;
-            Ok(Reference { commit, targets })
-        })
-        .transpose()?;
-    for target in targets {
-        cargo_bench(cargo, root, &target_directory, target)
-            .arg("--no-run")
-            .status_checked(&format!("building the head's {target}"))?;
-    }
+            reference
+                .map(|commit| -> Result<Reference> {
+                    let tree = reference_tree(root);
+                    check_out(root, &tree, &commit)?;
+                    let has = bench_targets(cargo, &tree)?;
+                    let targets: Vec<String> = targets
+                        .iter()
+                        .filter(|target| has.contains(*target))
+                        .cloned()
+                        .collect();
+                    build_side(
+                        cargo,
+                        root,
+                        builds,
+                        &Side {
+                            name: "reference",
+                            tree: &tree,
+                            target_directory: &target_directory.join(REFERENCE_TARGET),
+                        },
+                        &targets,
+                    )?;
+                    Ok(Reference { commit, targets })
+                })
+                .transpose()
+        },
+        |builds| {
+            for target in targets {
+                builds.run(
+                    "head",
+                    cargo_bench(cargo, root, &target_directory, target).arg("--no-run"),
+                    &format!("building the head's {target}"),
+                )?;
+            }
+            Ok(())
+        },
+    )?;
     let plan = Plan {
         base: commit,
         head_targets: targets.to_vec(),
@@ -269,21 +292,132 @@ struct Side<'a> {
 
 /// Builds `side`'s Console and `targets`. The head's Console is built first:
 /// a side with no `.size-limit.json` is lent it.
-fn build_side(cargo: &OsStr, root: &Path, side: &Side<'_>, targets: &[String]) -> Result<()> {
+fn build_side(
+    cargo: &OsStr,
+    root: &Path,
+    builds: &AtOnce,
+    side: &Side<'_>,
+    targets: &[String],
+) -> Result<()> {
     if side.tree.join(SIZE_LIMIT_CONFIG).is_file() {
         crate::console::install(side.tree)?;
         crate::console::build(side.tree)?;
     }
     if !targets.is_empty() {
-        cargo_command(cargo, side.tree, side.target_directory)
-            .args(["fetch", "--locked"])
-            .status_checked(&format!("cargo fetch in the {}", side.name))?;
+        builds.run(
+            side.name,
+            cargo_command(cargo, side.tree, side.target_directory).args(["fetch", "--locked"]),
+            &format!("cargo fetch in the {}", side.name),
+        )?;
         crate::console::lend_build(root, side.tree)?;
     }
     for target in targets {
-        cargo_bench(cargo, side.tree, side.target_directory, target)
-            .arg("--no-run")
-            .status_checked(&format!("building the {}'s {target}", side.name))?;
+        builds.run(
+            side.name,
+            cargo_bench(cargo, side.tree, side.target_directory, target).arg("--no-run"),
+            &format!("building the {}'s {target}", side.name),
+        )?;
+    }
+    Ok(())
+}
+
+/// Runs the base's build and the head's at the same time, the base's on a
+/// thread of its own, and returns what each returned. Each starts its
+/// commands through the [`AtOnce`] it is given. A failure is returned as it
+/// stands; when both builds fail, both failures are.
+fn at_once<B: Send, H>(
+    base: impl FnOnce(&AtOnce) -> Result<B> + Send,
+    head: impl FnOnce(&AtOnce) -> Result<H>,
+) -> Result<(B, H)> {
+    let builds = AtOnce::default();
+    let (base, head) = std::thread::scope(|scope| {
+        let base = scope.spawn(|| builds.track(base(&builds)));
+        let head = builds.track(head(&builds));
+        let base = base
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        (base, head)
+    });
+    match (base, head) {
+        (Ok(base), Ok(head)) => Ok((base, head)),
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+        (Err(base), Err(head)) if head.is::<Stopped>() => Err(base),
+        (Err(base), Err(head)) if base.is::<Stopped>() => Err(head),
+        (Err(base), Err(head)) => Err(anyhow!("both builds failed:\n{base:#}\n{head:#}")),
+    }
+}
+
+/// The builds [`at_once`] runs side by side. Each line a command writes goes
+/// out with its side's name before it, so the two builds' lines stay apart
+/// in one log, and once either build has failed the other starts no further
+/// command.
+#[derive(Default)]
+struct AtOnce {
+    failed: AtomicBool,
+}
+
+/// What a command returns instead of starting, once the other build failed.
+#[derive(Debug)]
+struct Stopped;
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("stopped: the other build failed")
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+impl AtOnce {
+    /// Notes a build's failure, which stops the other build at its next
+    /// command.
+    fn track<T>(&self, result: Result<T>) -> Result<T> {
+        if result.as_ref().is_err_and(|error| !error.is::<Stopped>()) {
+            self.failed.store(true, Ordering::SeqCst);
+        }
+        result
+    }
+
+    /// Runs `command` for `side`, writing each line of its stdout and stderr
+    /// as `[side] <line>` to the same stream, unless the other build failed.
+    fn run(&self, side: &str, command: &mut Command, what: &str) -> Result<()> {
+        if self.failed.load(Ordering::SeqCst) {
+            return Err(Stopped.into());
+        }
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("{what}: starting"))?;
+        let stdout = child.stdout.take().expect("invariant: stdout is piped");
+        let stderr = child.stderr.take().expect("invariant: stderr is piped");
+        let (relayed_stdout, relayed_stderr) = std::thread::scope(|scope| {
+            let relayed_stdout = scope.spawn(|| relay(stdout, side, output::line));
+            let relayed_stderr = relay(stderr, side, output::error);
+            let relayed_stdout = relayed_stdout
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            (relayed_stdout, relayed_stderr)
+        });
+        let status = child.wait().with_context(|| format!("{what}: waiting"))?;
+        relayed_stdout.with_context(|| format!("{what}: reading its stdout"))?;
+        relayed_stderr.with_context(|| format!("{what}: reading its stderr"))?;
+        if !status.success() {
+            bail!("{what} failed with {status}");
+        }
+        Ok(())
+    }
+}
+
+/// Writes each line `from` gives as `[side] <line>` through `write`, until
+/// `from` ends.
+fn relay(from: impl Read, side: &str, write: fn(&str)) -> std::io::Result<()> {
+    let mut from = BufReader::new(from);
+    let mut line = Vec::new();
+    while from.read_until(b'\n', &mut line)? > 0 {
+        let text = String::from_utf8_lossy(&line);
+        write(&format!("[{side}] {}", text.trim_end_matches(['\n', '\r'])));
+        line.clear();
     }
     Ok(())
 }
@@ -687,3 +821,6 @@ fn git(root: &Path, args: &[&str], operands: &[&str]) -> Result<String> {
     }
     String::from_utf8(output.stdout).context("reading git's output")
 }
+
+#[cfg(test)]
+mod tests;

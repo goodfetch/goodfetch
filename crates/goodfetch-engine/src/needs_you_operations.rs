@@ -148,7 +148,7 @@ async fn allow_consent_domain(
     let (answered, shown) = (domain.clone(), warning.clone());
     let engine = context.engine();
     let added = match Arc::clone(engine.owner())
-        .blocking(move || allow(&editor, answered, shown))
+        .blocking(move || allow(&editor, &answered, &shown))
         .await
     {
         Ok(added) => added,
@@ -181,7 +181,7 @@ async fn allow_consent_domain(
 /// it already, once the resolver accepts the file so changed under the
 /// Operator policy, and records it in the Audit log with `warning`; answers
 /// whether it was added. Blocking.
-fn allow(editor: &SettingsEditor, domain: String, warning: String) -> Result<bool, Refused> {
+fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, Refused> {
     editor.edit(|draft| {
         let layer = SettingsLayer::UserConfiguration;
         draft.machine()?;
@@ -191,10 +191,7 @@ fn allow(editor: &SettingsEditor, domain: String, warning: String) -> Result<boo
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if domains
-            .iter()
-            .any(|listed| listed.as_str() == Some(&domain))
-        {
+        if domains.iter().any(|listed| listed.as_str() == Some(domain)) {
             return Ok(Change::Kept(false));
         }
         domains.push(json!(domain));

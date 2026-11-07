@@ -7,19 +7,15 @@
 //! Operator policy with its digest, `config.policy_write` writes it only if
 //! that digest still holds, under the policy's lock file, so a hand edit or
 //! another write since the read is never lost, and `config.user_write`
-//! writes user-level values once the resolver accepts them. Each write
-//! replaces its file through a file renamed over it, keeps every other byte,
-//! and records each key's values before and after in the Audit log.
+//! writes user-level values once the resolver accepts them. Each write is
+//! an edit of the settings editor (`settings_editor`): it holds the
+//! policy's lock file, replaces its file through a file renamed over it,
+//! keeps every other byte, and records each key's values before and after
+//! in the Audit log.
 
-use std::fs::{File, OpenOptions};
 use std::io;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use goodfetch_protocol::audit::Actor;
-use goodfetch_protocol::catalog::{Product, ProtocolVersion};
-use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::formats::{Format, OPERATOR_POLICY, USER_CONFIGURATION};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::settings::edit::{
     CONFIG_POLICY_READ, CONFIG_POLICY_WRITE, CONFIG_USER_WRITE, OPERATOR_POLICY_WRITTEN,
@@ -32,19 +28,12 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Value, json};
 
-use crate::audit::{AuditError, AuditLog, Origin};
+use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
-use crate::durable;
 use crate::run::settings_error;
-use crate::settings::{
-    HostDefaults, Layers, Opening, Policy, SettingsError, Values, operator_policy, policy_version,
-    resolve, set, user_configuration,
-};
-
-/// The lock file beside the Operator policy, which each write holds from
-/// its digest's check to its rename.
-const POLICY_LOCK_FILE: &str = "operator-policy.lock";
+use crate::settings::{Opening, Policy, SettingsError, Values, operator_policy, policy_version};
+use crate::settings_editor::{self, Change, SettingsEditor};
 
 /// The `config.*` handlers.
 pub(crate) fn handlers() -> [Handler; 4] {
@@ -108,53 +97,13 @@ impl From<io::Error> for Refused {
     }
 }
 
-/// What a person's entry works with, in its blocking part.
-struct Edit {
-    path: PathBuf,
-    product: Product,
-    version: ProductVersion,
-    audit: AuditLog,
-    origin: Origin,
-    now: jiff::Timestamp,
-}
-
-impl Edit {
-    /// What an entry of `context` writing `layer` works with.
-    fn of(context: &CallContext, layer: SettingsLayer) -> Self {
-        let engine = context.engine();
-        let settings = engine.settings();
-        let files = settings.files();
-        Self {
-            path: match layer {
-                SettingsLayer::OperatorPolicy => files.operator_policy().to_owned(),
-                _ => files.user_configuration().to_owned(),
-            },
-            product: settings.product(),
-            version: context.identity().product_version.clone(),
-            audit: engine.audit().clone(),
-            origin: Origin {
-                actor: Actor::Person {
-                    name: context.person(),
-                },
-                surface: Some(context.surface()),
-                layer: Some(layer),
-                run_id: None,
-            },
-            now: engine.now(),
+impl From<settings_editor::Refused> for Refused {
+    fn from(refused: settings_editor::Refused) -> Self {
+        match refused {
+            settings_editor::Refused::Settings(error) => Self::Settings(error),
+            settings_editor::Refused::File(error) => Self::File(error),
+            settings_editor::Refused::Unrecorded(error) => Self::Unrecorded(error),
         }
-    }
-
-    /// Records `details` under `kind` in the Audit log; its failure comes
-    /// after the write it records, which is made.
-    fn record(
-        &self,
-        kind: &goodfetch_protocol::catalog::SharedTypeValue,
-        details: Value,
-    ) -> Result<(), Refused> {
-        self.audit
-            .record(&self.origin, kind, details, self.now)
-            .map(drop)
-            .map_err(Refused::Unrecorded)
     }
 }
 
@@ -196,15 +145,18 @@ async fn policy_read(
     _: PolicyReadParams,
     context: CallContext,
 ) -> Result<OperatorPolicyRead, CallError> {
-    let edit = Edit::of(&context, SettingsLayer::OperatorPolicy);
+    let settings = context.engine().settings();
+    let path = settings.files().operator_policy().to_owned();
+    let product = settings.product();
+    let version = context.identity().product_version.clone();
     blocking(&context, move || {
-        let text = read(&edit.path)?;
+        let text = settings_editor::read(&path)?;
         let policy = match &text {
-            Some(text) => operator_policy(text, edit.product, &edit.version)?,
+            Some(text) => operator_policy(text, product, &version)?,
             None => Policy::default(),
         };
         Ok(OperatorPolicyRead {
-            path: edit.path.display().to_string(),
+            path: path.display().to_string(),
             found: text.is_some(),
             digest: policy_version(text.as_deref().unwrap_or_default()),
             entries: entries(&policy),
@@ -217,70 +169,61 @@ async fn policy_write(
     params: PolicyWriteParams,
     context: CallContext,
 ) -> Result<PolicyWritten, CallError> {
-    let edit = Edit::of(&context, SettingsLayer::OperatorPolicy);
+    let editor = SettingsEditor::of(&context);
     blocking(&context, move || {
-        let _lock = lock(&edit.path)?;
-        let text = read(&edit.path)?;
-        let current = policy_version(text.as_deref().unwrap_or_default());
-        let text = text.unwrap_or_else(|| new_file(&OPERATOR_POLICY));
-        let applied = |text: String| -> Result<_, Refused> {
-            let before = operator_policy(&text, edit.product, &edit.version)?;
-            let mut written = text;
-            for change in &params.changes {
-                written = set(
-                    &written,
-                    change.table.as_str(),
-                    &change.key,
-                    &change.value,
-                    &OPERATOR_POLICY,
-                    &edit.version,
-                    added_in(&change.key),
-                )?;
-            }
-            let after = operator_policy(&written, edit.product, &edit.version)?;
-            Ok((before, written, after))
-        };
-        let stale = current != params.digest;
-        let (before, written, after) = match applied(text) {
-            Ok(applied) => applied,
-            Err(_) if stale => {
+        editor.edit(|draft| {
+            let layer = SettingsLayer::OperatorPolicy;
+            let current = policy_version(draft.found(layer)?.unwrap_or_default());
+            let stale = current != params.digest;
+            let applied = |draft: &mut settings_editor::Draft<'_>| {
+                let before = draft.operator_policy()?;
+                for change in &params.changes {
+                    draft.set(layer, change.table.as_str(), &change.key, &change.value)?;
+                }
+                let after = draft.operator_policy()?;
+                Ok::<_, settings_editor::Refused>((before, after))
+            };
+            let (before, after) = match applied(draft) {
+                Ok(applied) => applied,
+                Err(_) if stale => {
+                    return Err(Refused::Conflict {
+                        read: params.digest,
+                        current,
+                    });
+                }
+                Err(refused) => return Err(refused.into()),
+            };
+            let diff = diff(
+                params
+                    .changes
+                    .iter()
+                    .map(|change| (Some(change.table), &change.key)),
+                |table, key| table.and_then(|table| entry(&before, table, key)),
+                |table, key| table.and_then(|table| entry(&after, table, key)),
+            );
+            if stale {
+                // A write the file already holds, as when a Client resent it
+                // after its Connection dropped before the reply, was made:
+                // answered as written, the file left as it is (#874).
+                if entries(&after) == entries(&before) {
+                    return Ok(Change::Kept(PolicyWritten {
+                        digest: current,
+                        diff,
+                    }));
+                }
                 return Err(Refused::Conflict {
                     read: params.digest,
                     current,
                 });
             }
-            Err(refused) => return Err(refused),
-        };
-        let diff = diff(
-            params
-                .changes
-                .iter()
-                .map(|change| (Some(change.table), &change.key)),
-            |table, key| table.and_then(|table| entry(&before, table, key)),
-            |table, key| table.and_then(|table| entry(&after, table, key)),
-        );
-        if stale {
-            // A write the file already holds, as when a Client resent it
-            // after its Connection dropped before the reply, was made:
-            // answered as written, the file left as it is (#874).
-            if entries(&after) == entries(&before) {
-                return Ok(PolicyWritten {
-                    digest: current,
-                    diff,
-                });
-            }
-            return Err(Refused::Conflict {
-                read: params.digest,
-                current,
-            });
-        }
-        replace(&edit.path, &written)?;
-        let digest = policy_version(&written);
-        edit.record(
-            &OPERATOR_POLICY_WRITTEN,
-            json!({ "digest_before": current, "digest_after": digest, "diff": diff }),
-        )?;
-        Ok(PolicyWritten { digest, diff })
+            let digest = policy_version(draft.text(layer)?);
+            Ok(Change::Made {
+                details: json!({ "digest_before": current, "digest_after": digest, "diff": diff }),
+                answer: PolicyWritten { digest, diff },
+                layer,
+                kind: &OPERATOR_POLICY_WRITTEN,
+            })
+        })
     })
     .await
 }
@@ -289,57 +232,30 @@ async fn user_write(
     params: UserWriteParams,
     context: CallContext,
 ) -> Result<UserConfigurationWritten, CallError> {
-    let settings = context.engine().settings().clone();
-    let machine = settings
-        .machine()
-        .await
-        .map_err(|error| settings_error(&error, &context))?;
-    let host: HostDefaults = settings.host_defaults().await;
-    let edit = Edit::of(&context, SettingsLayer::UserConfiguration);
+    let editor = SettingsEditor::resolving(&context).await;
     blocking(&context, move || {
-        let layer = SettingsLayer::UserConfiguration;
-        let text = read(&edit.path)?.unwrap_or_else(|| new_file(&USER_CONFIGURATION));
-        let before = user_configuration(layer, &text, edit.product, &edit.version)?;
-        let mut written = text;
-        for change in &params.changes {
-            written = set(
-                &written,
-                "settings",
-                &change.key,
-                &change.value,
-                &USER_CONFIGURATION,
-                &edit.version,
-                added_in(&change.key),
-            )?;
-        }
-        let after = user_configuration(layer, &written, edit.product, &edit.version)?;
-        resolve(
-            &Layers {
-                host,
-                operator_policy: machine.operator_policy,
-                user_configuration: after.clone(),
-                ..Layers::default()
-            },
-            edit.product,
-            edit.product,
-        )?;
-        let diff = diff(
-            params.changes.iter().map(|change| (None, &change.key)),
-            |_, key| value_of(&before, key),
-            |_, key| value_of(&after, key),
-        );
-        replace(&edit.path, &written)?;
-        edit.record(&USER_CONFIGURATION_WRITTEN, json!({ "diff": diff }))?;
-        Ok(UserConfigurationWritten { diff })
+        editor.edit(|draft| {
+            let layer = SettingsLayer::UserConfiguration;
+            draft.machine()?;
+            let before = draft.user_configuration()?;
+            for change in &params.changes {
+                draft.set(layer, "settings", &change.key, &change.value)?;
+            }
+            let after = draft.user_configuration()?;
+            let diff = diff(
+                params.changes.iter().map(|change| (None, &change.key)),
+                |_, key| value_of(&before, key),
+                |_, key| value_of(&after, key),
+            );
+            Ok::<_, Refused>(Change::Made {
+                details: json!({ "diff": diff }),
+                answer: UserConfigurationWritten { diff },
+                layer,
+                kind: &USER_CONFIGURATION_WRITTEN,
+            })
+        })
     })
     .await
-}
-
-/// The protocol minor that added `key`, which a write raises its file's
-/// lowest minor to; an unknown key takes the first, and the file's read
-/// back refuses it with `setting_unknown`.
-fn added_in(key: &str) -> ProtocolVersion {
-    crate::settings::arrived_in(key).unwrap_or(ProtocolVersion { major: 0, minor: 1 })
 }
 
 /// Each changed key once, in the order first changed, with its values
@@ -414,49 +330,4 @@ fn entries(policy: &Policy) -> Vec<PolicyEntry> {
             })
         })
         .collect()
-}
-
-/// A new settings file of `format`: its version alone.
-fn new_file(format: &Format) -> String {
-    format!("version = \"{}\"\n", format.version)
-}
-
-/// The file at `path`'s text, or `None` when there is none. Blocking.
-fn read(path: &Path) -> io::Result<Option<String>> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the entries' file work runs under the engine's blocking policy"
-    )]
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
-/// The Operator policy's lock, beside the policy at `path`, held until it
-/// drops, so two writes never interleave their check and rename. Blocking.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn lock(path: &Path) -> io::Result<File> {
-    let folder = path.parent().unwrap_or(Path::new("."));
-    durable::create_folder(folder)?;
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(folder.join(POLICY_LOCK_FILE))?;
-    file.lock()?;
-    Ok(file)
-}
-
-/// Replaces the file at `path` with `text`, through a file renamed over
-/// it, so no reader sees half of one (ADR 0002). Blocking.
-fn replace(path: &Path, text: &str) -> io::Result<()> {
-    if let Some(folder) = path.parent() {
-        durable::create_folder(folder)?;
-    }
-    durable::replace(path, text.as_bytes())
 }

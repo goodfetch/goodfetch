@@ -83,6 +83,7 @@ pub mod sandbox_probe;
 pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
+mod settings_editor;
 mod sqlite_store;
 mod sqlite_wal;
 pub mod staging;

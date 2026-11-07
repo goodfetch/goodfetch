@@ -43,6 +43,7 @@ use crate::console;
 use crate::environment::Environment;
 use crate::output;
 use crate::perf::{self, Figure, Measured};
+use crate::products;
 
 use register::Limit;
 
@@ -81,7 +82,7 @@ struct ValgrindBenchmark {
 
 const B1: Family = Family {
     name: "B1",
-    package: "goodfetch-foxhound",
+    package: products::FOXHOUND.package,
     target: "counts",
     embeds_console: true,
     valgrind: None,

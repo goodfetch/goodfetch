@@ -58,6 +58,7 @@ mod output_scans;
 mod package_dependencies;
 mod perf;
 mod pinned;
+mod products;
 mod quarantine;
 mod rate;
 mod received_requests;

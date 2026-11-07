@@ -24,6 +24,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::features::CommandLines;
+use crate::products;
 
 /// The crate that reads the namespaces.
 const CLI_CRATE: &str = "crates/goodfetch-cli";
@@ -38,10 +39,6 @@ const NAMESPACES: &str = "crates/goodfetch-cli/generated/namespaces.rs";
 /// "foxhound": <tree>}`, each tree a command's `name` and the `commands`
 /// under it, hidden ones included.
 const COMMAND_LINES: &str = "crates/goodfetch-protocol/generated/command_lines.json";
-
-/// Collie's executable crate, whose `executable` module both Products'
-/// executables start from (ADR 0087).
-const COLLIE: &str = "crates/goodfetch-collie";
 
 /// The file the example writes into the folder it is given.
 const WRITTEN: &str = "command-lines.json";
@@ -81,7 +78,7 @@ impl Files {
     /// The files as the executables at `root` print them, or those `root`
     /// holds when it has no Collie's executable crate.
     pub(super) fn printed(cargo: &OsStr, root: &Path) -> Result<Self> {
-        if !root.join(COLLIE).is_dir() {
+        if !root.join(products::COLLIE.folder).is_dir() {
             return Ok(Self::committed(root));
         }
         let Both { collie, foxhound } = run_example(cargo, root)?;
@@ -135,7 +132,7 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
             "run",
             "--quiet",
             "--package",
-            "goodfetch-collie",
+            products::COLLIE.package,
             "--features",
             "executable",
             "--example",

@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::affected::{Job, RepoPath, Selection};
+use crate::products;
 
 /// A step of `just pre-merge all` that the gate records, declared in the
 /// order `ci/pre-merge.sh` starts them (`steps`): the checks that judge the
@@ -203,7 +204,7 @@ const GATE_INPUTS: [&str; 18] = [
     "proving-ground/fixtures",
     "test-support/fixtures",
     "chromium",
-    "crates/goodfetch-collie/src/pins.json",
+    concat!(products::collie_folder!(), "/src/pins.json"),
 ];
 
 /// The first changed path that is one of the gate's inputs.

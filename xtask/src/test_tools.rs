@@ -32,11 +32,12 @@ use serde::Deserialize;
 use crate::console;
 use crate::environment::Environment;
 use crate::metadata;
+use crate::products;
 
 /// Each executable a test may run: its binary's name and its manifest entry.
 const TOOLS: [(&str, &str); 7] = [
-    ("goodfetch-collie", "collie"),
-    ("goodfetch-foxhound", "foxhound"),
+    (products::COLLIE.package, "collie"),
+    (products::FOXHOUND.package, "foxhound"),
     ("goodfetch-proving-ground", "proving_ground"),
     ("goodfetch-test-env", "test_env"),
     ("goodfetch-scripted-engine", "scripted_engine"),
@@ -136,7 +137,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     // workspace's Console packages make first (ADR 0057).
     if binaries
         .iter()
-        .any(|binary| binary == "goodfetch-collie" || binary == "goodfetch-foxhound")
+        .any(|binary| products::is_executable(binary))
         && root.join(console::PACKAGE).join("package.json").is_file()
     {
         console::build(root)?;

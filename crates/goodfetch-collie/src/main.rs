@@ -6,7 +6,7 @@ mod console_build;
 
 use std::process::ExitCode;
 
-use goodfetch_collie::executable::{Start, main as start};
+use goodfetch_collie::executable::{OwnCommands, Start, main as start};
 use goodfetch_engine::heap::Counting;
 use goodfetch_protocol::catalog::Product;
 
@@ -26,6 +26,7 @@ fn main() -> ExitCode {
         // none, and never prints the age notice (ADR 0030).
         release_date: option_env!("GOODFETCH_RELEASE_DATE"),
         composition: console_build::composition,
+        commands: OwnCommands::COLLIE,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

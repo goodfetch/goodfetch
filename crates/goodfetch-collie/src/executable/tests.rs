@@ -10,14 +10,34 @@ use super::output::ColourChoice;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound_names;
 use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
 
+use super::generated::members;
 use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
-use super::{COLOR, command, command_line};
+use super::{COLOR, OwnCommands, command, command_line};
+
+/// Foxhound's catalog's generated commands, none written by hand: Foxhound's
+/// executable's command line but for its own commands, which Foxhound's
+/// crate holds and tests.
+const FOXHOUNDS_CATALOG: OwnCommands = OwnCommands {
+    commands: &[],
+    members: foxhounds_catalog_members,
+};
+
+fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {
+    members(group, Product::Foxhound, &[])
+}
+
+/// The commands `product`'s executable writes by hand, here.
+fn own(product: Product) -> OwnCommands {
+    match product {
+        Product::Collie => OwnCommands::COLLIE,
+        Product::Foxhound => FOXHOUNDS_CATALOG,
+    }
+}
 
 /// Every command path below `command`, each group before its commands,
 /// hidden ones included.
@@ -53,7 +73,7 @@ fn help(command: &clap::Command, path: &[String]) -> String {
 #[case::collie(Product::Collie)]
 #[case::foxhound(Product::Foxhound)]
 fn the_command_line_holds_no_clap_misconfiguration(#[case] product: Product) {
-    command(product).debug_assert();
+    command(product, own(product)).debug_assert();
 }
 
 /// A start builds no group's commands, hand-written or generated: clap
@@ -64,7 +84,7 @@ fn the_command_line_holds_no_clap_misconfiguration(#[case] product: Product) {
 #[case::collie(Product::Collie)]
 #[case::foxhound(Product::Foxhound)]
 fn a_start_builds_no_command_of_any_group(#[case] product: Product) {
-    let (command_line, _) = command_line(product);
+    let (command_line, _) = command_line(product, own(product));
 
     let built: Vec<(&str, Vec<&str>)> = command_line
         .get_subcommands()
@@ -83,7 +103,7 @@ fn a_start_builds_no_command_of_any_group(#[case] product: Product) {
 
 #[test]
 fn the_help_of_every_command_is_rendered_from_the_command_line() {
-    let command = command(Product::Collie);
+    let command = command(Product::Collie, OwnCommands::COLLIE);
 
     let tree =
         std::iter::once(Vec::new())
@@ -98,86 +118,6 @@ fn the_help_of_every_command_is_rendered_from_the_command_line() {
             });
 
     insta::assert_snapshot!("help_tree", tree);
-}
-
-/// Whether Foxhound's help `foxhounds` of the command path `path` shows
-/// Collie's help `collies` unchanged: each line of Collie's, in its order,
-/// its executable's name aside, and between them only the lines of a
-/// group's listing that name one of Foxhound's own commands of the group
-/// (`foxhound_names::COMMANDS`).
-fn shows_unchanged(collies: &str, foxhounds: &str, path: &[String]) -> bool {
-    // A group's list aligns its commands' help to its longest name, so a
-    // line is compared with its runs of spaces as one.
-    let words = |line: &str| line.split_whitespace().collect::<Vec<_>>().join(" ");
-    let foxhounds_own = |line: &String| {
-        line.split(' ').next().is_some_and(|name| {
-            let command = path
-                .iter()
-                .map(String::as_str)
-                .chain([name])
-                .collect::<Vec<_>>()
-                .join(".");
-            foxhound_names::COMMANDS.contains(&command.as_str())
-        })
-    };
-    let theirs: Vec<String> = foxhounds
-        .replace("goodfetch-foxhound", "goodfetch-collie")
-        .lines()
-        .map(words)
-        .filter(|line| !foxhounds_own(line))
-        .collect();
-    let ours: Vec<String> = collies.lines().map(words).collect();
-    theirs == ours
-}
-
-/// The containment check refuses a line Foxhound's help adds to a command
-/// Collie carries, such as an option of `run start` only Foxhound's
-/// executable has.
-#[test]
-fn the_containment_check_refuses_an_option_line_foxhound_adds_to_a_command_collie_carries() {
-    let (collie, foxhound) = (command(Product::Collie), command(Product::Foxhound));
-    let path = ["run".to_owned(), "start".to_owned()];
-    let foxhounds = help(&foxhound, &path);
-    let planted = foxhounds.replacen(
-        "Options:\n",
-        "Options:\n      --extra  An option only Foxhound's executable has\n",
-        1,
-    );
-    assert_ne!(planted, foxhounds, "the plant is in Foxhound's help");
-
-    assert!(!shows_unchanged(&help(&collie, &path), &planted, &path));
-}
-
-/// The containment check (ADRs 0090 and 0094): Foxhound's executable
-/// carries every command of Collie's unchanged, so each command path of
-/// Collie's renders the same help in Foxhound's, its executable's name
-/// aside, a group's listing Foxhound's own commands beside Collie's (`run
-/// outcomes` in `run`); the snapshot is Foxhound's whole help tree.
-///
-/// Covers: story:11-1130
-#[test]
-fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
-    let (collie, foxhound) = (command(Product::Collie), command(Product::Foxhound));
-
-    let changed: Vec<String> = paths(&collie)
-        .into_iter()
-        .filter(|path| !shows_unchanged(&help(&collie, path), &help(&foxhound, path), path))
-        .map(|path| path.join(" "))
-        .collect();
-
-    assert_eq!(changed, Vec::<String>::new());
-    let tree = std::iter::once(Vec::new()).chain(paths(&foxhound)).fold(
-        String::new(),
-        |mut tree, path| {
-            let words: Vec<&str> = std::iter::once("goodfetch-foxhound")
-                .chain(path.iter().map(String::as_str))
-                .chain(std::iter::once("--help"))
-                .collect();
-            let _ = writeln!(tree, "$ {}\n{}", words.join(" "), help(&foxhound, &path));
-            tree
-        },
-    );
-    insta::assert_snapshot!("help_tree_foxhound", tree);
 }
 
 /// `--color` is taken before the command, after a group and after a
@@ -198,7 +138,7 @@ fn color_is_taken_wherever_it_is_given(
     #[case] arguments: &[&str],
     #[case] expected: ColourChoice,
 ) {
-    let (command_line, _) = command_line(product);
+    let (command_line, _) = command_line(product, own(product));
 
     let matches = command_line
         .try_get_matches_from(std::iter::once("goodfetch").chain(arguments.iter().copied()))
@@ -236,7 +176,7 @@ fn no_flag_switches_certificate_verification_off(
         "ssl",
         "danger",
     ];
-    let command = command(product);
+    let command = command(product, own(product));
     let every = arguments(&command);
 
     let switches: Vec<String> = every

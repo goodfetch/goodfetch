@@ -18,6 +18,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Arg, ArgMatches, Command};
+use goodfetch_collie::executable::engine_choice::{self, Answer, CommandCall, Daemons, Next};
+use goodfetch_collie::executable::exit_codes;
+use goodfetch_collie::executable::generated::{Call, OwnCall, OwnCommand, parameter_help};
+use goodfetch_collie::executable::output::{self, Human};
 use goodfetch_engine::run_files::{SaveError, Saving};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation};
@@ -31,16 +35,21 @@ use goodfetch_protocol::page::CHUNK;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use super::Call;
-use crate::executable::engine_choice::{self, Answer, CommandCall, Daemons, Next};
-use crate::executable::exit_codes;
-use crate::executable::output::{self, Human};
+/// `run export <run> <dataset> --out <path|->`, written by hand in place of
+/// `run.export`'s generated command.
+pub(super) const COMMAND: OwnCommand = OwnCommand {
+    operation: OPERATION,
+    replaces: REPLACES,
+    about: None,
+    args,
+    read: read_flags,
+};
 
 /// The operation whose command this is.
-pub(super) const OPERATION: &str = "run.export";
+const OPERATION: &str = "run.export";
 
 /// The params its own flags give.
-pub(super) const REPLACES: &[&str] = &[DATASET];
+const REPLACES: &[&str] = &[DATASET];
 
 /// The operation that sends an Export's bytes.
 const EXPORT_STREAM: &str = "export.stream";
@@ -53,12 +62,8 @@ const OUT: &str = "out";
 
 /// `command` with the Dataset as its second positional argument, after the
 /// Run ID, and `--out`; `operation`'s params give the Dataset's help.
-pub(super) fn args(command: Command, operation: &Operation) -> Command {
-    let help = super::parameters(operation)
-        .into_iter()
-        .find(|parameter| parameter.name == DATASET)
-        .map(|parameter| parameter.help)
-        .unwrap_or_default();
+fn args(command: Command, operation: &Operation) -> Command {
+    let help = parameter_help(operation, DATASET);
     command
         .arg(
             Arg::new(DATASET)
@@ -96,15 +101,34 @@ fn out(text: &str) -> Result<Out, String> {
         .map_err(|error| format!("`{text}` is no path: {error}"))
 }
 
+/// Reads `run export`'s own flags from the parse `matches`, adding the
+/// Dataset it names to `params`.
+fn read_flags(matches: &ArgMatches, params: &mut Map<String, Value>) -> Box<dyn OwnCall> {
+    Box::new(Flags::read(matches, params))
+}
+
 /// What `run export`'s own flags gave beside its params.
-pub(super) struct Flags {
+struct Flags {
     /// `--out`.
     out: Out,
 }
 
+impl OwnCall for Flags {
+    fn run(
+        self: Box<Self>,
+        call: &Call,
+        engine: &Engine,
+        dependencies: Dependencies,
+        daemons: &dyn Daemons,
+        human: &Human,
+    ) -> ExitCode {
+        run(call, &self, engine, dependencies, daemons, human)
+    }
+}
+
 impl Flags {
     /// Reads the parse `matches`, adding the Dataset it names to `params`.
-    pub(super) fn read(matches: &ArgMatches, params: &mut Map<String, Value>) -> Self {
+    fn read(matches: &ArgMatches, params: &mut Map<String, Value>) -> Self {
         if let Some(dataset) = matches.get_one::<String>(DATASET) {
             params.insert(DATASET.to_owned(), Value::from(dataset.as_str()));
         }
@@ -122,7 +146,7 @@ enum Destination {
 
 /// Runs `call`, the command `run export`, whose own flags gave `flags`, on
 /// the engine its command line chooses, and answers its exit code.
-pub(super) fn run(
+fn run(
     call: &Call,
     flags: &Flags,
     engine: &Engine,
@@ -131,7 +155,7 @@ pub(super) fn run(
     human: &Human,
 ) -> ExitCode {
     let mut destination = match &flags.out {
-        Out::Stdout if call.json => {
+        Out::Stdout if call.json() => {
             human.failure(
                 "`--json` prints the Export on standard output, which `--out -` gives to its bytes: give `--out` a path",
                 &[],
@@ -144,7 +168,7 @@ pub(super) fn run(
             Err(error) => return call.fail(save_failed(error, path), human),
         },
     };
-    let stream = operations_of(call.product).find(|operation| operation.name == EXPORT_STREAM);
+    let stream = operations_of(call.product()).find(|operation| operation.name == EXPORT_STREAM);
     let mut export: Option<Value> = None;
     let mut next = |answer: &Value| -> Option<Next> {
         if export.is_some() {
@@ -193,9 +217,9 @@ pub(super) fn run(
         Some(1)
     };
     let command_call = CommandCall {
-        method: call.operation.name,
-        params: Value::Object(call.params.clone()),
-        cancellable: call.operation.cancellable,
+        method: call.operation().name,
+        params: Value::Object(call.params().clone()),
+        cancellable: call.operation().cancellable,
         follower: Some(&mut write),
         pager: Some(&mut next),
         input: None,
@@ -204,7 +228,7 @@ pub(super) fn run(
     let progress = human.progress("run export");
     let warn = |text: &str| human.warning(text);
     let reach = call.reach(daemons, &warn);
-    let answer = engine_choice::call(engine, dependencies, call.product, &reach, command_call);
+    let answer = engine_choice::call(engine, dependencies, call.product(), &reach, command_call);
     drop(progress);
     if let (Out::Stdout, false) = (&flags.out, matches!(answer, Answer::Interrupted(_))) {
         // The call stopped because stdout took no more: what the engine
@@ -226,7 +250,7 @@ pub(super) fn run(
         ),
         Answer::Error(error) => call.fail(error, human),
         Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        Answer::Unanswered(error) => output::fail(error, None, call.json, human),
+        Answer::Unanswered(error) => output::fail(error, None, call.json(), human),
         Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
 }

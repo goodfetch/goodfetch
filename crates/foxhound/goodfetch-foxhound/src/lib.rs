@@ -6,6 +6,8 @@
 #![warn(missing_docs)]
 
 mod composition;
+#[cfg(feature = "executable")]
+pub mod executable;
 mod sample;
 
 pub use composition::composition;

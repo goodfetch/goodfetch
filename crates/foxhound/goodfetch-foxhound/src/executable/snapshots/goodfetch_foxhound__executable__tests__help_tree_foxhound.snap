@@ -1,5 +1,5 @@
 ---
-source: crates/goodfetch-collie/src/executable/tests.rs
+source: crates/foxhound/goodfetch-foxhound/src/executable/tests.rs
 expression: tree
 ---
 $ goodfetch-foxhound --help

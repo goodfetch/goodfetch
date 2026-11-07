@@ -3,14 +3,14 @@
 //! the table of Foxhound's names read, and the namespaces of the commands
 //! Collie's executable generates from Foxhound's catalog, which holds
 //! Collie's, as the Rust constant in Collie's crate a start reads instead of
-//! walking the catalog. `xtask` builds no engine crate (ADR 0072's amendment of
-//! 2026-11-06): `xtask codegen` runs Collie's `command-lines` example, which
-//! gives what each executable's hidden `command-line` command prints, and
-//! commits it, and `--check` reads the committed files, so it starts no
-//! process for them. Each executable's tests check the committed files
-//! against what it prints. A workspace without Collie's executable crate,
-//! such as a test's fixture, keeps the files it holds, none when it holds
-//! none.
+//! walking the catalog. `xtask` builds no engine crate (ADR 0072's
+//! amendment of 2026-11-06): `xtask codegen` runs Foxhound's `command-lines`
+//! example, which gives what each executable's hidden `command-line`
+//! command prints, and commits it, and `--check` reads the committed files,
+//! so it starts no process for them. Each executable's tests check the
+//! committed files against what it prints. A workspace without Foxhound's
+//! executable crate, such as a test's fixture, keeps the files it holds,
+//! none when it holds none.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -25,6 +25,9 @@ use serde_json::{Value, json};
 
 use crate::features::CommandLines;
 
+/// Collie's crate, whose executable reads the namespaces.
+const COLLIE: &str = "crates/goodfetch-collie";
+
 /// Where Collie's crate's generated files live.
 pub(super) const COLLIE_FOLDER: &str = "crates/goodfetch-collie/generated";
 
@@ -36,9 +39,10 @@ const NAMESPACES: &str = "crates/goodfetch-collie/generated/namespaces.rs";
 /// under it, hidden ones included.
 const COMMAND_LINES: &str = "crates/goodfetch-protocol/generated/command_lines.json";
 
-/// Collie's executable crate, whose `executable` module both Products'
+/// Foxhound's executable crate, which holds Foxhound's own commands and
+/// depends on Collie's, whose `executable` module both Products'
 /// executables start from (ADR 0087).
-const COLLIE: &str = "crates/goodfetch-collie";
+const FOXHOUND: &str = "crates/foxhound/goodfetch-foxhound";
 
 /// The file the example writes into the folder it is given.
 const WRITTEN: &str = "command-lines.json";
@@ -76,9 +80,9 @@ impl Files {
     }
 
     /// The files as the executables at `root` print them, or those `root`
-    /// holds when it has no Collie's executable crate.
+    /// holds when it has no Foxhound's executable crate.
     pub(super) fn printed(cargo: &OsStr, root: &Path) -> Result<Self> {
-        if !root.join(COLLIE).is_dir() {
+        if !root.join(FOXHOUND).is_dir() {
             return Ok(Self::committed(root));
         }
         let Both { collie, foxhound } = run_example(cargo, root)?;
@@ -90,7 +94,12 @@ impl Files {
                 "collie": collie.command_line,
                 "foxhound": foxhound.command_line,
             }))?),
-            namespaces: Some(collie.namespaces.into_bytes()),
+            // A workspace without Collie's crate, such as a test's
+            // fixture, has no file of its namespaces.
+            namespaces: root
+                .join(COLLIE)
+                .is_dir()
+                .then(|| collie.namespaces.into_bytes()),
         })
     }
 
@@ -127,7 +136,7 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
             "run",
             "--quiet",
             "--package",
-            "goodfetch-collie",
+            "goodfetch-foxhound",
             "--features",
             "executable",
             "--example",
@@ -137,14 +146,14 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
         .arg(folder.path())
         .current_dir(root)
         .output()
-        .context("running goodfetch-collie's command-lines example")?;
+        .context("running goodfetch-foxhound's command-lines example")?;
     if !output.status.success() {
         bail!(
-            "goodfetch-collie's command-lines example failed: {}",
+            "goodfetch-foxhound's command-lines example failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
     let path = folder.path().join(WRITTEN);
     let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    serde_json::from_slice(&text).context("reading goodfetch-collie's command lines")
+    serde_json::from_slice(&text).context("reading goodfetch-foxhound's command lines")
 }

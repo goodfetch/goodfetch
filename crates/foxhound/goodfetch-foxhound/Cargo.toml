@@ -13,9 +13,15 @@ autobenches = false
 [features]
 # The executable's own dependencies (ADR 0094), with Collie's executable
 # entry, which Foxhound's starts from.
-executable = ["dep:mimalloc", "goodfetch-collie/executable"]
+# Its own commands, which take the command line's and the Export's
+# dependencies.
+executable = ["dep:clap", "dep:data-encoding", "dep:mimalloc", "dep:schemars", "dep:serde", "dep:serde_json", "goodfetch-collie/executable"]
 
 [dependencies]
+# Its own commands' flags (`crawl start`, `run export`).
+clap = { workspace = true, optional = true }
+# The bytes of the `$/chunk` notifications `run export --out` writes.
+data-encoding = { workspace = true, optional = true }
 goodfetch-collie.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
@@ -26,6 +32,10 @@ goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
 goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
+# The params' JSON Schemas `crawl start`'s flags take their values from.
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 goodfetch-workspace-hack.workspace = true
 
 [build-dependencies]
@@ -99,6 +109,11 @@ ignored = ["goodfetch-foxhound"]
 [[bin]]
 name = "goodfetch-foxhound"
 path = "src/main.rs"
+required-features = ["executable"]
+
+# Both Products' command lines, which `xtask codegen` commits (ADR 0072).
+[[example]]
+name = "command-lines"
 required-features = ["executable"]
 
 # ADR 0071: the startup benchmarks of Foxhound's executable.

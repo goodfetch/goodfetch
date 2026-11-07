@@ -6,7 +6,7 @@
 //! its value's ID (`run_id` for `run`) as its first positional argument,
 //! a `timeout` param being `--timeout <duration>` or `--timeout none`
 //! (ADR 0080), and `--json` printing the result as JSON; an operation that
-//! takes `settings` takes them as the [`SettingsFlags`]. A sequence's
+//! takes `settings` takes them as its `--set` and `--settings` flags. A sequence's
 //! command takes `--follow`. Help comes from the catalog's descriptions.
 //! Foxhound's executable carries Collie's commands unchanged and adds its
 //! crawl's (ADR 0090): a sequence of what a crawl committed, such as `run
@@ -15,12 +15,11 @@
 //! of what a crawl committed, `run outcomes` or `run rejected-records`,
 //! follows them page after page under `--follow`, one JSON object per
 //! line, until the Run ends; and
-//! `run add-seeds` reads its seeds from stdin, one per line. Two of its
-//! commands take flags of their own in place of some params: `crawl start
-//! <url>…`, which builds the code-free crawl's `extraction` and seeds from
-//! them and follows its Run under `--follow` ([`crawl_start`]), and `run
-//! export <run> <dataset> --out <path|->`, which writes the Export's file
-//! ([`run_export`]).
+//! `run add-seeds` reads its seeds from stdin, one per line. An executable
+//! may write some commands by hand in place of their generated flags, its
+//! [`OwnCommands`]: Foxhound's `crawl start <url>…` and `run export <run>
+//! <dataset> --out <path|->` live in Foxhound's crate (ADR 0087), which
+//! passes them to [`main`](super::main).
 //!
 //! A command calls its operation on the engine [`engine_choice`] gives it
 //! and prints the result: an opener prints the new value's ID, any other
@@ -72,69 +71,67 @@ use super::output::{ColourFlag, Human};
 use super::settings_flags::{self, SettingsFlags};
 use super::{exit_codes, output};
 
-mod crawl_start;
-mod run_export;
-
-/// A command whose flags the CLI writes by hand in place of some of its
-/// operation's params, beside the flags generated for the others.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Own {
-    /// `crawl start <url>…` ([`crawl_start`]).
-    CrawlStart,
-    /// `run export <run> <dataset> --out <path|->` ([`run_export`]).
-    RunExport,
-}
-
-impl Own {
-    /// `operation`'s, when its command takes flags of its own.
-    fn of(operation: &Operation) -> Option<Self> {
-        match operation.name {
-            crawl_start::OPERATION => Some(Self::CrawlStart),
-            run_export::OPERATION => Some(Self::RunExport),
-            _ => None,
-        }
-    }
-
+/// A command an executable writes by hand in place of some of its
+/// operation's params, beside the flags generated for the others, such as
+/// Foxhound's `crawl start <url>…`.
+pub struct OwnCommand {
+    /// The operation whose command this is, by its canonical name.
+    pub operation: &'static str,
     /// The params its own flags give, or it leaves out, which get no
     /// generated flag.
-    fn replaces(self) -> &'static [&'static str] {
-        match self {
-            Self::CrawlStart => crawl_start::REPLACES,
-            Self::RunExport => run_export::REPLACES,
-        }
-    }
-
+    pub replaces: &'static [&'static str],
     /// Its own help, in place of its operation's description, if it has
     /// one.
-    fn about(self) -> Option<&'static str> {
-        match self {
-            Self::CrawlStart => Some(crawl_start::ABOUT),
-            Self::RunExport => None,
-        }
-    }
-
-    /// `command` with its own flags.
-    fn args(self, command: Command, operation: &Operation) -> Command {
-        match self {
-            Self::CrawlStart => crawl_start::args(command, operation),
-            Self::RunExport => run_export::args(command, operation),
-        }
-    }
-
-    /// What its own flags gave in the parse `matches`: the params they
-    /// give, added to `params`, and what its call does with the rest.
-    fn read(self, matches: &ArgMatches, params: &mut Map<String, Value>) -> OwnFlags {
-        match self {
-            Self::CrawlStart => OwnFlags::CrawlStart(crawl_start::Flags::read(matches, params)),
-            Self::RunExport => OwnFlags::RunExport(run_export::Flags::read(matches, params)),
-        }
-    }
+    pub about: Option<&'static str>,
+    /// `command` with its own flags, the operation's entry at hand.
+    pub args: fn(Command, &Operation) -> Command,
+    /// What its own flags gave in a parse: the params they give, added to
+    /// the params, and the call that does the rest.
+    pub read: fn(&ArgMatches, &mut Map<String, Value>) -> Box<dyn OwnCall>,
 }
 
-/// What a command's own flags gave beside its params.
-enum OwnFlags {
-    CrawlStart(crawl_start::Flags),
-    RunExport(run_export::Flags),
+/// The call of an [`OwnCommand`], which runs in place of its generated
+/// command's.
+pub trait OwnCall {
+    /// Runs `call`, whose params its own flags completed, on the engine its
+    /// command line chooses, and answers its exit code, as [`Call::run`]
+    /// does for a generated command.
+    fn run(
+        self: Box<Self>,
+        call: &Call,
+        engine: &Engine,
+        dependencies: Dependencies,
+        daemons: &dyn Daemons,
+        human: &Human,
+    ) -> ExitCode;
+}
+
+/// The commands an executable writes by hand among its generated ones, and
+/// the commands of its generated groups, which clap builds only once it
+/// reaches a group, through a plain function: [`members`] of the
+/// executable's Product with these commands.
+#[derive(Clone, Copy)]
+pub struct OwnCommands {
+    /// The commands written by hand.
+    pub commands: &'static [OwnCommand],
+    /// The commands of a generated group: `members(group, <the executable's
+    /// Product>, commands)`.
+    pub members: fn(Command) -> Command,
+}
+
+impl OwnCommands {
+    /// Collie's executable's: none.
+    pub const COLLIE: Self = Self {
+        commands: &[],
+        members: collies_members,
+    };
+}
+
+/// The command of `commands` of `operation`, if it is one.
+fn own_of(commands: &'static [OwnCommand], operation: &Operation) -> Option<&'static OwnCommand> {
+    commands
+        .iter()
+        .find(|command| command.operation == operation.name)
 }
 
 /// The Product whose catalog the commands of a hand-written group's
@@ -151,7 +148,7 @@ const INPUTS: [(&str, &str, &str); 1] = [("run.add_seeds", "$/seeds", "seeds")];
 const JSON: &str = "json";
 
 /// The flag that runs a sequence, printing what it sends as it arrives.
-const FOLLOW: &str = "follow";
+pub const FOLLOW: &str = "follow";
 
 /// The flag that runs the call on an Attached engine in this process,
 /// whatever runs (ADR 0024).
@@ -163,7 +160,7 @@ const DAEMON: &str = "daemon";
 
 /// The flag of a command that answers a Run report that exits `21` when
 /// the Run's Verdict is not `verified` (ADR 0069).
-const REQUIRE_VERIFIED: &str = "require-verified";
+pub const REQUIRE_VERIFIED: &str = "require-verified";
 
 /// The type in the bundle's `$defs` of a Run report, by which a command's
 /// exit code follows how its Run ended.
@@ -239,17 +236,19 @@ pub fn namespaces_source() -> String {
 pub struct Generated {
     /// The Product of the executable, whose catalog they come from.
     product: Product,
+    /// The commands the executable writes by hand among them.
+    own: OwnCommands,
     /// The namespaces they cover: those no hand-written group takes.
     namespaces: Vec<&'static Namespace>,
 }
 
 impl Generated {
     /// The commands of `product`'s catalog in every namespace no command
-    /// group of `hand_written` takes; a hand-written group takes the other
-    /// commands of its namespace through [`Joining`]. Foxhound's executable
-    /// carries Collie's commands unchanged, and its own beside them (ADR
-    /// 0090).
-    pub fn beside(product: Product, hand_written: &Command) -> Self {
+    /// group of `hand_written` takes, `own` written by hand; a hand-written
+    /// group takes the other commands of its namespace through [`Joining`].
+    /// Foxhound's executable carries Collie's commands unchanged, and its
+    /// own beside them (ADR 0090).
+    pub fn beside(product: Product, own: OwnCommands, hand_written: &Command) -> Self {
         let namespaces = NAMESPACES
             .iter()
             .filter(|namespace| product.contains(namespace.product))
@@ -257,6 +256,7 @@ impl Generated {
             .collect();
         Self {
             product,
+            own,
             namespaces,
         }
     }
@@ -265,15 +265,11 @@ impl Generated {
     /// built only when clap reaches the group.
     #[must_use]
     pub fn add_to(&self, command: Command) -> Command {
-        let members: fn(Command) -> Command = match self.product {
-            Product::Collie => collies_members,
-            Product::Foxhound => foxhounds_members,
-        };
         command.subcommands(self.namespaces.iter().map(|namespace| {
             Command::new(namespace.spelled)
                 .about(namespace.about)
                 .subcommand_required(true)
-                .defer(members)
+                .defer(self.own.members)
         }))
     }
 
@@ -286,16 +282,34 @@ impl Generated {
             .iter()
             .find(|namespace| namespace.spelled == group)?;
         let (member, member_matches) = group_matches.subcommand()?;
-        call_in(self.product, namespace.name, member, member_matches)
+        call_in(
+            self.product,
+            self.own.commands,
+            namespace.name,
+            member,
+            member_matches,
+        )
     }
 }
 
 /// The call of `namespace`'s command `member` of `product`'s catalog, from
-/// its parse `matches`, when that command is generated.
-fn call_in(product: Product, namespace: &str, member: &str, matches: &ArgMatches) -> Option<Call> {
+/// its parse `matches`, when that command is generated, or written by hand
+/// among `own`.
+fn call_in(
+    product: Product,
+    own: &'static [OwnCommand],
+    namespace: &str,
+    member: &str,
+    matches: &ArgMatches,
+) -> Option<Call> {
     let name = format!("{namespace}.{}", member.replace('-', "_"));
     let operation = commands(product).find(|operation| operation.name == name)?;
-    Some(Call::of(product, operation, matches))
+    Some(Call::of(
+        product,
+        operation,
+        own_of(own, operation),
+        matches,
+    ))
 }
 
 /// The hand-written commands of a command group that takes a namespace of
@@ -375,7 +389,7 @@ fn joining(
 /// `group`, the hand-written group of `namespace` whose own commands `own`
 /// names, with the generated commands that join it.
 fn joined_members(group: Command, namespace: &'static str, own: fn(&str) -> bool) -> Command {
-    members_of(group, joining(namespace, own))
+    members_of(group, joining(namespace, own), &[])
 }
 
 /// Whether `name` is a generated command that joins the hand-written group
@@ -396,7 +410,7 @@ fn joined_call(
     if !joins(namespace, own, member) {
         return None;
     }
-    call_in(JOINED_PRODUCT, namespace, member, matches)
+    call_in(JOINED_PRODUCT, &[], namespace, member, matches)
 }
 
 /// How the CLI offers an operation.
@@ -482,36 +496,37 @@ fn spelled(name: &str) -> String {
 
 /// The commands of the group `group` of Collie's executable.
 fn collies_members(group: Command) -> Command {
-    members(group, Product::Collie)
-}
-
-/// The commands of the group `group` of Foxhound's executable.
-fn foxhounds_members(group: Command) -> Command {
-    members(group, Product::Foxhound)
+    members(group, Product::Collie, &[])
 }
 
 /// The commands of the group `group`, one per operation of its namespace
-/// in `product`'s catalog, and the group's `--color`, which clap copies
-/// into them (see [`ColourFlag`]).
-fn members(group: Command, product: Product) -> Command {
-    members_of(ColourFlag::augment_args(group), operations_of(product))
+/// in `product`'s catalog, those of `own` written by hand, and the group's
+/// `--color`, which clap copies into them (see [`ColourFlag`]): what an
+/// executable's [`OwnCommands::members`] gives.
+pub fn members(group: Command, product: Product, own: &'static [OwnCommand]) -> Command {
+    members_of(ColourFlag::augment_args(group), operations_of(product), own)
 }
 
 /// The commands of the group `group`, one per operation of `operations` in
-/// its namespace that the CLI offers.
-fn members_of(group: Command, operations: impl Iterator<Item = &'static Operation>) -> Command {
+/// its namespace that the CLI offers, those of `own` written by hand.
+fn members_of(
+    group: Command,
+    operations: impl Iterator<Item = &'static Operation>,
+    own: &'static [OwnCommand],
+) -> Command {
     let namespace = group.get_name().replace('-', "_");
     group.subcommands(
         operations
             .filter(|operation| offer(operation).is_some())
             .filter(|operation| self::namespace(operation) == namespace)
-            .map(command),
+            .map(|operation| command(operation, own_of(own, operation))),
     )
 }
 
-/// The command of `operation`, its help in the form of the hand-written
+/// The command of `operation`, written by hand as `own` when it is one of
+/// an executable's own commands, its help in the form of the hand-written
 /// commands': the description with no closing period.
-fn command(operation: &'static Operation) -> Command {
+fn command(operation: &'static Operation, own: Option<&'static OwnCommand>) -> Command {
     let mut command = Command::new(spelled(member(operation)));
     let json_help = match offer(operation) {
         Some(Offer::Follow) => {
@@ -547,7 +562,6 @@ fn command(operation: &'static Operation) -> Command {
         }
         Some(Offer::Command) | None => "Prints the result as JSON",
     };
-    let own = Own::of(operation);
     let command = generated_parameters(operation, own).fold(command, |command, parameter| {
         match parameter.form {
             Form::Settings => SettingsFlags::augment_args(command),
@@ -555,7 +569,7 @@ fn command(operation: &'static Operation) -> Command {
         }
     });
     let command = match own {
-        Some(own) => own.args(command, operation),
+        Some(own) => (own.args)(command, operation),
         None => command,
     };
     let command = command
@@ -589,7 +603,7 @@ fn command(operation: &'static Operation) -> Command {
         command
     };
     let about = own
-        .and_then(Own::about)
+        .and_then(|own| own.about)
         .map_or_else(|| sentence(operation.description), str::to_owned);
     let command = command
         // After the settings flags, whose derived arguments set an `about`
@@ -795,13 +809,23 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
     parameters
 }
 
+/// The help of `operation`'s param `name`, from its params' JSON Schema, as
+/// its generated flag would show it; empty when it has none.
+pub fn parameter_help(operation: &Operation, name: &str) -> String {
+    parameters(operation)
+        .into_iter()
+        .find(|parameter| parameter.name == name)
+        .map(|parameter| parameter.help)
+        .unwrap_or_default()
+}
+
 /// The params of `operation` its command takes as generated flags: all
 /// but those its own flags give.
 fn generated_parameters(
     operation: &Operation,
-    own: Option<Own>,
+    own: Option<&'static OwnCommand>,
 ) -> impl Iterator<Item = Parameter> {
-    let replaced = own.map_or(&[][..], Own::replaces);
+    let replaced = own.map_or(&[][..], |own| own.replaces);
     parameters(operation)
         .into_iter()
         .filter(move |parameter| !replaced.contains(&parameter.name.as_str()))
@@ -832,7 +856,7 @@ fn times(operation: &Operation) -> Vec<String> {
 
 /// `schema` with its references followed and an optional value's `null`
 /// alternative dropped.
-fn resolved<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
+pub fn resolved<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
     if let Some(reference) = schema["$ref"].as_str()
         && let Some(name) = reference.strip_prefix("#/$defs/")
     {
@@ -894,22 +918,27 @@ pub struct Call {
     report: Option<bool>,
     /// The engine `--attached` or `--daemon` asks for.
     choice: Choice,
-    /// What its command's own flags gave, when it takes some.
-    own: Option<OwnFlags>,
+    /// The call of its command written by hand, when it is one.
+    own: Option<Box<dyn OwnCall>>,
 }
 
 impl Call {
     /// The call of `operation` that its command's parse `matches` gives, on
-    /// `product`'s executable.
-    fn of(product: Product, operation: &'static Operation, matches: &ArgMatches) -> Self {
-        let own = Own::of(operation);
+    /// `product`'s executable, its command written by hand as `own` when it
+    /// is one.
+    fn of(
+        product: Product,
+        operation: &'static Operation,
+        own: Option<&'static OwnCommand>,
+        matches: &ArgMatches,
+    ) -> Self {
         let mut params = generated_parameters(operation, own)
             .filter_map(|parameter| {
                 let value = parameter.value(matches)?;
                 Some((parameter.name, value))
             })
             .collect();
-        let own = own.map(|own| own.read(matches, &mut params));
+        let own = own.map(|own| (own.read)(matches, &mut params));
         let follows = matches!(
             offer(operation),
             Some(Offer::Follow | Offer::Committed | Offer::Pages)
@@ -932,9 +961,29 @@ impl Call {
         }
     }
 
+    /// The Product of the executable, which the call's `hello` needs.
+    pub fn product(&self) -> Product {
+        self.product
+    }
+
+    /// The operation it calls.
+    pub fn operation(&self) -> &'static Operation {
+        self.operation
+    }
+
+    /// The params its command line gave.
+    pub fn params(&self) -> &Map<String, Value> {
+        &self.params
+    }
+
+    /// Whether `--json` was given.
+    pub fn json(&self) -> bool {
+        self.json
+    }
+
     /// The engine its call runs on: as its command line and its value
     /// choose, its refusals warned of through `warn`.
-    fn reach<'a>(&self, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> EngineChoice<'a> {
+    pub fn reach<'a>(&self, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> EngineChoice<'a> {
         EngineChoice {
             choice: self.choice,
             lifetime: self.lifetime(),
@@ -977,14 +1026,8 @@ impl Call {
         if let Some(deprecated) = self.operation.deprecated {
             human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
         }
-        match self.own.take() {
-            Some(OwnFlags::CrawlStart(flags)) => {
-                return crawl_start::run(&self, &flags, engine, dependencies, daemons, human);
-            }
-            Some(OwnFlags::RunExport(flags)) => {
-                return run_export::run(&self, &flags, engine, dependencies, daemons, human);
-            }
-            None => {}
+        if let Some(own) = self.own.take() {
+            return own.run(&self, engine, dependencies, daemons, human);
         }
         let json = self.json;
         let offered = offer(self.operation);
@@ -1160,7 +1203,7 @@ impl Call {
     /// Prints `result`: as JSON under `--json`, which keeps its times in
     /// UTC; else an opener's new ID, or each field, a point in time in the
     /// local zone.
-    fn print(&self, result: &Value, human: &Human) {
+    pub fn print(&self, result: &Value, human: &Human) {
         if self.json {
             output::json(result);
             return;
@@ -1189,12 +1232,12 @@ impl Call {
 
     /// Prints the failure `error` and answers its exit code, its Error
     /// code's row of the table.
-    fn fail(&self, error: ErrorObject, human: &Human) -> ExitCode {
+    pub fn fail(&self, error: ErrorObject, human: &Human) -> ExitCode {
         output::fail(error, Some(self.operation.name), self.json, human)
     }
 
     /// Prints the failure `error` and answers `exit`.
-    fn fail_exiting(&self, error: ErrorObject, exit: u8, human: &Human) -> ExitCode {
+    pub fn fail_exiting(&self, error: ErrorObject, exit: u8, human: &Human) -> ExitCode {
         output::fail_exiting(error, Some(self.operation.name), exit, self.json, human)
     }
 }

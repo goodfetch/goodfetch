@@ -52,6 +52,7 @@ use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use daemon_command::{DaemonCommand, daemon_command};
 use engine_choice::EngineFlags;
 use generated::{Call, Generated, Joined, Joining};
+pub use generated::{OwnCall, OwnCommand, OwnCommands};
 use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
@@ -360,6 +361,10 @@ pub struct Start {
     /// Builds its composition, which [`main`] calls only once a command
     /// starts the engine, so `--version` and the help never build it.
     pub composition: fn() -> Composition,
+    /// The commands it writes by hand among those generated from its
+    /// Product's catalog: [`OwnCommands::COLLIE`] for Collie's, Foxhound's
+    /// own from Foxhound's crate (ADR 0087).
+    pub commands: OwnCommands,
     /// Its command line, as the OS gave it.
     pub arguments: Vec<OsString>,
     /// Its environment, which `main` reads once (ADR 0059).
@@ -371,7 +376,7 @@ pub struct Start {
 /// # Examples
 ///
 /// ```no_run
-/// use goodfetch_collie::executable::{Start, main};
+/// use goodfetch_collie::executable::{OwnCommands, Start, main};
 /// use goodfetch_protocol::catalog::Product;
 ///
 /// let exit_code = main(&Start {
@@ -379,6 +384,7 @@ pub struct Start {
 ///     version: env!("CARGO_PKG_VERSION"),
 ///     release_date: None,
 ///     composition: goodfetch_collie::composition,
+///     commands: OwnCommands::COLLIE,
 ///     arguments: vec!["goodfetch-collie".into(), "--version".into()],
 ///     environment: Default::default(),
 /// });
@@ -394,7 +400,7 @@ pub fn main(start: &Start) -> ExitCode {
         Err(exit) => return exit,
     };
     if let Parsed::HandWritten(Command::PrintedCommandLine { .. }) = parsed {
-        return command_line::print(start.product);
+        return command_line::print(start.product, start.commands);
     }
     let environment = with_passed_variables(&start.environment, &parsed);
     let human = Human::new(colour, &environment);
@@ -456,7 +462,13 @@ pub fn main(start: &Start) -> ExitCode {
         run_state: RunStateOptions::default(),
         politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     };
-    run(parsed, &engine, dependencies, &environment, &human)
+    run(
+        parsed,
+        (&engine, dependencies),
+        start.commands,
+        &environment,
+        &human,
+    )
 }
 
 /// The executable's name, the command `start`'s command line asks for and
@@ -464,7 +476,7 @@ pub fn main(start: &Start) -> ExitCode {
 /// usage error's, or `not_in_product`'s when it names what only Foxhound
 /// carries and the executable is not Foxhound's (ADR 0087).
 fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
-    let (command_line, generated) = command_line(start.product);
+    let (command_line, generated) = command_line(start.product, start.commands);
     let mut command_line = command_line.version(start.version);
     let binary = command_line.get_name().to_owned();
     let parsed = command_line
@@ -606,11 +618,11 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 }
 
 /// Runs the command `parsed` asks for on `engine`, once the executable is
-/// set up.
+/// set up, among `own` commands.
 fn run(
     parsed: Parsed,
-    engine: &Engine,
-    dependencies: Dependencies,
+    (engine, dependencies): (&Engine, Dependencies),
+    own: OwnCommands,
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -631,7 +643,7 @@ fn run(
     };
     match command {
         // Printed before the executable is set up (`main`).
-        Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product),
+        Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product, own),
         Command::AttachedEngine {
             console_address, ..
         } => run_attached(engine, dependencies, &machine, console_address.as_deref()),
@@ -817,30 +829,34 @@ fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
     ))
 }
 
-/// The command line of `product`'s executable, without its version: its
-/// commands, flags and help, from which the Feature inventory generates its
-/// `command:` Features (ADR 0072). Every command in it is built, so reading
-/// its subcommands reads them all.
+/// The command line of `product`'s executable, whose own commands are
+/// `own`, without its version: its commands, flags and help, from which the
+/// Feature inventory generates its `command:` Features (ADR 0072). Every
+/// command in it is built, so reading its subcommands reads them all.
 ///
 /// # Examples
 ///
 /// ```
-/// use goodfetch_collie::executable::command;
+/// use goodfetch_collie::executable::{OwnCommands, command};
 /// use goodfetch_protocol::catalog::Product;
 ///
-/// assert_eq!(command(Product::Foxhound).get_name(), "goodfetch-foxhound");
+/// assert_eq!(
+///     command(Product::Collie, OwnCommands::COLLIE).get_name(),
+///     "goodfetch-collie"
+/// );
 /// ```
 #[must_use]
-pub fn command(product: Product) -> clap::Command {
-    let (mut command, _) = command_line(product);
+pub fn command(product: Product, own: OwnCommands) -> clap::Command {
+    let (mut command, _) = command_line(product, own);
     command.build();
     command
 }
 
 /// The command line [`main`] parses, whose commands clap builds as it
 /// reaches them: the hand-written commands, and those generated from the
-/// catalog for every namespace no hand-written group takes.
-fn command_line(product: Product) -> (clap::Command, Generated) {
+/// catalog for every namespace no hand-written group takes, `own` among
+/// them written by hand.
+fn command_line(product: Product, own: OwnCommands) -> (clap::Command, Generated) {
     let (binary, about) = match product {
         Product::Collie => (
             "goodfetch-collie",
@@ -858,7 +874,7 @@ fn command_line(product: Product) -> (clap::Command, Generated) {
         .name(binary)
         .bin_name(binary)
         .about(about);
-    let generated = Generated::beside(product, &hand_written);
+    let generated = Generated::beside(product, own, &hand_written);
     (generated.add_to(hand_written), generated)
 }
 

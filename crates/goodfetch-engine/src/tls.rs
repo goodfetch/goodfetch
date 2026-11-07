@@ -22,7 +22,7 @@ mod shared;
 
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 pub use client_certificates::{ClientCertificateFailure, ClientCertificates, IdentityFiles};
 pub use exceptions::{
@@ -39,7 +39,6 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::{self, PemObject as _};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
-use rustls::sign::CertifiedKey;
 use rustls::time_provider::TimeProvider;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
@@ -191,9 +190,20 @@ impl Trust {
 
     /// The rustls configuration of a connection under this trust, offering
     /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
-    /// itself (Foxhound's HTTP fetch tier).
+    /// itself (Foxhound's HTTP fetch tier). The handshake judges the
+    /// certificate's dates at `clock`'s wall time.
     pub fn client_config(&self, clock: Clock) -> rustls::ClientConfig {
-        self.connection_config(None, None, clock)
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let verifier = Verifier::new(self, &provider);
+        let mut config =
+            rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
+                .with_safe_default_protocol_versions()
+                .expect("invariant: ring supports rustls's default protocol versions")
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        config
     }
 
     /// Each scope of this trust, for a TLS library that takes one store of
@@ -226,37 +236,6 @@ impl Trust {
     /// `host` is, or is a subdomain of; `None` for the scope of no domain.
     pub fn scope_of(&self, host: &str) -> Option<&str> {
         self.domains_of(host).first().copied()
-    }
-
-    /// The rustls configuration of one connection of the engine's own HTTP
-    /// client. For a host listed for trust on first use, `seen` keeps the
-    /// key it presented and how it failed verification, for
-    /// [`CertificateExceptions`] to decide before anything is sent: the
-    /// handshake goes on whatever its certificate, unless `seen` is to stop
-    /// it before `client` would be sent. The handshake's signature is still
-    /// checked against that key. `client` is the client certificate it
-    /// presents when the server asks for one. The handshake judges the
-    /// certificate's dates at `clock`'s wall time.
-    pub(crate) fn connection_config(
-        &self,
-        seen: Option<Arc<Seen>>,
-        client: Option<Arc<CertifiedKey>>,
-        clock: Clock,
-    ) -> rustls::ClientConfig {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = Verifier::new(self, &provider, seen);
-        let builder = rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
-            .with_safe_default_protocol_versions()
-            .expect("invariant: ring supports rustls's default protocol versions")
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier));
-        let mut config = match client {
-            Some(certified) => builder
-                .with_client_cert_resolver(Arc::new(client_certificates::Presenting(certified))),
-            None => builder.with_no_client_auth(),
-        };
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        config
     }
 }
 
@@ -385,7 +364,7 @@ impl Trust {
     pub fn examiner(&self, clock: Clock) -> Examiner {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         Examiner {
-            verifier: Verifier::new(self, &provider, None),
+            verifier: Verifier::new(self, &provider),
             clock,
         }
     }
@@ -474,73 +453,6 @@ fn covered(host: &str, listed: impl Fn(&str) -> bool) -> bool {
     }
 }
 
-/// What one connection's handshake showed of a listed host's certificate,
-/// kept by its verifier.
-#[derive(Debug, Default)]
-pub(crate) struct Seen {
-    presented: OnceLock<Presented>,
-    /// When a client certificate follows the server's: whether the host
-    /// has a pin, or a row the engine cannot read.
-    before_client_certificate: Option<bool>,
-}
-
-impl Seen {
-    /// For a connection that presents a client certificate to a host whose
-    /// pin row `pinned` says it has: the handshake goes on only for a
-    /// certificate that verifies, of a host with no pin.
-    pub(crate) fn before_client_certificate(pinned: bool) -> Self {
-        Self {
-            presented: OnceLock::new(),
-            before_client_certificate: Some(pinned),
-        }
-    }
-
-    /// What the handshake showed; none before it reached the certificate.
-    pub(crate) fn take(&self) -> Option<Presented> {
-        self.presented.get().cloned()
-    }
-
-    /// Keeps what the handshake showed: a connection verifies one
-    /// certificate, so a second is never kept.
-    fn keep(&self, presented: Presented) {
-        let _ = self.presented.set(presented);
-    }
-
-    /// Whether the handshake stops before the client certificate goes: a
-    /// certificate that `failed` verification, or a pinned host's, passes
-    /// only through an exception.
-    fn withholds(&self, failed: bool) -> bool {
-        self.before_client_certificate
-            .is_some_and(|pinned| pinned || failed)
-    }
-}
-
-/// A handshake stopped before its client certificate was sent, carried
-/// from the verifier through rustls's handshake error.
-#[derive(Debug)]
-struct Withheld;
-
-impl std::fmt::Display for Withheld {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("client_certificate_withheld")
-    }
-}
-
-impl std::error::Error for Withheld {}
-
-/// Whether a handshake that ended with `error` was stopped before its
-/// client certificate was sent, for the exception's decision on the
-/// certificate it was shown.
-pub(crate) fn withheld(error: &io::Error) -> bool {
-    let Some(rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(other)))) = error
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
-    else {
-        return false;
-    };
-    other.downcast_ref::<Withheld>().is_some()
-}
-
 /// The per-host decision: a host's certificate is checked against
 /// Mozilla's roots and the authorities trusted for it, by the verifier
 /// built for its most specific listed domain.
@@ -553,9 +465,6 @@ struct Verifier {
     by_domain: BTreeMap<String, Arc<WebPkiServerVerifier>>,
     trust: Trust,
     provider: Arc<CryptoProvider>,
-    /// For a host listed for trust on first use: where the key it presents
-    /// is kept, its certificate let through to the exception's decision.
-    seen: Option<Arc<Seen>>,
 }
 
 /// How a certificate failed, carried from the verifier through rustls's
@@ -656,7 +565,7 @@ fn self_signed(end_entity: &CertificateDer<'_>, now: UnixTime, provider: &Crypto
 }
 
 impl Verifier {
-    fn new(trust: &Trust, provider: &Arc<CryptoProvider>, seen: Option<Arc<Seen>>) -> Self {
+    fn new(trust: &Trust, provider: &Arc<CryptoProvider>) -> Self {
         let build = |extra: &[&CertificateDer<'static>]| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -686,7 +595,6 @@ impl Verifier {
             by_domain,
             trust: trust.clone(),
             provider: Arc::clone(provider),
-            seen,
         }
     }
 
@@ -741,30 +649,12 @@ impl ServerCertVerifier for Verifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let failure = match self.failure(end_entity, intermediates, server_name, ocsp_response, now)
-        {
-            Ok(None) if self.seen.is_none() => return Ok(ServerCertVerified::assertion()),
-            Ok(failure) => failure,
-            Err(other) => return Err(other),
-        };
-        let Some(seen) = &self.seen else {
-            let failure = failure.expect("invariant: a verified certificate returned above");
-            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+        match self.failure(end_entity, intermediates, server_name, ocsp_response, now)? {
+            None => Ok(ServerCertVerified::assertion()),
+            Some(failure) => Err(rustls::Error::InvalidCertificate(CertificateError::Other(
                 OtherError(Arc::new(Rejected(failure))),
-            )));
-        };
-        let parsed = ParsedCertificate::try_from(end_entity)?;
-        let withholds = seen.withholds(failure.is_some());
-        seen.keep(Presented {
-            key: KeyHash::of_public_key(parsed.subject_public_key_info().as_ref()),
-            failure,
-        });
-        if withholds {
-            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
-                OtherError(Arc::new(Withheld)),
-            )));
+            ))),
         }
-        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(

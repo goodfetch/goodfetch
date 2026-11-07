@@ -126,7 +126,7 @@ impl SharedTrust {
     pub fn client_config(&self, client: Option<Arc<CertifiedKey>>) -> rustls::ClientConfig {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let verifier = Deciding {
-            inner: Verifier::new(&self.trust, &provider, None),
+            inner: Verifier::new(&self.trust, &provider),
             shared: self.clone(),
             presents: client.is_some(),
         };

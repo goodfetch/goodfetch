@@ -165,6 +165,27 @@ fn a_normal_compressed_page_is_read(#[values(Stack::Reqwest, Stack::Wreq)] stack
     assert!(page.contains("<article class=\"record\""), "{page}");
 }
 
+/// A Run that raises `network.max_decompression_ratio` reads a bomb the
+/// default refuses whole on each transport: the ratio is the Run's, not a
+/// fixed cap.
+///
+/// Covers: setting:network.max_decompression_ratio
+#[rstest]
+fn a_bomb_is_read_whole_under_a_raised_ratio(#[values(Stack::Reqwest, Stack::Wreq)] stack: Stack) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground);
+    let raised = Limits {
+        max_decompression_ratio: 100_000,
+        ..Limits::default()
+    };
+
+    let bomb = fetched(transport.as_ref(), &proving_ground, "bombs/1", raised)
+        .map(|fetched| fetched.body.len());
+
+    assert_eq!(bomb.ok(), Some(10 * 1024 * 1024));
+}
+
 /// The bytes the Proving ground sent for the requests to `host`, as its
 /// connection record has them once each answer ended.
 fn sent_to(proving_ground: &ProvingGround, host: &str) -> Vec<u64> {

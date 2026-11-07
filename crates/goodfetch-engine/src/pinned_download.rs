@@ -342,13 +342,10 @@ pub(crate) async fn download(
         .map_err(|_| Failure::Network)?;
     let trust = Trust::endpoint(&fetching.trusted_certificates);
     let network = http_client::Network {
-        exceptions: None,
-        client_certificates: None,
         resolve: &fetching.resolve,
         trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
-        local: None,
     };
     let server = Server {
         host: &url.host,

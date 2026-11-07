@@ -48,6 +48,11 @@ case "$all" in
     ;;
 esac
 
+# A hook starts this with git's GIT_DIR (a linked worktree's on a push), and a
+# build script's `git init` under a step (btls-sys's) would then reinitialize
+# the repository as bare: every step finds the repository from its folder.
+for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
+
 # Records HEAD's tree as passed when the working tree is HEAD's, untracked
 # files included; outside a repository it records nothing.
 record_green() {

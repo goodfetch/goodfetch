@@ -69,10 +69,10 @@ fn any_other_named_network_error_keeps_its_name(#[case] text: &str) {
 #[case::https_proxy_redirect("net::ERR_HTTPS_PROXY_TUNNEL_RESPONSE_REDIRECT")]
 #[case::mandatory_proxy("net::ERR_MANDATORY_PROXY_CONFIGURATION_FAILED")]
 #[case::no_supported_proxies("net::ERR_NO_SUPPORTED_PROXIES")]
-fn a_failure_chromium_gives_only_for_the_proxy_is_the_proxys(#[case] text: &str) {
+fn a_failure_chromium_gives_only_for_the_proxy_comes_from_the_proxy(#[case] text: &str) {
     let error = NetError::of(text);
 
-    assert_eq!((error.is_the_proxys(), error.name()), (true, text));
+    assert_eq!((error.from_the_proxy(), error.name()), (true, text));
 }
 
 #[rstest]
@@ -81,8 +81,8 @@ fn a_failure_chromium_gives_only_for_the_proxy_is_the_proxys(#[case] text: &str)
 #[case::site_certificate("net::ERR_CERT_AUTHORITY_INVALID")]
 #[case::aborted("net::ERR_ABORTED")]
 #[case::unrecognized("the request failed for some reason")]
-fn a_failure_the_site_can_cause_is_never_the_proxys(#[case] text: &str) {
-    assert!(!NetError::of(text).is_the_proxys());
+fn a_failure_the_site_can_cause_never_comes_from_the_proxy(#[case] text: &str) {
+    assert!(!NetError::of(text).from_the_proxy());
 }
 
 /// A certificate the browser refused for a reason the engine does not tell

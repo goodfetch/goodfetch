@@ -71,7 +71,7 @@ pub(crate) fn relays(field: &str) -> bool {
 /// Who gave `answer`.
 pub fn party(answer: Answer<'_>) -> Party {
     match answer {
-        Answer::Failure { error } if error.is_the_proxys() => Party::Proxy,
+        Answer::Failure { error } if error.from_the_proxy() => Party::Proxy,
         Answer::Response {
             proxy_status: Some(field),
             forwarded: true,

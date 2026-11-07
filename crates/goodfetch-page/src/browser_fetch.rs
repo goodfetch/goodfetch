@@ -51,8 +51,8 @@ use goodfetch_protocol::page::{
 
 use crate::driver::PageDriver;
 use crate::driver::cdp_response::{
-    PastAMessage, bodiless, coded, cut_by, cut_though_finished, declared_length, encoded_bytes,
-    from_the_network, paused_headers, paused_status, whole_body,
+    bodiless, coded, cut_by, cut_though_finished, declared_length, encoded_bytes, from_the_network,
+    paused_headers, paused_status, whole_body,
 };
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
@@ -423,7 +423,7 @@ impl<'a> Load<'a> {
             })
             .await;
             return None;
-        };
+        }
         let status = paused_status(&paused);
         let response = self.response_of(&paused, status);
         let redirect = (300..400).contains(&status) && response.headers.contains_key("location");
@@ -568,13 +568,11 @@ impl<'a> Load<'a> {
     /// browser's answer was past what one message carries: the body
     /// decoded far past what any limit reads whole, and the request fails.
     async fn whole(&self, id: &fetch::RequestId, url: &str) -> Result<Vec<u8>, CallError> {
-        match whole_body(self.driver, id).await {
-            Ok(bytes) => Ok(bytes),
-            Err(PastAMessage) => {
-                self.fail(id, network::ErrorReason::Aborted).await;
-                Err(self.request.limits.past_the_size(url).error())
-            }
-        }
+        let Ok(bytes) = whole_body(self.driver, id).await else {
+            self.fail(id, network::ErrorReason::Aborted).await;
+            return Err(self.request.limits.past_the_size(url).error());
+        };
+        Ok(bytes)
     }
 
     /// `response` with `bytes`, its body read from the browser's stream,

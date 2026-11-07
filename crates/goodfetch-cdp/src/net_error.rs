@@ -199,10 +199,10 @@ impl NetError {
         )
     }
 
-    /// Whether the error is the proxy's own: a tunnel it refused, or any
+    /// Whether the error comes from the proxy: a tunnel it refused, or any
     /// other failure the browser gives only for its proxy.
     #[must_use]
-    pub fn is_the_proxys(&self) -> bool {
+    pub fn from_the_proxy(&self) -> bool {
         matches!(self, Self::TunnelRefused | Self::Proxy(_))
     }
 

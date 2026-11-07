@@ -24,4 +24,8 @@ while read -r _local_ref local_oid _remote_ref remote_oid; do
   fi
 done
 ((due)) || exit 0
+# git gives this hook the push's GIT_DIR (a linked worktree's), and a build
+# script's `git init` under `just quick` (btls-sys's) would then reinitialize
+# the repository as bare: `just quick` finds the repository from its folder.
+for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
 GOODFETCH_QUICK_BASE=$base exec just quick

@@ -273,19 +273,14 @@ const HELLO: &str = r#"{"jsonrpc":"2.0","id":"hello","method":"hello","params":{
 /// its Connection closed, may take: far past any case's last answer.
 const PATIENCE: Duration = Duration::from_secs(120);
 
-/// Foxhound's composition (`composition::composition`), its tiers `tiers`:
-/// Collie's, then the crawl's crates.
+/// Foxhound's engine on its composition with the tiers `tiers`.
 fn engine(tiers: &FetchTiers) -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
         channel: Channel::CratesIo,
     };
-    let composition = goodfetch_collie::composition_with(tiers.clone())
-        .with(goodfetch_frontier::contribution())
-        .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
-        .with(goodfetch_crawl::contribution(tiers.clone()));
+    let composition = goodfetch_foxhound::composition_with(tiers.clone());
     Engine::new(identity, &composition).unwrap()
 }
 

@@ -91,7 +91,7 @@ fn crawl_archive(settings: &Value) -> Crawled {
     assert!(engine.finished());
     let received = ReceivedRequests::of(&observations)
         .every()
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     crawled(&env, "archive", answers, received, &report)
 }

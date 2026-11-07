@@ -144,11 +144,11 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
 fn received(observations: &Value, host: &str) -> Vec<(String, u64)> {
     let mut received: Vec<(String, u64)> = ReceivedRequests::of(observations)
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .map(|request| {
             (
-                request["target"].as_str().unwrap().to_owned(),
-                request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+                request.target.as_str().to_owned(),
+                request.timing.arrived_microseconds,
             )
         })
         .collect();

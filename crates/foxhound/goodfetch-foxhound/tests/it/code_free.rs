@@ -16,6 +16,7 @@ use std::time::Duration;
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
@@ -169,7 +170,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
         })
         .collect();
     let verdict = proving_ground
-        .judge_records(MARKDOWN_TASK, "success", &judged)
+        .judge_records(MARKDOWN_TASK, ToolStatus::Success, &judged)
         .unwrap();
     let urls: BTreeSet<&str> = records
         .iter()
@@ -242,8 +243,8 @@ fn follow_none_fetches_only_the_seeds() {
     let observations = proving_ground.observations().unwrap();
     let mut received: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["target"] != "/robots.txt")
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.target != "/robots.txt")
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     received.sort();
     let mut seeds = vec![path_of(&index), path_of(&page)];
@@ -514,7 +515,7 @@ fn concurrent_browser_attempts_each_keep_their_own_lease() {
     let observations = proving_ground.observations().unwrap();
     let mut received: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter_map(|request| request["target"].as_str())
+        .map(|request| request.target.as_str())
         .filter(|target| target.starts_with("/products/"))
         .map(str::to_owned)
         .collect();
@@ -606,8 +607,8 @@ fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothi
     let observations = proving_ground.observations().unwrap();
     let received: BTreeSet<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["target"] != "/robots.txt")
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.target != "/robots.txt")
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     let marks: BTreeSet<String> = outcomes["result"]["outcomes"]
         .as_array()

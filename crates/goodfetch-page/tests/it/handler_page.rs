@@ -261,7 +261,7 @@ impl Program {
             .received_requests()
             .expect("the Proving ground answers")
             .of_the_case()
-            .any(|request| request["host"] == json!(host) && request["target"] == json!(path))
+            .any(|request| request.host == host && request.target == path)
     }
 
     /// What the scripts of the page at `page` (its path and query) last

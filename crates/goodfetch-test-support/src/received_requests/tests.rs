@@ -6,21 +6,28 @@ use super::*;
 /// page and then another of `catalog.test`: the engine read the origin's
 /// robots.txt between them, and the browser asked for its icon.
 fn observations() -> Value {
+    let requests: Vec<Value> = ["/catalog/1", "/robots.txt", "/favicon.ico", "/catalog/2"]
+        .iter()
+        .enumerate()
+        .map(|(sequence, target)| request(sequence, target))
+        .collect();
+    json!({ "requests": requests, "connections": [] })
+}
+
+/// A `GET` of `target` on `catalog.test`, as the Proving ground lists it.
+fn request(sequence: usize, target: &str) -> Value {
     json!({
-        "requests": [
-            { "host": "catalog.test", "target": "/catalog/1" },
-            { "host": "catalog.test", "target": "/robots.txt" },
-            { "host": "catalog.test", "target": "/favicon.ico" },
-            { "host": "catalog.test", "target": "/catalog/2" },
-        ],
-        "connections": [],
+        "sequence": sequence, "connection": 0, "task": null, "host": "catalog.test",
+        "protocol": "http/1.1", "kind": "request", "method": "GET", "target": target,
+        "pseudo_header_order": null, "headers": [], "cookies": [], "message_signature": null,
+        "tls": null, "http2": null, "status": 200,
+        "timing": { "arrived_microseconds": sequence, "answered_microseconds": null },
+        "bytes": { "received": 0, "sent": 0 },
     })
 }
 
-fn targets<'a>(requests: impl Iterator<Item = &'a Value>) -> Vec<&'a str> {
-    requests
-        .map(|request| request["target"].as_str().unwrap())
-        .collect()
+fn targets<'a>(requests: impl Iterator<Item = &'a ObservedRequest>) -> Vec<&'a str> {
+    requests.map(|request| request.target.as_str()).collect()
 }
 
 #[test]

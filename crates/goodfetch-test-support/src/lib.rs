@@ -72,6 +72,7 @@ mod player;
 mod process;
 mod protocol_fuzz;
 mod proving_ground;
+mod proving_ground_format;
 mod pty;
 mod received_requests;
 mod resident;
@@ -170,7 +171,11 @@ pub use protocol_fuzz::{
 };
 pub use proving_ground::{
     ClientCertificate, PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription,
-    ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
+    ProvingGroundError, ProvingGroundFixtures,
+};
+pub use proving_ground_format::{
+    FixtureAddresses, Observations, ObservedRequest, OracleSubmission, ProxyCredentials, ROUTES,
+    RequestTiming, Routes, ServeLine, ToolStatus,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use received_requests::{OWN_TARGETS, ReceivedRequests};

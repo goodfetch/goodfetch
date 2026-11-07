@@ -104,7 +104,7 @@ fn crawl(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str) ->
 fn requests_to_the_site(proving_ground: &ProvingGround) -> usize {
     ReceivedRequests::of(&proving_ground.observations().unwrap())
         .every()
-        .filter(|request| request["host"].as_str() == Some(HOST))
+        .filter(|request| request.host == HOST)
         .count()
 }
 

@@ -71,17 +71,8 @@ fn articles(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["target"]
-                .as_str()
-                .is_some_and(|target| target.starts_with("/corpus/article"))
-        })
-        .map(|request| {
-            (
-                request["target"].as_str().unwrap().to_owned(),
-                request["cookies"].clone(),
-            )
-        })
+        .filter(|request| request.target.starts_with("/corpus/article"))
+        .map(|request| (request.target.clone(), json!(request.cookies)))
         .collect()
 }
 
@@ -189,22 +180,11 @@ fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-        })
+        .filter(|request| request.host.starts_with(host))
         .map(|request| {
-            request["headers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|header| {
-                    header[0]
-                        .as_str()
-                        .is_some_and(|name| name.eq_ignore_ascii_case("accept-encoding"))
-                })
-                .map_or(Value::Null, |header| header[1].clone())
+            request
+                .header("accept-encoding")
+                .map_or(Value::Null, |value| json!(value))
         })
         .collect()
 }
@@ -215,12 +195,7 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> usi
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-                && request["target"] == target
-        })
+        .filter(|request| request.host.starts_with(host) && request.target == target)
         .count()
 }
 

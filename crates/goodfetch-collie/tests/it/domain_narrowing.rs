@@ -128,7 +128,7 @@ fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
             .received_requests()
             .unwrap()
             .of_the_case()
-            .filter(|request| request["host"] == json!(host))
+            .filter(|request| request.host == host)
             .count()
     };
     let (catalog, shop) = (reached("catalog.test"), reached("shop.test"));

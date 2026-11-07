@@ -20,6 +20,7 @@
 //! fingerprint that changed between requests or an escape a page's script
 //! reported, is a finding, and a result with a finding is never verified.
 
+use crate::interface::ToolStatus;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
@@ -151,16 +152,6 @@ impl Submission {
             .map(str::to_owned)
             .collect()
     }
-}
-
-/// What the tool said of its own result.
-#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum ToolStatus {
-    Success,
-    /// Done, with its success left to a person's review (ADR 0013).
-    NeedsReview,
-    Failure,
 }
 
 #[derive(Serialize)]

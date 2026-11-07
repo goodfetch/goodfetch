@@ -123,8 +123,8 @@ fn the_browser_tier_never_follows_a_link_a_person_cannot_see() {
     assert_eq!(answers(&answered), expected, "{answered}");
     let mut fetched: Vec<String> = ReceivedRequests::of(&observations)
         .of_the_case()
-        .filter(|request| request["host"] == HOST)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == HOST)
+        .map(|request| request.target.as_str().to_owned())
         .filter(|target| target != "/robots.txt")
         .collect();
     fetched.sort();
@@ -212,8 +212,8 @@ fn enqueuing<'a>(
 fn honeypots_fetched(observations: &Value) -> usize {
     ReceivedRequests::of(observations)
         .of_the_case()
-        .filter(|request| request["host"] == HOST)
-        .filter(|request| request["target"].as_str().unwrap().starts_with("/hp/"))
+        .filter(|request| request.host == HOST)
+        .filter(|request| request.target.as_str().starts_with("/hp/"))
         .count()
 }
 
@@ -405,8 +405,8 @@ fn a_noindex_page_failing_its_page_check_ends_decoy() {
 fn fetched_once(observations: &Value) -> Vec<String> {
     let mut fetched: Vec<String> = ReceivedRequests::of(observations)
         .of_the_case()
-        .filter(|request| request["host"] == HOST)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == HOST)
+        .map(|request| request.target.as_str().to_owned())
         .filter(|target| target != "/robots.txt")
         .collect();
     fetched.sort();

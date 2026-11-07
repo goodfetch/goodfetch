@@ -517,7 +517,7 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         .received_requests()
         .unwrap()
         .every()
-        .map(|request| json!([request["host"], request["target"]]))
+        .map(|request| json!([request.host, request.target]))
         .collect();
     assert!(engine.finished());
 

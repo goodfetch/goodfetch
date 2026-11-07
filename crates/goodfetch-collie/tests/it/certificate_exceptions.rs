@@ -61,17 +61,16 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request["target"] != json!("/favicon.ico"))
+        .filter(|request| request.target != json!("/favicon.ico"))
         .map(|request| {
             (
-                request["host"]
-                    .as_str()
-                    .unwrap_or_default()
+                request
+                    .host
                     .split(':')
                     .next()
                     .unwrap_or_default()
                     .to_owned(),
-                request["cookies"].clone(),
+                json!(request.cookies),
             )
         })
         .collect()
@@ -346,13 +345,8 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["kind"] == json!("websocket")
-                && request["host"]
-                    .as_str()
-                    .is_some_and(|received| received.starts_with(host))
-        })
-        .map(|request| request["cookies"].clone())
+        .filter(|request| request.kind == "websocket" && request.host.starts_with(host))
+        .map(|request| json!(request.cookies))
         .collect();
     assert_eq!(handshakes, vec![json!([])], "{before} {after}");
 }
@@ -398,19 +392,14 @@ fn the_exception_hosts_own_host_only_cookie_is_withheld_too() {
         ),
         "{details}"
     );
-    let over_tls: Vec<Value> = proving_ground
+    let over_tls: Vec<String> = proving_ground
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|received| received.starts_with(host))
-                && !request["tls"].is_null()
-        })
-        .map(|request| request["target"].clone())
+        .filter(|request| request.host.starts_with(host) && request.tls.is_some())
+        .map(|request| request.target.clone())
         .collect();
-    assert_eq!(over_tls, Vec::<Value>::new());
+    assert_eq!(over_tls, Vec::<String>::new());
 }
 
 /// A host the relay only tunnels, its certificate refused by Chromium

@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "ProxyCredentials": {
+      "additionalProperties": false,
+      "description": "A forward proxy's Basic credentials, derived from the seed.",
+      "properties": {
+        "password": {
+          "description": "The password.",
+          "type": "string"
+        },
+        "username": {
+          "description": "The username.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The first line `serve` prints once its listeners are bound: where it\nanswers, what it serves and where its network fixtures listen.",
+  "properties": {
+    "address": {
+      "description": "The address it answers on, such as `127.0.0.1:51234`.",
+      "type": "string"
+    },
+    "certificate_authority": {
+      "description": "The certificate authority its TLS leaves chain to, as PEM.",
+      "type": "string"
+    },
+    "dns": {
+      "description": "The DNS fixture's UDP address.",
+      "type": "string"
+    },
+    "hosts": {
+      "description": "Every host name it serves.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "network": {
+      "description": "The network profile it serves under and how it shapes traffic."
+    },
+    "proxies": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Each forward proxy's address, by name: `open`, `refusing_tunnels`,\n`down` (nothing listens), and one per proxy kind behind Basic\nauthentication.",
+      "type": "object"
+    },
+    "proxy_credentials": {
+      "$ref": "#/$defs/ProxyCredentials",
+      "description": "The credentials the authenticated proxies accept."
+    },
+    "seed": {
+      "description": "The seed every page and expected result comes from.",
+      "format": "uint64",
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "target": {
+      "description": "The watched target's address, which answers `200 reached`.",
+      "type": "string"
+    },
+    "udp": {
+      "default": "",
+      "description": "The UDP fixture's address, whose every datagram the connection\nrecord lists; empty in an older tag's line, which has none.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Its version, `<workspace version>+<commit>`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "address",
+    "version",
+    "seed",
+    "hosts",
+    "certificate_authority",
+    "proxies",
+    "proxy_credentials",
+    "dns",
+    "target",
+    "network"
+  ],
+  "title": "ServeLine",
+  "type": "object"
+}

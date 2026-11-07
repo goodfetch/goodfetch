@@ -171,12 +171,13 @@ fn sent_to(proving_ground: &ProvingGround, host: &str) -> Vec<u64> {
     let observations = proving_ground.observations().unwrap();
     ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|at| at.starts_with(host))
+        .filter(|request| request.host.starts_with(host))
+        .filter_map(|request| {
+            request
+                .delivery
+                .as_ref()
+                .and_then(|delivery| delivery["body_sent"].as_u64())
         })
-        .filter_map(|request| request["delivery"]["body_sent"].as_u64())
         .collect()
 }
 

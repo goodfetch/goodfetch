@@ -83,8 +83,8 @@ fn pages(env: &TestEnv, run_id: &str) -> Vec<Value> {
 fn targets(observations: &Value, host: &str) -> Vec<String> {
     ReceivedRequests::of(observations)
         .of_the_case()
-        .filter(|request| request["host"] == host)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == host)
+        .map(|request| request.target.as_str().to_owned())
         .collect()
 }
 

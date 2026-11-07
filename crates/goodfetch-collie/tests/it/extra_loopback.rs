@@ -59,12 +59,8 @@ fn bound(more: &Value) -> Value {
 fn site_sources(observations: &Value) -> BTreeSet<String> {
     let carried: BTreeSet<u64> = ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| PAGE_HOSTS.contains(&host))
-        })
-        .filter_map(|request| request["connection"].as_u64())
+        .filter(|request| PAGE_HOSTS.contains(&request.host.as_str()))
+        .map(|request| request.connection)
         .collect();
     observations["connections"]
         .as_array()
@@ -89,15 +85,11 @@ const PAGE_HOSTS: [&str; 2] = ["catalog.test", "access.test"];
 fn request_kinds(observations: &Value) -> BTreeSet<(String, String)> {
     ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| PAGE_HOSTS.contains(&host))
-        })
+        .filter(|request| PAGE_HOSTS.contains(&request.host.as_str()))
         .map(|request| {
             (
-                request["protocol"].as_str().unwrap_or_default().to_owned(),
-                request["kind"].as_str().unwrap_or_default().to_owned(),
+                request.protocol.as_str().to_owned(),
+                request.kind.as_str().to_owned(),
             )
         })
         .collect()

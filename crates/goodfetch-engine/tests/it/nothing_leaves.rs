@@ -114,11 +114,11 @@ fn requests(observations: &Value) -> Vec<Value> {
         .every()
         .map(|request| {
             json!({
-                "host": request["host"],
-                "method": request["method"],
-                "target": request["target"],
-                "headers": request["headers"],
-                "cookies": request["cookies"],
+                "host": request.host,
+                "method": request.method,
+                "target": request.target,
+                "headers": request.headers,
+                "cookies": request.cookies,
             })
         })
         .collect()

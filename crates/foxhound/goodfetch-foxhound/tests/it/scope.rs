@@ -80,7 +80,7 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
 
     let mut hosts: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .map(|request| request["host"].as_str().unwrap().to_owned())
+        .map(|request| request.host.as_str().to_owned())
         .collect();
     hosts.sort();
     hosts.dedup();
@@ -370,7 +370,7 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
     let requests = ReceivedRequests::of(&observations);
     let refused_hosts = requests
         .every()
-        .filter(|request| request["host"] == "elsewhere.test")
+        .filter(|request| request.host == "elsewhere.test")
         .count();
     // Every connection but the observations' own read carried one request.
     let connections = observations["connections"].as_array().unwrap().len() - 1;

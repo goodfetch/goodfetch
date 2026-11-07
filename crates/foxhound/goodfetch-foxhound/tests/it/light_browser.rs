@@ -631,7 +631,11 @@ fn a_run_allowing_the_light_browser_beside_a_proxy_fails_its_start() {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request.to_string().contains("Lightpanda/"))
+        .filter(|request| {
+            serde_json::to_string(request)
+                .unwrap()
+                .contains("Lightpanda/")
+        })
         .count();
     let relayed = observations["relays"]
         .as_array()

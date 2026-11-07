@@ -208,7 +208,7 @@ fn requested(proving_ground: &ProvingGround) -> Vec<String> {
         .received_requests()
         .unwrap()
         .every()
-        .map(|request| request["host"].as_str().unwrap_or_default().to_owned())
+        .map(|request| request.host.as_str().to_owned())
         .collect()
 }
 

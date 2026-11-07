@@ -92,7 +92,7 @@ fn a_reader_that_stalls_does_not_hold_back_a_crawl_of_the_proving_ground() {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == "scale.test")
+        .filter(|request| request.host == "scale.test")
         .count();
     let mut prefixes = 0;
     for _ in 0..STALLED_READS {

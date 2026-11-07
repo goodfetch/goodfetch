@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 
 use goodfetch_test_client::Attached;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
@@ -155,7 +156,7 @@ fn judged(
         .map(|((_, id), markdown)| record(id, markdown))
         .collect();
     let verdict = proving_ground
-        .judge_records(TASK, "success", &records)
+        .judge_records(TASK, ToolStatus::Success, &records)
         .unwrap();
     // The Markdown holds no title, the oracle's other field.
     let wrong: Vec<Value> = verdict["wrong"]

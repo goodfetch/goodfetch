@@ -173,8 +173,8 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
         .of_the_case()
         .map(|request| {
             (
-                request["host"].as_str().unwrap_or_default().to_owned(),
-                request["target"].as_str().unwrap_or_default().to_owned(),
+                request.host.as_str().to_owned(),
+                request.target.as_str().to_owned(),
             )
         })
         .collect()
@@ -188,7 +188,7 @@ fn pages_requested(proving_ground: &ProvingGround) -> usize {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request["target"] != "/favicon.ico")
+        .filter(|request| request.target != "/favicon.ico")
         .count()
 }
 

@@ -149,7 +149,7 @@ fn https(proving_ground: &ProvingGround, host: &str) -> String {
 fn requests_to(proving_ground: &ProvingGround, host: &str) -> usize {
     ReceivedRequests::of(&proving_ground.observations().unwrap())
         .every()
-        .filter(|request| request["host"].as_str() == Some(host))
+        .filter(|request| request.host == host)
         .count()
 }
 

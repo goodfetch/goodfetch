@@ -21,6 +21,7 @@
 // `journeyDocument`.
 import type { JourneyFacts } from "./journey-document.ts";
 import { belongsTo, namedTasks, type JourneyFile } from "./journey-file.ts";
+import { provingGroundRoutes } from "./proving-ground.ts";
 import type { CheckOutcome, OracleAnswer, StepOutcome } from "./generated/result-document.ts";
 
 /** A step's or check's body: it fails when it throws or rejects. */
@@ -332,7 +333,7 @@ export class JourneyRun {
     if (provingGround === undefined) {
       throw new Error("the Journey starts no Proving ground");
     }
-    const response = await fetch(`http://${provingGround.address}/oracle`, {
+    const response = await fetch(`http://${provingGround.address}${provingGroundRoutes().oracle}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ task, ...submission }),

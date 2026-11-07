@@ -178,13 +178,8 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<V
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == path
-        })
-        .cloned()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
+        .map(|request| serde_json::to_value(request).unwrap())
         .collect()
 }
 
@@ -595,7 +590,7 @@ fn a_hop_to_a_private_address_ends_skipped_with_domain_policy_and_never_connects
     let requests = ReceivedRequests::of(&observations);
     let addressed = requests
         .of_the_case()
-        .filter(|request| request["target"] == "/address/target")
+        .filter(|request| request.target == "/address/target")
         .count();
     // The observations' own read is the one connection with no request.
     let connections = observations["connections"].as_array().unwrap().len() - 1;

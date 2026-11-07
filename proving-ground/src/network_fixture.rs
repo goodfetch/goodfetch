@@ -24,8 +24,8 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use crate::interface::{FixtureAddresses, ProxyCredentials};
 use anyhow::{Context as _, Result};
-use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_util::sync::CancellationToken;
@@ -115,7 +115,7 @@ impl NetworkFixtures {
 
     /// What `serve`'s output line reports of them: `proxies` by name,
     /// `proxy_credentials`, `dns`, `target` and `udp`.
-    pub(crate) fn report(&self) -> Result<Map<String, Value>> {
+    pub(crate) fn report(&self) -> Result<FixtureAddresses> {
         let mut proxies = BTreeMap::from([("down", self.down.address.to_string())]);
         for proxy in &self.proxies {
             proxies.insert(proxy.name(), proxy.address()?.to_string());
@@ -128,16 +128,19 @@ impl NetworkFixtures {
             .udp
             .local_addr()
             .context("reading the UDP fixture's address")?;
-        Ok(Map::from_iter([
-            ("proxies".to_owned(), json!(proxies)),
-            (
-                "proxy_credentials".to_owned(),
-                json!(self.context.credentials),
-            ),
-            ("dns".to_owned(), json!(self.dns.address()?.to_string())),
-            ("target".to_owned(), json!(target.to_string())),
-            ("udp".to_owned(), json!(udp.to_string())),
-        ]))
+        Ok(FixtureAddresses {
+            proxies: proxies
+                .into_iter()
+                .map(|(name, address)| (name.to_owned(), address))
+                .collect(),
+            proxy_credentials: ProxyCredentials {
+                username: self.context.credentials.username.clone(),
+                password: self.context.credentials.password.clone(),
+            },
+            dns: self.dns.address()?.to_string(),
+            target: target.to_string(),
+            udp: udp.to_string(),
+        })
     }
 
     /// Serves every fixture until dropped, each connection on a task of the

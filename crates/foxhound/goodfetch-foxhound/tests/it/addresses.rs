@@ -30,11 +30,7 @@ const SEED: u64 = 678;
 fn requests_to(observations: &Value, host: &str) -> usize {
     ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-        })
+        .filter(|request| request.host.starts_with(host))
         .count()
 }
 
@@ -232,11 +228,7 @@ fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_poli
     let requests = ReceivedRequests::of(&observations);
     let to_localhost = requests
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with("localhost"))
-        })
+        .filter(|request| request.host.starts_with("localhost"))
         .count();
     // The observations' own read is the one connection with no request.
     let connections = observations["connections"].as_array().unwrap().len() - 1;

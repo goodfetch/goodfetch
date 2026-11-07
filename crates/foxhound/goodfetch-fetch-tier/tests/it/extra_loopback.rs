@@ -69,12 +69,12 @@ fn sources_of(observations: &Value, path: &str) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
     ReceivedRequests::of(observations)
         .of_the_case()
-        .filter(|request| request["target"] == path)
+        .filter(|request| request.target == path)
         .map(|request| {
             let connection = connections
                 .iter()
-                .find(|connection| connection["id"] == request["connection"])
-                .unwrap_or_else(|| panic!("no connection for {request}"));
+                .find(|connection| connection["id"] == request.connection)
+                .unwrap_or_else(|| panic!("no connection for {request:?}"));
             connection["source"]
                 .as_str()
                 .unwrap()

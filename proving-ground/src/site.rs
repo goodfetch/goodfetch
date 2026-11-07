@@ -10,6 +10,7 @@
 //! (`POST /revoke-sessions`), which a harness asks for while a tool is
 //! stopped.
 
+use crate::interface::ROUTES;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -369,12 +370,12 @@ impl Site {
             return reply;
         }
         match (request.method, request.path) {
-            (&Method::GET, "/tasks") => Reply::json(
+            (&Method::GET, path) if path == ROUTES.tasks => Reply::json(
                 StatusCode::OK,
                 &TaskList::new(VERSION, self.seed, &self.tasks()),
             ),
-            (&Method::POST, "/oracle") => self.judge(request.body),
-            (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::POST, path) if path == ROUTES.oracle => self.judge(request.body),
+            (&Method::PUT, path) if path == ROUTES.time_step => self.set_time_step(request.body),
             (&Method::PUT, "/limited-proxy-hold") => self.set_limited_hold(request.body),
             (&Method::POST, "/canaries") => self.plant(request),
             (&Method::GET, "/canaries") => self.canaries.document(),
@@ -394,7 +395,7 @@ impl Site {
                 headers: Vec::new(),
                 body: self.model.document().into(),
             },
-            (&Method::GET, "/observations") => Reply {
+            (&Method::GET, path) if path == ROUTES.observations => Reply {
                 status: StatusCode::OK,
                 content_type: "application/json",
                 headers: Vec::new(),
@@ -414,13 +415,13 @@ impl Site {
                 headers: Vec::new(),
                 body: self.pems.certificate_authority.clone().into(),
             },
-            (&Method::GET, "/client-certificate") => Reply {
+            (&Method::GET, path) if path == ROUTES.client_certificate => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
                 headers: Vec::new(),
                 body: self.pems.client_certificate.clone().into(),
             },
-            (&Method::GET, "/client-key") => Reply {
+            (&Method::GET, path) if path == ROUTES.client_key => Reply {
                 status: StatusCode::OK,
                 content_type: "application/x-pem-file",
                 headers: Vec::new(),

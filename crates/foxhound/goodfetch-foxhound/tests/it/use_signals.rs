@@ -102,8 +102,8 @@ fn crawl(host: &str, paths: &[&str], site_preferences: &Value) -> Crawled {
     let observations = proving_ground.observations().unwrap();
     let mut sent: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["host"] == host)
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host == host)
+        .map(|request| request.target.clone())
         .filter(|target| target.starts_with("/catalog"))
         .collect();
     sent.sort();

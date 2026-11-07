@@ -58,7 +58,7 @@ fn received(proving_ground: &ProvingGround, target: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == HOST && request["target"] == target)
+        .filter(|request| request.host == HOST && request.target == target)
         .count()
 }
 
@@ -70,11 +70,11 @@ fn held_ms(proving_ground: &ProvingGround, target: &str) -> Option<u64> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == HOST && request["target"] == target)
+        .filter(|request| request.host == HOST && request.target == target)
         .find_map(|request| {
-            let timing = &request["timing"];
-            let answered = timing["answered_microseconds"].as_u64()?;
-            Some(answered.saturating_sub(timing["arrived_microseconds"].as_u64()?) / 1_000)
+            let timing = &request.timing;
+            let answered = timing.answered_microseconds?;
+            Some(answered.saturating_sub(timing.arrived_microseconds) / 1_000)
         })
 }
 

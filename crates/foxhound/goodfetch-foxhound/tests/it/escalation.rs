@@ -97,7 +97,7 @@ fn fetched(proving_ground: &ProvingGround, path: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["target"] == path)
+        .filter(|request| request.target == path)
         .count()
 }
 

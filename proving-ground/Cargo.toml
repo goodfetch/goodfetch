@@ -31,6 +31,9 @@ p256 = { workspace = true, features = ["ecdsa", "pkcs8", "std"] }
 pulldown-cmark.workspace = true
 rcgen = { workspace = true, features = ["pem"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# Describes its interface (`interface.rs`) for the JSON Schemas test support
+# commits.
+schemars.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true

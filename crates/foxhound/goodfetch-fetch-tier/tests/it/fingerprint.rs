@@ -101,16 +101,12 @@ fn chrome_loads(env: &TestEnv, proving_ground: &ProvingGround, url: &str) {
 
 /// The first request the Proving ground received for `target` on [`HOST`].
 fn request_for(observations: &Value, target: &str) -> Value {
-    ReceivedRequests::of(observations)
+    let request = ReceivedRequests::of(observations)
         .of_the_case()
-        .find(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with(HOST))
-                && request["target"] == target
-        })
+        .find(|request| request.host.starts_with(HOST) && request.target == target)
         .unwrap_or_else(|| panic!("no request for {target}: {observations}"))
-        .clone()
+        .clone();
+    serde_json::to_value(request).unwrap()
 }
 
 /// The numbers of a list of the observations.

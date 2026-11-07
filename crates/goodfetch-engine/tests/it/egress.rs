@@ -86,7 +86,7 @@ fn target_url(proving_ground: &ProvingGround) -> String {
 fn requests(observations: &Value) -> Vec<Value> {
     ReceivedRequests::of(observations)
         .every()
-        .map(|request| json!([request["host"], request["target"]]))
+        .map(|request| json!([request.host, request.target]))
         .collect()
 }
 

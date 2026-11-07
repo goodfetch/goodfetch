@@ -6,6 +6,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
 
+use goodfetch_test_support::{Observations, ROUTES, ServeLine};
 use serde_json::{Value, json};
 
 /// A running `serve`, stopped when dropped.
@@ -88,10 +89,12 @@ impl ProvingGround {
         let mut line = String::new();
         stdout.read_line(&mut line).expect("stdout is readable");
         assert!(line.ends_with('\n'), "serve printed no line: {line:?}");
-        let address = serde_json::from_str::<Value>(&line).expect("the line is JSON")["address"]
-            .as_str()
-            .expect("the line names an address")
-            .to_owned();
+        let address = serde_json::from_str::<ServeLine>(&line)
+            .unwrap_or_else(|error| {
+                panic!("the line is not the described serve line ({error}): {line}")
+            })
+            .address
+            .to_string();
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
@@ -281,7 +284,7 @@ impl ProvingGround {
     pub(crate) fn tasks(&self) -> Value {
         let response = self
             .agent
-            .get(format!("http://{}/tasks", self.address))
+            .get(format!("http://{}{}", self.address, ROUTES.tasks))
             .call()
             .expect("the Proving ground answers");
         let answer = Self::answer(response);
@@ -311,16 +314,20 @@ impl ProvingGround {
     /// its private key, each as PEM.
     pub(crate) fn client_identity(&self) -> (String, String) {
         (
-            self.control("/client-certificate").body,
-            self.control("/client-key").body,
+            self.control(ROUTES.client_certificate).body,
+            self.control(ROUTES.client_key).body,
         )
     }
 
     /// Every request the Proving ground recorded, with its sums.
     pub(crate) fn observations(&self) -> Value {
-        let answer = self.control("/observations");
+        let answer = self.control(ROUTES.observations);
         assert_eq!(answer.status, 200, "{}", answer.body);
-        answer.json()
+        let document = answer.json();
+        if let Err(error) = serde_json::from_value::<Observations>(document.clone()) {
+            panic!("the observations are not the described format ({error}): {document}");
+        }
+        document
     }
 
     /// Puts a JSON body to a path on the Proving ground's own address.
@@ -382,7 +389,7 @@ impl ProvingGround {
     pub(crate) fn judge(&self, submission: &Value) -> Answer {
         let response = self
             .agent
-            .post(format!("http://{}/oracle", self.address))
+            .post(format!("http://{}{}", self.address, ROUTES.oracle))
             .send_json(submission)
             .expect("the Proving ground answers");
         Self::answer(response)

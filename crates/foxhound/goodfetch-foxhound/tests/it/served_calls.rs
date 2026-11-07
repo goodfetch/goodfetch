@@ -18,6 +18,7 @@
 )]
 
 use goodfetch_test_client::Attached;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
@@ -440,7 +441,7 @@ fn every_page_formats_the_same_markdown_on_its_tier_as_the_oracle_holds(#[case] 
     assert!(engine.finished());
 
     let verdict = proving_ground
-        .judge_records(MARKDOWN_TASK, "success", &records)
+        .judge_records(MARKDOWN_TASK, ToolStatus::Success, &records)
         .unwrap();
     assert_eq!(
         (
@@ -738,7 +739,7 @@ fn every_format_of_a_handlers_page_matches_the_oracle_on_its_tier(
     assert!(engine.finished());
 
     let verdict = proving_ground
-        .judge_records(task, "success", &records)
+        .judge_records(task, ToolStatus::Success, &records)
         .unwrap();
     assert_eq!(
         (

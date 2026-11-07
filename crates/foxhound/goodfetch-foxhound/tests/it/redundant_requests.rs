@@ -116,8 +116,8 @@ fn connections_for(proving_ground: &ProvingGround, target: &str) -> Vec<u64> {
     let observations = proving_ground.observations().unwrap();
     ReceivedRequests::of(&observations)
         .of_the_case()
-        .filter(|request| request["host"] == "pacing.test" && request["target"] == target)
-        .map(|request| request["connection"].as_u64().unwrap())
+        .filter(|request| request.host == "pacing.test" && request.target == target)
+        .map(|request| request.connection)
         .collect()
 }
 

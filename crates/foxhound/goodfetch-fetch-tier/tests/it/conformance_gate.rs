@@ -64,12 +64,8 @@ fn requests_to(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-        })
-        .cloned()
+        .filter(|request| request.host.starts_with(host))
+        .map(|request| serde_json::to_value(request).unwrap())
         .collect()
 }
 

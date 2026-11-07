@@ -26,6 +26,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_test_client::Attached;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
@@ -336,10 +337,10 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     // HTTP/2, on either tier.
     if matches!(page, Page::Calm) {
         let observations = proving_ground.observations().unwrap();
-        let protocols: Vec<Value> = ReceivedRequests::of(&observations)
+        let protocols: Vec<String> = ReceivedRequests::of(&observations)
             .of_the_case()
-            .filter(|request| request["target"] == json!("/calm"))
-            .map(|request| request["protocol"].clone())
+            .filter(|request| request.target == "/calm")
+            .map(|request| request.protocol.clone())
             .collect();
         assert!(
             !protocols.is_empty() && protocols.iter().all(|protocol| protocol == "h2"),
@@ -387,11 +388,11 @@ fn the_sites_retry_after_holds_its_domain_and_nothing_is_sent_before_it(
     );
     assert!(engine.finished());
 
-    let targets: Vec<Value> = proving_ground
+    let targets: Vec<ObservedRequest> = proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["target"] == json!("/target"))
+        .filter(|request| request.target == "/target")
         .cloned()
         .collect();
     assert_eq!(

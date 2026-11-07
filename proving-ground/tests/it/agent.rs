@@ -7,6 +7,7 @@
 //! The known-correct results read the page the way any tool would, and the
 //! bookings are what the page's script posts for a trusted submit.
 
+use goodfetch_test_support::ROUTES;
 use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -275,7 +276,7 @@ fn a_stale_price_after_the_price_change_is_a_false_success() {
 fn a_malformed_time_step_is_refused(#[case] body: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground.put_control("/time-step", body);
+    let answer = proving_ground.put_control(ROUTES.time_step, body);
 
     assert_eq!(answer.status, 400, "{}", answer.body);
     assert_eq!(answer.json()["error"], "malformed_time_step");

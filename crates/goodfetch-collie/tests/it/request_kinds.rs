@@ -204,12 +204,7 @@ fn received(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!(host)
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|seen| seen.starts_with(target))
-        })
+        .filter(|request| request.host == host && request.target.starts_with(target))
         .count()
 }
 
@@ -481,12 +476,8 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
     let reached = requests
         .every()
         .skip(from)
-        .filter(|request| {
-            request["target"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(&target))
-        })
-        .filter_map(|request| request["host"].as_str().map(str::to_ascii_lowercase))
+        .filter(|request| request.target.starts_with(&target))
+        .map(|request| request.host.to_ascii_lowercase())
         .collect();
     (requests.every().count(), reached)
 }

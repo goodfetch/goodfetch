@@ -205,7 +205,7 @@ impl Fixture {
         let observations = self.proving_ground.observations().unwrap();
         let requests = ReceivedRequests::of(&observations)
             .every()
-            .map(|request| request["host"].clone())
+            .map(|request| json!(request.host))
             .collect();
         (observations["client_certificates"].clone(), requests)
     }

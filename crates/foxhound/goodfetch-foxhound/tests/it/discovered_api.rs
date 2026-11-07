@@ -15,6 +15,7 @@
 )]
 
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -173,11 +174,11 @@ fn chosen(env: &TestEnv, run_id: &str) -> Vec<String> {
 /// `skip` first it received.
 fn later_requests(proving_ground: &ProvingGround, kind: &str, skip: usize) -> (usize, usize) {
     let received = proving_ground.received_requests().unwrap();
-    let all: Vec<&Value> = received.every().collect();
+    let all: Vec<&ObservedRequest> = received.every().collect();
     let count = all[skip..]
         .iter()
         .filter(|request| {
-            let target = request["target"].as_str().unwrap_or_default();
+            let target = request.target.as_str();
             (4..=LISTS).any(|n| {
                 target == format!("/{kind}/{n}")
                     || target.starts_with(&format!("/api/{kind}/{n}?"))

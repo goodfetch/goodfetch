@@ -1483,7 +1483,7 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
         .collect();
     let received: Vec<(Value, Value)> = ReceivedRequests::of(&observations)
         .every()
-        .map(|request| (request["host"].clone(), request["target"].clone()))
+        .map(|request| (json!(request.host), json!(request.target)))
         .collect();
 
     assert_eq!(
@@ -2032,7 +2032,7 @@ fn tunnels_settled(proving_ground: &ProvingGround) {
         let requests = ReceivedRequests::of(&observations);
         let targets: BTreeSet<String> = requests
             .every()
-            .filter_map(|request| request["target"].as_str())
+            .map(|request| request.target.as_str())
             .map(|target| target.split('?').next().unwrap_or_default().to_owned())
             .collect();
         let relays = observations["relays"].as_array().unwrap().len();

@@ -160,7 +160,7 @@ fn forty_crawls_of_one_daemon_keep_its_live_heap_flat_once_warm() {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == "scale.test")
+        .filter(|request| request.host == "scale.test")
         .count();
     drop(connection);
     daemon.stop(&env).unwrap();

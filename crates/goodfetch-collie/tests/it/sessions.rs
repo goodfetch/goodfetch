@@ -69,18 +69,8 @@ fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("scope.test")
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|target| target.starts_with(prefix))
-        })
-        .map(|request| {
-            (
-                request["target"].as_str().unwrap().to_owned(),
-                request["cookies"].clone(),
-            )
-        })
+        .filter(|request| request.host == "scope.test" && request.target.starts_with(prefix))
+        .map(|request| (request.target.clone(), json!(request.cookies)))
         .collect()
 }
 
@@ -513,9 +503,7 @@ fn ads_loaded(
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("clean-up.test") && request["target"] == json!(AD)
-        })
+        .filter(|request| request.host == "clean-up.test" && request.target == AD)
         .count()
 }
 

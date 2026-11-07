@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
@@ -86,13 +87,13 @@ fn crawl(
 fn received(proving_ground: &ProvingGround, host: &str) -> (usize, usize) {
     let observations = proving_ground.observations().unwrap();
     let received = ReceivedRequests::of(&observations);
-    let requests: Vec<&Value> = received
+    let requests: Vec<&ObservedRequest> = received
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .collect();
     let robots = requests
         .iter()
-        .filter(|request| request["target"] == "/robots.txt")
+        .filter(|request| request.target == "/robots.txt")
         .count();
     (robots, requests.len() - robots)
 }
@@ -241,8 +242,8 @@ fn pages_received(proving_ground: &ProvingGround, host: &str) -> Vec<String> {
     let observations = proving_ground.observations().unwrap();
     ReceivedRequests::of(&observations)
         .of_the_case()
-        .filter(|request| request["host"] == host)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == host)
+        .map(|request| request.target.as_str().to_owned())
         .collect()
 }
 
@@ -568,11 +569,11 @@ pub(crate) fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(Strin
     let observations = proving_ground.observations().unwrap();
     let mut arrivals: Vec<(String, u64)> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .map(|request| {
             (
-                request["target"].as_str().unwrap().to_owned(),
-                request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+                request.target.as_str().to_owned(),
+                request.timing.arrived_microseconds,
             )
         })
         .collect();

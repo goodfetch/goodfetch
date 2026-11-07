@@ -298,8 +298,8 @@ fn pages_received(proving_ground: &ProvingGround) -> Vec<String> {
     let observations = proving_ground.observations().unwrap();
     let mut received: Vec<String> = ReceivedRequests::of(&observations)
         .of_the_case()
-        .filter(|request| request["host"] == HOST && request["target"] != "/robots.txt")
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == HOST && request.target != "/robots.txt")
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     received.sort();
     received

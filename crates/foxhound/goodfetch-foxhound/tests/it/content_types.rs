@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 
 use goodfetch_test_client::Attached;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
@@ -474,7 +475,7 @@ fn provenance_names_each_documents_encoding_and_where_it_came_from() {
         })
         .collect();
     let verdict = proving_ground
-        .judge_records("encodings/2", "success", &records)
+        .judge_records("encodings/2", ToolStatus::Success, &records)
         .unwrap();
     let wrong: Vec<&Value> = verdict["wrong"]
         .as_array()

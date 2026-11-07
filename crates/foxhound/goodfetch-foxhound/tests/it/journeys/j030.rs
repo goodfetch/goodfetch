@@ -34,16 +34,12 @@ fn sources(observations: &Value) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
     ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with("access.test"))
-        })
+        .filter(|request| request.host.starts_with("access.test"))
         .map(|request| {
             let connection = connections
                 .iter()
-                .find(|connection| connection["id"] == request["connection"])
-                .unwrap_or_else(|| panic!("no connection for {request}"));
+                .find(|connection| connection["id"] == request.connection)
+                .unwrap_or_else(|| panic!("no connection for {request:?}"));
             connection["source"]
                 .as_str()
                 .unwrap()

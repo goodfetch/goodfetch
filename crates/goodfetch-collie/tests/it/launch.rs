@@ -128,19 +128,12 @@ pub(crate) fn identity_seen(
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with("access.localhost"))
-        })
+        .filter(|request| request.host.starts_with("access.localhost"))
     {
-        for header in request["headers"].as_array().unwrap() {
-            let name = header[0].as_str().unwrap().to_ascii_lowercase();
+        for (name, value) in &request.headers {
+            let name = name.to_ascii_lowercase();
             if name == "user-agent" || name.starts_with("sec-ch-ua") {
-                headers
-                    .entry(name)
-                    .or_default()
-                    .insert(header[1].as_str().unwrap().to_owned());
+                headers.entry(name).or_default().insert(value.clone());
             }
         }
     }

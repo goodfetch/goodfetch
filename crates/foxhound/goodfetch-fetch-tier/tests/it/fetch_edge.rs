@@ -79,13 +79,8 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<V
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == path
-        })
-        .cloned()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
+        .map(|request| serde_json::to_value(request).unwrap())
         .collect()
 }
 

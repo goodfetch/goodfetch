@@ -18,6 +18,7 @@ use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
@@ -48,7 +49,7 @@ fn settings(proving_ground: &ProvingGround, addresses: &[&str]) -> Value {
 /// on, in arrival order. Every request, robots.txt's included: the tests
 /// claim where it leaves from, and read the observations once the crawl
 /// finished, so after its robots.txt reading, which its pages waited on.
-fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr> {
+fn sources(observations: &Value, chosen: impl Fn(&ObservedRequest) -> bool) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
     ReceivedRequests::of(observations)
         .every()
@@ -56,8 +57,8 @@ fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr>
         .map(|request| {
             let connection = connections
                 .iter()
-                .find(|connection| connection["id"] == request["connection"])
-                .unwrap_or_else(|| panic!("no connection for {request}"));
+                .find(|connection| connection["id"] == request.connection)
+                .unwrap_or_else(|| panic!("no connection for {request:?}"));
             connection["source"]
                 .as_str()
                 .unwrap()
@@ -71,7 +72,7 @@ fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr>
 /// The source address of the connection each request for the target
 /// `target` came on, in arrival order.
 fn sources_of(observations: &Value, target: &str) -> Vec<IpAddr> {
-    sources(observations, |request| request["target"] == target)
+    sources(observations, |request| request.target == target)
 }
 
 /// Every source address a request to the crawled site came from: the
@@ -79,9 +80,7 @@ fn sources_of(observations: &Value, target: &str) -> Vec<IpAddr> {
 /// request to it.
 fn every_source(observations: &Value) -> BTreeSet<IpAddr> {
     sources(observations, |request| {
-        request["host"]
-            .as_str()
-            .is_some_and(|host| host.starts_with("access.test"))
+        request.host.starts_with("access.test")
     })
     .into_iter()
     .collect()

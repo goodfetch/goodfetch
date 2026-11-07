@@ -24,6 +24,7 @@ use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_client::hello;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
 };
@@ -165,7 +166,7 @@ impl OnTask {
 /// The oracle's outcome for `task` reported as `status`, asked again until
 /// it is `verified` or [`EFFECT_WAIT`] passes, since a page posts its
 /// Effect after its event.
-fn outcome(proving_ground: &ProvingGround, task: &str, status: &str) -> Value {
+fn outcome(proving_ground: &ProvingGround, task: &str, status: ToolStatus) -> Value {
     let started = std::time::Instant::now();
     loop {
         let verdict = proving_ground.judge(task, status).unwrap();
@@ -231,7 +232,7 @@ fn verified_by_the_oracle(task: &str, steps: &[Step]) {
     let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 10_000);
 
     let answers: Vec<Value> = steps.iter().map(|step| page.act(*step)).collect();
-    let verdict = outcome(&proving_ground, task, "success");
+    let verdict = outcome(&proving_ground, task, ToolStatus::Success);
     page.finish();
 
     assert_eq!(
@@ -284,7 +285,7 @@ fn a_target_still_ambiguous_at_the_deadline_raises_target_not_unique_listing_eve
     );
 
     let clicked = page.act(Step::Click("#target"));
-    let verdict = outcome(&proving_ground, "actionability/9", "failure");
+    let verdict = outcome(&proving_ground, "actionability/9", ToolStatus::Failure);
     page.finish();
 
     let details: TargetNotUniqueDetails = serde_json::from_value(clicked["error"]["data"].clone())
@@ -342,7 +343,7 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
     let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 1_000);
 
     let clicked = page.act(Step::Click(selector));
-    let verdict = outcome(&proving_ground, task, "failure");
+    let verdict = outcome(&proving_ground, task, ToolStatus::Failure);
     page.finish();
 
     assert_eq!(

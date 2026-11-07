@@ -84,7 +84,7 @@ fn crawl_shop(settings: &Value) -> Crawled {
     assert!(engine.finished());
     let received: Vec<String> = ReceivedRequests::of(&observations)
         .of_the_case()
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 

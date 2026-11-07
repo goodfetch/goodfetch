@@ -57,7 +57,7 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["target"] == json!(target))
+        .filter(|request| request.target == target)
         .count();
     let report = engine.ask(4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();
     let (_, stderr) = engine.finish_with_stderr();

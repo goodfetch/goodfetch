@@ -25,8 +25,10 @@ from goodfetch_test_support.locales import TimeZoneCase, locales, time_zones
 from goodfetch_test_support.proving_ground import (
     ProvingGround,
     ProvingGroundFixtures,
+    ProvingGroundRoutes,
     ProvingGroundUnseeded,
     ProxyCredentials,
+    proving_ground_routes,
 )
 from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError
@@ -51,6 +53,7 @@ __all__ = [
     "Product",
     "ProvingGround",
     "ProvingGroundFixtures",
+    "ProvingGroundRoutes",
     "ProvingGroundUnseeded",
     "ProxyCredentials",
     "SchemaError",
@@ -64,6 +67,7 @@ __all__ = [
     "UnicodeField",
     "UnicodeRecord",
     "locales",
+    "proving_ground_routes",
     "redact",
     "search_canaries",
     "time_zones",

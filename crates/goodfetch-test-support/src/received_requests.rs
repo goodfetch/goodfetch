@@ -13,7 +13,9 @@
 //! received-requests` refuses a read of the observations' requests anywhere
 //! else.
 
-use serde_json::{Value, json};
+use serde_json::Value;
+
+use crate::proving_ground_format::ObservedRequest;
 
 /// The targets the engine and the browser ask a site for on their own: the
 /// robots.txt read of a document's origin (ADR 0086) and Chromium's icon.
@@ -22,39 +24,37 @@ pub const OWN_TARGETS: [&str; 2] = ["/robots.txt", "/favicon.ico"];
 /// Each request the Proving ground's page hosts received, in arrival order,
 /// as `GET /observations` lists them.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct ReceivedRequests(Vec<Value>);
+pub struct ReceivedRequests(Vec<ObservedRequest>);
 
 impl ReceivedRequests {
     /// The requests of a Proving ground's `observations`.
     ///
     /// # Panics
     ///
-    /// When the observations hold no list of requests.
+    /// When the observations hold no list of requests, or a request the
+    /// Proving ground's format does not describe.
     pub fn of(observations: &Value) -> Self {
         Self(
-            observations["requests"]
-                .as_array()
-                .unwrap_or_else(|| panic!("the observations hold no requests: {observations}"))
-                .clone(),
+            serde_json::from_value(observations["requests"].clone()).unwrap_or_else(|error| {
+                panic!("the observations hold no list of requests ({error}): {observations}")
+            }),
         )
     }
 
     /// The requests the case is about: every one but those for
     /// [`OWN_TARGETS`], which the engine and the browser send on their own,
     /// whenever they like.
-    pub fn of_the_case(&self) -> impl Iterator<Item = &Value> {
-        self.0.iter().filter(|request| {
-            !OWN_TARGETS
-                .iter()
-                .any(|target| request["target"] == json!(target))
-        })
+    pub fn of_the_case(&self) -> impl Iterator<Item = &ObservedRequest> {
+        self.0
+            .iter()
+            .filter(|request| !OWN_TARGETS.contains(&request.target.as_str()))
     }
 
     /// Every request, the robots.txt reads and icons included, for a claim
     /// about them or about all a site saw. A count over them is taken at a
     /// named state, such as after `goodfetch-test-client`'s
     /// `robots_txt_read`.
-    pub fn every(&self) -> impl Iterator<Item = &Value> {
+    pub fn every(&self) -> impl Iterator<Item = &ObservedRequest> {
         self.0.iter()
     }
 }

@@ -28,6 +28,7 @@ use std::time::Duration;
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
@@ -443,8 +444,8 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == ROBOTS_HOST)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == ROBOTS_HOST)
+        .map(|request| request.target.as_str().to_owned())
         .collect::<Vec<_>>();
     assert_eq!(
         (
@@ -480,35 +481,23 @@ const EDGE_HOST: &str = "fetch-edge.test";
 const EDGE_OTHER_HOST: &str = "h1.fetch-edge.test";
 
 /// The requests `proving_ground` received for `path` on `host`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<ObservedRequest> {
     proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == path
-        })
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
         .cloned()
         .collect()
 }
 
 /// The method of `request` and whether it carried each header of `names`.
-fn carried(request: &Value, names: &[&str]) -> (Value, Vec<bool>) {
-    let headers = request["headers"].as_array().cloned().unwrap_or_default();
+fn carried(request: &ObservedRequest, names: &[&str]) -> (Value, Vec<bool>) {
     (
-        request["method"].clone(),
+        json!(request.method),
         names
             .iter()
-            .map(|name| {
-                headers.iter().any(|pair| {
-                    pair[0]
-                        .as_str()
-                        .is_some_and(|seen| seen.eq_ignore_ascii_case(name))
-                })
-            })
+            .map(|name| request.header(name).is_some())
             .collect(),
     )
 }

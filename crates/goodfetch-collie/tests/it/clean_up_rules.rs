@@ -336,8 +336,8 @@ fn requests(proving_ground: &ProvingGround) -> Vec<String> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == json!("clean-up.test"))
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host == "clean-up.test")
+        .map(|request| request.target.clone())
         .collect()
 }
 

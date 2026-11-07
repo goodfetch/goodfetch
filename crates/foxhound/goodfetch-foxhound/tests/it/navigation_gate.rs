@@ -102,7 +102,7 @@ fn requested(proving_ground: &ProvingGround, host: &str, path: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == host && request["target"] == path)
+        .filter(|request| request.host == host && request.target == path)
         .count()
 }
 
@@ -265,15 +265,12 @@ fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .filter_map(|request| {
-            let target = request["target"].as_str()?;
-            targets.contains(&target).then(|| {
-                (
-                    target.to_owned(),
-                    request["timing"]["arrived_microseconds"].as_u64().unwrap(),
-                )
-            })
+            let target = request.target.as_str();
+            targets
+                .contains(&target)
+                .then(|| (target.to_owned(), request.timing.arrived_microseconds))
         })
         .collect();
     arrivals.sort_by_key(|(_, at)| *at);
@@ -1030,12 +1027,8 @@ fn on_the_served_page(
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-        })
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host.split(':').next() == Some(host))
+        .map(|request| request.target.clone())
         .filter(|target| target != "/robots.txt" && !target.starts_with("/.well-known/"))
         .collect();
     sent.sort();
@@ -1195,8 +1188,9 @@ fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
                 .received_requests()
                 .unwrap()
                 .every()
-                .filter(|request| request["host"] == TDMREP_FILE_HOST
-                    && request["target"] == "/robots.txt")
+                .filter(
+                    |request| request.host == TDMREP_FILE_HOST && request.target == "/robots.txt"
+                )
                 .count(),
             requested(
                 &proving_ground,

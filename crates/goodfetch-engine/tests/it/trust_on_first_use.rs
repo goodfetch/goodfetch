@@ -203,7 +203,7 @@ fn requests_of(proving_ground: &ProvingGround) -> Vec<Value> {
         .received_requests()
         .unwrap()
         .every()
-        .map(|request| json!([request["host"], request["cookies"]]))
+        .map(|request| json!([request.host, request.cookies]))
         .collect()
 }
 

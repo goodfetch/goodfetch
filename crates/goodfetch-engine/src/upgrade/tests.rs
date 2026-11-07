@@ -189,6 +189,40 @@ fn a_listed_source_gives_the_new_major_its_copy_and_leaves_the_older_majors_file
     );
 }
 
+/// None of the older major's Daemon's own files reaches the new major: its
+/// runtime file, socket, locks, service record, the page that opens its
+/// Console, and its tokens, which grant access to that Daemon alone.
+///
+/// Covers: story:3-96
+#[test]
+fn no_file_of_the_older_majors_daemon_reaches_the_new_major() {
+    let env = TestEnv::new();
+    let home = home_of_major_2(&env);
+    let daemon_files = [
+        "console.html",
+        "daemon-service.json",
+        "daemon-start.lock",
+        "daemon.json",
+        "daemon.lock",
+        "daemon.sock",
+        "daemon.token",
+        "http-listener.token",
+        "ops.token",
+    ];
+    for name in daemon_files {
+        std::fs::write(home.root().join("2").join(name), name).unwrap();
+    }
+    let paths = UpgradePaths::parse("[[source]]\nmajor = \"2\"\n").unwrap();
+
+    upgrade_files(&home, &version("3.1.0"), None, &paths).unwrap();
+
+    let reached: Vec<PathBuf> = tree(&home.root().join("3"))
+        .into_keys()
+        .filter(|path| daemon_files.iter().any(|name| path == Path::new(name)))
+        .collect();
+    assert_eq!(reached, Vec::<PathBuf>::new());
+}
+
 /// A file the new major already holds, other than the older major's, is
 /// kept as it is (ADR 0030: never lose what the new major wrote).
 ///

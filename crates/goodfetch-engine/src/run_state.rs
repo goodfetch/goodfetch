@@ -46,15 +46,18 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_protocol::catalog::ProtocolVersion;
-use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
+use goodfetch_protocol::formats::{Compatibility, RUN_STATE};
 use goodfetch_protocol::run::{
     DURABILITY_FAST, DURABILITY_FULL, DURABILITY_OFF, DURABILITY_PERIODIC,
 };
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::clock::Clock;
+use crate::sqlite_store::{
+    self, Access, Counting, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
+    Synchronous, Wait, WalOnClose,
+};
 use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
@@ -81,7 +84,6 @@ const STATEMENTS: usize = 256;
 
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS run (
         run_id TEXT NOT NULL PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -148,6 +150,10 @@ const SCHEMA: &[&str] = &[
         folder TEXT
     ) STRICT",
 ];
+
+/// The statement that sets the "unclean" mark of a run file at `off` (ADR
+/// 0138), in the commit its writer opens it with.
+const MARK: &[&str] = &["INSERT INTO unclean (id) VALUES (1) ON CONFLICT (id) DO NOTHING"];
 
 /// The tables one contribution adds to every run file: `CREATE TABLE IF NOT
 /// EXISTS` and `CREATE INDEX IF NOT EXISTS` statements, run in order when a
@@ -258,13 +264,13 @@ impl Durability {
         }
     }
 
-    /// The `synchronous` pragma of the writer's connection, which commits
+    /// The `synchronous` level of the writer's connection, which commits
     /// the groups that sync at `full` and `periodic`.
-    fn synchronous(self) -> &'static str {
+    fn synchronous(self) -> Synchronous {
         match self {
-            Self::Full | Self::Periodic { .. } => "FULL",
-            Self::Fast => "NORMAL",
-            Self::Off => "OFF",
+            Self::Full | Self::Periodic { .. } => Synchronous::Full,
+            Self::Fast => Synchronous::Normal,
+            Self::Off => Synchronous::Off,
         }
     }
 
@@ -272,10 +278,10 @@ impl Durability {
     /// below `full` too, so a checkpoint's pages reach the disk before the
     /// WAL frames they came from are written over. A clean stop runs no
     /// checkpoint (#2117): the file reads whole with the `-wal` beside it.
-    fn checkpoint_synchronous(self) -> &'static str {
+    fn checkpoint_synchronous(self) -> Synchronous {
         match self {
-            Self::Full => "FULL",
-            Self::Fast | Self::Periodic { .. } | Self::Off => "NORMAL",
+            Self::Full => Synchronous::Full,
+            Self::Fast | Self::Periodic { .. } | Self::Off => Synchronous::Normal,
         }
     }
 
@@ -283,6 +289,22 @@ impl Durability {
     /// `synchronous=NORMAL` for the groups that do not sync.
     fn defers(self) -> bool {
         matches!(self, Self::Full | Self::Periodic { .. })
+    }
+}
+
+/// How a connection of the writer's commits at the `synchronous` level
+/// `synchronous`: the commit that opens its file at `opening`, through
+/// `F_FULLFSYNC` on macOS, its WAL left beside the file as it closes
+/// (#2117).
+fn connection_durability(
+    synchronous: Synchronous,
+    opening: Synchronous,
+) -> sqlite_store::Durability {
+    sqlite_store::Durability {
+        synchronous,
+        opening,
+        full_fsync: FullFsync::CommitsAndCheckpoints,
+        wal_on_close: WalOnClose::Kept,
     }
 }
 
@@ -1083,11 +1105,7 @@ pub(crate) fn next_epoch(
 /// The run epoch the run file at `path` holds, read without its writer;
 /// `None` when it cannot be read. It blocks: run it under a blocking policy.
 pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
+    let connection = File::new(path, None).connect(Access::ReadOnly).ok()?;
     let epoch: i64 = connection
         .query_row("SELECT epoch FROM run", [], |row| row.get(0))
         .ok()?;
@@ -1101,25 +1119,10 @@ pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunSt
     }
 }
 
-/// Whether `error` is a full disk or an I/O error, after which SQLite may
-/// have rolled the whole transaction back (ADR 0122). A read that met an
-/// I/O error (EIO) counts: SQLite's Unix VFS reports it as
-/// `SQLITE_IOERR_CORRUPTFS`, which reaches its caller as `SQLITE_CORRUPT`.
-fn is_storage(error: &rusqlite::Error) -> bool {
-    matches!(
-        error.sqlite_error_code(),
-        Some(
-            rusqlite::ErrorCode::DiskFull
-                | rusqlite::ErrorCode::SystemIoFailure
-                | rusqlite::ErrorCode::DatabaseCorrupt
-        )
-    )
-}
-
 /// The failure of a commit of the run file at `path` on `error`: a full
 /// disk or an I/O error as such.
 fn commit_error(path: &Path, error: &rusqlite::Error) -> RunStateError {
-    if is_storage(error) {
+    if sqlite_store::is_storage(error) {
         RunStateError::Storage {
             path: path.to_owned(),
             message: error.to_string(),
@@ -1137,12 +1140,9 @@ fn commit_error(path: &Path, error: &rusqlite::Error) -> RunStateError {
 ///
 /// `Sqlite` when the file cannot be opened.
 pub(crate) fn open_reader(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }
-    .map_err(|error| sqlite_error(path, &error))
+    File::new(path, vfs)
+        .connect(Access::ReadOnly)
+        .map_err(|error| sqlite_error(path, &error))
 }
 
 /// Opens the file, sets its durability and creates its tables.
@@ -1151,71 +1151,45 @@ fn open_file(
     options: &RunStateOptions,
     tables: &[RunStateTables],
 ) -> Result<Connection, RunStateError> {
-    let failed = |error: rusqlite::Error| sqlite_error(path, &error);
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let mut connection = match options.vfs.as_deref() {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }
-    .map_err(failed)?;
-    crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
     let marked = options.durability == Durability::Off;
-    // At `off`, the commit that sets the "unclean" mark syncs, before any
-    // that does not.
-    let opening = if marked {
-        Durability::Full
-    } else {
-        options.durability
-    };
-    configure(&connection, options, opening.synchronous(), PAGE_CACHE_KIB).map_err(failed)?;
-    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
     // Below `off` the opening's commit, the file's tables and its format,
     // syncs nothing: no one is told of it, and the next synced commit, a
     // Run's start or a new run epoch, covers it, with the WAL's header
-    // (#2117). At `off` the commit that sets the mark syncs.
-    if !marked {
-        connection
-            .pragma_update(None, "synchronous", Durability::Off.synchronous())
-            .map_err(failed)?;
-    }
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(failed)?;
-    let statements = SCHEMA
-        .iter()
-        .chain(tables.iter().flat_map(|table| table.statements));
-    for statement in statements {
-        transaction.execute(statement, []).map_err(failed)?;
-    }
-    let version = RUN_STATE.version.to_string();
-    transaction
-        .execute(
-            "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-            (RUN_STATE.name, &version),
-        )
-        .map_err(failed)?;
-    let found: String = transaction
-        .query_row(
-            "SELECT version FROM format WHERE name = ?1",
-            [RUN_STATE.name],
-            |row| row.get(0),
-        )
-        .map_err(failed)?;
-    check_format(&RUN_STATE, &found)?;
-    if marked {
-        transaction
-            .execute(
-                "INSERT INTO unclean (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
-                [],
-            )
-            .map_err(failed)?;
-    }
-    transaction.commit().map_err(failed)?;
-    connection
-        .pragma_update(None, "synchronous", options.durability.synchronous())
-        .map_err(failed)?;
+    // (#2117). At `off` the commit that sets the "unclean" mark syncs,
+    // before any that does not.
+    let opening = if marked {
+        Synchronous::Full
+    } else {
+        Synchronous::Off
+    };
+    let statements: Vec<&[&str]> = std::iter::once(SCHEMA)
+        .chain(tables.iter().map(|table| table.statements))
+        .chain(marked.then_some(MARK))
+        .collect();
+    let connection = File::new(path, options.vfs.as_deref())
+        .open(&Opening {
+            folder: Folder::Exists,
+            access: Access::Create,
+            wait: Wait::Switch(SWITCH_TIMEOUT),
+            durability: connection_durability(options.durability.synchronous(), opening),
+            // Beneath every owner, so a commit beside the writer's jobs
+            // counts too (ADR 0140).
+            counting: Some(Counting {
+                work: &options.work,
+                opens: None,
+                transactions: Row::RunTransactions,
+                counts_switch: false,
+            }),
+            schema: Some(Schema {
+                format: &RUN_STATE,
+                statements: &statements,
+            }),
+        })
+        .map_err(|error| match error {
+            OpenError::Format(refusal) => refusal.into(),
+            other => sqlite_error(path, &other),
+        })?;
+    tune(&connection, PAGE_CACHE_KIB).map_err(|error| sqlite_error(path, &error))?;
     Ok(connection)
 }
 
@@ -1234,15 +1208,11 @@ pub(crate) fn unclean(
     vfs: Option<&str>,
     durability: Durability,
 ) -> Result<bool, RunStateError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let opened = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    };
+    let opened = File::new(path, vfs).connect(Access::ReadWrite);
     // Reading the mark copies no WAL into the file as it closes (#2117):
     // the file stays as its writer left it.
     let marked = opened.and_then(|connection| {
-        crate::sqlite_wal::no_checkpoint_on_close(&connection)?;
+        sqlite_store::no_checkpoint_on_close(&connection)?;
         connection
             .query_row("SELECT count(*) FROM unclean", [], |row| {
                 row.get::<_, i64>(0)
@@ -1269,69 +1239,46 @@ pub(crate) fn unclean(
 /// in WAL mode, which commits with `synchronous=NORMAL`.
 fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, RunStateError> {
     let failed = |error: rusqlite::Error| sqlite_error(path, &error);
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match options.vfs.as_deref() {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
+    let connection = File::new(path, options.vfs.as_deref())
+        .connect(Access::ReadWrite)
+        .map_err(failed)?;
+    // Beneath every owner, so a commit beside the writer's jobs counts too
+    // (ADR 0140).
+    Counting {
+        work: &options.work,
+        opens: None,
+        transactions: Row::RunTransactions,
+        counts_switch: false,
     }
+    .count_commits(&connection)
     .map_err(failed)?;
-    configure(
-        &connection,
-        options,
-        Durability::Fast.synchronous(),
-        DEFERRING_PAGE_CACHE_KIB,
-    )
-    .map_err(failed)?;
-    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
+    tune(&connection, DEFERRING_PAGE_CACHE_KIB).map_err(failed)?;
+    connection_durability(Synchronous::Normal, Synchronous::Normal)
+        .apply(&connection)
+        .map_err(failed)?;
     connection.wal_hook(Some(note_wal_pages));
     Ok(connection)
 }
 
-/// Sets up a writer's connection: its statement cache, its count of
-/// transactions, its sync level `synchronous` and a page cache of
-/// `cache_kib`.
-fn configure(
-    connection: &Connection,
-    options: &RunStateOptions,
-    synchronous: &str,
-    cache_kib: u32,
-) -> rusqlite::Result<()> {
+/// Sets up a writer's connection beyond its durability: its statement
+/// cache and a page cache of `cache_kib`.
+fn tune(connection: &Connection, cache_kib: u32) -> rusqlite::Result<()> {
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
-    // Beneath every owner, so a commit beside the writer's jobs counts too
-    // (ADR 0140).
-    let work = options.work.clone();
-    connection.commit_hook(Some(move || {
-        work.count(Row::RunTransactions);
-        false
-    }))?;
-    connection.pragma_update(None, "synchronous", synchronous)?;
     // Savepoints' statement journals stay in memory, never in `$TMPDIR`
     // (ADR 0138).
     connection.pragma_update(None, "temp_store", "MEMORY")?;
     // A negative size counts KiB rather than pages.
-    connection.pragma_update(None, "cache_size", -i64::from(cache_kib))?;
-    if cfg!(target_os = "macos") {
-        connection.pragma_update(None, "fullfsync", "ON")?;
-        connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;
-    }
-    Ok(())
+    connection.pragma_update(None, "cache_size", -i64::from(cache_kib))
 }
 
-/// Refuses a file of `format` at the version `found` that this engine cannot
-/// read, under the format's rule (ADR 0030).
-pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateError> {
-    let refused = |compatibility| RunStateError::Format {
-        format: format.name,
-        found: found.to_owned(),
-        compatibility,
-        install: None,
-    };
-    let version: ProtocolVersion = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match format.rule.compatibility(format.version, version) {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
+impl From<FormatRefusal> for RunStateError {
+    fn from(refusal: FormatRefusal) -> Self {
+        Self::Format {
+            format: refusal.format,
+            found: refusal.found,
+            compatibility: refusal.compatibility,
+            install: None,
+        }
     }
 }
 
@@ -1360,7 +1307,9 @@ where
             run_cached(connection, "RELEASE write").map_err(ended)?;
             Ok(answer)
         }
-        Err(error) if is_storage(&error) || connection.is_autocommit() => Err(ended(error)),
+        Err(error) if sqlite_store::is_storage(&error) || connection.is_autocommit() => {
+            Err(ended(error))
+        }
         Err(error) => match run_cached(connection, "ROLLBACK TO write")
             .and_then(|()| run_cached(connection, "RELEASE write"))
         {

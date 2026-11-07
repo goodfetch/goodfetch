@@ -23,7 +23,6 @@ use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::formats::{Compatibility, INSTALLED_EXECUTABLES, RUN_INDEX};
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{Map, Value};
 
 use crate::browser_cache::{self, MaxUnusedAge};
@@ -31,6 +30,7 @@ use crate::durable;
 use crate::home::{Home, major_name};
 use crate::lowest_minor;
 use crate::settings::{LOWEST_MINOR_KEY, SettingsFiles};
+use crate::sqlite_store::{self, Access};
 
 /// The list's file in Goodfetch home.
 const FILE: &str = "installed-executables.json";
@@ -344,17 +344,15 @@ pub fn stores_floor(home: &Home, version: &ProductVersion) -> Option<ProtocolVer
         });
     let index = home.run_index(version);
     let run_index = index.is_file().then(|| {
-        Connection::open_with_flags(
-            &index,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()
-        .and_then(|connection| {
-            lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
-                .ok()
-                .flatten()
-        })
-        .map(|marker| marker.lowest_minor)
+        sqlite_store::File::new(&index, None)
+            .connect(Access::ReadOnly)
+            .ok()
+            .and_then(|connection| {
+                lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
+                    .ok()
+                    .flatten()
+            })
+            .map(|marker| marker.lowest_minor)
     });
     let lowest = settings.chain(run_index.flatten()).max()?;
     (lowest > 0).then_some(ProtocolVersion {

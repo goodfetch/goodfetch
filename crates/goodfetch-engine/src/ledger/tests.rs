@@ -590,6 +590,10 @@ fn a_ledger_of_another_major_is_refused_without_being_written_to() {
 /// Overwrites the root page of `table` in the SQLite file at `path`, its
 /// WAL first copied into it, with bytes that are no B-tree page: SQLite
 /// reads it as it reads a page that met an I/O error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test damages its own ledger's file, as a failing disk would, beneath every counted function"
+)]
 fn damage_table(path: &std::path::Path, table: &str) {
     use std::io::{Seek as _, SeekFrom, Write as _};
 

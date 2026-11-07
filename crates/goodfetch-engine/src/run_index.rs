@@ -26,15 +26,25 @@ use goodfetch_protocol::formats::RUN_INDEX;
 use goodfetch_protocol::run::{
     Completeness, Lifecycle, PointInTime, Presence, RunId, RunIndexRow, Verdict,
 };
-use rusqlite::{
-    Connection, OpenFlags, OptionalExtension as _, Row, Transaction, TransactionBehavior,
-};
+use rusqlite::{Connection, OptionalExtension as _, Row, Transaction, TransactionBehavior};
 
 use crate::lowest_minor::{self, Opener};
 use crate::run_state::RunStateError;
+use crate::sqlite_store::{
+    Access, Durability, File, Folder, FullFsync, Opening, Synchronous, Wait, WalOnClose,
+};
 
 /// How long a write waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How its commits reach the disk: each synced, without `F_FULLFSYNC` on
+/// macOS, its WAL copied into the file as its last connection closes.
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Full,
+    opening: Synchronous::Full,
+    full_fsync: FullFsync::Off,
+    wal_on_close: WalOnClose::Checkpointed,
+};
 
 const SCHEMA: &[&str] = &[
     lowest_minor::FORMAT_TABLE,
@@ -89,27 +99,19 @@ fn opener(engine: &ProductVersion) -> Opener {
     Opener::new(&RUN_INDEX, engine.major_minor())
 }
 
+/// Opens the index at `path`, its tables made outside a transaction, as
+/// its lowest-minor marker is checked in each transaction instead (ADR
+/// 0098).
 fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
-    if let Some(folder) = path.parent() {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the Run index's calls run under their caller's blocking policy"
-        )]
-        std::fs::create_dir_all(folder).map_err(|error| failed(path, &error))?;
-    }
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|error| failed(path, &error))?;
-    connection
-        .busy_timeout(BUSY_TIMEOUT)
-        .map_err(|error| failed(path, &error))?;
-    crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(path, &error))?;
-    connection
-        .pragma_update(None, "synchronous", "FULL")
+    let connection = File::new(path, None)
+        .open(&Opening {
+            folder: Folder::Make,
+            access: Access::Create,
+            wait: Wait::Busy(BUSY_TIMEOUT),
+            durability: DURABILITY,
+            counting: None,
+            schema: None,
+        })
         .map_err(|error| failed(path, &error))?;
     for statement in SCHEMA {
         connection

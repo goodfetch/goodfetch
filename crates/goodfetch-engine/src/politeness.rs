@@ -37,12 +37,15 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, POLITENESS_FILE};
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
+use crate::sqlite_store::{
+    self, Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema,
+    Synchronous, Wait, WalOnClose,
+};
 use crate::tasks::TaskOwner;
 use crate::transport;
 
@@ -61,6 +64,15 @@ const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// file, its switch to WAL included.
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How its commits reach the disk: never synced, as it holds nothing to
+/// keep.
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Off,
+    opening: Synchronous::Off,
+    full_fsync: FullFsync::Off,
+    wal_on_close: WalOnClose::Checkpointed,
+};
+
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
 
@@ -70,7 +82,6 @@ const IN_MEMORY_ENDPOINT: &str = "in-memory";
 
 /// The engine's own tables, which every Politeness file holds.
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS permits (
         permit_id INTEGER NOT NULL PRIMARY KEY,
         key TEXT NOT NULL,
@@ -437,10 +448,10 @@ impl Politeness {
         let work = options.work.clone();
         let connection = owner
             .blocking(move || {
-                let connection =
+                let mut connection =
                     Connection::open_in_memory().map_err(|error| sqlite_error(&opened, &error))?;
                 counting(&connection, &work).map_err(|error| sqlite_error(&opened, &error))?;
-                create_tables(&connection, &opened, &tables)?;
+                create_tables(&mut connection, &opened, &tables)?;
                 Ok::<_, PolitenessError>(connection)
             })
             .await?;
@@ -762,13 +773,7 @@ pub fn moment(milliseconds: i64) -> SystemTime {
 fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> PolitenessError {
     let storage = error
         .downcast_ref::<rusqlite::Error>()
-        .and_then(rusqlite::Error::sqlite_error_code)
-        .is_some_and(|code| {
-            matches!(
-                code,
-                rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
-            )
-        });
+        .is_some_and(sqlite_store::is_storage);
     if storage {
         PolitenessError::Storage {
             path: path.to_owned(),
@@ -784,7 +789,8 @@ fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> Polit
 
 /// Counts `connection`'s opening and each transaction it commits on `work`,
 /// beneath every owner, so a contribution's transaction counts too (ADR
-/// 0140's E6).
+/// 0140's E6): one Run's own file in memory, as [`open_file`] counts the
+/// user's file's.
 fn counting(connection: &Connection, work: &CountedWork) -> rusqlite::Result<()> {
     work.count(Row::PolitenessOpens);
     let work = work.clone();
@@ -801,88 +807,58 @@ fn open_file(
     work: &CountedWork,
     tables: &[PolitenessTables],
 ) -> Result<Connection, PolitenessError> {
-    let failed = |error: rusqlite::Error| sqlite_error(path, &error);
-    if let Some(folder) = path.parent() {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the file opens on the tasks module's blocking policy"
-        )]
-        std::fs::create_dir_all(folder).map_err(|error| sqlite_error(path, &error))?;
-    }
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }
-    .map_err(failed)?;
-    counting(&connection, work).map_err(failed)?;
-    connection.busy_timeout(BUSY_TIMEOUT).map_err(failed)?;
-    crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(failed)?;
-    connection
-        .pragma_update(None, "synchronous", "OFF")
-        .map_err(failed)?;
-    create_tables(&connection, path, tables)?;
-    Ok(connection)
+    let statements = statements(tables);
+    File::new(path, vfs)
+        .open(&Opening {
+            folder: Folder::Make,
+            access: Access::Create,
+            wait: Wait::Busy(BUSY_TIMEOUT),
+            durability: DURABILITY,
+            counting: Some(Counting {
+                work,
+                opens: Some(Row::PolitenessOpens),
+                transactions: Row::PolitenessTransactions,
+                counts_switch: true,
+            }),
+            schema: Some(Schema {
+                format: &POLITENESS_FILE,
+                statements: &statements,
+            }),
+        })
+        .map_err(|error| open_failed(path, error))
 }
 
-/// Creates the file's tables and checks its format version.
+/// Creates the tables of the file `connection` holds, one Run's own in
+/// memory, and checks its format version.
 fn create_tables(
-    connection: &Connection,
+    connection: &mut Connection,
     path: &Path,
     tables: &[PolitenessTables],
 ) -> Result<(), PolitenessError> {
-    let failed = |error: rusqlite::Error| sqlite_error(path, &error);
-    connection
-        .execute_batch("BEGIN IMMEDIATE")
-        .map_err(failed)?;
-    let created = (|| {
-        let statements = SCHEMA
-            .iter()
-            .chain(tables.iter().flat_map(|table| table.statements));
-        for statement in statements {
-            connection.execute(statement, []).map_err(failed)?;
-        }
-        connection
-            .execute(
-                "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (POLITENESS_FILE.name, POLITENESS_FILE.version.to_string()),
-            )
-            .map_err(failed)?;
-        let found: String = connection
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [POLITENESS_FILE.name],
-                |row| row.get(0),
-            )
-            .map_err(failed)?;
-        check_format(&found)
-    })();
-    match created {
-        Ok(()) => connection.execute_batch("COMMIT").map_err(failed),
-        Err(error) => {
-            let _ = connection.execute_batch("ROLLBACK");
-            Err(error)
-        }
+    Schema {
+        format: &POLITENESS_FILE,
+        statements: &statements(tables),
     }
+    .create(connection)
+    .map_err(|error| open_failed(path, error))
 }
 
-/// Refuses a file at a version this engine cannot read: another major.
-fn check_format(found: &str) -> Result<(), PolitenessError> {
-    let refused = |compatibility| PolitenessError::Format {
-        found: found.to_owned(),
-        compatibility,
-    };
-    let version: ProtocolVersion = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match POLITENESS_FILE
-        .rule
-        .compatibility(POLITENESS_FILE.version, version)
-    {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
+/// The engine's own tables' statements, then each contribution's.
+fn statements(tables: &[PolitenessTables]) -> Vec<&[&str]> {
+    std::iter::once(SCHEMA)
+        .chain(tables.iter().map(|table| table.statements))
+        .collect()
+}
+
+/// The failure of opening the file at `path` on `error`.
+fn open_failed(path: &Path, error: OpenError) -> PolitenessError {
+    match error {
+        OpenError::Format(refusal) => PolitenessError::Format {
+            found: refusal.found,
+            compatibility: refusal.compatibility,
+        },
+        OpenError::Unopened(error) | OpenError::Sqlite(error) => sqlite_error(path, &error),
+        OpenError::Folder(error) => sqlite_error(path, &error),
     }
 }
 

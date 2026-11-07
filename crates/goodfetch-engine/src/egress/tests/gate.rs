@@ -24,13 +24,16 @@ fn session(policy: &Policy) -> Gate<'_> {
     }
 }
 
+/// What passing a URL through a gate came to: the addresses it may try,
+/// or where it stopped.
+type Outcome = Result<Vec<SocketAddr>, Stopped<()>>;
+
+/// The hosts and ports the resolver was asked for.
+type Asked = Vec<(String, u16)>;
+
 /// What passing `url` through `gate` came to, the resolver answering
 /// `answers`, and the hosts and ports it was asked for.
-fn passed(
-    gate: Gate<'_>,
-    url: &str,
-    answers: &[&str],
-) -> (Result<Vec<SocketAddr>, Stopped<()>>, Vec<(String, u16)>) {
+fn passed(gate: Gate<'_>, url: &str, answers: &[&str]) -> (Outcome, Asked) {
     let asked = Cell::new(Vec::new());
     let answers = sockets(answers);
     let passed = goodfetch_test_support::runtime().block_on(gate.pass(url, async |host, port| {

@@ -13,6 +13,7 @@
 use goodfetch_engine::CallError;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{FetchTiers, LabelSettings, SetTier};
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::fetch::{FETCH_KEPT_RESPONSES_URLS, FETCH_TIER, FetchTier};
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use goodfetch_protocol::settings::{
@@ -43,16 +44,16 @@ struct Served<'a> {
 /// `fetch.kept_responses.urls`.
 pub(crate) fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
     let run_tier = FetchTiers::run_tier(settings);
-    let set = |key: &str, keeps: fn(&Value) -> bool| {
+    let set = |setting: &Setting, keeps: fn(&Value) -> bool| {
         settings
-            .get(key)
+            .effective(setting)
             .filter(|effective| keeps(&effective.value))
             .map(|effective| effective.layer)
     };
-    let run_fragment = set(CRAWL_KEEP_URL_FRAGMENT.name, |value| {
+    let run_fragment = set(&CRAWL_KEEP_URL_FRAGMENT, |value| {
         *value == Value::Bool(true)
     });
-    let run_responses = set(FETCH_KEPT_RESPONSES_URLS.name, |value| {
+    let run_responses = set(&FETCH_KEPT_RESPONSES_URLS, |value| {
         value
             .as_array()
             .is_some_and(|patterns| !patterns.is_empty())

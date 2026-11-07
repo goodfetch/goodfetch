@@ -29,7 +29,7 @@ impl Deadline {
     /// The deadline `settings` give the timeout `setting`; `None` when it is
     /// unset or no duration.
     pub fn of(settings: &Resolved, setting: &Setting) -> Option<Self> {
-        let effective = settings.get(setting.name)?;
+        let effective = settings.effective(setting)?;
         let duration = Duration::from_millis(effective.value.as_u64()?);
         Some(Self {
             limit: SettingLimit {

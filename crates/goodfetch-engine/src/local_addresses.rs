@@ -36,11 +36,6 @@ pub use self::host::System;
 use crate::CallError;
 use crate::settings::Resolved;
 
-/// The built-in IPv4 block size, a /24.
-const IPV4_BLOCK: u8 = 24;
-/// The built-in IPv6 block size, a /64.
-const IPV6_BLOCK: u8 = 64;
-
 /// What the host lets a Session send from.
 pub trait Host: Send + Sync {
     /// Whether a socket can bind `address` on this host.
@@ -73,11 +68,12 @@ pub struct BlockSizes {
     pub ipv6: u8,
 }
 
+/// The catalog's defaults: a /24 and a /64.
 impl Default for BlockSizes {
     fn default() -> Self {
         Self {
-            ipv4: IPV4_BLOCK,
-            ipv6: IPV6_BLOCK,
+            ipv4: prefix_length(&(EGRESS_ROTATION_BLOCK_IPV4.default)()),
+            ipv6: prefix_length(&(EGRESS_ROTATION_BLOCK_IPV6.default)()),
         }
     }
 }
@@ -85,18 +81,20 @@ impl Default for BlockSizes {
 impl BlockSizes {
     /// The sizes `settings` give.
     pub fn of(settings: &Resolved) -> Self {
-        let size = |key, built_in: u8, bits: u8| {
-            settings
-                .count(key)
-                .and_then(|size| u8::try_from(size).ok())
-                .filter(|size| *size <= bits)
-                .unwrap_or(built_in)
-        };
         Self {
-            ipv4: size(EGRESS_ROTATION_BLOCK_IPV4.name, IPV4_BLOCK, 32),
-            ipv6: size(EGRESS_ROTATION_BLOCK_IPV6.name, IPV6_BLOCK, 128),
+            ipv4: prefix_length(settings.value(&EGRESS_ROTATION_BLOCK_IPV4)),
+            ipv6: prefix_length(settings.value(&EGRESS_ROTATION_BLOCK_IPV6)),
         }
     }
+}
+
+/// A block size's value, which its shape holds to a prefix length of its
+/// family.
+fn prefix_length(value: &serde_json::Value) -> u8 {
+    value
+        .as_u64()
+        .and_then(|size| u8::try_from(size).ok())
+        .expect("invariant: a block size's shape holds a prefix length")
 }
 
 /// Why `egress.local_addresses` yields no address: `local_address_unavailable`.
@@ -165,7 +163,7 @@ enum Pool {
 impl Rotation {
     /// The rotation `settings` ask for; none without `egress.local_addresses`.
     pub fn of(settings: &Resolved) -> Option<Self> {
-        let addresses = LocalAddresses::parse(settings.value(EGRESS_LOCAL_ADDRESSES.name)).ok()?;
+        let addresses = LocalAddresses::parse(settings.value(&EGRESS_LOCAL_ADDRESSES)).ok()?;
         Some(Self::new(addresses, BlockSizes::of(settings)))
     }
 

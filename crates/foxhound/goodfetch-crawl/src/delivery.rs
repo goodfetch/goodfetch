@@ -89,6 +89,7 @@ use goodfetch_fetch_tier::{
     RobotsTxtFetch, SetTier, SignalFiles, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
@@ -212,7 +213,7 @@ pub(crate) async fn drive(
         SetTier::Unset if code_free.is_some() => SetTier::Auto,
         set => set,
     };
-    let races = settings.resolved().boolean(FETCH_TIER_RACE.name) == Some(true);
+    let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too, from the first
     // Session's local addresses under `egress.local_addresses` (ADR 0044).
@@ -246,11 +247,11 @@ pub(crate) async fn drive(
         run_tier,
         run_encoding: settings
             .resolved()
-            .value(FETCH_ENCODING.name)
+            .value(&FETCH_ENCODING)
             .as_str()
             .map(str::to_owned),
         // Its shape was checked when the crawl started.
-        run_content_types: ContentTypes::of(settings.resolved().value(CRAWL_CONTENT_TYPES.name))
+        run_content_types: ContentTypes::of(settings.resolved().value(&CRAWL_CONTENT_TYPES))
             .unwrap_or_default(),
         choices: tokio::sync::Mutex::new(choices.sampled_as(sampling(settings.resolved()))),
         races,
@@ -262,7 +263,7 @@ pub(crate) async fn drive(
         signal_files: SignalFiles::default(),
     };
     for (setting, code, message) in SWITCHED_OFF {
-        if settings.resolved().boolean(setting) == Some(false) {
+        if !settings.resolved().get::<bool>(setting) {
             warn_switched_off(&run, code, message).await;
         }
     }
@@ -273,24 +274,24 @@ pub(crate) async fn drive(
 /// Each per-page feature a crawl switches off with its warning (ADR 0138):
 /// its key, the warning's code and its message, so an empty result is not
 /// misread.
-const SWITCHED_OFF: [(&str, &str, &str); 4] = [
+const SWITCHED_OFF: [(&Setting, &str, &str); 4] = [
     (
-        FRONTIER_LEARNING.name,
+        &FRONTIER_LEARNING,
         LEARNING_OFF,
         "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.",
     ),
     (
-        PROVENANCE_LOG.name,
+        &PROVENANCE_LOG,
         PROVENANCE_OFF,
         "`provenance.log` is off: the Run trace holds no Provenance log; each Record still carries its own Provenance.",
     ),
     (
-        DATASET_RECORDS.name,
+        &DATASET_RECORDS,
         RECORDS_OFF,
         "`dataset.records` is off: the crawl kept no Record, so its Datasets hold none.",
     ),
     (
-        FETCH_BLOCK_CLASSIFICATION.name,
+        &FETCH_BLOCK_CLASSIFICATION,
         BLOCK_CLASSIFICATION_OFF,
         "`fetch.block_classification` is off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the successes.",
     ),
@@ -315,10 +316,10 @@ async fn warn_switched_off(run: &Run, code: &str, message: &str) {
 /// reads (the settings checked both at the start).
 fn sampling(resolved: &Resolved) -> Sampling {
     let built_in = Sampling::default();
-    let refresh = SampleRefresh::read(resolved.value(FETCH_SAMPLE_REFRESH_AFTER.name)).ok();
+    let refresh = SampleRefresh::read(resolved.value(&FETCH_SAMPLE_REFRESH_AFTER)).ok();
     Sampling {
         count: resolved
-            .value(FETCH_SAMPLE_COUNT.name)
+            .value(&FETCH_SAMPLE_COUNT)
             .as_u64()
             .and_then(|count| usize::try_from(count).ok())
             .unwrap_or(built_in.count),
@@ -1129,9 +1130,7 @@ async fn drained(
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
 ) -> Waited {
-    let keeps_alive = resolved
-        .boolean(CRAWL_KEEP_ALIVE.name)
-        .expect("invariant: `crawl.keep_alive` resolves to a boolean");
+    let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
     if !keeps_alive || run.is_let_finish() {
         let intake = arrivals.intake.clone();
         // Its answer promises nothing outside (#2117): the Run's end, which
@@ -1454,7 +1453,7 @@ type Local = Option<Result<SessionAddresses, Unavailable>>;
 
 /// The interface `egress.local_addresses` names, if it names one.
 fn local_interface(resolved: &Resolved) -> Option<String> {
-    match LocalAddresses::parse(resolved.value(EGRESS_LOCAL_ADDRESSES.name)) {
+    match LocalAddresses::parse(resolved.value(&EGRESS_LOCAL_ADDRESSES)) {
         Ok(LocalAddresses::Interface(name)) => Some(name),
         _ => None,
     }
@@ -1483,9 +1482,9 @@ fn run_source(
 /// Whether the Run sets a proxy, which forwards an `http:` URL itself on
 /// the routes that take it (ADR 0053).
 fn proxied(resolved: &Resolved) -> bool {
-    [PROXY_SERVER.name, PROXY_PROVIDER.name]
-        .iter()
-        .any(|key| !resolved.value(key).is_null())
+    [&PROXY_SERVER, &PROXY_PROVIDER]
+        .into_iter()
+        .any(|setting| !resolved.value(setting).is_null())
 }
 
 /// Hands the Run's report the warning that `rotated` took an address within

@@ -107,7 +107,8 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
 /// Writes the Export of `books` in `connection` in `format`, a page at a
 /// time, and answers its size in bytes.
 pub(crate) fn export(connection: &Connection, format: ExportFormat) -> usize {
-    let mut encoder = ExportEncoder::new(format, &ExportOptions::of("books"), Columns::default());
+    let options = ExportOptions::of("books");
+    let mut encoder = ExportEncoder::new(format, &options, Columns::new(options.nested(format)));
     let mut bytes = Vec::new();
     encoder.begin(&mut bytes);
     let mut after = 0;

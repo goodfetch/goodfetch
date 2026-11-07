@@ -28,7 +28,13 @@ mod xml;
 
 use std::borrow::Cow;
 
-use goodfetch_protocol::foxhound::export::{ExportFormat, JSON_INDENT_MAX};
+use goodfetch_engine::settings::catalog_default;
+use goodfetch_protocol::catalog::Setting;
+use goodfetch_protocol::foxhound::export::{
+    EXPORT_CSV_BOM, EXPORT_CSV_DELIMITER, EXPORT_CSV_NESTED, EXPORT_FEED_LINK,
+    EXPORT_FEED_PUBLISHED, EXPORT_FEED_SUMMARY, EXPORT_FEED_TITLE, EXPORT_JSON_INDENT,
+    EXPORT_PARQUET_COMPRESSION, EXPORT_XML_RECORD, EXPORT_XML_ROOT, ExportFormat, JSON_INDENT_MAX,
+};
 use serde_json::Value;
 
 use self::avro::Avro;
@@ -117,20 +123,31 @@ pub struct ExportOptions {
 }
 
 impl ExportOptions {
-    /// The built-in options of an Export of the Dataset `dataset`.
+    /// The built-in options of an Export of the Dataset `dataset`: each
+    /// `export.*` setting's catalog default.
     #[must_use]
     pub fn of(dataset: &str) -> Self {
+        let text = |setting: &Setting| catalog_default::<&str>(setting).to_owned();
         Self {
-            csv_bom: false,
-            csv_delimiter: ',',
-            csv_nested: Nested::Json,
+            csv_bom: catalog_default(&EXPORT_CSV_BOM),
+            csv_delimiter: csv_delimiter(catalog_default(&EXPORT_CSV_DELIMITER))
+                .expect("invariant: the catalog's default delimiter is one character"),
+            csv_nested: Nested::of(catalog_default(&EXPORT_CSV_NESTED))
+                .expect("invariant: the catalog's default is one of its choices"),
             xlsx_sheet: sheet_named_after(dataset),
             title: dataset.to_owned(),
-            json_indent: 0,
-            xml_root: "records".to_owned(),
-            xml_record: "record".to_owned(),
-            parquet_codec: ParquetCodec::Zstd,
-            feed: FeedFields::default(),
+            json_indent: json_indent(catalog_default(&EXPORT_JSON_INDENT))
+                .expect("invariant: the catalog's default indent is within its maximum"),
+            xml_root: text(&EXPORT_XML_ROOT),
+            xml_record: text(&EXPORT_XML_RECORD),
+            parquet_codec: ParquetCodec::of(catalog_default(&EXPORT_PARQUET_COMPRESSION))
+                .expect("invariant: the catalog's default is one of its choices"),
+            feed: FeedFields {
+                title: text(&EXPORT_FEED_TITLE),
+                link: text(&EXPORT_FEED_LINK),
+                published: text(&EXPORT_FEED_PUBLISHED),
+                summary: text(&EXPORT_FEED_SUMMARY),
+            },
             feed_id: format!("urn:goodfetch:dataset:{}", urn_text(dataset)),
         }
     }
@@ -195,11 +212,11 @@ pub fn xml_name(text: &str) -> Result<String, &'static str> {
 /// # Errors
 ///
 /// What is wrong with `count`.
-pub fn json_indent(count: u64) -> Result<usize, &'static str> {
+pub fn json_indent(count: u64) -> Result<usize, String> {
     if count <= JSON_INDENT_MAX {
-        Ok(usize::try_from(count).expect("invariant: at most 8"))
+        Ok(usize::try_from(count).expect("invariant: at most `JSON_INDENT_MAX`"))
     } else {
-        Err("is more than 8")
+        Err(format!("is more than {JSON_INDENT_MAX}"))
     }
 }
 
@@ -236,18 +253,25 @@ fn urn_text(text: &str) -> String {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub fn sheet_name(text: &str) -> Result<String, &'static str> {
+pub fn sheet_name(text: &str) -> Result<String, String> {
     if text.is_empty() {
-        return Err("is empty");
+        return Err("is empty".to_owned());
     }
     if text.chars().count() > SHEET_NAME_MAX {
-        return Err("is longer than 31 characters");
+        return Err(format!("is longer than {SHEET_NAME_MAX} characters"));
     }
     if text.contains(NOT_IN_SHEET_NAMES) {
-        return Err("holds one of `:`, `\\`, `/`, `?`, `*`, `[` and `]`");
+        let (last, others) = NOT_IN_SHEET_NAMES
+            .split_last()
+            .expect("invariant: a sheet's name refuses some characters");
+        let others: Vec<String> = others
+            .iter()
+            .map(|character| format!("`{character}`"))
+            .collect();
+        return Err(format!("holds one of {} and `{last}`", others.join(", ")));
     }
     if text.starts_with('\'') || text.ends_with('\'') {
-        return Err("starts or ends with `'`");
+        return Err("starts or ends with `'`".to_owned());
     }
     Ok(text.to_owned())
 }

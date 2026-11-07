@@ -57,6 +57,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::get_or_default;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_HANDLING, CONSENT_ON_WALL,
@@ -132,7 +133,7 @@ impl Consent {
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
         if let Some(asked) = resolved
-            .and_then(|resolved| resolved.get(CONSENT_ON_WALL.name))
+            .and_then(|resolved| resolved.effective(&CONSENT_ON_WALL))
             .filter(|effective| effective.value == json!("ask"))
         {
             return Err(CallError::new(
@@ -149,11 +150,9 @@ impl Consent {
                 },
             ));
         }
-        let answering = resolved
-            .and_then(|resolved| resolved.value(CONSENT_HANDLING.name).as_bool())
-            .unwrap_or(true);
+        let answering = get_or_default(resolved, &CONSENT_HANDLING);
         let approval = resolved
-            .and_then(|resolved| resolved.get(CONSENT_DOMAINS.name))
+            .and_then(|resolved| resolved.effective(&CONSENT_DOMAINS))
             .and_then(|effective| Approval::of(&effective.value, effective.layer));
         let runner = self
             .runner

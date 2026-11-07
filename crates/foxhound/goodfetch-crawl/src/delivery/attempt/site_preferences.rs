@@ -65,11 +65,11 @@ pub(super) fn respects_robots_txt(run: &Run) -> bool {
 }
 
 fn respects(settings: &Resolved) -> bool {
-    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+    settings.get(&SITE_PREFERENCES_RESPECT_ROBOTS_TXT)
 }
 
 fn marks_ignored(settings: &Resolved) -> bool {
-    settings.boolean(SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED.name) == Some(true)
+    settings.get(&SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED)
 }
 
 /// Whether the attempt of a crawl request under `run`'s settings reads its
@@ -144,7 +144,7 @@ pub(super) async fn read_robots_txt(
         tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
     }
     let delay = settings
-        .duration(POLITENESS_DOMAIN_DELAY.name)
+        .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
         .max(asked.filter(|asked| waits_out(settings, *asked)))
         .filter(|delay| !delay.is_zero());
     let Some(delay) = delay else {
@@ -178,7 +178,7 @@ pub(super) async fn read_robots_txt(
 /// its operator token's group merged with Foxhound's (ADR 0086).
 fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
     let operator_token = settings
-        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
         .as_str();
     goodfetch_fetch_tier::crawl_delay(read, operator_token)
 }
@@ -187,10 +187,7 @@ fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
 /// while `site_preferences.respect_robots_txt` is on, up to
 /// `site_preferences.max_crawl_delay` (ADR 0086).
 fn waits_out(settings: &Resolved, asked: Duration) -> bool {
-    respects(settings)
-        && settings
-            .duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)
-            .is_some_and(|max| asked <= max)
+    respects(settings) && asked <= settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)
 }
 
 /// The `site_preferences.purpose` a crawl under `settings` judges the
@@ -198,11 +195,11 @@ fn waits_out(settings: &Resolved, asked: Duration) -> bool {
 /// is off, or when the Purpose is `search`, which is no declaration (ADR
 /// 0086).
 pub(super) fn honoured_purpose(settings: &Resolved) -> Option<Purpose> {
-    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
+    if !settings.get::<bool>(&SITE_PREFERENCES_RESPECT_USE_SIGNALS) {
         return None;
     }
     settings
-        .value(SITE_PREFERENCES_PURPOSE.name)
+        .value(&SITE_PREFERENCES_PURPOSE)
         .as_str()
         .and_then(Purpose::named)
         .filter(|purpose| *purpose != Purpose::Search)
@@ -227,7 +224,7 @@ pub(super) async fn use_signals_declared(
     let refused = Some(Answer::Refused(SkipReason::UseSignals));
     if let Some(read) = read {
         let operator_token = settings
-            .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+            .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
             .as_str();
         let signals = goodfetch_fetch_tier::content_signals(read, operator_token);
         if content_signals_refusing(&signals, purpose).is_some() {
@@ -290,7 +287,7 @@ pub(super) fn robots_txt_refusal(
     }
     let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
     let operator_token = settings
-        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
         .as_str();
     if goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some() {
         return Some(Answer::Refused(SkipReason::RobotsTxt));
@@ -322,7 +319,7 @@ pub(super) fn robots_txt_ignored(run: &Run, leased: &Leased, read: Option<&Fetch
         return false;
     }
     let operator_token = settings
-        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
         .as_str();
     goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some()
 }

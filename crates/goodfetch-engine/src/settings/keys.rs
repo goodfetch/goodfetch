@@ -1,10 +1,14 @@
 //! The keys of the settings schema, read from the catalog's entries with
 //! the Product each one's mark gives (ADRs 0087 and 0095): finding a key,
 //! telling a prefix of keys from an unknown name, and the closest key to a
-//! misspelt one.
+//! misspelt one, and each key's catalog default.
+
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::entries::MODULES;
+use serde_json::Value;
 
 /// A key of the schema and the smallest Product that honours it.
 #[derive(Clone, Copy)]
@@ -27,6 +31,21 @@ pub(crate) fn all() -> impl Iterator<Item = Key> {
 /// The key named `name`.
 pub(crate) fn find(name: &str) -> Option<Key> {
     all().find(|key| key.setting.name == name)
+}
+
+/// Every key's catalog default, built once: a pure function of the
+/// catalog's constants.
+static DEFAULTS: LazyLock<BTreeMap<&'static str, Value>> = LazyLock::new(|| {
+    all()
+        .map(|key| (key.setting.name, (key.setting.default)()))
+        .collect()
+});
+
+/// `setting`'s catalog default.
+pub(crate) fn default_of(setting: &Setting) -> &'static Value {
+    DEFAULTS
+        .get(setting.name)
+        .expect("invariant: every setting is a key of the catalog")
 }
 
 /// Whether `path` is the first segments of at least one key.

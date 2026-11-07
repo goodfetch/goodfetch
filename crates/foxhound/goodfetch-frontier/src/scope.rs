@@ -21,6 +21,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_SCOPE_EXCLUDE, CRAWL_SCOPE_INCLUDE, CRAWL_SCOPE_STRATEGY,
 };
@@ -239,9 +240,9 @@ impl Scope {
     /// The first pattern the matcher cannot read, which the start raises as
     /// `pattern_unsupported`.
     pub fn of_settings(settings: &Resolved) -> Result<Self, UnsupportedPattern> {
-        let globs = |key: &str| -> Vec<String> {
+        let globs = |setting: &Setting| -> Vec<String> {
             settings
-                .value(key)
+                .value(setting)
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -250,12 +251,12 @@ impl Scope {
         };
         Ok(Self::new(
             settings
-                .value(CRAWL_SCOPE_STRATEGY.name)
+                .value(&CRAWL_SCOPE_STRATEGY)
                 .as_str()
                 .and_then(Strategy::named)
                 .unwrap_or_default(),
-            Patterns::globs(&globs(CRAWL_SCOPE_INCLUDE.name))?,
-            Patterns::globs(&globs(CRAWL_SCOPE_EXCLUDE.name))?,
+            Patterns::globs(&globs(&CRAWL_SCOPE_INCLUDE))?,
+            Patterns::globs(&globs(&CRAWL_SCOPE_EXCLUDE))?,
         ))
     }
 

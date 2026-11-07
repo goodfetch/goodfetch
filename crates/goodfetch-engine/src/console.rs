@@ -59,7 +59,7 @@ use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
-use crate::settings::{Layers, resolve};
+use crate::settings::catalog_default;
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
 
@@ -650,22 +650,15 @@ impl Site {
     async fn offline_cache(&self) -> bool {
         let settings = self.runs.settings();
         let product = settings.product();
-        let read = settings.machine().await.and_then(|machine| {
-            resolve(
-                &Layers {
-                    operator_policy: machine.operator_policy,
-                    user_configuration: machine.user_configuration,
-                    ..Layers::default()
-                },
-                product,
-                product,
-            )
-        });
+        let read = settings
+            .machine()
+            .await
+            .and_then(|machine| machine.resolve(product));
         match read {
-            Ok(resolved) => resolved.value(OFFLINE_CACHE.name).as_bool().unwrap_or(true),
+            Ok(resolved) => resolved.get(&OFFLINE_CACHE),
             Err(error) => {
                 tracing::warn!(%error, "`console.offline_cache` cannot be read: the Console takes its built-in value, on");
-                true
+                catalog_default(&OFFLINE_CACHE)
             }
         }
     }

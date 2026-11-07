@@ -10,7 +10,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_engine::rule_sources::SourceFailure;
 use goodfetch_engine::runs::{Fallback, RulesContext};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
     ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails, DownloadFailure, PinnedBy,
@@ -18,8 +18,8 @@ use goodfetch_protocol::browser_cache::{
 use goodfetch_protocol::clean_up_rules::RulesSource;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::settings::{
-    CLEAN_UP_CHANNEL, CLEAN_UP_VERSION, DAILY_CHANNEL, SETTING_INVALID, SettingInvalidDetails,
-    SettingLimit, SettingsLayer,
+    CLEAN_UP_CHANNEL, CLEAN_UP_VERSION, SETTING_INVALID, SettingInvalidDetails, SettingLimit,
+    SettingsLayer,
 };
 use serde_json::json;
 
@@ -217,11 +217,10 @@ pub(super) fn refusal(
 
 /// The daily channel's registry under `context`'s settings.
 fn registry(context: &RulesContext<'_>) -> String {
-    let channel = context
-        .settings
-        .map(RunSettings::resolved)
-        .and_then(|settings| settings.value(CLEAN_UP_CHANNEL.name).as_str())
-        .unwrap_or(DAILY_CHANNEL);
+    let channel = get_or_default::<&str>(
+        context.settings.map(RunSettings::resolved),
+        &CLEAN_UP_CHANNEL,
+    );
     channel
         .split_once('/')
         .map_or(channel, |(registry, _)| registry)

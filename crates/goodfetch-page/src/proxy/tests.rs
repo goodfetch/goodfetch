@@ -191,7 +191,7 @@ fn credentials_longer_than_socks5_carries_name_their_setting(
     let password = SecretString::from("p".repeat(password));
 
     assert_eq!(
-        too_long_for_socks5(&"u".repeat(username), Some(&password)),
+        too_long_for_socks5(&"u".repeat(username), Some(&password)).map(|setting| setting.name),
         expected
     );
 }

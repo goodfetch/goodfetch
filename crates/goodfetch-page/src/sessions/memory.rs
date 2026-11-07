@@ -8,17 +8,14 @@
 
 use goodfetch_cdp::generated::runtime::{GetHeapUsageParams, GetHeapUsageReturns};
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::{catalog_value, value_as};
 use goodfetch_protocol::governor::{BROWSER_PAGE_MEMORY_CAP, GovernorLevel};
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
-use serde_json::json;
 
 use super::life::Ending;
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Sessions};
-
-/// `governor.browser.page_memory_cap` when the Run's settings name none.
-const PAGE_MEMORY_CAP: u64 = 1 << 30;
 
 impl Sessions {
     /// Ends each page of `run` past its memory cap at every sample that
@@ -52,7 +49,7 @@ impl Sessions {
                         continue;
                     };
                     let memory = held(&heap);
-                    let cap = limit.value.as_u64().unwrap_or(PAGE_MEMORY_CAP);
+                    let cap: u64 = value_as(&BROWSER_PAGE_MEMORY_CAP, &limit.value);
                     if memory > cap && page.life.past_cap() {
                         let ending = sessions.clone();
                         let limit = limit.clone();
@@ -106,11 +103,11 @@ impl Sessions {
 /// layer.
 fn page_memory_cap(run: &Run) -> SettingLimit {
     run.settings()
-        .and_then(|settings| settings.resolved().get(BROWSER_PAGE_MEMORY_CAP.name))
+        .and_then(|settings| settings.resolved().effective(&BROWSER_PAGE_MEMORY_CAP))
         .map_or_else(
             || SettingLimit {
                 key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
-                value: json!(PAGE_MEMORY_CAP),
+                value: catalog_value(&BROWSER_PAGE_MEMORY_CAP).clone(),
                 layer: SettingsLayer::Default,
             },
             |effective| SettingLimit {

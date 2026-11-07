@@ -16,6 +16,7 @@ use std::time::Duration;
 use goodfetch_engine::admission::{Held, QueuedGroup};
 use goodfetch_engine::runs::{ProgressPart, Run};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
 use goodfetch_protocol::foxhound::progress::{
     BACKOFF, CrawlConcurrency, DOMAIN_CONCURRENCY, DOMAIN_DELAY, GOVERNOR, HANDLER_CONCURRENCY,
@@ -110,18 +111,15 @@ pub(crate) fn show_waits(
         let (reason, setting) = match queued.held {
             Some(Held::Concurrency) => (
                 DOMAIN_CONCURRENCY,
-                setting(resolved, POLITENESS_DOMAIN_CONCURRENCY.name),
+                setting(resolved, &POLITENESS_DOMAIN_CONCURRENCY),
             ),
-            Some(Held::Delay) => (
-                DOMAIN_DELAY,
-                setting(resolved, POLITENESS_DOMAIN_DELAY.name),
-            ),
+            Some(Held::Delay) => (DOMAIN_DELAY, setting(resolved, &POLITENESS_DOMAIN_DELAY)),
             Some(Held::BackOff) => (BACKOFF, backoff_setting(resolved, first_until, now)),
             Some(Held::PolitenessFile) => (POLITENESS_FILE, None),
             None => match room {
                 Room::Full => (
                     HANDLER_CONCURRENCY,
-                    setting(resolved, CRAWL_HANDLER_CONCURRENCY.name),
+                    setting(resolved, &CRAWL_HANDLER_CONCURRENCY),
                 ),
                 Room::Starved => (GOVERNOR, None),
                 Room::Free | Room::None => continue,
@@ -154,10 +152,10 @@ pub(crate) fn show_waits(
 }
 
 /// The setting `key` as `resolved` gives it, with the layer that set it.
-fn setting(resolved: &Resolved, key: &str) -> Option<SettingLimit> {
-    let effective = resolved.get(key)?;
+fn setting(resolved: &Resolved, setting: &Setting) -> Option<SettingLimit> {
+    let effective = resolved.effective(setting)?;
     Some(SettingLimit {
-        key: key.to_owned(),
+        key: setting.name.to_owned(),
         value: effective.value.clone(),
         layer: effective.layer,
     })
@@ -172,14 +170,12 @@ fn backoff_setting(
     until: Option<Instant>,
     now: Instant,
 ) -> Option<SettingLimit> {
-    let longest_backoff = resolved
-        .duration(POLITENESS_BACKOFF_MAX.name)
-        .unwrap_or(Duration::MAX);
+    let longest_backoff: Duration = resolved.get(&POLITENESS_BACKOFF_MAX);
     let waits = until.map_or(Duration::ZERO, |until| until.saturating_duration_since(now));
     if waits > longest_backoff {
-        setting(resolved, POLITENESS_RETRY_AFTER_MAX.name)
+        setting(resolved, &POLITENESS_RETRY_AFTER_MAX)
     } else {
-        setting(resolved, POLITENESS_BACKOFF_MAX.name)
+        setting(resolved, &POLITENESS_BACKOFF_MAX)
     }
 }
 

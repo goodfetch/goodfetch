@@ -36,7 +36,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::ExceptionKind;
@@ -45,7 +45,7 @@ use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tls::{
-    CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, trusted_cas,
+    CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
@@ -83,10 +83,10 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
-    SettingInvalidDetails, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
+    SettingsLayer,
 };
-use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES, TLS_TRUSTED_CAS};
+use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES};
 use url::Url;
 
 use crate::canonical::canonical;
@@ -840,7 +840,7 @@ impl FetchTiers {
         local: Option<LocalSource>,
     ) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
-        let trust = trusted_cas(settings.value(&TLS_TRUSTED_CAS), run.owner()).await;
+        let trust = Trust::of(settings, run.owner()).await;
         let client_certificates = ClientCertificates::listed(
             settings.value(&TLS_CLIENT_CERTIFICATES),
             run.secrets().clone(),
@@ -855,7 +855,7 @@ impl FetchTiers {
             exceptions: exceptions_of(run, settings),
             client_certificates: Some(client_certificates),
             proxy: None,
-            resolve: settings.hosts(&NETWORK_RESOLVE),
+            resolve: HostMapping::of(settings),
             egress: egress.clone(),
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,

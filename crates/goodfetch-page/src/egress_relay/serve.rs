@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind, Stopped};
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -263,47 +263,39 @@ where
         return Served::Unauthenticated;
     }
     let url = head.target.url();
-    let request = egress::Request {
-        url: &url,
-        kind: RequestKind::Page,
+    let resolved = match passed(&url, relaying, network).await {
+        Ok(resolved) => resolved,
+        Err(Stopped::Refused(refused)) => {
+            return refuse(
+                &mut browser,
+                &head,
+                &refused,
+                observe,
+                "http_request_denied",
+            )
+            .await;
+        }
+        Err(Stopped::Unresolved(())) => {
+            return unreached(
+                &mut browser,
+                &head,
+                observe,
+                Unreached::NameNotResolved,
+                "dns_error",
+            )
+            .await;
+        }
+        Err(Stopped::AddressRefused(refused)) => {
+            return refuse(
+                &mut browser,
+                &head,
+                &refused,
+                observe,
+                "destination_ip_prohibited",
+            )
+            .await;
+        }
     };
-    if let Judgment::Refused(refused) = egress::judge(&request, &relaying.policy) {
-        return refuse(
-            &mut browser,
-            &head,
-            &refused,
-            observe,
-            "http_request_denied",
-        )
-        .await;
-    }
-    // The relay resolves the name itself and judges each answer before
-    // any connection, so an answer that changes after the browser's own
-    // check reaches nothing (ADR 0017); behind a proxy, which resolves the
-    // name again, as the engine's own client does before sending to one.
-    let Some(resolved) = network
-        .resolve(head.target.host(), head.target.port())
-        .await
-    else {
-        return unreached(
-            &mut browser,
-            &head,
-            observe,
-            Unreached::NameNotResolved,
-            "dns_error",
-        )
-        .await;
-    };
-    if let Err(refused) = egress::judge_addresses(&url, &resolved.addresses, &relaying.policy) {
-        return refuse(
-            &mut browser,
-            &head,
-            &refused,
-            observe,
-            "destination_ip_prohibited",
-        )
-        .await;
-    }
     let upstream = if (relaying.bypasses)(&url) {
         &Upstream::Direct
     } else {
@@ -336,6 +328,35 @@ where
             through_socks5(browser, &head, rest, (relaying, network), observe).await
         }
     }
+}
+
+/// The addresses a request to `url` may try, through the Session's egress
+/// gate: the URL judged, its name resolved by the relay itself and each
+/// answer judged before any connection, so an answer that changes after the
+/// browser's own check reaches nothing (ADR 0017); behind a proxy, which
+/// resolves the name again, as the engine's own client does before sending
+/// to one.
+async fn passed<N: Network>(
+    url: &str,
+    relaying: &Relaying,
+    network: &N,
+) -> Result<Resolved, Stopped<()>> {
+    let gate = Gate::Session {
+        policy: &relaying.policy,
+        kind: RequestKind::Page,
+    };
+    let passed = gate
+        .pass(url, async |host, port| {
+            network
+                .resolve(host, port)
+                .await
+                .map(|resolved| resolved.addresses)
+                .ok_or(())
+        })
+        .await?;
+    Ok(Resolved {
+        addresses: passed.addresses,
+    })
 }
 
 /// Refuses `head`'s connection as `refused` says: a tunnel is answered

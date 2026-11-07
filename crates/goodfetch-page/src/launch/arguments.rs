@@ -28,6 +28,7 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use data_encoding::BASE64;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 
 /// The `/dev/shm` below which Chromium's shared memory moves to `/tmp`:
@@ -88,7 +89,7 @@ pub(crate) struct Launch<'a> {
     /// `browser.headless`.
     pub(crate) headless: bool,
     /// `network.resolve`: host names, each with its addresses.
-    pub(crate) resolve: &'a [(String, Vec<IpAddr>)],
+    pub(crate) resolve: &'a HostMapping,
     /// The size of `/dev/shm` in bytes, where one was measured.
     pub(crate) shared_memory: Option<u64>,
     /// The Run's domain policy as a proxy auto-config script, when it

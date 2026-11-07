@@ -14,7 +14,7 @@ use goodfetch_engine::browser_cache::{
     PinnedArtifact, Pins, content_digest,
 };
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, ArtifactKind, DownloadFailure, DownloadProgress, InstallOutcome, PinnedBy,
@@ -144,7 +144,7 @@ impl StandIn {
     fn fetching(&self) -> Fetching {
         Fetching {
             offline: None,
-            resolve: Resolve::new().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            resolve: HostMapping::default().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             trusted_certificates: vec![self.authority.clone()],
             ..Fetching::new(Clock::system())
         }

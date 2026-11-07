@@ -16,7 +16,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge, judge_addresses};
+use goodfetch_engine::egress::{Gate, Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::mask::{Mask, Masks, Reach, Redaction, Scope};
@@ -307,22 +307,23 @@ pub(crate) fn egress_policy_with_private_ranges(
     (policy, requests)
 }
 
-/// Judges every request of `requests` under `policy` as [`judge_all`]
-/// does, then the addresses each allowed one resolved to, as its
-/// connection is judged, and returns how many it allowed.
+/// Judges every request of `requests` under `policy` through its
+/// connection's gate, as [`judge_all`] does, then the addresses each
+/// allowed one resolved to, and returns how many it allowed.
 pub(crate) fn judge_all_with_addresses(
     policy: &Policy,
     requests: &[(String, Vec<SocketAddr>)],
 ) -> usize {
+    let gate = Gate::Session {
+        policy,
+        kind: RequestKind::Fetch,
+    };
     requests
         .iter()
         .filter(|(url, addresses)| {
-            let request = Request {
-                url,
-                kind: RequestKind::Fetch,
-            };
-            matches!(judge(&request, policy), Judgment::Allowed(_))
-                && judge_addresses(url, addresses, policy).is_ok()
+            gate.judge(url)
+                .and_then(|judged| judged.addresses(addresses))
+                .is_ok()
         })
         .count()
 }

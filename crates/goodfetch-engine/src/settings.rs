@@ -38,7 +38,7 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
-pub use hosts::{HostEntry, without_root};
+pub use hosts::HostEntry;
 pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,

@@ -22,7 +22,6 @@
 //! engine's client and the Secret-provider driver read: no Session cookie
 //! and no Secret goes to it.
 
-use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -34,10 +33,11 @@ use jiff::Timestamp;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use super::{InvalidDomain, covered, domain_key};
+use super::InvalidDomain;
 use crate::audit::{AuditLog, Origin};
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::host_name::{self, ListedDomains};
 use crate::known_certificates::{ExceptionKind, Found, KeyHash, KnownCertificates, Pinned};
 use crate::secrets::ExceptionHosts;
 use crate::tasks::TaskOwner;
@@ -159,7 +159,7 @@ struct RunState {
 pub struct CertificateExceptions {
     /// Each listed domain's entry, by the domain as the URL parser leaves
     /// a host.
-    listed: BTreeMap<String, Entry>,
+    listed: ListedDomains<Entry>,
     book: Option<PinBook>,
     reached: ExceptionHosts,
     run: Arc<Mutex<RunState>>,
@@ -181,17 +181,16 @@ impl CertificateExceptions {
         book: PinBook,
         reached: ExceptionHosts,
     ) -> Result<Self, InvalidDomain> {
-        let mut listed = BTreeMap::new();
+        let mut listed = ListedDomains::new();
         for (domain, value) in setting.as_object().into_iter().flatten() {
             let entry = match value {
                 Value::Null => Entry::TrustOnFirstUse,
                 Value::String(text) if text == ANY => Entry::Any,
                 _ => continue,
             };
-            let key = domain_key(domain).ok_or_else(|| InvalidDomain {
-                domain: domain.clone(),
-            })?;
-            listed.insert(key, entry);
+            listed
+                .insert(domain, entry)
+                .map_err(|host_name::NoHost(domain)| InvalidDomain { domain })?;
         }
         Ok(Self {
             listed,
@@ -203,12 +202,7 @@ impl CertificateExceptions {
 
     /// The entry of `host`'s most specific listed domain.
     fn entry_of(&self, host: &str) -> Option<Entry> {
-        let found = Cell::new(None);
-        covered(host, |domain| {
-            found.set(self.listed.get(domain).copied());
-            found.get().is_some()
-        });
-        found.get()
+        self.listed.most_specific(host).map(|(_, entry)| *entry)
     }
 
     /// The domains listed for trust on first use or `any`, as the URL
@@ -218,7 +212,10 @@ impl CertificateExceptions {
         if self.book.is_none() {
             return Vec::new();
         }
-        self.listed.keys().cloned().collect()
+        self.listed
+            .iter()
+            .map(|(domain, _)| domain.to_owned())
+            .collect()
     }
 
     /// Whether `host`'s domain is listed for trust on first use or `any`.
@@ -233,7 +230,7 @@ impl CertificateExceptions {
     ///
     /// Dropping the future loses only the answer.
     pub async fn stopped(&self, host: &str) -> Option<CertificateChanged> {
-        let host = domain_key(host).unwrap_or_else(|| host.to_owned());
+        let host = host_name::lookup_key(host);
         self.run.lock().await.stopped.get(&host).cloned()
     }
 
@@ -248,7 +245,7 @@ impl CertificateExceptions {
         let Some(book) = &self.book else {
             return false;
         };
-        let host = domain_key(host).unwrap_or_else(|| host.to_owned());
+        let host = host_name::lookup_key(host);
         book.find(&host).await != Found::Unpinned
     }
 
@@ -274,7 +271,7 @@ impl CertificateExceptions {
         let Some(book) = &self.book else {
             return Ok(None);
         };
-        let host = domain_key(host).unwrap_or_else(|| host.to_owned());
+        let host = host_name::lookup_key(host);
         if let Some(stopped) = self.stopped(&host).await {
             return Err(stopped);
         }

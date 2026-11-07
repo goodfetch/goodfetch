@@ -3,9 +3,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::net::IpAddr;
 use std::path::Path;
 
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, ChromiumSwitch};
 
 #[cfg(target_os = "linux")]
@@ -26,7 +26,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
     Launch {
         data_folder: Path::new("/runs/r/browser-data/1"),
         headless,
-        resolve: &[],
+        resolve: Box::leak(Box::default()),
         shared_memory,
         proxy_script: None,
         sandbox: true,
@@ -100,14 +100,14 @@ fn the_browser_runs_over_its_pipe_on_the_runs_profile_and_opens_a_blank_page_las
 
 #[test]
 fn resolve_reaches_chromium_as_host_resolver_rules_each_host_on_its_first_address() {
-    let resolve: Vec<(String, Vec<IpAddr>)> = vec![
+    let resolve = HostMapping::new([
         (
-            "catalog.test".to_owned(),
+            "catalog.test",
             vec!["127.0.0.1".parse().unwrap(), "127.0.0.2".parse().unwrap()],
         ),
-        ("ipv6.test".to_owned(), vec!["::1".parse().unwrap()]),
-        ("nowhere.test".to_owned(), vec![]),
-    ];
+        ("ipv6.test", vec!["::1".parse().unwrap()]),
+        ("nowhere.test", vec![]),
+    ]);
     let built = arguments(&Launch {
         resolve: &resolve,
         ..launch(true, None)

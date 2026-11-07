@@ -40,13 +40,10 @@ use std::collections::BTreeMap;
 use std::future::ready;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::egress::ConfiguredKind;
-use goodfetch_protocol::settings::NETWORK_RESOLVE;
-use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use http_body_util::BodyExt as _;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -56,44 +53,21 @@ use rustls::pki_types::ServerName;
 use url::Host;
 
 use crate::clock::Clock;
-use crate::dns::{Dns, IpFamily, LookupError, Resolution, Route, family_of};
-use crate::egress::{self, EndpointPolicy, Judgment, Refused};
+use crate::dns::{Dns, HostMapping, IpFamily, LookupError, Resolution, Route, family_of};
+use crate::egress::{EndpointPolicy, Gate, Refused, Stopped};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::local_addresses::SessionAddresses;
 use crate::response_limits::Limits;
 use crate::settings::Resolved;
-use crate::tls::{self, CertificateInvalid, Trust};
+use crate::tls::{self, CertificateInvalid, Trust, TrustedCas};
 
 #[cfg(test)]
 mod tests;
 
-/// The `resolve` setting (ADR 0059): host names mapped to addresses before
-/// any lookup.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Resolve(BTreeMap<String, Vec<IpAddr>>);
-
-impl Resolve {
-    /// No mapping: every name goes to the OS's resolver.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Maps `host` to `addresses`.
-    #[must_use]
-    pub fn with(mut self, host: impl Into<String>, addresses: Vec<IpAddr>) -> Self {
-        self.0.insert(host.into().to_ascii_lowercase(), addresses);
-        self
-    }
-
-    fn addresses(&self, host: &str) -> Option<&[IpAddr]> {
-        self.0.get(&host.to_ascii_lowercase()).map(Vec::as_slice)
-    }
-}
-
 /// What a request may reach and trust, and how it races a host's addresses.
 pub(crate) struct Network<'a> {
     /// The `resolve` setting.
-    pub(crate) resolve: &'a Resolve,
+    pub(crate) resolve: &'a HostMapping,
     /// What each host's certificate may chain to beside Mozilla's roots.
     pub(crate) trust: &'a Trust,
     /// What the race waits on.
@@ -127,20 +101,17 @@ impl LocalBinding {
         }
     }
 
-    /// `server`'s addresses on its port: the `resolve` mapping's, its
-    /// literal address, or the engine's own resolver's, asked from the
+    /// `server`'s addresses on its port: its literal address, the
+    /// `resolve` mapping's, or the engine's own resolver's, asked from the
     /// Session's addresses.
     async fn addresses(
         &self,
         server: &Server<'_>,
-        resolve: &Resolve,
+        resolve: &HostMapping,
     ) -> Result<Vec<SocketAddr>, Failure> {
         let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
-        if let Some(mapped) = resolve.addresses(server.host) {
-            return Ok(mapped.iter().map(on_port).collect());
-        }
-        if let Ok(address) = server.host.parse::<IpAddr>() {
-            return Ok(vec![on_port(&address)]);
+        if let Some(fixed) = resolve.fixed(server.host) {
+            return Ok(fixed.iter().map(on_port).collect());
         }
         match self.dns.lookup(server.host, Route::LocalAddress).await {
             Ok(Resolution::Addresses { addresses, .. }) => {
@@ -152,8 +123,8 @@ impl LocalBinding {
 
     /// The addresses of `host` on `port`, as a Session holding these local
     /// addresses resolves it before it connects, such as the egress relay
-    /// of a browser Session (ADR 0044): the `resolve` mapping's, its
-    /// literal address, or the engine's own resolver's, whose queries leave
+    /// of a browser Session (ADR 0044): its literal address, the `resolve`
+    /// mapping's, or the engine's own resolver's, whose queries leave
     /// from the Session's addresses.
     ///
     /// # Errors
@@ -167,7 +138,7 @@ impl LocalBinding {
         &self,
         host: &str,
         port: u16,
-        resolve: &Resolve,
+        resolve: &HostMapping,
     ) -> Result<Vec<SocketAddr>, Failure> {
         let server = Server {
             host,
@@ -339,7 +310,7 @@ pub(crate) struct ConfiguredEndpoint<'a> {
     /// What the Operator policy lets it reach.
     pub(crate) policy: EndpointPolicy,
     /// The `resolve` setting.
-    pub(crate) resolve: &'a Resolve,
+    pub(crate) resolve: &'a HostMapping,
     /// What its certificate may chain to beside Mozilla's roots: the
     /// authorities `tls.trusted_cas` lists for its own domain.
     pub(crate) trust: &'a Trust,
@@ -362,10 +333,11 @@ pub(crate) enum EndpointFailure {
 impl ConfiguredEndpoint<'_> {
     /// Sends `request`, whose URI is the endpoint's absolute URL, once the
     /// egress policy allows it, and answers its head; its body arrives
-    /// through [`Response::chunk`]. The URL is judged before any lookup,
-    /// then every address its host stands for before any connection, which
-    /// tries only those; an invalid certificate ends it with
-    /// `certificate_invalid` whatever `tls.accept_invalid_certs` lists.
+    /// through [`Response::chunk`]. Its [`Gate`] judges the URL before any
+    /// lookup, then every address its host stands for before any
+    /// connection, which tries only those; an invalid certificate ends it
+    /// with `certificate_invalid` whatever `tls.accept_invalid_certs`
+    /// lists.
     ///
     /// # Cancel safety
     ///
@@ -374,12 +346,25 @@ impl ConfiguredEndpoint<'_> {
         &self,
         mut request: Request<B>,
     ) -> Result<Response, EndpointFailure> {
-        let url = request.uri().to_string();
-        let url = match egress::judge_endpoint(&url) {
-            Judgment::Allowed(url) => url,
-            Judgment::Refused(refused) => return Err(EndpointFailure::Refused(refused)),
-        };
         let failed = |failure| EndpointFailure::Failed(failure);
+        let url = request.uri().to_string();
+        let passed = Gate::Endpoint(self.policy)
+            .pass(&url, async |host, port| {
+                let server = Server {
+                    host,
+                    port,
+                    plain: true,
+                };
+                addresses(&server, self.resolve).await
+            })
+            .await
+            .map_err(|stopped| match stopped {
+                Stopped::Refused(refused) | Stopped::AddressRefused(refused) => {
+                    EndpointFailure::Refused(refused)
+                }
+                Stopped::Unresolved(failure) => failed(failure),
+            })?;
+        let url = &passed.url;
         let plain = url.scheme() == "http";
         let host = match url.host() {
             Some(Host::Ipv6(address)) => address.to_string(),
@@ -406,9 +391,6 @@ impl ConfiguredEndpoint<'_> {
             port,
             plain,
         };
-        let found = addresses(&server, self.resolve).await.map_err(failed)?;
-        egress::judge_endpoint_addresses(url.as_str(), &found, self.policy)
-            .map_err(EndpointFailure::Refused)?;
         tracing::debug!(
             kind = self.kind.classed().name,
             "connecting to an Operator-configured endpoint"
@@ -419,7 +401,7 @@ impl ConfiguredEndpoint<'_> {
             clock: self.clock,
             delays: self.delays,
         };
-        send_to(&server, &found, request, &network)
+        send_to(&server, &passed.addresses, request, &network)
             .await
             .map_err(failed)
     }
@@ -433,8 +415,8 @@ impl ConfiguredEndpoint<'_> {
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
-    resolve: Resolve,
-    authorities: Vec<(String, Vec<PathBuf>)>,
+    resolve: HostMapping,
+    trusted_cas: TrustedCas,
     clock: Clock,
     delays: Delays,
     max_body_size: u64,
@@ -456,31 +438,10 @@ pub(crate) enum WholeFailure {
 impl EndpointSettings {
     /// The settings `settings`, the machine's resolved ones, give.
     pub(crate) fn of(settings: &Resolved, clock: Clock) -> Self {
-        let resolve = settings
-            .hosts(&NETWORK_RESOLVE)
-            .into_iter()
-            .fold(Resolve::new(), |mapping, (host, addresses)| {
-                mapping.with(host, addresses)
-            });
-        let authorities = settings
-            .value(&TLS_TRUSTED_CAS)
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(domain, files)| {
-                let files = files
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|file| file.as_str().map(PathBuf::from))
-                    .collect();
-                (domain.clone(), files)
-            })
-            .collect();
         Self {
             policy: EndpointPolicy::of(settings),
-            resolve,
-            authorities,
+            resolve: HostMapping::of(settings),
+            trusted_cas: TrustedCas::of(settings),
             clock,
             delays: Delays::of(settings),
             max_body_size: Limits::of(settings).max_body_size,
@@ -539,34 +500,19 @@ impl EndpointSettings {
     }
 
     /// The trust of the endpoint's certificate: the authorities
-    /// `tls.trusted_cas` lists for each domain, read now; a file that
-    /// cannot be read is logged and trusts nothing.
+    /// `tls.trusted_cas` lists for each domain, read now, as
+    /// [`Trust::of`] reads them for a site; a file that cannot be read is
+    /// logged and trusts nothing.
     async fn trust(&self) -> Trust {
-        let mut trust = Trust::default_roots();
-        for (domain, files) in &self.authorities {
-            let mut authorities = Vec::new();
-            for file in files {
-                let read = tokio::fs::read(file)
-                    .await
-                    .map_err(|error| error.to_string())
-                    .and_then(|bytes| {
-                        tls::read_certificates(&bytes).map_err(|error| error.to_string())
-                    });
-                match read {
-                    Ok(read) => authorities.extend(read),
-                    Err(error) => tracing::warn!(
-                        %error,
-                        file = %file.display(),
-                        "a certificate authority of `tls.trusted_cas` cannot be read"
-                    ),
-                }
-            }
-            match trust.clone().with_trusted_cas(domain, authorities) {
-                Ok(with) => trust = with,
-                Err(error) => tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host"),
-            }
+        let mut read = BTreeMap::new();
+        for file in self.trusted_cas.files() {
+            read.insert(file.to_owned(), tokio::fs::read(file).await);
         }
-        trust
+        self.trusted_cas.trust(|file| match read.get(file) {
+            Some(Ok(bytes)) => Ok(bytes.clone()),
+            Some(Err(error)) => Err(io::Error::new(error.kind(), error.to_string())),
+            None => Err(io::ErrorKind::NotFound.into()),
+        })
     }
 }
 
@@ -827,8 +773,8 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
 }
 
 /// The addresses of `host` on `port`, as the engine itself resolves it
-/// before connecting: the `resolve` mapping's, its literal address (an
-/// IPv6 one without brackets), or the system resolver's, its zone ID
+/// before connecting: its literal address (an IPv6 one without brackets),
+/// the `resolve` mapping's, or the system resolver's, its zone ID
 /// included. A Borrowed browser resolves names itself, so the engine
 /// judges these for each of its requests at interception (ADR 0056), and a
 /// `cdp_url` before connecting to it.
@@ -840,7 +786,11 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
 /// # Cancel safety
 ///
 /// Dropping the future abandons the lookup; nothing is kept.
-pub async fn lookup(host: &str, port: u16, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+pub async fn lookup(
+    host: &str,
+    port: u16,
+    resolve: &HostMapping,
+) -> Result<Vec<SocketAddr>, Failure> {
     let server = Server {
         host,
         port,
@@ -849,16 +799,13 @@ pub async fn lookup(host: &str, port: u16, resolve: &Resolve) -> Result<Vec<Sock
     addresses(&server, resolve).await
 }
 
-/// `server`'s addresses on its port: the `resolve` mapping's, its literal
-/// address, or the system resolver's, each as the resolver gives it, its
+/// `server`'s addresses on its port: its literal address, the `resolve`
+/// mapping's, or the system resolver's, each as the resolver gives it, its
 /// zone ID included.
-async fn addresses(server: &Server<'_>, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
+async fn addresses(server: &Server<'_>, resolve: &HostMapping) -> Result<Vec<SocketAddr>, Failure> {
     let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
-    if let Some(mapped) = resolve.addresses(server.host) {
-        return Ok(mapped.iter().map(on_port).collect());
-    }
-    if let Ok(address) = server.host.parse::<IpAddr>() {
-        return Ok(vec![on_port(&address)]);
+    if let Some(fixed) = resolve.fixed(server.host) {
+        return Ok(fixed.iter().map(on_port).collect());
     }
     let found: Vec<SocketAddr> = tokio::net::lookup_host((server.host, server.port))
         .await

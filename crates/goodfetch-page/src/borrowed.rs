@@ -19,16 +19,17 @@
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use goodfetch_cdp::{Connection, Framer, MAX_FRAME};
 use goodfetch_engine::CallError;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::{
     BrowserLocation, CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
 };
-use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::http_client;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SESSION_SOURCE,
-    SETTING_INVALID, SettingInvalidDetails,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SETTING_INVALID,
+    SettingInvalidDetails,
 };
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::net::TcpStream;
@@ -80,14 +81,14 @@ impl CdpUrl {
 /// name it cannot resolve, by where the browser is, which the addresses of
 /// its `cdp_url` tell, looked up once, when such a name first comes.
 pub(crate) struct Lookups {
-    resolve: Resolve,
+    resolve: HostMapping,
     cdp_url: CdpUrl,
     location: OnceCell<BrowserLocation>,
 }
 
 impl Lookups {
     /// The lookups of the browser at `cdp_url`, under the mapping `resolve`.
-    pub(crate) fn new(resolve: Resolve, cdp_url: CdpUrl) -> Self {
+    pub(crate) fn new(resolve: HostMapping, cdp_url: CdpUrl) -> Self {
         Self {
             resolve,
             cdp_url,
@@ -96,7 +97,7 @@ impl Lookups {
     }
 
     /// The Run's `network.resolve` mapping.
-    pub(crate) fn resolve(&self) -> &Resolve {
+    pub(crate) fn resolve(&self) -> &HostMapping {
         &self.resolve
     }
 
@@ -124,14 +125,8 @@ impl Lookups {
 }
 
 /// The `network.resolve` mapping of `settings`.
-pub(crate) fn resolve_of(settings: Option<&Resolved>) -> Resolve {
-    settings
-        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
-        .unwrap_or_default()
-        .into_iter()
-        .fold(Resolve::new(), |mapping, (host, addresses)| {
-            mapping.with(host, addresses)
-        })
+pub(crate) fn resolve_of(settings: Option<&Resolved>) -> HostMapping {
+    settings.map(HostMapping::of).unwrap_or_default()
 }
 
 /// Opens the engine's connection to the browser at `cdp_url` for `run`,

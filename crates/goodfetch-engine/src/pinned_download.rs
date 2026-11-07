@@ -15,7 +15,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
-use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
+use goodfetch_protocol::settings::SettingsLayer;
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
@@ -24,9 +24,9 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
 
 use crate::clock::Clock;
-use crate::egress::EndpointPolicy;
+use crate::dns::HostMapping;
 use crate::happy_eyeballs::Delays;
-use crate::http_client::{self, Resolve, Server};
+use crate::http_client::{self, Server};
 use crate::settings::Resolved;
 use crate::tls::Trust;
 
@@ -189,24 +189,22 @@ pub fn chromium_background_traffic_off() -> Vec<String> {
 }
 
 /// What a pinned download may do: whether `egress.offline` refuses it,
-/// what it may reach and trust, and how it races the host's addresses.
+/// what it may reach and trust, and how it races the host's addresses. No
+/// endpoint policy applies to it: a pinned download is no
+/// Operator-configured endpoint (ADRs 0017 and 0043).
 #[derive(Clone, Debug)]
 pub struct Fetching {
     /// The layer that set `egress.offline` to `true`, or `None` when
     /// downloads are allowed (ADR 0043).
     pub offline: Option<SettingsLayer>,
     /// The `resolve` setting (ADR 0059).
-    pub resolve: Resolve,
+    pub resolve: HostMapping,
     /// Certificate authorities trusted beside Mozilla's roots.
     pub trusted_certificates: Vec<CertificateDer<'static>>,
     /// What the Happy Eyeballs race waits on (ADR 0118).
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
     pub delays: Delays,
-    /// What the Operator policy lets a Clean-up rules source reach, an
-    /// Operator-configured endpoint (ADRs 0017 and 0047):
-    /// `egress.no_private_endpoints`.
-    pub endpoints: EndpointPolicy,
 }
 
 impl Fetching {
@@ -215,32 +213,24 @@ impl Fetching {
     pub fn new(clock: Clock) -> Self {
         Self {
             offline: None,
-            resolve: Resolve::new(),
+            resolve: HostMapping::default(),
             trusted_certificates: Vec::new(),
             clock,
             delays: Delays::default(),
-            endpoints: EndpointPolicy::default(),
         }
     }
 
-    /// What a download may do under a Run's resolved `settings`, on
-    /// `clock`: `egress.offline`, `network.resolve`, the resolver's delays
-    /// and `egress.no_private_endpoints`, with no extra certificate
-    /// authority.
+    /// What a download may do under resolved `settings`, a Run's or the
+    /// machine's, on `clock`: `egress.offline`, `network.resolve` and the
+    /// resolver's delays, with no extra certificate authority.
     pub fn of(settings: &Resolved, clock: Clock) -> Self {
         Self {
             offline: settings
                 .effective(&EGRESS_OFFLINE)
                 .filter(|offline| offline.value == serde_json::Value::Bool(true))
                 .map(|offline| offline.layer),
-            resolve: settings
-                .hosts(&NETWORK_RESOLVE)
-                .into_iter()
-                .fold(Resolve::new(), |mapping, (host, addresses)| {
-                    mapping.with(host, addresses)
-                }),
+            resolve: HostMapping::of(settings),
             delays: Delays::of(settings),
-            endpoints: EndpointPolicy::of(settings),
             ..Self::new(clock)
         }
     }

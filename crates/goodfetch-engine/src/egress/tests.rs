@@ -307,6 +307,7 @@ proptest! {
 
 mod cdp_urls;
 mod endpoints;
+mod gate;
 mod navigations;
 mod ssrf;
 

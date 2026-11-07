@@ -39,8 +39,9 @@ use rustls::sign::CertifiedKey;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, SignatureScheme};
 
 use super::exceptions::{CertificateChanged, CertificateExceptions, ExceptionUsed, Presented};
-use super::{OnClock, Rejected, Trust, Verifier, client_certificates, domain_key, failure_of};
+use super::{OnClock, Rejected, Trust, Verifier, client_certificates, failure_of};
 use crate::clock::Clock;
+use crate::host_name;
 use crate::known_certificates::KeyHash;
 
 /// What a [`SharedTrust`]'s client learnt of one covered host.
@@ -163,7 +164,7 @@ impl SharedTrust {
         if let Some(stopped) = self.exceptions.stopped(host).await {
             return Err(stopped);
         }
-        let key = key_of(host);
+        let key = host_name::lookup_key(host);
         if self.known().contains_key(&key) {
             return Ok(());
         }
@@ -215,7 +216,7 @@ impl SharedTrust {
         presented: Presented,
         presents: bool,
     ) -> Decision {
-        let key = key_of(host);
+        let key = host_name::lookup_key(host);
         match self.exceptions.admit(host, presented).await {
             Err(changed) => Decision::Changed(changed),
             Ok(None) => {
@@ -245,7 +246,7 @@ impl SharedTrust {
                 Some(failure) => Verdict::Rejected(failure),
             };
         }
-        let passes = match self.known().get(&key_of(host)) {
+        let passes = match self.known().get(&host_name::lookup_key(host)) {
             Some(Known::Unpinned) => presented.failure.is_none(),
             Some(Known::Admitted(used)) => !presents && used.certificate == presented.key,
             Some(Known::Pinned) | None => false,
@@ -260,7 +261,7 @@ impl SharedTrust {
     /// The exception `host`'s connections pass through: none when no
     /// exception admitted its key.
     pub fn exception(&self, host: &str) -> Option<ExceptionUsed> {
-        match self.known().get(&key_of(host)) {
+        match self.known().get(&host_name::lookup_key(host)) {
             Some(Known::Admitted(used)) => Some(used.clone()),
             _ => None,
         }
@@ -288,11 +289,6 @@ pub fn certificate_failure(error: &rustls::Error) -> Option<CertificateFailure> 
         Some(Rejected(failure)) => failure.clone(),
         None => failure_of(certificate),
     })
-}
-
-/// `host` as the exceptions key it.
-fn key_of(host: &str) -> String {
-    domain_key(host).unwrap_or_else(|| host.to_owned())
 }
 
 /// The verifier of a [`SharedTrust`]'s configuration.

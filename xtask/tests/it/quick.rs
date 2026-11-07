@@ -27,26 +27,31 @@ use crate::workspace::Workspace;
 /// A stand-in `just` that appends its arguments to `calls` and fails with
 /// status 3 when they are `failing`'s content, and a stand-in `cargo` that
 /// appends its own to `cargo-calls` and prints `selection`'s content, as
-/// `xtask affected` prints its selection.
+/// `xtask affected` prints its selection. Each appends the `GIT_DIR` it
+/// inherits to `git-dir` ([`inherited_git_dirs`]).
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
     let just = format!(
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
+echo "${{GIT_DIR-unset}}" >>"{git_dir}"
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   exit 3
 fi
 "#,
         calls = folder.join("calls").display(),
+        git_dir = folder.join("git-dir").display(),
         failing = folder.join("failing").display(),
     );
     let cargo = format!(
         r#"#!/bin/sh
 echo "$*" >>"{calls}"
+echo "${{GIT_DIR-unset}}" >>"{git_dir}"
 cat "{selection}"
 "#,
         calls = folder.join("cargo-calls").display(),
+        git_dir = folder.join("git-dir").display(),
         selection = folder.join("selection").display(),
     );
     for (name, script) in [("just", just), ("cargo", cargo)] {
@@ -55,6 +60,16 @@ cat "{selection}"
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     folder
+}
+
+/// The `GIT_DIR` each stand-in call inherited, in call order, `unset` where
+/// it had none.
+fn inherited_git_dirs(stand_in: &Path) -> Vec<String> {
+    std::fs::read_to_string(stand_in.join("git-dir"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 /// `xtask affected`'s selection for a change whose gate is `gate`.
@@ -224,6 +239,22 @@ fn without_a_base_the_change_is_read_against_the_upstream_off_main(
     assert_eq!(run.cargo_calls, [expected]);
 }
 
+/// Any hook may start `just quick` with git's `GIT_DIR` set; no step, and no
+/// build under it, inherits it.
+#[test]
+fn no_step_inherits_the_git_dir_quick_was_started_with() {
+    let workspace = Workspace::from_fixture("empty");
+    repository_on(&workspace, "ticket");
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "docs");
+    let git_dir = format!("{}/.git", workspace.path().display());
+
+    let run = quick_with_env(&workspace, &stand_in, &[], &[("GIT_DIR", &git_dir)]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(inherited_git_dirs(&stand_in), ["unset"; 6]);
+}
+
 /// The file in the repository's common folder where a green run records its
 /// tree, one a line.
 fn recorded_trees(workspace: &Workspace) -> Option<String> {
@@ -290,13 +321,15 @@ fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
 }
 
 /// A stand-in `just` for the pre-push hook: records its arguments and the
-/// base the hook gives `just quick`.
+/// base the hook gives `just quick`, and the `GIT_DIR` it inherits
+/// ([`inherited_git_dirs`]).
 fn hook_stand_in(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
     let just = format!(
-        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\n",
-        folder.join("calls").display()
+        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\necho \"${{GIT_DIR-unset}}\" >>\"{}\"\n",
+        folder.join("calls").display(),
+        folder.join("git-dir").display()
     );
     let path = folder.join("just");
     std::fs::write(&path, just).unwrap();
@@ -307,12 +340,23 @@ fn hook_stand_in(workspace: &Workspace) -> PathBuf {
 /// Runs `.githooks/pre-push` in the workspace with git's lines for the
 /// refs a push updates on its standard input.
 fn pre_push(workspace: &Workspace, stand_in: &Path, refs: &str) -> Run {
+    pre_push_with_env(workspace, stand_in, refs, &[])
+}
+
+/// Runs `.githooks/pre-push` as `pre_push` does, with these variables added.
+fn pre_push_with_env(
+    workspace: &Workspace,
+    stand_in: &Path,
+    refs: &str,
+    variables: &[(&str, &str)],
+) -> Run {
     use std::io::Write as _;
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.githooks/pre-push");
     let mut child = workspace
         .command(script)
         .args(["origin", "/nonexistent"])
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .envs(variables.iter().copied())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -389,6 +433,27 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(run.calls, [format!("quick base={first}")]);
+}
+
+/// git gives the hook of a push from a linked worktree that worktree's
+/// `GIT_DIR`. `just quick` must not inherit it: a build script's `git init`
+/// (btls-sys's) would then reinitialize the repository as bare.
+#[test]
+fn a_push_runs_quick_without_the_git_dir_git_gives_the_hook() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+    let git_dir = format!("{}/.git", workspace.path().display());
+
+    let run = pre_push_with_env(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {first}\n"),
+        &[("GIT_DIR", &git_dir)],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(inherited_git_dirs(&stand_in), ["unset"]);
 }
 
 /// A new remote branch holds no commit, so `just quick` takes the branch's

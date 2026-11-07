@@ -1,7 +1,7 @@
 //! The hidden `command-line` command (ADR 0072): the executable's command
 //! line as JSON, each command's `name` and the `commands` under it, hidden
-//! ones included, and the namespaces of the commands `goodfetch-cli`
-//! generates, as the source of its committed `namespaces.rs`. `xtask
+//! ones included, and the namespaces of the commands the `generated`
+//! module generates, as the source of its committed `namespaces.rs`. `xtask
 //! codegen` commits what [`printed_command_line`] gives each Product, through the
 //! `command-lines` example, so that `xtask` builds no engine crate and needs
 //! no Console build; each Product's tests check the committed files against
@@ -9,7 +9,7 @@
 
 use std::process::ExitCode;
 
-use goodfetch_cli::output;
+use super::output;
 use goodfetch_protocol::catalog::Product;
 use serde_json::{Value, json};
 
@@ -21,7 +21,7 @@ use super::command;
 pub fn printed_command_line(product: Product) -> Value {
     json!({
         "command_line": tree(&command(product)),
-        "namespaces": goodfetch_cli::generated::namespaces_source(),
+        "namespaces": super::generated::namespaces_source(),
     })
 }
 

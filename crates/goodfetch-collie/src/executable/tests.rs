@@ -6,7 +6,7 @@
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
-use goodfetch_cli::output::ColourChoice;
+use super::output::ColourChoice;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;

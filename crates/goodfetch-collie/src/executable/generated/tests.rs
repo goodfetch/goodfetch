@@ -18,7 +18,7 @@ use super::{
     Call, Generated, NAMESPACES, Namespace, Offer, OwnFlags, command, duration, member, members_of,
     offer,
 };
-use crate::engine_choice::{Choice, Lifetime};
+use crate::executable::engine_choice::{Choice, Lifetime};
 
 /// What the made-up operations take.
 #[derive(Serialize, Deserialize, JsonSchema)]

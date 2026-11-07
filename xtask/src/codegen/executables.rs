@@ -1,9 +1,9 @@
 //! What both Products' executables give `xtask codegen` (ADRs 0071, 0072,
 //! 0087 and 0099): their command lines, which the `command:` Features and
 //! the table of Foxhound's names read, and the namespaces of the commands
-//! `goodfetch-cli` generates from Foxhound's catalog, which holds Collie's,
-//! as the Rust constant in `goodfetch-cli` a start reads instead of walking
-//! the catalog. `xtask` builds no engine crate (ADR 0072's amendment of
+//! Collie's executable generates from Foxhound's catalog, which holds
+//! Collie's, as the Rust constant in Collie's crate a start reads instead of
+//! walking the catalog. `xtask` builds no engine crate (ADR 0072's amendment of
 //! 2026-11-06): `xtask codegen` runs Collie's `command-lines` example, which
 //! gives what each executable's hidden `command-line` command prints, and
 //! commits it, and `--check` reads the committed files, so it starts no
@@ -25,14 +25,11 @@ use serde_json::{Value, json};
 
 use crate::features::CommandLines;
 
-/// The crate that reads the namespaces.
-const CLI_CRATE: &str = "crates/goodfetch-cli";
+/// Where Collie's crate's generated files live.
+pub(super) const COLLIE_FOLDER: &str = "crates/goodfetch-collie/generated";
 
-/// Where `goodfetch-cli`'s generated files live.
-pub(super) const CLI_FOLDER: &str = "crates/goodfetch-cli/generated";
-
-/// The file of the namespaces.
-const NAMESPACES: &str = "crates/goodfetch-cli/generated/namespaces.rs";
+/// The file of the namespaces, which Collie's executable reads.
+const NAMESPACES: &str = "crates/goodfetch-collie/generated/namespaces.rs";
 
 /// The file of both executables' command lines: `{"collie": <tree>,
 /// "foxhound": <tree>}`, each tree a command's `name` and the `commands`
@@ -93,12 +90,7 @@ impl Files {
                 "collie": collie.command_line,
                 "foxhound": foxhound.command_line,
             }))?),
-            // A workspace without `goodfetch-cli`, such as a test's
-            // fixture, has no file of its namespaces.
-            namespaces: root
-                .join(CLI_CRATE)
-                .is_dir()
-                .then(|| collie.namespaces.into_bytes()),
+            namespaces: Some(collie.namespaces.into_bytes()),
         })
     }
 

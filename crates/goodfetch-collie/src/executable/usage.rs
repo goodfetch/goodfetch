@@ -10,11 +10,9 @@
 
 use std::process::ExitCode;
 
-use goodfetch_cli::engine_choice::{
-    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime,
-};
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::output::{self, Human};
+use super::engine_choice::{self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime};
+use super::exit_codes;
+use super::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
 use goodfetch_protocol::run::Period;

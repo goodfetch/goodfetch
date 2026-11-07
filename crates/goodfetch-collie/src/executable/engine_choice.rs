@@ -61,7 +61,7 @@ use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::sync::mpsc;
 
-use crate::exit_codes;
+use super::exit_codes;
 
 /// The id of `hello`.
 const HELLO_ID: i64 = 0;
@@ -94,6 +94,10 @@ pub enum Choice {
 // A hand-written command's `--attached` and `--daemon`, as every generated
 // command takes them. Plain comments: a doc comment would become the help
 // of every command that flattens it.
+#[expect(
+    missing_docs,
+    reason = "a doc comment would become the help of every command that flattens it"
+)]
 #[derive(Clone, Copy, Debug, Default, clap::Args)]
 pub struct EngineFlags {
     /// Runs the call on an Attached engine in this process, even when a
@@ -140,8 +144,8 @@ pub struct Reached {
     pub remote: bool,
 }
 
-/// The executable's side of its major's Daemon, which this crate cannot
-/// know (ADRs 0024 and 0098): where it runs, which executable starts as
+/// The executable's side of its major's Daemon, which a command's call
+/// does not know (ADRs 0024 and 0098): where it runs, which executable starts as
 /// it, and how this executable restarts it.
 pub trait Daemons {
     /// The Daemon a command reaches: the remote one `GOODFETCH_URL` names;

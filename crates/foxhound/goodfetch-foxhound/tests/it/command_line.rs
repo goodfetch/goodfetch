@@ -1,6 +1,6 @@
 //! The command line Foxhound's executable prints for `xtask codegen` (ADR
 //! 0072): the committed command lines hold Foxhound's tree as the
-//! executable prints it, hidden commands included, and `goodfetch-cli`'s
+//! executable prints it, hidden commands included, and Collie's
 //! committed namespaces file is the one its catalog gives. `xtask codegen
 //! --check` reads both files without building the executable; this is where
 //! they are checked against it.
@@ -16,7 +16,7 @@ const COMMAND_LINES: &str =
     include_str!("../../../../goodfetch-protocol/generated/command_lines.json");
 
 /// The namespaces of the generated commands, which `xtask codegen` commits.
-const NAMESPACES: &str = include_str!("../../../../goodfetch-cli/generated/namespaces.rs");
+const NAMESPACES: &str = include_str!("../../../../goodfetch-collie/generated/namespaces.rs");
 
 #[test]
 fn the_committed_command_line_is_the_one_the_executable_prints() {

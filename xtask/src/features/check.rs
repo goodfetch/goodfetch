@@ -366,7 +366,6 @@ fn defines(packages: &[String], id: &str) -> bool {
         "command" => {
             crate_("goodfetch-collie", "crates/goodfetch-collie")
                 || crate_("goodfetch-foxhound", "crates/foxhound/goodfetch-foxhound")
-                || crate_("goodfetch-cli", "crates/goodfetch-cli")
         }
         "screen" => packages.iter().any(|package| {
             package == "console"

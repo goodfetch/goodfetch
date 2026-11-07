@@ -7,7 +7,7 @@
 //! `console`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
+//! runs, `runs reindex` and `upgrade-files`, beside the commands the `generated` module generates
 //! from the catalog for every other namespace, such as `run start` and
 //! `engine info`, and `--color auto|always|never` on every command; the CLI's
 //! other commands join with area 11. Every
@@ -50,10 +50,8 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use daemon_command::{DaemonCommand, daemon_command};
-use goodfetch_cli::engine_choice::EngineFlags;
-use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
-use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
-use goodfetch_cli::settings_flags::SettingsFlags;
+use engine_choice::EngineFlags;
+use generated::{Call, Generated, Joined, Joining};
 use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
@@ -73,6 +71,8 @@ use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use identity::{Refused, identity, refuse};
+use output::{ColourChoice, ColourFlag, Human};
+use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
 
@@ -86,13 +86,19 @@ mod config;
 mod console;
 mod daemon;
 mod daemon_command;
+pub mod engine_choice;
+pub mod exit_codes;
+pub mod generated;
 mod identity;
 mod log_file;
 mod logs;
 mod metrics;
+mod other_product;
 mod otlp;
+pub mod output;
 mod runs;
 mod service;
+mod settings_flags;
 mod upgrade;
 mod usage;
 

@@ -35,11 +35,9 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Map, Value};
 
-use goodfetch_cli::engine_choice::{
-    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime,
-};
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::output::{self, Human};
+use super::engine_choice::{self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime};
+use super::exit_codes;
+use super::output::{self, Human};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::secrets::Keychain;

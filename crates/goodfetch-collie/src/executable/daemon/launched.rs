@@ -48,7 +48,7 @@ use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
-use goodfetch_cli::output;
+use crate::executable::output;
 
 use crate::executable::browsers;
 

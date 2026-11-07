@@ -2296,27 +2296,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "goodfetch-cli"
-version = "0.0.0"
-dependencies = [
- "clap",
- "data-encoding",
- "goodfetch-engine",
- "goodfetch-protocol",
- "goodfetch-test-support",
- "goodfetch-workspace-hack",
- "jiff",
- "proptest",
- "rstest",
- "schemars",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "goodfetch-collie"
 version = "0.0.0"
 dependencies = [
@@ -2327,7 +2306,6 @@ dependencies = [
  "data-encoding",
  "dirs",
  "goodfetch-clean-up-rules",
- "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-engine",
  "goodfetch-page",
@@ -2349,11 +2327,13 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prometheus",
+ "proptest",
  "prost",
  "rcgen",
  "rstest",
  "rusqlite",
  "rustls",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",

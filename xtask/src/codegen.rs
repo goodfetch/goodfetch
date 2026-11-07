@@ -2,7 +2,7 @@
 //! `emit` example, which writes the JSON Schema bundle and catalog file
 //! through schemars, and writes from them every generated file: each
 //! Product's projection, the names only Foxhound carries, the namespaces of
-//! the commands `goodfetch-cli` generates, the cargo-deny
+//! the commands Collie's executable generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
 //! copy of the license allowlist, each SDK package's `generated/` layer, and
 //! the Console's operation map from Collie's projection (spec #592) and
@@ -277,7 +277,7 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
-            executables::CLI_FOLDER,
+            executables::COLLIE_FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
             helpers::TYPESCRIPT_FOLDER,

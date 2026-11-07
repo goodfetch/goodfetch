@@ -22,7 +22,7 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde::Serialize;
 
-use crate::exit_codes;
+use super::exit_codes;
 
 fn write_stdout(bytes: &[u8]) -> std::io::Result<()> {
     #[expect(
@@ -159,6 +159,10 @@ pub fn fail_exiting(
 }
 
 /// When human output is coloured: `--color auto|always|never`.
+#[expect(
+    missing_docs,
+    reason = "a doc comment on a value would put each value of `--help` on a line of its own"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum ColourChoice {
     // Plain comments, not doc comments, so that `--help` lists the three
@@ -181,6 +185,10 @@ pub enum ColourChoice {
 // that group: a flag global at the root would be copied into every group
 // whenever the command line is parsed, `--version` included (ADR 0071's
 // startup figure). The root takes it as a flag of its own, not global.
+#[expect(
+    missing_docs,
+    reason = "a doc comment would become the help of every command that flattens it"
+)]
 #[derive(Clone, Copy, Debug, Default, clap::Args)]
 pub struct ColourFlag {
     /// When to colour human output; `auto` colours on a terminal unless

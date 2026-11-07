@@ -72,9 +72,9 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use goodfetch_cli::engine_choice::unreachable;
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::output::{self, Human};
+use super::engine_choice::unreachable;
+use super::exit_codes;
+use super::output::{self, Human};
 
 use super::browsers;
 
@@ -805,7 +805,7 @@ impl Connected {
                     "The Daemon answered `{method}` with no result of it: {error}."
                 )))
             }),
-            Err(None) => Err(failed(goodfetch_cli::engine_choice::connection_lost(
+            Err(None) => Err(failed(super::engine_choice::connection_lost(
                 &self.endpoint,
                 method,
             ))),

@@ -1,4 +1,4 @@
-//! A generated command's side of the Daemon (`goodfetch_cli::engine_choice`):
+//! A generated command's side of the Daemon (`crate::executable::engine_choice`):
 //! the remote Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token
 //! (ADRs 0049 and 0083), never a flag, so a token never sits in a process
 //! list; else the running Daemon of the major, or the pick this starts; and
@@ -8,7 +8,7 @@
 //! would otherwise cross the network in the clear: a forwarder listens on
 //! loopback, as an SSH tunnel does.
 
-use goodfetch_cli::engine_choice::{Daemons, Reached};
+use crate::executable::engine_choice::{Daemons, Reached};
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, deployment_variable};
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonToken};

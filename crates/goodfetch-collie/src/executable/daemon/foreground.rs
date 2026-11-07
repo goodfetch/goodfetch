@@ -30,7 +30,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cli::output;
+use crate::executable::output;
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, CacheLocation, Pins, Platform, browser_source, entry_present,
 };

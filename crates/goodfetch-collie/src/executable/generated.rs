@@ -64,13 +64,13 @@ use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
-use crate::engine_choice::{
+use super::engine_choice::{
     self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Input, Lifetime, Next,
     Pager, ReadValues, Values,
 };
-use crate::output::{ColourFlag, Human};
-use crate::settings_flags::{self, SettingsFlags};
-use crate::{exit_codes, output};
+use super::output::{ColourFlag, Human};
+use super::settings_flags::{self, SettingsFlags};
+use super::{exit_codes, output};
 
 mod crawl_start;
 mod run_export;
@@ -200,7 +200,7 @@ struct Namespace {
 /// once each, in the catalog's order, Collie's first: what
 /// [`namespaces_source`] gives, which `xtask codegen` writes, so that a
 /// start walks no catalog (ADR 0071's startup figure).
-const NAMESPACES: &[Namespace] = &include!("../generated/namespaces.rs");
+const NAMESPACES: &[Namespace] = &include!("../../generated/namespaces.rs");
 
 /// The source of [`NAMESPACES`], from the catalog, as `xtask codegen` writes
 /// it.

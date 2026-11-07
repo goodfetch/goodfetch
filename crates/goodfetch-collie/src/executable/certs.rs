@@ -11,13 +11,13 @@
 
 use std::process::ExitCode;
 
-use clap::Subcommand;
-use goodfetch_cli::engine_choice::{
+use super::engine_choice::{
     self, Answer, CommandCall, Daemons, EngineChoice, EngineFlags, Lifetime,
 };
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::generated::{Joined, Joining};
-use goodfetch_cli::output::{self, Human};
+use super::exit_codes;
+use super::generated::{Joined, Joining};
+use super::output::{self, Human};
+use clap::Subcommand;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};

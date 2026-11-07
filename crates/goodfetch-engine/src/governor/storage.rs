@@ -3,6 +3,7 @@
 //! storage sample ([`disks`]), which reads every filesystem holding a folder
 //! it samples once, however many of those folders it holds.
 
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_protocol::storage::{CRITICAL_FREE, LOW_FREE, StorageLevel};
 
@@ -131,19 +132,19 @@ pub(crate) struct Settled {
 impl Settled {
     /// The two settings of `settings`.
     pub(crate) fn of(settings: &Resolved) -> Self {
-        let layer = |key: &str| {
+        let layer = |setting: &Setting| {
             settings
-                .get(key)
+                .effective(setting)
                 .filter(|effective| !effective.value.is_null())
                 .map_or(SettingsLayer::Default, |effective| effective.layer)
         };
         Self {
             thresholds: Thresholds {
-                low_free: settings.count(LOW_FREE.name),
-                critical_free: settings.count(CRITICAL_FREE.name),
+                low_free: settings.get(&LOW_FREE),
+                critical_free: settings.get(&CRITICAL_FREE),
             },
-            low_layer: layer(LOW_FREE.name),
-            critical_layer: layer(CRITICAL_FREE.name),
+            low_layer: layer(&LOW_FREE),
+            critical_layer: layer(&CRITICAL_FREE),
         }
     }
 

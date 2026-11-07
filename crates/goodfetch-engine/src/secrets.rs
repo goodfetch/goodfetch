@@ -549,7 +549,7 @@ impl Secrets {
             }
         }
         let each_use = settings
-            .value(SECRETS_RESOLVE_EACH_USE.name)
+            .value(&SECRETS_RESOLVE_EACH_USE)
             .as_array()
             .into_iter()
             .flatten()

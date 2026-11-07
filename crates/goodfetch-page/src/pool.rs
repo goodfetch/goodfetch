@@ -369,7 +369,7 @@ impl Pool {
                 let setting = shared
                     .run
                     .settings()
-                    .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name).clone())
+                    .map(|settings| settings.resolved().value(&TLS_TRUSTED_CAS).clone())
                     .unwrap_or_default();
                 trusted_cas(&setting, shared.run.owner()).await
             })
@@ -1238,7 +1238,7 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
     let mut domains = exceptions.domains();
     let trusted = run
         .settings()
-        .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name))
+        .map(|settings| settings.resolved().value(&TLS_TRUSTED_CAS))
         .and_then(serde_json::Value::as_object);
     for domain in trusted.into_iter().flat_map(serde_json::Map::keys) {
         let domain = domain.trim_end_matches('.').to_ascii_lowercase();
@@ -1275,12 +1275,7 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
 fn exceptions_of(run: &Run) -> CertificateExceptions {
     let setting = run
         .settings()
-        .map(|settings| {
-            settings
-                .resolved()
-                .value(TLS_ACCEPT_INVALID_CERTS.name)
-                .clone()
-        })
+        .map(|settings| settings.resolved().value(&TLS_ACCEPT_INVALID_CERTS).clone())
         .unwrap_or_default();
     let book = PinBook {
         store: run.known_certificates(),

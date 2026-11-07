@@ -507,7 +507,7 @@ impl Interception {
         let resolved = run.settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
-            .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
+            .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
             cosmetic: Cosmetic::of(&blocking, version),
@@ -549,17 +549,16 @@ impl Interception {
         };
         let events = driver.events();
         pause_requests(driver).await?;
-        let workers =
-            match clean_up::effective(resolved, own, BROWSER_SERVICE_WORKERS.name).as_str() {
-                Some(BLOCK) => ServiceWorkers::Block,
-                _ => ServiceWorkers::Allow(self.workers_of(
-                    (session, Worker::Service),
-                    driver,
-                    run,
-                    (policy.clone(), lookups.clone()),
-                    blocking.clone(),
-                )),
-            };
+        let workers = match clean_up::effective(resolved, own, &BROWSER_SERVICE_WORKERS).as_str() {
+            Some(BLOCK) => ServiceWorkers::Block,
+            _ => ServiceWorkers::Allow(self.workers_of(
+                (session, Worker::Service),
+                driver,
+                run,
+                (policy.clone(), lookups.clone()),
+                blocking.clone(),
+            )),
+        };
         driver.shared_workers(self.workers_of(
             (session, Worker::Shared),
             driver,

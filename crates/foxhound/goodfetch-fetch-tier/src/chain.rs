@@ -82,19 +82,16 @@ impl Following {
     /// What `settings` say.
     pub fn of(settings: &Resolved) -> Self {
         let handled = settings
-            .value(CRAWL_HANDLE_STATUSES.name)
+            .value(&CRAWL_HANDLE_STATUSES)
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|status| u16::try_from(status.as_u64()?).ok())
             .collect();
         Self {
-            max: settings
-                .count(FETCH_REDIRECT_MAX.name)
-                .and_then(|max| u32::try_from(max).ok())
-                .unwrap_or(19),
+            max: u32::try_from(settings.get::<u64>(&FETCH_REDIRECT_MAX)).unwrap_or(u32::MAX),
             refresh: true,
-            refresh_max_delay: settings.duration(FETCH_REFRESH_MAX_DELAY.name),
+            refresh_max_delay: settings.get(&FETCH_REFRESH_MAX_DELAY),
             handled,
             retry_after_max: goodfetch_frontier::longest_wait(settings),
         }

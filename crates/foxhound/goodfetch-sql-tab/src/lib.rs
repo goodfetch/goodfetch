@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::run::{run_error, settings_error};
-use goodfetch_engine::settings::{Opening, Resolved};
+use goodfetch_engine::settings::{Opening, Resolved, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::foxhound::sql_tab::{
     DATASET_QUERY, DATASET_QUERY_MAX_ROWS, DATASET_QUERY_MEMORY_LIMIT, DatasetQueryParams,
@@ -89,10 +89,8 @@ async fn query(
     let reader = first.expect("invariant: a query selects at least one run");
     let memory = limit_of(resolved, &DATASET_QUERY_MEMORY_LIMIT);
     let limits = Limits {
-        memory: memory.value.as_u64().unwrap_or(u64::MAX),
-        rows: resolved
-            .count(DATASET_QUERY_MAX_ROWS.name)
-            .unwrap_or(u64::MAX),
+        memory: value_as(&DATASET_QUERY_MEMORY_LIMIT, &memory.value),
+        rows: resolved.get(&DATASET_QUERY_MAX_ROWS),
     };
     let sandbox = Sandbox::open(selected, limits).map_err(|failure| answer(failure, &memory))?;
     let stop = StopOnDrop(sandbox.stopper());
@@ -122,7 +120,7 @@ async fn query(
 
 /// The setting `setting`, its value and its layer, as `resolved` holds it.
 fn limit_of(resolved: &Resolved, setting: &goodfetch_protocol::catalog::Setting) -> SettingLimit {
-    match resolved.get(setting.name) {
+    match resolved.effective(setting) {
         Some(effective) => SettingLimit {
             key: setting.name.to_owned(),
             value: effective.value.clone(),
@@ -130,7 +128,7 @@ fn limit_of(resolved: &Resolved, setting: &goodfetch_protocol::catalog::Setting)
         },
         None => SettingLimit {
             key: setting.name.to_owned(),
-            value: (setting.default)(),
+            value: catalog_value(setting).clone(),
             layer: SettingsLayer::Default,
         },
     }

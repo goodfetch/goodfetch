@@ -97,7 +97,7 @@ pub(crate) fn handlers() -> [Handler; 14] {
 /// How often a Run whose settings resolved as `resolved` writes a
 /// Checkpoint, from `checkpoint.interval`.
 pub fn checkpoint_interval(resolved: &Resolved) -> Option<std::time::Duration> {
-    resolved.duration(CHECKPOINT_INTERVAL.name)
+    resolved.get(&CHECKPOINT_INTERVAL)
 }
 
 /// The refusal of a file of `format` at the version `found`, which this
@@ -807,7 +807,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
         })
         .await
@@ -965,7 +965,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run_id: params.run_id,
             checkpoint: params.checkpoint.map(PathBuf::from),
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
         })

@@ -46,6 +46,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use goodfetch_dataset::Checked;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Keys, Waiting};
+use goodfetch_engine::settings::catalog_default;
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
 use goodfetch_protocol::foxhound::crawl::{
@@ -129,11 +130,7 @@ pub(crate) struct Staging {
 impl Default for Staging {
     /// A staging under `crawl.max_staged_enqueues`'s default.
     fn default() -> Self {
-        Self::bounded(
-            (CRAWL_MAX_STAGED_ENQUEUES.default)()
-                .as_u64()
-                .expect("invariant: the setting's default is a count"),
-        )
+        Self::bounded(catalog_default(&CRAWL_MAX_STAGED_ENQUEUES))
     }
 }
 

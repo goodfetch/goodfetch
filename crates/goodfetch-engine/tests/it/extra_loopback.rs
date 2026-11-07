@@ -90,7 +90,7 @@ async fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_
         client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     };
     let url = format!("http://1.catalog.test:{}/", target.port());
 

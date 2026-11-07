@@ -332,7 +332,7 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
 /// `settings`, by lowercase host.
 fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAddr>> {
     settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
         .unwrap_or_default()
         .into_iter()
         .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
@@ -343,7 +343,7 @@ fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAdd
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
     settings
-        .value(SECURITY_RAW_CDP_EGRESS_PROXY.name)
+        .value(&SECURITY_RAW_CDP_EGRESS_PROXY)
         .as_bool()
         .unwrap_or(true)
 }

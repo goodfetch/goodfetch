@@ -44,6 +44,7 @@ use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT,
 };
@@ -105,12 +106,12 @@ impl Source {
         }
     }
 
-    fn setting(settings: &Resolved, key: &str) -> Self {
+    fn setting(settings: &Resolved, setting: &Setting) -> Self {
         Self {
-            key: key.to_owned(),
+            key: setting.name.to_owned(),
             layer: Some(
                 settings
-                    .get(key)
+                    .effective(setting)
                     .map_or(SettingsLayer::Default, |effective| effective.layer),
             ),
         }
@@ -344,28 +345,20 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         machine.identity.product,
         &machine.identity.product_version,
     )?;
-    let (address, source) = match overridden(
-        &settings,
-        machine.environment,
-        ADDRESS_VARIABLE,
-        ADDRESS.name,
-    )? {
-        Some(address) => (address, Source::variable(ADDRESS_VARIABLE)),
-        None => (
-            settings
-                .value(ADDRESS.name)
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
-            Source::setting(&settings, ADDRESS.name),
-        ),
-    };
+    let (address, source) =
+        match overridden(&settings, machine.environment, ADDRESS_VARIABLE, &ADDRESS)? {
+            Some(address) => (address, Source::variable(ADDRESS_VARIABLE)),
+            None => (
+                settings.get::<&str>(&ADDRESS).to_owned(),
+                Source::setting(&settings, &ADDRESS),
+            ),
+        };
     let address = parse_address(&address, &source)?;
     let drain_grace = match overridden(
         &settings,
         machine.environment,
         DRAIN_GRACE_VARIABLE,
-        DRAIN_GRACE.name,
+        &DRAIN_GRACE,
     )? {
         Some(milliseconds) => milliseconds
             .parse::<u64>()
@@ -375,32 +368,24 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
                     "`{milliseconds}` is no whole number of milliseconds"
                 ))
             })?,
-        None => settings
-            .duration(DRAIN_GRACE.name)
-            .unwrap_or(Duration::from_secs(110)),
+        None => settings.get(&DRAIN_GRACE),
     };
-    let idle_timeout = settings
-        .duration(IDLE_TIMEOUT.name)
-        .unwrap_or(Duration::from_secs(600));
+    let idle_timeout = settings.get(&IDLE_TIMEOUT);
     let ops = match overridden(
         &settings,
         machine.environment,
         OPS_ADDRESS_VARIABLE,
-        OPS_ADDRESS.name,
+        &OPS_ADDRESS,
     )? {
         Some(address) => Some((address, Source::variable(OPS_ADDRESS_VARIABLE))),
-        None => settings.value(OPS_ADDRESS.name).as_str().map(|address| {
-            (
-                address.to_owned(),
-                Source::setting(&settings, OPS_ADDRESS.name),
-            )
-        }),
+        None => settings
+            .get::<Option<&str>>(&OPS_ADDRESS)
+            .map(|address| (address.to_owned(), Source::setting(&settings, &OPS_ADDRESS))),
     }
     .map(|(address, source)| parse_ops_address(&address, &source))
     .transpose()?;
     let otlp_metrics = settings
-        .value(OTLP_METRICS_ENDPOINT.name)
-        .as_str()
+        .get::<Option<&str>>(&OTLP_METRICS_ENDPOINT)
         .map(str::to_owned);
     Ok(Configured {
         address,
@@ -500,13 +485,14 @@ fn overridden(
     settings: &Resolved,
     environment: &BTreeMap<OsString, OsString>,
     variable: &str,
-    key: &str,
+    setting: &Setting,
 ) -> Result<Option<String>, Refused> {
+    let key = setting.name;
     let Some(value) = goodfetch_engine::settings::deployment_variable(environment, variable) else {
         return Ok(None);
     };
     if let Some(effective) = settings
-        .get(key)
+        .effective(setting)
         .filter(|effective| effective.locked_by == Some(SettingsLayer::OperatorPolicy))
     {
         // The variable stands in for the machine's settings, the user

@@ -24,7 +24,7 @@ use goodfetch_protocol::dns::{
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::dns::{LookupError, family_of};
-use crate::settings::Resolved;
+use crate::settings::{Resolved, catalog_default};
 
 #[cfg(test)]
 mod tests;
@@ -40,28 +40,22 @@ pub struct Delays {
 }
 
 impl Delays {
-    /// RFC 8305's: 50 ms and 250 ms.
-    pub const BUILT_IN: Self = Self {
-        resolution: Duration::from_millis(50),
-        attempt: Duration::from_millis(250),
-    };
-
     /// The delays `settings` give.
     pub fn of(settings: &Resolved) -> Self {
         Self {
-            resolution: settings
-                .duration(RESOLUTION_DELAY.name)
-                .unwrap_or(Self::BUILT_IN.resolution),
-            attempt: settings
-                .duration(ATTEMPT_DELAY.name)
-                .unwrap_or(Self::BUILT_IN.attempt),
+            resolution: settings.get(&RESOLUTION_DELAY),
+            attempt: settings.get(&ATTEMPT_DELAY),
         }
     }
 }
 
+/// The catalog's defaults, RFC 8305's: 50 ms and 250 ms.
 impl Default for Delays {
     fn default() -> Self {
-        Self::BUILT_IN
+        Self {
+            resolution: catalog_default(&RESOLUTION_DELAY),
+            attempt: catalog_default(&ATTEMPT_DELAY),
+        }
     }
 }
 

@@ -34,9 +34,6 @@ const SERVICE: &str = "GCP Secret Manager";
 /// The variable that holds the access token.
 const TOKEN_VARIABLE: &str = "GOOGLE_OAUTH_ACCESS_TOKEN";
 
-/// The public API, where no setting names another.
-const PUBLIC_ENDPOINT: &str = "https://secretmanager.googleapis.com";
-
 /// Google Cloud Secret Manager's provider over its REST API.
 #[derive(Clone, Debug)]
 pub struct GcpSecretManager {
@@ -56,9 +53,7 @@ impl GcpSecretManager {
     ) -> Self {
         Self::new(
             resolved
-                .value(SECRET_PROVIDERS_GCP_SM_ENDPOINT.name)
-                .as_str()
-                .unwrap_or(PUBLIC_ENDPOINT)
+                .get::<&str>(&SECRET_PROVIDERS_GCP_SM_ENDPOINT)
                 .to_owned(),
             environment,
             SecretProviderEndpoint::of(resolved, clock),

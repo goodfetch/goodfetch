@@ -35,6 +35,7 @@ use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::{
     EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS,
     EGRESS_PRIVATE_RANGES, EGRESS_REFUSED, EVERY_HOST, EgressRefusedDetails, EgressRule,
@@ -140,9 +141,9 @@ impl Policy {
     /// [`InvalidEntry`] as [`Policy::new`] and
     /// [`Policy::with_private_ranges`].
     pub fn of(settings: &Resolved) -> Result<Self, InvalidEntry> {
-        let list = |key: &str| -> Vec<String> {
+        let list = |setting: &Setting| -> Vec<String> {
             settings
-                .value(key)
+                .value(setting)
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -150,13 +151,11 @@ impl Policy {
                 .collect()
         };
         let mut policy = Self::new(
-            &list(EGRESS_ALLOWED_DOMAINS.name),
-            &list(EGRESS_BLOCKED_DOMAINS.name),
+            &list(&EGRESS_ALLOWED_DOMAINS),
+            &list(&EGRESS_BLOCKED_DOMAINS),
         )?
-        .with_private_ranges(&list(EGRESS_PRIVATE_RANGES.name))?;
-        policy.resolved_ip_check = settings
-            .boolean(SECURITY_RESOLVED_IP_CHECK.name)
-            .unwrap_or(true);
+        .with_private_ranges(&list(&EGRESS_PRIVATE_RANGES))?;
+        policy.resolved_ip_check = settings.get(&SECURITY_RESOLVED_IP_CHECK);
         Ok(policy)
     }
 }
@@ -556,11 +555,7 @@ impl EndpointPolicy {
     /// The policy the resolved settings give: `egress.no_private_endpoints`,
     /// which only the Operator policy sets.
     pub fn of(settings: &Resolved) -> Self {
-        Self::new(
-            settings
-                .boolean(EGRESS_NO_PRIVATE_ENDPOINTS.name)
-                .unwrap_or(false),
-        )
+        Self::new(settings.get(&EGRESS_NO_PRIVATE_ENDPOINTS))
     }
 }
 

@@ -26,7 +26,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::mask::{Masks, Scope};
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -116,12 +116,11 @@ pub(super) struct Refused {
     pub(super) message: String,
 }
 
-/// The `tracing` filter `log.level` sets, `info` when unset; a directive
-/// `tracing` cannot read is refused with `setting_invalid`.
+/// The `tracing` filter `log.level` sets, its catalog default, `info`,
+/// without settings; a directive `tracing` cannot read is refused with
+/// `setting_invalid`.
 pub(super) fn filter_of(settings: Option<&Resolved>) -> Result<String, Refused> {
-    let level = settings
-        .and_then(|settings| settings.value(LOG_LEVEL.name).as_str().map(str::to_owned))
-        .unwrap_or_else(|| "info".to_owned());
+    let level = get_or_default::<&str>(settings, &LOG_LEVEL).to_owned();
     match tracing_subscriber::EnvFilter::try_new(&level) {
         Ok(_) => Ok(level),
         Err(error) => Err(Refused {
@@ -150,8 +149,9 @@ pub(super) fn file_of(
     clock: Clock,
 ) -> Result<Option<LogFile>, Refused> {
     let output = settings
-        .and_then(|settings| settings.value(LOG_OUTPUT.name).as_str().map(str::to_owned))
-        .unwrap_or_else(|| process.default_output().to_owned());
+        .and_then(|settings| settings.get::<Option<&str>>(&LOG_OUTPUT))
+        .unwrap_or_else(|| process.default_output())
+        .to_owned();
     match (output.as_str(), process) {
         ("file", _) => {}
         ("none", _) | ("stdout", Process::DaemonRun) => return Ok(None),
@@ -168,14 +168,9 @@ pub(super) fn file_of(
             });
         }
     }
-    let count = |key: &str, default: u64| {
-        settings
-            .and_then(|settings| settings.count(key))
-            .unwrap_or(default)
-    };
     let rotation = Rotation {
-        max_size: count(LOG_FILE_MAX_SIZE.name, 10 << 20),
-        max_files: count(LOG_FILE_MAX_FILES.name, 5),
+        max_size: get_or_default(settings, &LOG_FILE_MAX_SIZE),
+        max_files: get_or_default(settings, &LOG_FILE_MAX_FILES),
     };
     let home = home.ok_or_else(|| Refused {
         code: SETTING_NOT_APPLICABLE.name,
@@ -337,7 +332,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     };
     let format = logs
         .settings
-        .and_then(|settings| settings.get(LOG_FORMAT.name))
+        .and_then(|settings| settings.effective(&LOG_FORMAT))
         .and_then(|format| format.value.as_str().map(str::to_owned));
     let json = match (logs.to, format.as_deref()) {
         (_, Some("json")) | (LogsTo::Stdout, None) => true,
@@ -389,7 +384,7 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             .with_filter(filter())
     });
     let endpoint = logs.settings.and_then(|settings| {
-        let endpoint = settings.get(OTLP_TRACES_ENDPOINT.name)?.value.as_str()?;
+        let endpoint = settings.effective(&OTLP_TRACES_ENDPOINT)?.value.as_str()?;
         Some((endpoint.to_owned(), settings))
     });
     let exported = endpoint.map(|(endpoint, settings)| {

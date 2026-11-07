@@ -33,7 +33,7 @@ pub(super) fn reindex(
         }
     };
     let configured = settings
-        .get(RUN_STATE_LOCATION.name)
+        .effective(&RUN_STATE_LOCATION)
         .and_then(|location| location.value.as_str().map(PathBuf::from));
     let locations: Vec<PathBuf> = std::iter::once(home.runs(&identity.product_version))
         .chain(configured)

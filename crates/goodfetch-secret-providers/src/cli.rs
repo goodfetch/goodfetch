@@ -63,7 +63,7 @@ impl Cli {
         resolved: &Resolved,
         environment: BTreeMap<OsString, OsString>,
     ) -> Self {
-        let command = resolved.value(setting.name).as_str().map(str::to_owned);
+        let command = resolved.get::<Option<&str>>(setting).map(str::to_owned);
         Self::new(setting, vendor_command, command, environment)
     }
 

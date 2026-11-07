@@ -4,7 +4,7 @@
 //! a reader never finds a partial one; its name is synced too, so a body the
 //! run state names survives a power cut with it (ADR 0002).
 
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -35,10 +35,6 @@ pub(crate) fn store(folder: &Path, bytes: &[u8]) -> io::Result<(String, PathBuf)
     let file = file(folder, &id).expect("invariant: a SHA-256 in lowercase hex is a body's ID");
     let bodies = folder.join(BODIES);
     durable::create_folder(&bodies)?;
-    let mut partial = tempfile::NamedTempFile::new_in(&bodies)?;
-    partial.write_all(bytes)?;
-    partial.as_file().sync_all()?;
-    partial.persist(&file).map_err(|error| error.error)?;
-    durable::sync_folder(&bodies);
+    durable::replace(&file, bytes)?;
     Ok((id, file))
 }

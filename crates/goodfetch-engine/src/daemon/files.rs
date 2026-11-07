@@ -10,7 +10,7 @@
 //! <home>/<major>/daemon.token        the persistent token, mode 0600, of a
 //!                                    socket-activated Daemon
 //! <home>/<major>/daemon-service.json the per-user service `daemon install`
-//!                                    registered
+//!                                    registered, mode 0600
 //! <home>/<major>/ops.token           the ops token, mode 0600, which the
 //!                                    ops listener's `/metrics` takes
 //! <home>/<major>/http-listener.token the HTTP listener's token, mode 0600,
@@ -48,7 +48,7 @@
 
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
@@ -58,6 +58,7 @@ use goodfetch_protocol::daemon::{
 
 use sha2::{Digest as _, Sha256};
 
+use crate::durable;
 use crate::endpoint::new_token;
 use crate::home::Home;
 use crate::transport::{self, LONGEST_SOCKET_PATH};
@@ -151,14 +152,11 @@ impl DaemonFiles {
     ///
     /// When the per-major folder cannot be written.
     pub fn publish(&self, file: &DaemonRuntimeFile) -> io::Result<()> {
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon.json.partial");
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(&serde_json::to_vec(file).expect("invariant: a runtime file encodes"))?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, self.runtime_file())
+        durable::create_folder(&self.folder)?;
+        durable::replace(
+            &self.runtime_file(),
+            &serde_json::to_vec(file).expect("invariant: a runtime file encodes"),
+        )
     }
 
     /// Removes the runtime file and the socket of the Daemon of `pid`,
@@ -283,14 +281,8 @@ impl DaemonFiles {
     /// readable and writable by its owner alone, in one rename.
     fn write_token(&self, name: &str) -> io::Result<String> {
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(format!(".{name}.partial"));
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(token.as_bytes())?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, self.folder.join(name))?;
+        durable::create_folder(&self.folder)?;
+        durable::replace(&self.folder.join(name), token.as_bytes())?;
         Ok(token)
     }
 
@@ -312,15 +304,9 @@ impl DaemonFiles {
         let page = format!(
             "<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta http-equiv=\"refresh\" content=\"0;url={escaped}\">\n<title>Console</title>\n<a href=\"{escaped}\" rel=\"noreferrer\">Open the Console</a>\n"
         );
-        fs::create_dir_all(&self.folder)?;
+        durable::create_folder(&self.folder)?;
         let path = self.folder.join(CONSOLE_OPENER);
-        let partial = self.folder.join(".console.html.partial");
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(page.as_bytes())?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, &path)?;
+        durable::replace(&path, page.as_bytes())?;
         Ok(path)
     }
 
@@ -347,19 +333,18 @@ impl DaemonFiles {
         }
     }
 
-    /// Records the installed `service`, in one rename.
+    /// Records the installed `service`, readable and writable by its owner
+    /// alone, in one rename.
     ///
     /// # Errors
     ///
     /// When the per-major folder cannot be written.
     pub fn record_service(&self, service: &InstalledService) -> io::Result<()> {
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon-service.json.partial");
-        fs::write(
-            &partial,
-            serde_json::to_vec_pretty(service).expect("invariant: a service encodes"),
-        )?;
-        fs::rename(&partial, self.folder.join(SERVICE_FILE))
+        durable::create_folder(&self.folder)?;
+        durable::replace(
+            &self.folder.join(SERVICE_FILE),
+            &serde_json::to_vec_pretty(service).expect("invariant: a service encodes"),
+        )
     }
 
     /// Forgets the installed service.
@@ -470,17 +455,6 @@ fn remove(path: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(unix)]
-fn owner_only(path: &Path) -> io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
-}
-
 /// Makes `folder` the user's own, mode `0700`, or checks that it is: owned
 /// by whoever owns `reference`, and readable by no one else.
 #[cfg(unix)]
@@ -508,14 +482,4 @@ fn own_folder(folder: &Path, reference: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn own_folder(folder: &Path, _reference: &Path) -> io::Result<()> {
     fs::create_dir_all(folder)
-}
-
-#[cfg(not(unix))]
-fn owner_only(path: &Path) -> io::Result<File> {
-    // A per-user folder of Goodfetch home is the owner's alone on Windows.
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)
 }

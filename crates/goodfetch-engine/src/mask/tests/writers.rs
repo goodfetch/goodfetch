@@ -169,8 +169,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/daemon/files.rs",
-        4,
-        "holds no value: the Daemon's runtime file, token, lock and pick, no Run's value",
+        1,
+        "holds no value: the Daemon's serving and start locks, opened empty and only locked; its runtime file, tokens and service record, written through `durable::replace`, hold no Run's value either",
     ),
     (
         "crates/goodfetch-engine/src/governor/system/linux.rs",

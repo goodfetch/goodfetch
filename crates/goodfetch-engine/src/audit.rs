@@ -115,6 +115,13 @@ pub enum AuditError {
         /// The OS's message.
         message: String,
     },
+    /// The machine's `audit.retention` could not be read, so what the
+    /// append would first prune is unknown; nothing was appended.
+    #[error("the Audit log's `audit.retention` cannot be read: {message}")]
+    Retention {
+        /// Why it could not be read.
+        message: String,
+    },
     /// The store is of another major of the format (ADR 0030).
     #[error("the Audit log is {found}, which this engine cannot read")]
     Format {
@@ -290,8 +297,9 @@ impl AuditLog {
     ///
     /// # Errors
     ///
-    /// When the store or the head file cannot be written, or the store is
-    /// of another major.
+    /// When the store or the head file cannot be written, the store is of
+    /// another major, or the `audit.retention` it is retained under cannot
+    /// be read.
     pub fn record(
         &self,
         origin: &Origin,
@@ -356,7 +364,7 @@ impl AuditLog {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        if let Some((retention, layer)) = self.retention() {
+        if let Some((retention, layer)) = self.retention()? {
             self.prune(retention, Some(layer), now)?;
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
@@ -467,20 +475,23 @@ impl AuditLog {
     }
 
     /// The `audit.retention` the machine's layers set now, with the layer
-    /// that set it; none when unset, or when they cannot be read, which
-    /// prunes nothing.
-    fn retention(&self) -> Option<(Duration, SettingsLayer)> {
-        let (files, product) = self.retained_under.as_ref()?;
+    /// that set it; none when unset, or when the log is retained under no
+    /// layers.
+    fn retention(&self) -> Result<Option<(Duration, SettingsLayer)>, AuditError> {
+        let Some((files, product)) = self.retained_under.as_ref() else {
+            return Ok(None);
+        };
         self.work.count(Row::AuditConfigurationReads);
-        let machine = files
+        let unreadable = |error: &dyn std::fmt::Display| AuditError::Retention {
+            message: error.to_string(),
+        };
+        let resolved = files
             .load(*product)
-            .inspect_err(|error| {
-                tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
-            })
-            .ok()?;
-        let resolved = machine.resolve(*product).ok()?;
-        let retention = resolved.get::<Option<Duration>>(&AUDIT_RETENTION)?;
-        Some((retention, resolved.effective(&AUDIT_RETENTION)?.layer))
+            .and_then(|machine| machine.resolve(*product))
+            .map_err(|error| unreadable(&error))?;
+        Ok(resolved
+            .get::<Option<Duration>>(&AUDIT_RETENTION)
+            .zip(resolved.effective(&AUDIT_RETENTION).map(|set| set.layer)))
     }
 
     /// Writes the head file after the last of `appended`, each entry

@@ -41,47 +41,27 @@
 
 use std::collections::BTreeMap;
 
-use data_encoding::BASE64;
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
-use goodfetch_cdp::{Failure, NetError, Subscription};
+use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
-use crate::driver::{PageDriver, bodiless, encoded_bytes, from_the_network, lost_its_failure};
+use crate::driver::PageDriver;
+use crate::driver::cdp_response::{
+    PastAMessage, bodiless, coded, cut_by, cut_though_finished, declared_length, encoded_bytes,
+    from_the_network, paused_headers, paused_status, whole_body,
+};
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
-use crate::paused_body::{coded, declared_within_limits, streamed};
+use crate::paused_body::{declared_within_limits, streamed};
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
 const SHOWN_AS_TEXT: [&str; 2] = ["content-type", "content-disposition"];
-
-/// The `Content-Length` `response` declared.
-fn declared_length(response: &PageResponse) -> Option<u64> {
-    response
-        .headers
-        .get("content-length")
-        .and_then(|length| length.trim().parse().ok())
-}
-
-/// Whether a load the browser reported finished, of `response` to a
-/// request of `method`, after `encoded` bytes the browser counted, broke
-/// off all the same: one the network answered (`from_the_network`), with
-/// a body, which the browser finished with no bytes counted, whatever its
-/// framing or content coding ([`lost_its_failure`]; fix-queue NEW-2 and
-/// #1732). One the cache answered counts none, and is whole.
-fn cut_though_finished(
-    method: Option<&str>,
-    response: &PageResponse,
-    from_the_network: bool,
-    encoded: f64,
-) -> bool {
-    lost_its_failure(from_the_network, bodiless(method, response.status), encoded)
-}
 
 /// Whether `bytes`, the body of `response` to a request of `method`, are
 /// fewer than the `Content-Length` it declared with no content coding: the
@@ -89,13 +69,13 @@ fn cut_though_finished(
 fn short_of_its_length(method: Option<&str>, response: &PageResponse, bytes: usize) -> bool {
     !coded(&response.headers)
         && !bodiless(method, response.status)
-        && declared_length(response)
+        && declared_length(&response.headers)
             .is_some_and(|declared| u64::try_from(bytes).unwrap_or(u64::MAX) < declared)
 }
 
 /// `response`, whose body broke off after `bytes`, decoded.
 fn cut(response: PageResponse, bytes: &[u8]) -> Fetched {
-    let expected = declared_length(&response);
+    let expected = declared_length(&response.headers);
     Fetched {
         response,
         body: Body::Cut {
@@ -302,7 +282,7 @@ impl<'a> Load<'a> {
                         }
                     } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
                         if self.ours(&finished.request_id) && let Some((response, bytes)) = self.answered.take() {
-                            if cut_though_finished(self.request.method, &response, self.from_the_network, finished.encoded_data_length) {
+                            if cut_though_finished(self.request.method, response.status, self.from_the_network, finished.encoded_data_length) {
                                 return Ok(cut(response, &bytes));
                             }
                             return self.within_limits(&response, &bytes, finished.encoded_data_length)
@@ -431,7 +411,7 @@ impl<'a> Load<'a> {
         &mut self,
         paused: fetch::RequestPausedEvent,
     ) -> Option<Result<Fetched, CallError>> {
-        let Some(status) = paused.response_status_code else {
+        if paused.response_status_code.is_none() {
             // The browser reports how it failed as the load fails.
             self.send(&fetch::ContinueRequestParams {
                 request_id: paused.request_id.clone(),
@@ -444,6 +424,7 @@ impl<'a> Load<'a> {
             .await;
             return None;
         };
+        let status = paused_status(&paused);
         let response = self.response_of(&paused, status);
         let redirect = (300..400).contains(&status) && response.headers.contains_key("location");
         if redirect {
@@ -484,7 +465,7 @@ impl<'a> Load<'a> {
                 self.driver,
                 &paused.request_id,
                 &response.url,
-                declared_length(&response),
+                declared_length(&response.headers),
                 &self.request.limits,
             )
             .await;
@@ -518,7 +499,7 @@ impl<'a> Load<'a> {
             .driver
             .command(&fetch::ContinueResponseParams {
                 request_id: paused.request_id,
-                response_code: Some(status),
+                response_code: paused.response_status_code,
                 response_phrase: None,
                 response_headers: Some(headers),
                 binary_response_headers: None,
@@ -533,26 +514,16 @@ impl<'a> Load<'a> {
     /// The response `paused` holds, of `status`, as a page's response is
     /// answered: its headers' names lower-cased, a repeated one's values on
     /// lines of their own, as the browser gives them.
-    fn response_of(&self, paused: &fetch::RequestPausedEvent, status: i64) -> PageResponse {
-        let mut headers: BTreeMap<String, String> = BTreeMap::new();
-        for header in paused.response_headers.iter().flatten() {
-            headers
-                .entry(header.name.to_ascii_lowercase())
-                .and_modify(|value| {
-                    value.push('\n');
-                    value.push_str(&header.value);
-                })
-                .or_insert_with(|| header.value.clone());
-        }
+    fn response_of(&self, paused: &fetch::RequestPausedEvent, status: u16) -> PageResponse {
         PageResponse {
             url: self
                 .chain
                 .last()
                 .cloned()
                 .unwrap_or_else(|| paused.request.url.clone()),
-            status: u16::try_from(status).unwrap_or_default(),
+            status,
             status_text: paused.response_status_text.clone().unwrap_or_default(),
-            headers,
+            headers: paused_headers(paused.response_headers.as_deref().unwrap_or_default()),
             encoding: None,
             request_id: self.network_id.clone().unwrap_or_default(),
             from_service_worker: false,
@@ -564,7 +535,7 @@ impl<'a> Load<'a> {
     /// failed to decode, or a request with no response, fails.
     fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
-            Some((response, bytes)) if !error.fails_to_decode() => Ok(cut(response, &bytes)),
+            Some((response, bytes)) if cut_by(error) => Ok(cut(response, &bytes)),
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
                 let relayed = self
@@ -597,24 +568,11 @@ impl<'a> Load<'a> {
     /// browser's answer was past what one message carries: the body
     /// decoded far past what any limit reads whole, and the request fails.
     async fn whole(&self, id: &fetch::RequestId, url: &str) -> Result<Vec<u8>, CallError> {
-        match self
-            .driver
-            .command(&fetch::GetResponseBodyParams {
-                request_id: id.clone(),
-            })
-            .await
-        {
-            Ok(read) if read.base64_encoded => {
-                Ok(BASE64.decode(read.body.as_bytes()).unwrap_or_default())
-            }
-            Ok(read) => Ok(read.body.into_bytes()),
-            Err(Failure::TooLarge { .. }) => {
+        match whole_body(self.driver, id).await {
+            Ok(bytes) => Ok(bytes),
+            Err(PastAMessage) => {
                 self.fail(id, network::ErrorReason::Aborted).await;
                 Err(self.request.limits.past_the_size(url).error())
-            }
-            Err(failure) => {
-                tracing::debug!(%failure, "the response's body did not read");
-                Ok(Vec::new())
             }
         }
     }
@@ -645,7 +603,7 @@ impl<'a> Load<'a> {
     ) -> Result<(), CallError> {
         let decoded = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let counted = encoded_bytes(encoded);
-        let received = declared_length(response).or(counted);
+        let received = declared_length(&response.headers).or(counted);
         self.request
             .limits
             .judge_decoded(&response.url, decoded, received)
@@ -734,6 +692,3 @@ impl<'a> Load<'a> {
         .await;
     }
 }
-
-#[cfg(test)]
-mod tests;

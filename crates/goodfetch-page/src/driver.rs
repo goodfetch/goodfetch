@@ -22,13 +22,13 @@
 //!
 //! Size: one page's driver, whose commands, navigations and turns all read
 //! the page's one connection and state; its navigation tracking, worlds,
-//! targets, service workers, encoding reads, endings, permit waits and the
-//! rule that tells a finished load cut (`cut_loads`) are in their own
+//! targets, service workers, encoding reads, endings, permit waits and how
+//! a response the browser reports is read (`cdp_response`) are in their own
 //! modules.
 
 mod carry;
+pub(crate) mod cdp_response;
 mod children;
-mod cut_loads;
 mod encoding;
 mod ending;
 mod functions;
@@ -73,11 +73,10 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
-pub(crate) use self::cut_loads::{bodiless, encoded_bytes, from_the_network, lost_its_failure};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 use self::functions::{evaluation, page_function_world};
-pub(crate) use self::navigation::{Arrived, browser_id, hop_id, response_of};
+pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::navigation::{Ended, Expected, Followed, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};

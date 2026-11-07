@@ -65,6 +65,33 @@ fn import_the_file_does_not_allow_fails(
     assert_eq!(outcome.code, 1);
 }
 
+/// A module whose `#[path]` names a file outside the usual layout, such as
+/// another crate's source compiled in, is checked from that file, found
+/// relative to the declaring file's folder as `rustc` finds it.
+#[test]
+fn module_from_a_path_attribute_is_checked_from_its_file() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        "crates/goodfetch-engine/src/dispatch.rs",
+        b"//! Dispatch.\n\n#[path = \"../shared/route.rs\"]\nmod route;\n\npub fn dispatch() -> u64 {\n    route::route()\n}\n",
+    );
+    workspace.add_fixture_file(
+        "modules-cases/route-reaches-clock-through-super.rs",
+        "crates/goodfetch-engine/shared/route.rs",
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/dispatch->clock"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 #[rstest]
 #[case::module_missing_from_the_file(
     "unlisted-module.toml",

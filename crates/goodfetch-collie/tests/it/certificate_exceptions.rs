@@ -539,6 +539,43 @@ fn holding(found: &[(String, Vec<u8>)], spki_sha256: &str) -> Vec<String> {
         .collect()
 }
 
+/// A domain `tls.trusted_cas` lists in another spelling of its name, in
+/// upper case, fully qualified and in full-width letters the URL parser
+/// maps to it, is that domain (ADR 0042): the relay's authority is
+/// constrained to it, as the Run's Provenance records, and its host is
+/// terminated under it.
+///
+/// Covers: story:4-39, setting:tls.trusted_cas, operation:page.goto
+#[test]
+fn a_domain_listed_in_another_spelling_of_its_name_is_terminated_under_its_authority() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas = {{ \"ＦＥＴＣＨ-ＥＤＧＥ.Test.\" = [{}] }}\n",
+        json!(ca)
+    ));
+    let mut program = started(&env, &proving_ground, "spelled", &json!({}), &[]);
+    let page = program.new_page("spelled");
+    let answer = program.goto(
+        &page,
+        &secure(&proving_ground, "fetch-edge.test", "/target"),
+    );
+    program.finish("spelled");
+
+    assert_eq!(
+        (
+            reached(&answer),
+            provenance(&env, "spelled", "relay_authority")
+                .iter()
+                .map(|entry| entry["domains"].clone())
+                .collect::<Vec<_>>(),
+        ),
+        (json!(200), vec![json!(["fetch-edge.test"])]),
+        "{answer}"
+    );
+}
+
 /// Story 4-40: the relay's authority lives in memory only. After a Run
 /// that terminated a host, no file the Goodfetch home holds (the Run's
 /// folder with its Browser data folder and trace, the stores and the

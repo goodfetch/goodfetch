@@ -6,6 +6,8 @@
 //! `goodfetch-protocol` declares for the table, so no other field of the
 //! run file, and no secret one, is ever a column. A Run ID the query did
 //! not select is refused at bind, and the refusal kept for the caller.
+//! Where each run table is in the run file, its table, key and columns,
+//! is `goodfetch-dataset`'s, which creates those tables.
 #![expect(
     unsafe_code,
     reason = "DuckDB's table functions hand their extra info as a raw pointer and their BIGINT columns as raw storage (STYLE.md, `unsafe`)"
@@ -22,7 +24,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use duckdb::Connection as Duckdb;
 use duckdb::core::{DataChunkHandle, Inserter as _, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, TableFunctionInfo, VTab};
-use goodfetch_protocol::foxhound::sql_tab::{ColumnType, RUN_TABLES, RunTable};
+use goodfetch_dataset::{RUN_FILE_TABLES, RunFileTable};
+use goodfetch_protocol::foxhound::sql_tab::ColumnType;
 use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 
@@ -70,9 +73,9 @@ impl Registered {
 /// Registers every run table's function on `duckdb`, each reading the
 /// runs of `registered`.
 pub(crate) fn register(duckdb: &Duckdb, registered: &Arc<Registered>) -> duckdb::Result<()> {
-    for table in RUN_TABLES {
+    for table in RUN_FILE_TABLES {
         duckdb.register_table_function_with_extra_info::<RunTableFunction, _>(
-            table.name,
+            table.run_table.name,
             &Extra {
                 table,
                 registered: Arc::clone(registered),
@@ -82,46 +85,9 @@ pub(crate) fn register(duckdb: &Duckdb, registered: &Arc<Registered>) -> duckdb:
     Ok(())
 }
 
-/// Where a run table's columns come from in the run file.
-struct Source {
-    /// The run file's table.
-    table: &'static str,
-    /// Its key, in order, by which pages are read.
-    key: &'static [&'static str],
-}
-
-/// The run file's table and column of the run table `table`'s column
-/// `column`; `None` for `run`, the Run ID, which no row holds.
-fn source(table: &RunTable) -> Source {
-    match table.name {
-        "datasets" => Source {
-            table: "datasets",
-            key: &["name"],
-        },
-        "rejected_records" => Source {
-            table: "rejected_records",
-            key: &["dataset", "number"],
-        },
-        _ => Source {
-            table: "records",
-            key: &["dataset", "number"],
-        },
-    }
-}
-
-/// The run file's column a run table's column reads; `None` for `run`.
-fn source_column(column: &str) -> Option<&str> {
-    match column {
-        "run" => None,
-        "request_id" => Some("work_item"),
-        "value" => Some("data"),
-        other => Some(other),
-    }
-}
-
 #[derive(Clone)]
 struct Extra {
-    table: RunTable,
+    table: RunFileTable,
     registered: Arc<Registered>,
 }
 
@@ -129,7 +95,7 @@ struct Extra {
 struct RunTableFunction;
 
 struct Bound {
-    table: RunTable,
+    table: RunFileTable,
     run: String,
     open: OpenRun,
 }
@@ -166,7 +132,7 @@ impl VTab for RunTableFunction {
             extra.registered.refuse(Refusal::RunNotSelected);
             return Err(format!("the run {run} is not one this query selected").into());
         };
-        for column in extra.table.columns {
+        for column in extra.table.run_table.columns {
             let id = match column.column_type {
                 ColumnType::Integer => LogicalTypeId::Bigint,
                 ColumnType::Text | ColumnType::Json => LogicalTypeId::Varchar,
@@ -203,7 +169,7 @@ impl VTab for RunTableFunction {
         let mut cursor = scan.cursor.lock().unwrap_or_else(PoisonError::into_inner);
         if matches!(*cursor, Cursor::Unopened) {
             *cursor = match (bound.open)()? {
-                Some(connection) if holds(&connection, &bound.table)? => {
+                Some(connection) if bound.table.held_by(&connection)? => {
                     connection.execute_batch("BEGIN")?;
                     Cursor::Reading {
                         connection: Box::new(connection),
@@ -237,14 +203,6 @@ impl VTab for RunTableFunction {
     }
 }
 
-/// Whether the run file holds the run table's source: a Run no crawl
-/// wrote holds no Dataset's table, and reads as none.
-fn holds(connection: &Connection, table: &RunTable) -> rusqlite::Result<bool> {
-    connection
-        .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1")?
-        .exists([source(table).table])
-}
-
 /// One row read: its key, and its values by the run table's column.
 struct Row {
     key: Vec<rusqlite::types::Value>,
@@ -258,18 +216,17 @@ fn page(
     columns: &[Option<usize>],
     after: Option<&[rusqlite::types::Value]>,
 ) -> rusqlite::Result<Vec<Row>> {
-    let source = source(&bound.table);
+    let table = &bound.table;
     let selected: Vec<&str> = columns
         .iter()
         .map(|column| {
             column
-                .and_then(|index| bound.table.columns.get(index))
-                .and_then(|column| source_column(column.name))
+                .and_then(|index| table.column(index))
                 .unwrap_or("NULL")
         })
         .collect();
-    let key = source.key.join(", ");
-    let placeholders = vec!["?"; source.key.len()].join(", ");
+    let key = table.key.join(", ");
+    let placeholders = vec!["?"; table.key.len()].join(", ");
     let filter = if after.is_some() {
         format!("WHERE ({key}) > ({placeholders})")
     } else {
@@ -282,10 +239,10 @@ fn page(
         } else {
             selected.join(", ")
         },
-        source.table,
+        table.name,
     );
     let mut statement = connection.prepare(&sql)?;
-    let width = source.key.len();
+    let width = table.key.len();
     let read = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Row> {
         let key = (0..width)
             .map(|index| row.get::<_, rusqlite::types::Value>(index))
@@ -306,7 +263,7 @@ fn page(
 /// Writes `rows` into `output`, the projected columns in order.
 fn write(output: &mut DataChunkHandle, bound: &Bound, columns: &[Option<usize>], rows: &[Row]) {
     for (place, column) in columns.iter().enumerate() {
-        let declared = column.and_then(|index| bound.table.columns.get(index));
+        let declared = column.and_then(|index| bound.table.run_table.columns.get(index));
         let mut vector = output.flat_vector(place);
         match declared {
             Some(declared) if declared.name == "run" => {

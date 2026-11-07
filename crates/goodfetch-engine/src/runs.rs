@@ -139,7 +139,7 @@ use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
+    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
 use crate::run_trace;
 use crate::secrets::{
@@ -150,9 +150,6 @@ use crate::staging::AttemptWrites;
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
 use crate::transition;
-
-/// A Run's state, in its folder.
-const RUN_FILE: &str = "run.sqlite";
 
 /// How often a report read of a Run another engine writes, whose owner did
 /// not answer it, reads the Run's file again for its end (ADR 0102).
@@ -6079,9 +6076,9 @@ impl Registry {
             .write(|connection| {
                 connection
                     .execute(
-                        "UPDATE run SET lifecycle = 'running', stop_reason = NULL, verdict = NULL,
+                        "UPDATE run SET lifecycle = ?1, stop_reason = NULL, verdict = NULL,
                          completeness = NULL, ended_at = NULL",
-                        [],
+                        [Lifecycle::Running.as_str()],
                     )
                     .map(drop)
             })

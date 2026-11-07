@@ -330,6 +330,20 @@ pub(crate) fn check(path: &Path, engine: &ProductVersion) -> Result<(), RunState
     in_transaction(path, &opener(engine), false, |_| Ok(()))
 }
 
+/// The lowest minor the Run index at `path` records (ADR 0098), read
+/// without opening it for writes; none when it is not there or cannot be
+/// read. It blocks: run it under a blocking policy.
+pub(crate) fn lowest_minor(path: &Path) -> Option<u16> {
+    if !path.is_file() {
+        return None;
+    }
+    let connection = File::new(path, None).connect(Access::ReadOnly).ok()?;
+    lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
+        .ok()
+        .flatten()
+        .map(|marker| marker.lowest_minor)
+}
+
 /// Replaces every row of the Run index at `path` with `rows`, in one
 /// transaction.
 ///

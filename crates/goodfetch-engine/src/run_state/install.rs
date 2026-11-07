@@ -39,7 +39,7 @@ use sqlite_plugin::flags::{AccessFlags, CreateMode, LockLevel, OpenMode, OpenOpt
 use sqlite_plugin::vars;
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult, register_static};
 
-use super::{RunStateError, RunStateOptions, sqlite_error};
+use super::{RUN_FILE, RunStateError, RunStateOptions, sqlite_error};
 use crate::home::{Home, RunStateLocation};
 use crate::sqlite_store::{
     Access, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous, Wait,
@@ -178,10 +178,10 @@ impl InstallDatabase {
         let state = lock(&self.install.state);
         let mut statement = state
             .connection
-            .prepare("SELECT name FROM files WHERE name LIKE '%/run.sqlite' ORDER BY name")
+            .prepare("SELECT name FROM files WHERE name LIKE '%/' || ?1 ORDER BY name")
             .map_err(|error| sqlite_error(&self.install.path, &error))?;
         let names = statement
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([RUN_FILE], |row| row.get::<_, String>(0))
             .and_then(Iterator::collect::<rusqlite::Result<Vec<String>>>)
             .map_err(|error| sqlite_error(&self.install.path, &error))?;
         Ok(names

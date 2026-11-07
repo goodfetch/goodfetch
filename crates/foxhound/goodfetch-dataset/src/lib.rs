@@ -26,6 +26,7 @@ mod records;
 mod rejected_records;
 mod rejections;
 mod resume;
+mod run_tables;
 
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
@@ -38,8 +39,9 @@ pub use encoding::{
 pub use records::{
     Checked, CommittedText, Committing, Query, commit, last_number, read, read_values,
 };
-pub use rejections::{Rejection, fuzz_rejection};
+pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
+pub use run_tables::{RUN_FILE_TABLES, RunFileTable};
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
 /// declared Dataset in the order declared, with its JSON Schema and that
@@ -86,15 +88,16 @@ pub const TABLES: RunStateTables = RunStateTables {
 };
 
 /// What Datasets add to the engine: [`TABLES`], `run.records`,
-/// `run.rejected_records`, and `run.export` with `export.save_as` and
-/// `export.stream`.
-pub fn contribution() -> Contribution {
+/// `run.rejected_records`, which reads each entry's URL through
+/// `request_url`, the crawl's reader of its work items, and `run.export`
+/// with `export.save_as` and `export.stream`.
+pub fn contribution(request_url: RequestUrl) -> Contribution {
     export::handlers().into_iter().fold(
         Contribution::new("goodfetch-dataset")
             .with_run_state_tables(TABLES)
             .with_handler(reader::handler())
             .with_handler(page::handler())
-            .with_handler(rejected_records::handler()),
+            .with_handler(rejected_records::handler(request_url)),
         Contribution::with_handler,
     )
 }

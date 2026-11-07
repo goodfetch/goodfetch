@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::ReportPart;
 use goodfetch_protocol::foxhound::frontier::Enqueued;
 use goodfetch_protocol::foxhound::outcomes::{
@@ -27,10 +28,7 @@ pub(crate) struct CrawlParts;
 
 impl ReportPart for CrawlParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        let kind: String = connection
-            .prepare_cached("SELECT kind FROM run")
-            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
-        if kind != RunKind::Crawl.as_str() {
+        if run_row::kind(connection)? != RunKind::Crawl {
             return Ok(());
         }
         let (requests, records) = ended(connection)?;
@@ -71,12 +69,10 @@ impl ReportPart for CrawlParts {
 /// ended before its handler ran.
 fn kept(connection: &Connection) -> rusqlite::Result<Vec<SeedsKept>> {
     let mut kept: BTreeMap<String, u64> = BTreeMap::new();
-    let mut answers = connection.prepare_cached("SELECT answer FROM seeds ORDER BY position")?;
     let mut latest = connection.prepare_cached(
         "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
     )?;
-    for answer in answers.query_map([], |row| row.get::<_, String>(0))? {
-        let answer: Enqueued = serde_json::from_str(&answer?).map_err(undecoded)?;
+    for answer in goodfetch_frontier::seeds::answers(connection)? {
         let reason = match answer {
             Enqueued::NotAdded { reason, .. } => Some(name_of(serde_json::to_value(reason))),
             Enqueued::Added { id, .. } => latest

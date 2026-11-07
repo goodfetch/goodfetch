@@ -63,6 +63,7 @@ use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 pub mod install;
 mod readers;
+pub mod run_row;
 mod wal_checkpointer;
 
 pub(crate) use readers::RunStateReaders;
@@ -82,7 +83,11 @@ const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// holds fewer than one enqueue with a parent and `learn` run.
 const STATEMENTS: usize = 256;
 
-/// The engine's own tables, which every run file holds.
+/// A Run's state's file in its run folder.
+pub(crate) const RUN_FILE: &str = "run.sqlite";
+
+/// The engine's own tables, which every run file holds: the Run's own row
+/// in `run`, which other crates read through [`run_row`].
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS run (
         run_id TEXT NOT NULL PRIMARY KEY,
@@ -1106,10 +1111,7 @@ pub(crate) fn next_epoch(
 /// `None` when it cannot be read. It blocks: run it under a blocking policy.
 pub(crate) fn epoch_of(path: &Path) -> Option<u64> {
     let connection = File::new(path, None).connect(Access::ReadOnly).ok()?;
-    let epoch: i64 = connection
-        .query_row("SELECT epoch FROM run", [], |row| row.get(0))
-        .ok()?;
-    u64::try_from(epoch).ok()
+    run_row::epoch(&connection).ok()
 }
 
 pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunStateError {

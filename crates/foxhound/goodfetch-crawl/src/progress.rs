@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use goodfetch_engine::admission::{Held, QueuedGroup};
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{ProgressPart, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
@@ -284,10 +285,7 @@ pub(crate) struct CrawlProgress;
 
 impl ProgressPart for CrawlProgress {
     fn fill(&self, connection: &Connection, progress: &mut RunProgress) -> rusqlite::Result<()> {
-        let kind: String = connection
-            .prepare_cached("SELECT kind FROM run")
-            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
-        if kind != RunKind::Crawl.as_str() {
+        if run_row::kind(connection)? != RunKind::Crawl {
             return Ok(());
         }
         let (ended, _) = crate::report::ended(connection)?;

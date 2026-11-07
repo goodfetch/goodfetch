@@ -13,19 +13,22 @@ use goodfetch_protocol::foxhound::rejections::{
     REJECTED_RECORDS_PAGE, RUN_REJECTED_RECORDS, RejectedRecords, RunRejectedRecordsParams,
 };
 
-use rusqlite::{Connection, OptionalExtension as _};
-
 use crate::declaration::Declarations;
-use crate::rejections::{self, Page};
+use crate::rejections::{self, Page, RequestUrl};
+use crate::run_tables::REJECTED;
 
-/// The handler of `run.rejected_records`.
-pub(crate) fn handler() -> Handler {
-    Handler::new(&RUN_REJECTED_RECORDS, rejected_records)
+/// The handler of `run.rejected_records`, reading each entry's URL through
+/// `request_url`.
+pub(crate) fn handler(request_url: RequestUrl) -> Handler {
+    Handler::new(&RUN_REJECTED_RECORDS, move |params, context| {
+        rejected_records(params, context, request_url)
+    })
 }
 
 async fn rejected_records(
     params: RunRejectedRecordsParams,
     context: CallContext,
+    request_url: RequestUrl,
 ) -> Result<RejectedRecords, CallError> {
     if let Some(answer) =
         through_owner(&context, &RUN_REJECTED_RECORDS, &params.run_id, &params).await?
@@ -42,7 +45,7 @@ async fn rejected_records(
     let known = dataset.clone();
     reader
         .read(move |connection| {
-            if has_rejection_table(connection)? {
+            if REJECTED.held_by(connection)? {
                 Declarations::read(connection)
             } else {
                 Ok(Declarations::default())
@@ -56,7 +59,7 @@ async fn rejected_records(
         let live = reader.is_live().await;
         let read = dataset.clone();
         let Page { records, next } = reader
-            .read(move |connection| rejections::page(connection, &read, after))
+            .read(move |connection| rejections::page(connection, &read, after, request_url))
             .await
             .map_err(failed)?;
         let full = records.len() == REJECTED_RECORDS_PAGE;
@@ -70,16 +73,4 @@ async fn rejected_records(
         after = next;
         reader.changed().await;
     }
-}
-
-/// Whether the run file holds rejection tables: a Run no crawl wrote has
-/// none, and declares no Dataset.
-fn has_rejection_table(connection: &Connection) -> rusqlite::Result<bool> {
-    Ok(connection
-        .prepare_cached(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'rejected_records'",
-        )
-        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
-        .optional()?
-        .is_some())
 }

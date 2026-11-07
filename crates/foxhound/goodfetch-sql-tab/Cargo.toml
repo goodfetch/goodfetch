@@ -13,6 +13,9 @@ publish.workspace = true
 # read run files (ADR 0057), and its JSON functions linked in, which read
 # Records and check that a statement is one read; no extension is fetched.
 duckdb = { workspace = true, features = ["bundled", "json", "vtab"] }
+# Where each run table is in the run file: the Datasets' tables, which it
+# describes.
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 rusqlite.workspace = true
@@ -21,7 +24,6 @@ tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
-goodfetch-dataset.workspace = true
 goodfetch-test-support.workspace = true
 rstest.workspace = true
 tempfile.workspace = true

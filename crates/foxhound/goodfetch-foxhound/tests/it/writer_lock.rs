@@ -20,8 +20,10 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{Writer, test_writer};
 use goodfetch_protocol::home::RUN_FILE;
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Moment, ObservationLog, Operation, Process, Record, StrictStdout, TestEnv, kill_at,
@@ -166,11 +168,10 @@ fn a_readers_test_racing_a_takeover_of_a_killed_engines_crawl_never_fails_the_wr
         Operation::Other(json!({ "aborted": answer })),
     ));
     let file = Connection::open(folder.join(RUN_FILE)).unwrap();
-    let (lifecycle, epoch): (String, i64) = file
-        .query_row("SELECT lifecycle, epoch FROM run", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .unwrap();
+    let (lifecycle, epoch) = (
+        run_row::lifecycle(&file).unwrap(),
+        run_row::epoch(&file).unwrap(),
+    );
     assert_eq!(
         (
             answer["result"]["lifecycle"].clone(),
@@ -182,7 +183,7 @@ fn a_readers_test_racing_a_takeover_of_a_killed_engines_crawl_never_fails_the_wr
         (
             json!("stopped"),
             json!({ "kind": "abort", "by": "client" }),
-            "stopped".to_owned(),
+            Lifecycle::Stopped,
             2,
             true,
         ),

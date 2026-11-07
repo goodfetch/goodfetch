@@ -36,7 +36,7 @@ use toml_edit::{DocumentMut, Item};
 
 use super::error::SettingsError;
 use super::keys;
-use super::resolve::Policy;
+use super::resolve::{Layers, Policy, Resolved, resolve};
 use super::values::Values;
 use crate::home::Home;
 use crate::lowest_minor::{Marker, Opener};
@@ -162,6 +162,17 @@ impl SettingsFiles {
             ],
         })
     }
+
+    /// The machine's settings on an engine of `engine`: both files read as
+    /// [`Self::load`] reads them and resolved as the engine resolves them
+    /// before any Run, on the catalog's defaults. Blocking.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`], and as [`MachineLayers::resolve`].
+    pub fn machine_settings(&self, engine: Product) -> Result<Resolved, SettingsError> {
+        self.load(engine)?.resolve(engine)
+    }
 }
 
 impl SettingsFiles {
@@ -218,6 +229,26 @@ pub struct MachineLayers {
     pub user_configuration: Values,
     /// The files read.
     pub files: Vec<SettingsFile>,
+}
+
+impl MachineLayers {
+    /// These layers resolved on an engine of `engine` before any Run, on
+    /// the catalog's defaults.
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`resolve`].
+    pub fn resolve(self, engine: Product) -> Result<Resolved, SettingsError> {
+        resolve(
+            &Layers {
+                operator_policy: self.operator_policy,
+                user_configuration: self.user_configuration,
+                ..Layers::default()
+            },
+            engine,
+            engine,
+        )
+    }
 }
 
 /// The project configuration file in `folder` or the nearest folder above

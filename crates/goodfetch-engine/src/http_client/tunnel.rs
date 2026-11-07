@@ -13,7 +13,7 @@ use goodfetch_protocol::page::proxy::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 
 use super::UpstreamProxy;
 

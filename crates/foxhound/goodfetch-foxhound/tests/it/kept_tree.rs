@@ -191,11 +191,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
         product_version: ProductVersion::parse("1.4.0").unwrap(),
         channel: Channel::CratesIo,
     };
-    let composition = goodfetch_collie::composition_with(tiers.clone())
-        .with(goodfetch_frontier::contribution())
-        .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
-        .with(goodfetch_crawl::contribution(tiers));
+    let composition = goodfetch_foxhound::composition_with(tiers);
     let engine = Engine::new(identity, &composition)
         .unwrap()
         .with_metrics(metrics);

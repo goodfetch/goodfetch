@@ -49,7 +49,7 @@ fn an_ipv4_only_site_for_a_session_holding_only_ipv6_fails_with_address_family_u
         client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     };
     let url = format!("http://ipv4-only.test:{}/", target.port());
     let runtime = goodfetch_test_support::runtime();

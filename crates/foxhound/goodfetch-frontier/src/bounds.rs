@@ -115,12 +115,12 @@ impl Bounds {
     /// The bounds `settings` hold.
     pub fn of_settings(settings: &Resolved) -> Self {
         Self {
-            max_depth: settings.count(CRAWL_MAX_DEPTH.name),
-            max_requests: settings.count(CRAWL_MAX_REQUESTS.name),
-            max_url_length: settings.count(CRAWL_MAX_URL_LENGTH.name),
-            max_path_segments: settings.count(CRAWL_MAX_PATH_SEGMENTS.name),
-            max_segment_repeats: settings.count(CRAWL_MAX_SEGMENT_REPEATS.name),
-            path_budgets: PathBudget::list(settings.value(CRAWL_PATH_BUDGETS.name)),
+            max_depth: settings.get(&CRAWL_MAX_DEPTH),
+            max_requests: settings.get(&CRAWL_MAX_REQUESTS),
+            max_url_length: settings.get(&CRAWL_MAX_URL_LENGTH),
+            max_path_segments: settings.get(&CRAWL_MAX_PATH_SEGMENTS),
+            max_segment_repeats: settings.get(&CRAWL_MAX_SEGMENT_REPEATS),
+            path_budgets: PathBudget::list(settings.value(&CRAWL_PATH_BUDGETS)),
         }
     }
 

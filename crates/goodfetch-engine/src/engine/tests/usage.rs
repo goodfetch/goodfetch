@@ -30,7 +30,8 @@ use tokio::io::BufReader;
 
 use super::run::call;
 use super::{Client, attached_on, dependencies, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::ledger::Ledger;
 use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
 use crate::transport::{self, Network};
@@ -124,7 +125,7 @@ pub(super) fn charging() -> Contribution {
                 }
                 for _ in 0..params["amount"].as_u64().unwrap() {
                     if params["newer_limit_after"].as_u64() == Some(charged) {
-                        Ledger::at(context.runs().home().usage_ledger(), None)
+                        Ledger::at(context.engine().home().usage_ledger(), None)
                             .add_limit(&newer_limit(), Timestamp::UNIX_EPOCH)
                             .unwrap();
                     }

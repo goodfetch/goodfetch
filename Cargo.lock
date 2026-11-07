@@ -2413,7 +2413,6 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
- "encoding_rs",
  "fixed_decimal",
  "futures-util",
  "goodfetch-counted-work",
@@ -2687,6 +2686,7 @@ dependencies = [
  "data-encoding",
  "encoding_rs",
  "flate2",
+ "goodfetch-cdp",
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
@@ -2870,13 +2870,6 @@ dependencies = [
  "rstest",
  "rusqlite",
  "serde_json",
-]
-
-[[package]]
-name = "goodfetch-sink"
-version = "0.0.0"
-dependencies = [
- "goodfetch-workspace-hack",
 ]
 
 [[package]]

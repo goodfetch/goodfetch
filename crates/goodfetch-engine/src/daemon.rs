@@ -40,8 +40,10 @@ use goodfetch_protocol::daemon::{
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::{Answering, CallContext, CallError, DaemonSide, Handler, Holding};
+use crate::composition::{Answering, CallContext, DaemonSide, Handler, Holding};
+use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
@@ -229,7 +231,9 @@ pub(crate) struct Serving {
     pub(crate) dispatch: Arc<Dispatch>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
-    pub(crate) clock: Clock,
+    /// What the engine gives every call and listener, its clock among
+    /// them.
+    pub(crate) engine: EngineContext,
     /// Where its Console is served, or why it is not.
     pub(crate) console: ConsoleState,
     /// The Connections its Console's server opens: `WebSocket`s and event streams.
@@ -525,14 +529,15 @@ pub(crate) async fn serve(
     let shared = Arc::new(Shared::new(&serving, options, owner.child(), endings));
     serving.metrics.draining(false);
     if let Some(ops) = ops {
-        let health = shared.health.clone();
-        owner.spawn(ops::serve(ops, health, owner.child(), serving.clock));
+        let (health, engine) = (shared.health.clone(), serving.engine.clone());
+        owner.spawn(ops::serve(ops, health, owner.child(), engine));
     }
     let connections_owner = owner.child();
     let (ended, mut endings_of_connections) = mpsc::unbounded_channel::<ConnectionId>();
     let mut open: BTreeMap<ConnectionId, CancellationToken> = BTreeMap::new();
     let mut next: ConnectionId = 0;
-    let idle = idle(&shared, serving.clock);
+    let clock = serving.engine.clock();
+    let idle = idle(&shared, clock);
     tokio::pin!(idle);
     let mut accepting = true;
     let mut console_open = true;
@@ -607,7 +612,7 @@ pub(crate) async fn serve(
     let end = match end {
         Ending::HandOver(begun) => DaemonEnd::HandedOver(begun),
         Ending::Stop(asking) => {
-            close_all_but(&open, asking, &mut endings_of_connections, serving.clock).await;
+            close_all_but(&open, asking, &mut endings_of_connections, clock).await;
             DaemonEnd::Stopped
         }
     };
@@ -648,11 +653,11 @@ fn serve_connection(
         shared: Arc::clone(shared),
         connection: id,
     });
-    let (dispatch, runs, events, clock) = (
+    let (dispatch, runs, events, engine) = (
         Arc::clone(&serving.dispatch),
         serving.runs.on_connection(id),
         serving.events.clone(),
-        serving.clock,
+        serving.engine.clone(),
     );
     let websocket = shared.websocket.clone();
     let runs_held = shared.runs_held.clone();
@@ -673,7 +678,7 @@ fn serve_connection(
                         runs.clone(),
                         events,
                         access,
-                        clock,
+                        engine,
                     )
                     .await;
                 }
@@ -692,7 +697,7 @@ fn serve_connection(
                             daemon: Some(side),
                             sign_ins,
                         },
-                        clock,
+                        engine,
                     )
                     .await;
                 }
@@ -751,6 +756,7 @@ async fn close_all_but(
 
 /// Drains the Daemon's Runs, waiting at most `grace` for them to stop.
 async fn drain_runs(serving: &Serving, grace: Duration) {
+    let clock = serving.engine.clock();
     let drained = async {
         let draining = serving.runs.drain().await;
         tracing::info!(
@@ -761,7 +767,7 @@ async fn drain_runs(serving: &Serving, grace: Duration) {
     };
     tokio::select! {
         () = drained => tracing::info!("the Daemon drained every run"),
-        () = serving.clock.sleep(grace) => tracing::warn!(
+        () = clock.sleep(grace) => tracing::warn!(
             live_runs = serving.runs.live_count().await,
             "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
         ),

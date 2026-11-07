@@ -60,7 +60,7 @@ fn traffic(proving_ground: &ProvingGround, allowed: &[&str], blocked: &[&str]) -
         client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     }
 }
 
@@ -295,7 +295,7 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
         client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     };
     let before = target_connections(&proving_ground.observations().unwrap());
     let fetched = goodfetch_test_support::runtime()

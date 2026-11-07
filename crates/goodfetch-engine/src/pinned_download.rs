@@ -218,7 +218,7 @@ impl Fetching {
             resolve: Resolve::new(),
             trusted_certificates: Vec::new(),
             clock,
-            delays: Delays::BUILT_IN,
+            delays: Delays::default(),
             endpoints: EndpointPolicy::default(),
         }
     }
@@ -230,11 +230,11 @@ impl Fetching {
     pub fn of(settings: &Resolved, clock: Clock) -> Self {
         Self {
             offline: settings
-                .get(EGRESS_OFFLINE.name)
+                .effective(&EGRESS_OFFLINE)
                 .filter(|offline| offline.value == serde_json::Value::Bool(true))
                 .map(|offline| offline.layer),
             resolve: settings
-                .hosts(NETWORK_RESOLVE.name)
+                .hosts(&NETWORK_RESOLVE)
                 .into_iter()
                 .fold(Resolve::new(), |mapping, (host, addresses)| {
                     mapping.with(host, addresses)

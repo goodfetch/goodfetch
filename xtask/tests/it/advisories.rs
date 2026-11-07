@@ -52,26 +52,12 @@ fn osv_host() -> GitHub {
     GitHub::serving(&[("/npm/all.zip", NPM_DATABASE)])
 }
 
-/// Runs `git <args>` in the kept checkout, with no user or system
-/// configuration and a fixed author, and returns its output.
+/// Runs `git <args>` in the kept checkout as [`Workspace::git`] runs it: a
+/// cleared environment, so a `GIT_DIR` the test inherits (a pre-push hook's)
+/// never points it at another repository, no user or system configuration
+/// and a fixed author. Returns its output.
 fn in_checkout(workspace: &Workspace, args: &[&str]) -> String {
-    let output = std::process::Command::new("git")
-        .args([
-            "-c",
-            "user.name=Fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(args)
-        .current_dir(workspace.path().join(CHECKOUT))
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "git {args:?} failed");
-    String::from_utf8(output.stdout).unwrap()
+    workspace.git(&[&["-C", CHECKOUT], args].concat())
 }
 
 /// The commit the kept checkout has checked out.

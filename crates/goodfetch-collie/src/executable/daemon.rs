@@ -115,7 +115,7 @@ pub(super) fn run(
 /// (`run_state.layout`), in which the Daemon alone writes run state.
 pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
     settings.is_some_and(|settings| {
-        settings.value(RUN_STATE_LAYOUT.name).as_str() == Some(LAYOUT_PER_INSTALL)
+        settings.value(&RUN_STATE_LAYOUT).as_str() == Some(LAYOUT_PER_INSTALL)
     })
 }
 
@@ -290,14 +290,7 @@ impl Machine<'_> {
             self.identity.product,
             &self.identity.product_version,
         )
-        .map(|settings| {
-            MaxUnusedAge::new(
-                settings
-                    .value(MAX_UNUSED_AGE.name)
-                    .as_u64()
-                    .map(Duration::from_millis),
-            )
-        })
+        .map(|settings| MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE)))
         .unwrap_or_default()
     }
 

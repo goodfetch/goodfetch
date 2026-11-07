@@ -14,7 +14,9 @@ use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::home::RUN_FILE;
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use rusqlite::Connection;
@@ -44,11 +46,8 @@ fn row(env: &TestEnv, run_id: &str) -> Value {
     serde_json::from_str(&row).unwrap()
 }
 
-fn lifecycle(folder: &Path) -> String {
-    Connection::open(folder.join(RUN_FILE))
-        .unwrap()
-        .query_row("SELECT lifecycle FROM run", [], |row| row.get(0))
-        .unwrap()
+fn lifecycle(folder: &Path) -> Lifecycle {
+    run_row::lifecycle(&Connection::open(folder.join(RUN_FILE)).unwrap()).unwrap()
 }
 
 fn runs(env: &TestEnv) -> std::path::PathBuf {
@@ -132,7 +131,7 @@ fn a_killed_daemons_stale_row_never_blocks_another_engines_takeover() {
             lifecycle(&runs(&env).join("cut")),
             row(&env, "cut")["owner"].clone(),
         ),
-        (true, json!("stopped"), "stopped".to_owned(), json!(null))
+        (true, json!("stopped"), Lifecycle::Stopped, json!(null))
     );
 }
 

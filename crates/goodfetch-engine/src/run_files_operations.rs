@@ -22,7 +22,8 @@ use goodfetch_protocol::download::{
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::run::run_error;
 use crate::run_files::{self, KeepError, SaveError};
 use crate::runs::RunError;
@@ -155,7 +156,7 @@ async fn written(
     source: PathBuf,
     path: String,
 ) -> Result<(), CallError> {
-    let owner = Arc::clone(&context.runs().limits().owner);
+    let owner = Arc::clone(context.engine().owner());
     let token = context.cancellation().clone();
     let target = PathBuf::from(&path);
     owner

@@ -25,6 +25,7 @@ mod stand_in;
 
 use std::path::{Path, PathBuf};
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_PROVENANCE};
 use goodfetch_protocol::page::PageOpened;
@@ -66,9 +67,7 @@ fn run_folder(home: &Path, run_id: &str) -> PathBuf {
 
 /// The Clean-up rules digest the run state of `run_id` records.
 fn recorded_digest(home: &Path, run_id: &str) -> Option<String> {
-    Connection::open(run_folder(home, run_id).join(RUN_FILE))
-        .unwrap()
-        .query_row("SELECT clean_up_digest FROM run", [], |row| row.get(0))
+    run_row::clean_up_digest(&Connection::open(run_folder(home, run_id).join(RUN_FILE)).unwrap())
         .unwrap()
 }
 

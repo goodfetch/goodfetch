@@ -36,7 +36,9 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
 
-use super::cut_loads::{bodiless, from_the_network, lost_its_failure};
+use super::cdp_response::{
+    cut_by, cut_though_finished, declared_length, from_the_network, response_of,
+};
 
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";
@@ -379,9 +381,10 @@ impl Navigation {
         } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
             if let Some(loader) = self.requests.get(&finished.request_id)
                 && let Some(response) = self.responses.get(loader)
-                && lost_its_failure(
+                && cut_though_finished(
+                    None,
+                    response.status,
                     self.from_the_network.contains(loader),
-                    bodiless(None, response.status),
                     finished.encoded_data_length,
                 )
             {
@@ -580,9 +583,7 @@ impl Navigation {
             return Ended::TooManyRedirects(self.chains.get(loader).cloned().unwrap_or_default());
         }
         match self.responses.get(loader) {
-            Some(response) if *error != NetError::Aborted && !error.fails_to_decode() => {
-                self.truncated(loader, response)
-            }
+            Some(response) if cut_by(error) => self.truncated(loader, response),
             _ => Ended::Failed(error.clone()),
         }
     }
@@ -591,10 +592,7 @@ impl Navigation {
     fn truncated(&self, loader: &LoaderId, response: &PageResponse) -> Ended {
         Ended::Truncated {
             received: self.received.get(loader).copied().unwrap_or_default(),
-            expected: response
-                .headers
-                .get("content-length")
-                .and_then(|length| length.trim().parse().ok()),
+            expected: declared_length(&response.headers),
         }
     }
 }
@@ -651,31 +649,6 @@ pub(crate) fn browser_id(request_id: &str) -> &str {
 /// What sets a hop's number apart from the browser's ID in [`hop_id`],
 /// which no browser's request ID holds.
 const HOP: char = '#';
-
-/// The CDP response to the request's hop `request_id` as the protocol's,
-/// its header names lower-cased; a document's encoding is read from it
-/// once decoded.
-pub(crate) fn response_of(request_id: &RequestId, response: &network::Response) -> PageResponse {
-    let headers: BTreeMap<String, String> = response
-        .headers
-        .iter()
-        .map(|(name, value)| {
-            let value = value
-                .as_str()
-                .map_or_else(|| value.to_string(), str::to_owned);
-            (name.to_ascii_lowercase(), value)
-        })
-        .collect();
-    PageResponse {
-        url: response.url.clone(),
-        status: u16::try_from(response.status).unwrap_or_default(),
-        status_text: response.status_text.clone(),
-        headers,
-        encoding: None,
-        request_id: request_id.clone(),
-        from_service_worker: response.from_service_worker == Some(true),
-    }
-}
 
 #[cfg(test)]
 mod tests;

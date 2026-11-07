@@ -9,7 +9,6 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-encoding_rs.workspace = true
 fixed_decimal.workspace = true
 # `join_all`: the delivery settles the attempts that ended together, so
 # their run-state writes queue as one group.

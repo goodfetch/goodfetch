@@ -38,7 +38,10 @@ pub use files::{
     project_settings, rewrite, set, user_configuration,
 };
 pub use hosts::{HostEntry, without_root};
-pub use resolve::{Effective, HostDefaults, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
+pub use resolve::{
+    Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
+    catalog_default, catalog_value, get_or_default, resolve, value_as,
+};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;
@@ -244,6 +247,12 @@ impl RunSettings {
         let project = self.project.as_ref()?;
         nested(&project.settings, key).map(|_| project.path.as_str())
     }
+}
+
+/// The catalog's setting named `name`, for a name read from a layer's
+/// values or a request; code that knows its key names the constant.
+pub fn setting(name: &str) -> Option<&'static goodfetch_protocol::catalog::Setting> {
+    keys::find(name).map(|found| found.setting)
 }
 
 /// The protocol version that added the setting `key`, when one has it.

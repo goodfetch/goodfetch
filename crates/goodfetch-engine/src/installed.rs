@@ -21,14 +21,13 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
-use goodfetch_protocol::formats::{Compatibility, INSTALLED_EXECUTABLES, RUN_INDEX};
-use rusqlite::{Connection, OpenFlags};
+use goodfetch_protocol::formats::{Compatibility, INSTALLED_EXECUTABLES};
 use serde_json::{Map, Value};
 
 use crate::browser_cache::{self, MaxUnusedAge};
 use crate::durable;
 use crate::home::Home;
-use crate::lowest_minor;
+use crate::run_index;
 use crate::settings::{LOWEST_MINOR_KEY, SettingsFiles};
 
 /// The list's file in Goodfetch home.
@@ -341,21 +340,8 @@ pub fn stores_floor(home: &Home, version: &ProductVersion) -> Option<ProtocolVer
                 .as_integer()
                 .and_then(|minor| u16::try_from(minor).ok())
         });
-    let index = home.run_index(version);
-    let run_index = index.is_file().then(|| {
-        Connection::open_with_flags(
-            &index,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()
-        .and_then(|connection| {
-            lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
-                .ok()
-                .flatten()
-        })
-        .map(|marker| marker.lowest_minor)
-    });
-    let lowest = settings.chain(run_index.flatten()).max()?;
+    let run_index = run_index::lowest_minor(&home.run_index(version));
+    let lowest = settings.chain(run_index).max()?;
     (lowest > 0).then_some(ProtocolVersion {
         major: engine.major,
         minor: lowest,

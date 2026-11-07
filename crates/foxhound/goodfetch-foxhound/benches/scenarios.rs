@@ -521,14 +521,8 @@ fn foxhound(tiers: FetchTiers, metrics: Metrics) -> Engine {
         product_version: ProductVersion::parse("1.4.0").expect("invariant: a literal version"),
         channel: Channel::CratesIo,
     };
-    // Foxhound's composition (`composition::composition`), its tiers
-    // serving from memory: Collie's, whose page crate reads a served
-    // page's formats, then the crawl's crates.
-    let composition = goodfetch_collie::composition_with(tiers.clone())
-        .with(goodfetch_frontier::contribution())
-        .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
-        .with(goodfetch_crawl::contribution(tiers));
+    // Foxhound's composition, its tiers serving from memory.
+    let composition = goodfetch_foxhound::composition_with(tiers);
     Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics)

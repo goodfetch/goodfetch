@@ -13,7 +13,8 @@ use goodfetch_protocol::formats::AUDIT_LOG;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
 use crate::audit::{AuditError, AuditLog};
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::run::format_refusal;
 
 /// The `audit.*` handlers.
@@ -39,9 +40,9 @@ async fn on_the_log<T: Send + 'static>(
     context: &CallContext,
     read: fn(&AuditLog) -> Result<T, AuditError>,
 ) -> Result<T, CallError> {
-    let runs = context.runs();
-    let log = runs.audit().clone();
-    let owner = Arc::clone(&runs.limits().owner);
+    let engine = context.engine();
+    let log = engine.audit().clone();
+    let owner = Arc::clone(engine.owner());
     owner
         .blocking(move || read(&log))
         .await

@@ -23,15 +23,26 @@ use super::written::Written;
 const BATCH: usize = 8192;
 
 /// A Parquet file's codec, `export.parquet.compression`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParquetCodec {
-    /// Zstandard, the built-in.
-    #[default]
+    /// Zstandard.
     Zstd,
     /// Snappy.
     Snappy,
     /// None.
     None,
+}
+
+impl ParquetCodec {
+    /// The codec `choice`, one of `PARQUET_COMPRESSION_VALUES`, names.
+    pub fn of(choice: &str) -> Option<Self> {
+        match choice {
+            "zstd" => Some(Self::Zstd),
+            "snappy" => Some(Self::Snappy),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
 }
 
 /// Which file a columnar writer writes.

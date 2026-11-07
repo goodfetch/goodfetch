@@ -512,6 +512,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         // The Run's egress policy judges the hop before anything is sent
         // for it, robots.txt included (spec #565).
         hand_over
+            .of_run
             .address_check(&hop.url)
             .await
             .map_err(|refused| refused.error())?;

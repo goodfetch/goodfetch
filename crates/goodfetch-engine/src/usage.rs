@@ -23,10 +23,11 @@ use goodfetch_protocol::usage::{
 };
 use jiff::tz::TimeZone;
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
+use crate::engine_context::CALLER;
 use crate::ledger::LedgerError;
 use crate::product::Requested;
-use crate::runs::CALLER;
 
 /// The `usage.*` handlers.
 pub(crate) fn handlers() -> [Handler; 3] {
@@ -45,11 +46,11 @@ fn unavailable(error: &impl std::fmt::Display) -> CallError {
 }
 
 async fn list(_: UsageListParams, context: CallContext) -> Result<UsageListResult, CallError> {
-    let limits = context.runs().limits().clone();
+    let engine = context.engine().clone();
     let product = context.identity().product;
-    let owner = Arc::clone(&limits.owner);
+    let owner = Arc::clone(engine.owner());
     let usage = owner
-        .blocking(move || limits.ledger.usage(product, limits.now()))
+        .blocking(move || engine.ledger().usage(product, engine.now()))
         .await
         .map_err(|error| unavailable(&error))?;
     Ok(UsageListResult { limits: usage })
@@ -96,14 +97,14 @@ async fn write<F>(context: &CallContext, change: F) -> Result<LimitUsage, CallEr
 where
     F: FnOnce(&crate::ledger::Ledger, jiff::Timestamp) -> Result<i64, LedgerError> + Send + 'static,
 {
-    let limits = context.runs().limits().clone();
+    let engine = context.engine().clone();
     let product: Product = context.identity().product;
-    let owner = Arc::clone(&limits.owner);
+    let owner = Arc::clone(engine.owner());
     let added = owner
         .blocking(move || {
-            let now = limits.now();
-            let id = change(&limits.ledger, now)?;
-            limits.ledger.usage_of(id, product, now)
+            let now = engine.now();
+            let id = change(engine.ledger(), now)?;
+            engine.ledger().usage_of(id, product, now)
         })
         .await
         .map_err(|error| unavailable(&error))?;
@@ -153,12 +154,11 @@ fn limit_of(named: Named, set_by: LimitSetter, context: &CallContext) -> Result<
             ),
         ));
     }
-    let runs = context.runs();
     let own = match named.scope.as_str() {
         INSTALL => Some(String::new()),
         PERSON => Some(CALLER.to_owned()),
         DAEMON => Some(identity.product_version.line().to_string()),
-        CONNECTION => Some(runs.limits().connection(runs.connection()).id),
+        CONNECTION => Some(context.runs().connection_scope().id),
         _ => None,
     };
     let id = match (named.scope_id, own) {

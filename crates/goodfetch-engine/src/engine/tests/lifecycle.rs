@@ -17,7 +17,8 @@ use serde_json::{Value, json};
 
 use super::run::{call, index_row};
 use super::{attached_on, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::runs::{EndedBy, Ending, Forwarded, Start, Started};
 
 /// Starts a Run its driver ends, aborts it, and has the driver finish it

@@ -13,7 +13,7 @@
 //! which only a broken renderer refuses, and an internal error for a
 //! locator action or a page function, which have no generic code.
 
-use goodfetch_cdp::{Failure, Refusal};
+use goodfetch_cdp::{CertificateError, Failure, NetError, Refusal};
 use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
@@ -342,25 +342,21 @@ pub(crate) fn network_error(url: &str, error: &str) -> CallError {
 }
 
 /// How Chromium refused a certificate it verified itself, on a host the
-/// egress relay only tunnels, by the wire's name of the failure (ADR
-/// 0127): `error` is a network error the browser names, and none is no
-/// certificate's. Chromium names an expired certificate and one not valid
-/// yet alike, and an unknown issuer and a self-signed certificate alike;
-/// the relay's own look at the certificate tells them apart where it can.
-pub(crate) fn certificate_failure(error: &str) -> Option<CertificateFailure> {
-    let name = error.strip_prefix("net::").unwrap_or(error);
+/// egress relay only tunnels, as the wire names the failure: none for a
+/// network error that is no certificate's. Chromium names an expired
+/// certificate and one not valid yet alike, and an unknown issuer and a
+/// self-signed certificate alike; the relay's own look at the certificate
+/// tells them apart where it can.
+pub(crate) fn certificate_failure(error: &NetError) -> Option<CertificateFailure> {
+    let NetError::Certificate(certificate) = error else {
+        return None;
+    };
     let known = |failure| Some(CertificateFailure::Known(failure));
-    match name {
-        "ERR_CERT_COMMON_NAME_INVALID" => known(KnownCertificateFailure::NameMismatch),
-        "ERR_CERT_AUTHORITY_INVALID" => known(KnownCertificateFailure::UnknownIssuer),
-        "ERR_CERT_REVOKED" => known(KnownCertificateFailure::Revoked),
-        _ => {
-            let rest = name.strip_prefix("ERR_CERT_").or_else(|| {
-                name.strip_prefix("ERR_")
-                    .filter(|rest| rest.starts_with("CERTIFICATE_"))
-            })?;
-            Some(CertificateFailure::Unrecognized(rest.to_ascii_lowercase()))
-        }
+    match certificate {
+        CertificateError::NameMismatch => known(KnownCertificateFailure::NameMismatch),
+        CertificateError::UnknownIssuer => known(KnownCertificateFailure::UnknownIssuer),
+        CertificateError::Revoked => known(KnownCertificateFailure::Revoked),
+        other => Some(CertificateFailure::Unrecognized(other.code())),
     }
 }
 

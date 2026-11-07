@@ -33,13 +33,17 @@ use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
-use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior};
+use rusqlite::{Connection, Row, TransactionBehavior};
 
 pub use self::charging::{Charged, Charging, Counted, Refusal, Reservation};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 pub use self::temporary::{temporary_filesystem, temporary_in};
+use crate::sqlite_store::{
+    self, Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema,
+    Synchronous, Wait, WalOnClose,
+};
 
 /// The target of the `tracing` events that name the slices and reclaim
 /// model's transitions (`test-support/models/slices/`), each with its
@@ -49,11 +53,19 @@ pub const TARGET: &str = "goodfetch::ledger";
 /// How long a transaction waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How its commits reach the disk: each synced, through `F_FULLFSYNC` on
+/// macOS, and its WAL left as it is when a connection closes (#2110).
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Full,
+    opening: Synchronous::Full,
+    full_fsync: FullFsync::Commits,
+    wal_on_close: WalOnClose::Kept,
+};
+
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default, so these statements keep working on its
 /// files.
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS limits (
         limit_id INTEGER PRIMARY KEY,
         scope_kind TEXT NOT NULL,
@@ -298,30 +310,22 @@ impl Ledger {
     /// Opens the file, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, LedgerError> {
-        if let Some(folder) = self.path.parent() {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the ledger's calls run under their caller's blocking policy"
-            )]
-            std::fs::create_dir_all(folder).map_err(|error| self.failed(&error))?;
-        }
-        let connection = self
-            .connect(OpenFlags::SQLITE_OPEN_CREATE)
-            .map_err(|error| self.failed(&error))?;
-        self.prepared(connection)
+        self.connect(Folder::Make, Access::Create)
+            .map_err(|error| self.open_failed(error))
     }
 
     /// Opens the file as [`Ledger::open`] does when it exists; none when no
     /// engine created it yet, so it holds no Slice.
     fn open_existing(&self) -> Result<Option<Connection>, LedgerError> {
-        match self.connect(OpenFlags::empty()) {
-            Ok(connection) => self.prepared(connection).map(Some),
-            Err(rusqlite::Error::SqliteFailure(error, _))
-                if error.code == rusqlite::ErrorCode::CannotOpen && self.absent() =>
+        match self.connect(Folder::Exists, Access::ReadWrite) {
+            Ok(connection) => Ok(Some(connection)),
+            Err(OpenError::Unopened(error))
+                if error.sqlite_error_code() == Some(rusqlite::ErrorCode::CannotOpen)
+                    && self.absent() =>
             {
                 Ok(None)
             }
-            Err(error) => Err(self.failed(&error)),
+            Err(error) => Err(self.open_failed(error)),
         }
     }
 
@@ -331,67 +335,40 @@ impl Ledger {
         self.vfs.is_some() || matches!(self.path.try_exists(), Ok(false))
     }
 
-    /// Connects to the file read-write, with `extra` flags: one counted open
-    /// once it opened, as a read of a ledger no engine created opens none
-    /// (#2110), and a commit hook that counts what no wrapper sees, each
-    /// transaction the connection commits, its set-up's among them (ADR
-    /// 0140).
-    fn connect(&self, extra: OpenFlags) -> rusqlite::Result<Connection> {
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX | extra;
-        let connection = match &self.vfs {
-            Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
-            None => Connection::open_with_flags(&self.path, flags),
-        }?;
-        self.work.count(CountedRow::ChargeOpens);
-        let work = self.work.clone();
-        connection.commit_hook(Some(move || {
-            work.count(CountedRow::ChargeTransactions);
-            false
-        }))?;
-        Ok(connection)
+    /// Opens the file with `access`, creating the tables it lacks and
+    /// refusing a ledger of another major: one counted open once it opened,
+    /// as a read of a ledger no engine created opens none (#2110), and a
+    /// commit hook that counts what no wrapper sees, each transaction the
+    /// connection commits, its set-up's among them (ADR 0140).
+    fn connect(&self, folder: Folder, access: Access) -> Result<Connection, OpenError> {
+        File::new(&self.path, self.vfs.as_deref()).open(&Opening {
+            folder,
+            access,
+            wait: Wait::Busy(BUSY_TIMEOUT),
+            durability: DURABILITY,
+            counting: Some(Counting {
+                work: &self.work,
+                opens: Some(CountedRow::ChargeOpens),
+                transactions: CountedRow::ChargeTransactions,
+                counts_switch: true,
+            }),
+            schema: Some(Schema {
+                format: &USAGE_LEDGER,
+                statements: &[SCHEMA],
+            }),
+        })
     }
 
-    /// Sets up `connection`, creating the tables it lacks, and refuses a
-    /// ledger of another major.
-    fn prepared(&self, mut connection: Connection) -> Result<Connection, LedgerError> {
-        let failed = |error: &(dyn std::error::Error + 'static)| self.failed(error);
-        connection
-            .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| failed(&error))?;
-        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
-        connection
-            .pragma_update(None, "synchronous", "FULL")
-            .map_err(|error| failed(&error))?;
-        crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(|error| failed(&error))?;
-        if cfg!(target_os = "macos") {
-            connection
-                .pragma_update(None, "fullfsync", "ON")
-                .map_err(|error| failed(&error))?;
+    /// The failure of opening the ledger on `error`.
+    fn open_failed(&self, error: OpenError) -> LedgerError {
+        match error {
+            OpenError::Format(refusal) => LedgerError::Format {
+                found: refusal.found,
+                compatibility: refusal.compatibility,
+            },
+            OpenError::Unopened(error) | OpenError::Sqlite(error) => self.failed(&error),
+            OpenError::Folder(error) => self.failed(&error),
         }
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        for statement in SCHEMA {
-            transaction
-                .execute(statement, [])
-                .map_err(|error| failed(&error))?;
-        }
-        transaction
-            .execute(
-                "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (USAGE_LEDGER.name, USAGE_LEDGER.version.to_string()),
-            )
-            .map_err(|error| failed(&error))?;
-        let found: String = transaction
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [USAGE_LEDGER.name],
-                |row| row.get(0),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        check_format(&found)?;
-        Ok(connection)
     }
 
     /// The failure of a transaction of the ledger on `error`: a full disk
@@ -401,13 +378,7 @@ impl Ledger {
     fn failed(&self, error: &(dyn std::error::Error + 'static)) -> LedgerError {
         let storage = error
             .downcast_ref::<rusqlite::Error>()
-            .and_then(rusqlite::Error::sqlite_error_code)
-            .is_some_and(|code| {
-                matches!(
-                    code,
-                    rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure
-                )
-            });
+            .is_some_and(sqlite_store::is_storage);
         if storage {
             LedgerError::Storage {
                 path: self.path.clone(),
@@ -1008,25 +979,6 @@ fn counted_value(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 /// An amount as SQLite stores it.
 fn amount(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
-}
-
-/// Refuses a ledger of another major (ADR 0030): every minor of this one
-/// opens.
-fn check_format(found: &str) -> Result<(), LedgerError> {
-    let refused = |compatibility| LedgerError::Format {
-        found: found.to_owned(),
-        compatibility,
-    };
-    let version = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match USAGE_LEDGER
-        .rule
-        .compatibility(USAGE_LEDGER.version, version)
-    {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
-    }
 }
 
 mod charging;

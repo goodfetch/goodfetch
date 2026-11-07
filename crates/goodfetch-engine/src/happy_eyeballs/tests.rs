@@ -21,8 +21,8 @@ use goodfetch_protocol::dns::{IpFamily, NameResolver};
 use proptest::prelude::*;
 
 use super::{Delays, Families, Race, RaceError, Won};
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 use crate::dns::LookupError;
 
 const NAME: &str = "dual.proving.test";

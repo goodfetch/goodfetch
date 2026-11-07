@@ -33,7 +33,8 @@ use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::Value;
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::run::{run_error, through_owner};
 use crate::run_files::{self, FileKind};
 use crate::run_state::{RunStateError, RunStateTables};
@@ -635,7 +636,7 @@ async fn read_bytes(run_id: RunId, key: &str, context: &CallContext) -> Result<R
         .folder(run_id.clone())
         .await
         .map_err(failed)?;
-    let owner = Arc::clone(&context.runs().limits().owner);
+    let owner = Arc::clone(context.engine().owner());
     let mut gone = std::io::Error::from(std::io::ErrorKind::NotFound);
     for _ in 0..READS {
         let read = key.to_owned();

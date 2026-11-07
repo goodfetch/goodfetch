@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_protocol::governor::{
     BROWSER_CONTEXTS_PER_PROCESS, BROWSER_MEMORY_CAP, BROWSER_RECYCLE_IDLE, BROWSER_RECYCLE_PAGES,
 };
@@ -29,21 +29,14 @@ pub(crate) struct Limits {
 }
 
 impl Limits {
-    /// The limits the Run's settings give, each key's default where it has
-    /// none.
+    /// The limits the Run's settings give, each key's catalog default when
+    /// the Run has none.
     pub(crate) fn of(settings: Option<&Resolved>) -> Self {
-        let count = |key: &str, default: u64| {
-            settings
-                .and_then(|settings| settings.count(key))
-                .unwrap_or(default)
-        };
         Self {
-            contexts_per_process: count(BROWSER_CONTEXTS_PER_PROCESS.name, 8),
-            pages: count(BROWSER_RECYCLE_PAGES.name, 100),
-            idle: settings
-                .and_then(|settings| settings.duration(BROWSER_RECYCLE_IDLE.name))
-                .unwrap_or(Duration::from_secs(300)),
-            memory_cap: settings.and_then(|settings| settings.count(BROWSER_MEMORY_CAP.name)),
+            contexts_per_process: get_or_default(settings, &BROWSER_CONTEXTS_PER_PROCESS),
+            pages: get_or_default(settings, &BROWSER_RECYCLE_PAGES),
+            idle: get_or_default(settings, &BROWSER_RECYCLE_IDLE),
+            memory_cap: get_or_default(settings, &BROWSER_MEMORY_CAP),
         }
     }
 }

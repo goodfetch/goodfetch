@@ -34,7 +34,7 @@ use goodfetch_protocol::security::{
 };
 use serde_json::Value;
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::settings::HostDefaults;
 
 /// What the probe found of the user namespace.

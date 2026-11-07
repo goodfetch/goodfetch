@@ -44,7 +44,7 @@ fn connecting(proving_ground: &ProvingGround, mapping: HostMapping, clock: Clock
             clock,
         ),
         clock,
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     }
 }
 
@@ -89,7 +89,7 @@ fn a_host_whose_ipv6_path_drops_packets_is_reached_over_ipv4_after_the_attempt_d
     });
 
     assert_eq!(peer, SocketAddr::new(IPV4, port));
-    assert!(waited <= Delays::BUILT_IN.attempt, "it waited {waited:?}");
+    assert!(waited <= Delays::default().attempt, "it waited {waited:?}");
 }
 
 /// RFC 8305 section 9. The name answers loopback, then `NXDOMAIN`, each

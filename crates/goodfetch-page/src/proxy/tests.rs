@@ -7,6 +7,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_cdp::NetError;
 use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_USERNAME, ProxyServer};
 use rstest::rstest;
 use secrecy::SecretString;
@@ -120,7 +121,7 @@ fn each_concurrent_connection_is_classified_by_its_own_outcome() {
     let proxy = proxy("socks5://fwd:1080", None);
     let relayed = Some("goodfetch-relay; error=connection_refused");
     let tunnel = Answer::Failure {
-        error: "net::ERR_TUNNEL_CONNECTION_FAILED",
+        error: &NetError::TunnelRefused,
     };
     proxy.met_through_relay("down.example:80", Met::Unreachable);
     proxy.met_through_relay("refused.example:80", Met::CredentialsRefused);
@@ -131,7 +132,7 @@ fn each_concurrent_connection_is_classified_by_its_own_outcome() {
             party(proxy.response(url, relayed)),
             proxy.refusal(url, tunnel, None),
             proxy
-                .failure(url, "net::ERR_TUNNEL_CONNECTION_FAILED")
+                .failure(url, &NetError::TunnelRefused)
                 .map(|error| error.code().to_owned()),
         )
     };
@@ -172,7 +173,7 @@ fn a_tunnel_refused_is_a_refusal_of_a_proxy_without_a_relay() {
     assert!(proxy.refusal(
         "https://shop.example/",
         Answer::Failure {
-            error: "net::ERR_TUNNEL_CONNECTION_FAILED"
+            error: &NetError::TunnelRefused
         },
         None
     ));
@@ -191,7 +192,7 @@ fn credentials_longer_than_socks5_carries_name_their_setting(
     let password = SecretString::from("p".repeat(password));
 
     assert_eq!(
-        too_long_for_socks5(&"u".repeat(username), Some(&password)),
+        too_long_for_socks5(&"u".repeat(username), Some(&password)).map(|setting| setting.name),
         expected
     );
 }

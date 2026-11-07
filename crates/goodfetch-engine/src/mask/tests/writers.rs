@@ -144,7 +144,7 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/audit.rs",
-        2,
+        1,
         "holds no value: each entry names a Secret reference and its placeholder, never a value (ADR 0016)",
     ),
     (
@@ -189,12 +189,12 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/known_certificates.rs",
-        3,
+        2,
         "holds no value: hosts and key hashes",
     ),
     (
         "crates/goodfetch-engine/src/ledger.rs",
-        3,
+        2,
         "holds no value: Usage counts",
     ),
     (
@@ -204,7 +204,7 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/people/store.rs",
-        2,
+        1,
         "holds no value: Console sign-ins by verifier, no Run's value",
     ),
     (
@@ -214,7 +214,7 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/politeness.rs",
-        4,
+        3,
         "holds no value: per-domain Politeness state",
     ),
     (
@@ -239,12 +239,12 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/run_state.rs",
-        8,
+        7,
         "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference; the \"unclean\" mark at `off` is a constant row with no value of the Run's",
     ),
     (
         "crates/goodfetch-engine/src/run_state/install.rs",
-        4,
+        3,
         "holds no value: the per-install layout's copies of run files, masked when written",
     ),
     (
@@ -276,6 +276,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "crates/goodfetch-engine/src/secrets.rs",
         1,
         "holds no value: the empty lock file an engine holds while it makes its own key",
+    ),
+    (
+        "crates/goodfetch-engine/src/sqlite_store.rs",
+        1,
+        "holds no value: each store's `format` table, its format's name and version",
     ),
     (
         "crates/goodfetch-engine/src/transport.rs",

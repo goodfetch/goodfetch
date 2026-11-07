@@ -67,7 +67,8 @@ pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
 pub use gate::{
-    FetchAdmission, HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing,
+    FetchAdmission, HandOver, RobotsTxtFetch, RunHandOver, content_signals, crawl_delay,
+    disallowing,
 };
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;

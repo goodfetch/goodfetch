@@ -1,6 +1,6 @@
 use rstest::rstest;
 
-use super::NetError;
+use super::{CertificateError, NetError};
 
 #[rstest]
 #[case::aborted("net::ERR_ABORTED", NetError::Aborted)]
@@ -17,6 +17,26 @@ use super::NetError;
     NetError::BlockedByClient
 )]
 #[case::aborted_by_the_debugging_client("net::ERR_ABORTED.Inspector", NetError::Aborted)]
+#[case::failed("net::ERR_FAILED", NetError::Failed)]
+#[case::failed_by_the_debugging_client("net::ERR_FAILED.Inspector", NetError::Failed)]
+#[case::empty_response("net::ERR_EMPTY_RESPONSE", NetError::EmptyResponse)]
+#[case::name_not_resolved("net::ERR_NAME_NOT_RESOLVED", NetError::NameNotResolved)]
+#[case::connection_refused("net::ERR_CONNECTION_REFUSED", NetError::ConnectionRefused)]
+#[case::connection_timed_out("net::ERR_CONNECTION_TIMED_OUT", NetError::ConnectionTimedOut)]
+#[case::connection_failed("net::ERR_CONNECTION_FAILED", NetError::ConnectionFailed)]
+#[case::tunnel_refused("net::ERR_TUNNEL_CONNECTION_FAILED", NetError::TunnelRefused)]
+#[case::name_mismatch(
+    "net::ERR_CERT_COMMON_NAME_INVALID",
+    NetError::Certificate(CertificateError::NameMismatch)
+)]
+#[case::certificate(
+    "net::ERR_CERT_AUTHORITY_INVALID",
+    NetError::Certificate(CertificateError::UnknownIssuer)
+)]
+#[case::revoked(
+    "net::ERR_CERT_REVOKED",
+    NetError::Certificate(CertificateError::Revoked)
+)]
 fn each_network_error_the_engine_tells_apart_becomes_its_variant(
     #[case] text: &str,
     #[case] expected: NetError,
@@ -25,11 +45,8 @@ fn each_network_error_the_engine_tells_apart_becomes_its_variant(
 }
 
 #[rstest]
-#[case::name_not_resolved("net::ERR_NAME_NOT_RESOLVED")]
-#[case::connection_refused("net::ERR_CONNECTION_REFUSED")]
-#[case::tunnel_refused("net::ERR_TUNNEL_CONNECTION_FAILED")]
-#[case::certificate("net::ERR_CERT_AUTHORITY_INVALID")]
 #[case::http2_stream("net::ERR_HTTP2_PROTOCOL_ERROR")]
+#[case::connection_reset("net::ERR_CONNECTION_RESET")]
 fn any_other_named_network_error_keeps_its_name(#[case] text: &str) {
     let error = NetError::of(text);
 
@@ -37,6 +54,53 @@ fn any_other_named_network_error_keeps_its_name(#[case] text: &str) {
         (matches!(error, NetError::Other(_)), error.name()),
         (true, text)
     );
+}
+
+/// Chromium gives these only for the proxy: one it cannot reach, whose TLS
+/// failed, or that refused the tunnel or the SOCKS handshake (its
+/// `net_error_list.h`).
+#[rstest]
+#[case::tunnel_refused("net::ERR_TUNNEL_CONNECTION_FAILED")]
+#[case::proxy_down("net::ERR_PROXY_CONNECTION_FAILED")]
+#[case::proxy_certificate("net::ERR_PROXY_CERTIFICATE_INVALID")]
+#[case::socks_refused("net::ERR_SOCKS_CONNECTION_FAILED")]
+#[case::socks_host_unreachable("net::ERR_SOCKS_CONNECTION_HOST_UNREACHABLE")]
+#[case::proxy_auth_unsupported("net::ERR_PROXY_AUTH_UNSUPPORTED")]
+#[case::https_proxy_redirect("net::ERR_HTTPS_PROXY_TUNNEL_RESPONSE_REDIRECT")]
+#[case::mandatory_proxy("net::ERR_MANDATORY_PROXY_CONFIGURATION_FAILED")]
+#[case::no_supported_proxies("net::ERR_NO_SUPPORTED_PROXIES")]
+fn a_failure_chromium_gives_only_for_the_proxy_comes_from_the_proxy(#[case] text: &str) {
+    let error = NetError::of(text);
+
+    assert_eq!((error.from_the_proxy(), error.name()), (true, text));
+}
+
+#[rstest]
+#[case::site_refused("net::ERR_CONNECTION_REFUSED")]
+#[case::name_not_resolved("net::ERR_NAME_NOT_RESOLVED")]
+#[case::site_certificate("net::ERR_CERT_AUTHORITY_INVALID")]
+#[case::aborted("net::ERR_ABORTED")]
+#[case::unrecognized("the request failed for some reason")]
+fn a_failure_the_site_can_cause_never_comes_from_the_proxy(#[case] text: &str) {
+    assert!(!NetError::of(text).from_the_proxy());
+}
+
+/// A certificate the browser refused for a reason the engine does not tell
+/// apart keeps its name, and its code is that name's rest.
+#[rstest]
+#[case::expired_or_not_yet_valid("net::ERR_CERT_DATE_INVALID", "date_invalid")]
+#[case::weak_key("net::ERR_CERT_WEAK_KEY", "weak_key")]
+#[case::transparency(
+    "net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED",
+    "certificate_transparency_required"
+)]
+fn any_other_certificate_refusal_keeps_its_name_and_code(#[case] text: &str, #[case] code: &str) {
+    let error = NetError::of(text);
+    let NetError::Certificate(certificate) = &error else {
+        panic!("{text} is no certificate's refusal: {error:?}");
+    };
+
+    assert_eq!((certificate.code(), error.name()), (code.to_owned(), text));
 }
 
 #[rstest]

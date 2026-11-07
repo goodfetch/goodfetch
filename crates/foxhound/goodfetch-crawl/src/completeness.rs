@@ -7,6 +7,7 @@
 //! through the composition's report part, the same for a crawl that
 //! stopped, beside the `stopped` reason, which counts the requests it left.
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{CompletenessReason, ReportPart};
 use goodfetch_frontier::{completeness_reasons, learned_completeness_reasons};
 use goodfetch_protocol::block::BlockCause;
@@ -99,10 +100,7 @@ pub(crate) struct StoppedParts;
 
 impl ReportPart for StoppedParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        let kind: String = connection
-            .prepare_cached("SELECT kind FROM run")
-            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
-        if kind != RunKind::Crawl.as_str() || report.lifecycle != Lifecycle::Stopped {
+        if run_row::kind(connection)? != RunKind::Crawl || report.lifecycle != Lifecycle::Stopped {
             return Ok(());
         }
         let left = work_items::left(connection)?;

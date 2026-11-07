@@ -30,7 +30,8 @@ use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
 
 use crate::audit::{AuditLog, Origin};
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::durable;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
@@ -64,7 +65,7 @@ fn failed(error: &NeedsYouError) -> CallError {
 
 async fn list(params: NeedsYouListParams, context: CallContext) -> Result<NeedsYouList, CallError> {
     context
-        .runs()
+        .engine()
         .needs_you()
         .list(params)
         .await
@@ -76,7 +77,7 @@ async fn dismiss(
     context: CallContext,
 ) -> Result<NeedsYouDismissed, CallError> {
     let dismissed = context
-        .runs()
+        .engine()
         .needs_you()
         .dismiss(params.item)
         .await
@@ -148,13 +149,12 @@ async fn allow_consent_domain(
     context: CallContext,
 ) -> Result<ConsentDomainAllowed, CallError> {
     let domain = consent_domain(&params.domain)?;
-    let runs = context.runs();
-    let settings = runs.settings().clone();
+    let engine = context.engine();
+    let settings = engine.settings().clone();
     let machine = settings
         .machine()
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    let limits = runs.limits().clone();
     let warning = consent_domain_warning(&domain);
     let answer = Answer {
         domain: domain.clone(),
@@ -164,7 +164,7 @@ async fn allow_consent_domain(
         host: settings.host_defaults().await,
         product: settings.product(),
         version: context.identity().product_version.clone(),
-        audit: runs.audit().clone(),
+        audit: engine.audit().clone(),
         origin: Origin {
             actor: Actor::Person {
                 name: context.person(),
@@ -173,9 +173,9 @@ async fn allow_consent_domain(
             layer: Some(SettingsLayer::UserConfiguration),
             run_id: None,
         },
-        now: limits.now(),
+        now: engine.now(),
     };
-    let added = match Arc::clone(&limits.owner)
+    let added = match Arc::clone(engine.owner())
         .blocking(move || write(answer))
         .await
     {

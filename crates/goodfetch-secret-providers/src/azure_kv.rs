@@ -46,10 +46,6 @@ const VAULT: &str = "{vault}";
 /// Key Vault's REST API version.
 const API_VERSION: &str = "7.5";
 
-/// The public cloud's defaults, where no setting names others.
-const PUBLIC_ENDPOINT: &str = "https://{vault}.vault.azure.net";
-const PUBLIC_AUTHORITY: &str = "https://login.microsoftonline.com";
-
 /// The service principal the token is issued to.
 #[derive(Clone)]
 struct ServicePrincipal {
@@ -86,11 +82,10 @@ impl AzureKeyVault {
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
     ) -> Self {
-        let text =
-            |name: &str, default: &str| resolved.value(name).as_str().unwrap_or(default).to_owned();
+        let text = |setting| resolved.get::<&str>(setting).to_owned();
         Self::new(
-            text(SECRET_PROVIDERS_AZURE_KV_ENDPOINT.name, PUBLIC_ENDPOINT),
-            text(SECRET_PROVIDERS_AZURE_KV_AUTHORITY.name, PUBLIC_AUTHORITY),
+            text(&SECRET_PROVIDERS_AZURE_KV_ENDPOINT),
+            text(&SECRET_PROVIDERS_AZURE_KV_AUTHORITY),
             environment,
             SecretProviderEndpoint::of(resolved, clock),
         )

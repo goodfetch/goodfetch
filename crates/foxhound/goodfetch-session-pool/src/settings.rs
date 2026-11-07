@@ -24,23 +24,15 @@ pub struct PoolSettings {
 }
 
 impl PoolSettings {
-    /// The bounds `resolved` gives a Foxhound Run, whose keys always hold
-    /// a value of their kind.
+    /// The bounds `resolved` gives a Foxhound Run.
     pub fn of(resolved: &Resolved) -> Self {
-        let count = |key: &str| {
-            resolved
-                .count(key)
-                .expect("invariant: the pool's count settings resolve to a count")
-        };
         Self {
-            max_size: usize::try_from(count(SESSION_POOL_MAX_SIZE.name))
+            max_size: usize::try_from(resolved.get::<u64>(&SESSION_POOL_MAX_SIZE))
                 .unwrap_or(usize::MAX)
                 .max(1),
-            max_uses: count(SESSION_POOL_MAX_USES.name),
-            max_age: resolved
-                .duration(SESSION_POOL_MAX_AGE.name)
-                .expect("invariant: `session.pool.max_age` resolves to a duration"),
-            max_error_score: count(SESSION_POOL_MAX_ERROR_SCORE.name),
+            max_uses: resolved.get(&SESSION_POOL_MAX_USES),
+            max_age: resolved.get(&SESSION_POOL_MAX_AGE),
+            max_error_score: resolved.get(&SESSION_POOL_MAX_ERROR_SCORE),
         }
     }
 }

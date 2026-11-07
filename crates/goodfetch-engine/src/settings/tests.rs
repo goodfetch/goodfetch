@@ -5,11 +5,16 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_protocol::catalog::Product;
+use std::time::Duration;
+
+use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::foxhound::frontier::CRAWL_MAX_REQUESTS;
+use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, WeakenedSetting,
+    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION,
+    TIMEOUT_RUN, WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -17,7 +22,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     HostDefaults, Layers, Policy, Recipe, Resolved, SettingsError, SettingsFiles, Values,
-    check_environment, configuration, operator_policy, resolve, rewrite,
+    check_environment, configuration, get_or_default, operator_policy, resolve, rewrite,
 };
 use crate::home::Home;
 
@@ -79,6 +84,11 @@ fn only(layer: SettingsLayer, key: &str, value: &Value) -> Layers {
     layers
 }
 
+/// The catalog's setting named `name`.
+fn catalog_key(name: &str) -> &'static Setting {
+    super::setting(name).expect("a key of the catalog")
+}
+
 fn resolved(layers: &Layers) -> Resolved {
     resolve(layers, Product::Foxhound, Product::Foxhound).unwrap()
 }
@@ -120,7 +130,9 @@ fn every_layer_sets_navigation() -> Layers {
 fn the_highest_layer_that_sets_a_value_wins_where_nothing_locked_it() {
     let effective = resolved(&every_layer_sets_navigation());
 
-    let navigation = effective.get("timeout.navigation").unwrap();
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
     assert_eq!(
         (
             &navigation.value,
@@ -151,7 +163,9 @@ fn a_value_set_in_one_layer_is_the_effective_one_with_that_layer(
 ) {
     let effective = resolved(&only(layer, "timeout.navigation", &value));
 
-    let navigation = effective.get("timeout.navigation").unwrap();
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
     assert_eq!((&navigation.value, navigation.layer), (&value, layer));
 }
 
@@ -169,8 +183,62 @@ fn null_from_the_run_clears_a_lower_layers_value() {
 
     let effective = resolved(&layers);
 
-    let run = effective.get("timeout.run").unwrap();
+    let run = effective.effective(catalog_key("timeout.run")).unwrap();
     assert_eq!((&run.value, run.layer), (&Value::Null, SettingsLayer::Run));
+}
+
+/// A setting reads as its kind's type: a clearable one as an `Option`,
+/// `None` once a layer cleared it.
+///
+/// Covers: story:3-86, setting:timeout.run, setting:timeout.navigation
+#[test]
+fn a_setting_reads_as_its_kind_and_a_cleared_one_as_none() {
+    let set = resolved(&only(SettingsLayer::Run, "timeout.run", &json!(3_600_000)));
+    let cleared = resolved(&only(SettingsLayer::Run, "timeout.run", &Value::Null));
+
+    assert_eq!(
+        (
+            set.get::<Option<Duration>>(&TIMEOUT_RUN),
+            cleared.get::<Option<Duration>>(&TIMEOUT_RUN),
+            set.get::<Duration>(&TIMEOUT_NAVIGATION),
+        ),
+        (
+            Some(Duration::from_secs(3_600)),
+            None,
+            Duration::from_secs(30)
+        )
+    );
+}
+
+/// A Run of a Product that does not honour a key reads its catalog
+/// default, as a scope that resolved no settings does.
+///
+/// Covers: story:3-86, setting:provenance.log, setting:crawl.max_requests
+#[test]
+fn a_key_the_runs_product_does_not_honour_reads_as_its_catalog_default() {
+    let collie = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
+
+    assert_eq!(
+        (
+            collie.effective(&PROVENANCE_LOG).is_none(),
+            collie.get::<bool>(&PROVENANCE_LOG),
+            collie.get::<Option<u64>>(&CRAWL_MAX_REQUESTS),
+            get_or_default::<bool>(None, &PROVENANCE_LOG),
+        ),
+        (true, true, None, true)
+    );
+}
+
+/// Reading a setting as a type its kind is not is a mistake of the
+/// reading code, refused at once rather than read as some default.
+///
+/// Covers: story:3-86, setting:timeout.navigation
+#[test]
+#[should_panic(expected = "is read as")]
+fn a_setting_read_as_another_kind_is_refused() {
+    let effective = resolved(&Layers::default());
+
+    let _: u64 = effective.get(&TIMEOUT_NAVIGATION);
 }
 
 /// Covers: story:3-86, setting:egress.offline
@@ -188,7 +256,10 @@ fn offline_is_off_unless_a_layer_turns_it_on(#[case] set: Option<bool>, #[case] 
 
     let effective = resolved(&layers);
 
-    assert_eq!(effective.boolean("egress.offline"), Some(offline));
+    assert_eq!(
+        effective.get::<bool>(catalog_key("egress.offline")),
+        offline
+    );
 }
 
 /// Covers: story:3-86, story:3-88
@@ -237,7 +308,7 @@ fn a_locked_value_says_the_layer_that_locked_it() {
 
     let effective = resolved(&layers);
 
-    let resolve = effective.get("network.resolve").unwrap();
+    let resolve = effective.effective(catalog_key("network.resolve")).unwrap();
     assert_eq!(
         (&resolve.value, resolve.layer, resolve.locked_by),
         (
@@ -258,7 +329,7 @@ fn resolve_gives_each_host_its_addresses_for_a_resolvers_mapping() {
     ));
 
     assert_eq!(
-        effective.hosts("network.resolve"),
+        effective.hosts(catalog_key("network.resolve")),
         [(
             "staging.example".to_owned(),
             vec![
@@ -281,7 +352,7 @@ fn resolve_maps_host_names_from_every_layer(#[case] layer: SettingsLayer) {
 
     let effective = resolved(&only(layer, "network.resolve", &mapping));
 
-    assert_eq!(effective.value("network.resolve"), &mapping);
+    assert_eq!(effective.value(catalog_key("network.resolve")), &mapping);
 }
 
 /// Covers: story:3-87
@@ -311,7 +382,9 @@ fn a_recipes_declared_setting_says_the_recipe_locked_it() {
 
     let effective = resolved(&layers);
 
-    let navigation = effective.get("timeout.navigation").unwrap();
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
     assert_eq!(
         (navigation.layer, navigation.locked_by),
         (SettingsLayer::Recipe, Some(SettingsLayer::Recipe))
@@ -566,7 +639,10 @@ fn any_is_taken_from_configuration_only(#[case] layer: SettingsLayer, #[case] ta
 
     match resolved {
         Ok(effective) => assert_eq!(
-            (taken, effective.value("tls.accept_invalid_certs")),
+            (
+                taken,
+                effective.value(catalog_key("tls.accept_invalid_certs"))
+            ),
             (true, &any)
         ),
         Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
@@ -587,7 +663,10 @@ fn a_client_certificate_is_taken_from_a_recipe_and_the_run(#[case] layer: Settin
 
     let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
 
-    assert_eq!(resolved.value("tls.client_certificates"), &certificates);
+    assert_eq!(
+        resolved.value(catalog_key("tls.client_certificates")),
+        &certificates
+    );
 }
 
 /// Story 4-34: a client certificate's key given as a raw value, from any
@@ -648,7 +727,10 @@ fn a_key_reserved_to_lower_layers_takes_a_narrower_value_from_above(
     let effective = resolved(&layers);
 
     assert_eq!(
-        (effective.value(key), effective.get(key).unwrap().layer),
+        (
+            effective.value(catalog_key(key)),
+            effective.effective(catalog_key(key)).unwrap().layer
+        ),
         (&value, layer)
     );
 }
@@ -669,7 +751,7 @@ fn a_filter_lists_scriptlets_run_only_when_configuration_set_it(
 
     assert_eq!(
         effective
-            .get("filter_lists.extra")
+            .effective(catalog_key("filter_lists.extra"))
             .unwrap()
             .layer
             .is_configuration(),
@@ -710,8 +792,11 @@ fn a_recipe_exposes_session_source_for_its_users_to_set() {
 
     assert_eq!(
         (
-            effective.value("session.source"),
-            effective.get("session.source").unwrap().locked_by
+            effective.value(catalog_key("session.source")),
+            effective
+                .effective(catalog_key("session.source"))
+                .unwrap()
+                .locked_by
         ),
         (&json!({ "kind": "saved_identity", "name": "work" }), None)
     );
@@ -758,7 +843,7 @@ fn an_honesty_guarantee_stays_locked_whatever_the_layer(
 fn an_honesty_guarantee_says_the_default_locked_it() {
     let effective = resolved(&Layers::default());
 
-    let signing = effective.get("webhook.signing").unwrap();
+    let signing = effective.effective(catalog_key("webhook.signing")).unwrap();
     assert_eq!(
         (&signing.value, signing.locked_by),
         (&json!(true), Some(SettingsLayer::Default))
@@ -818,7 +903,9 @@ fn a_default_above_an_operator_policy_cap_takes_the_cap() {
 
     let effective = resolved(&layers);
 
-    let concurrency = effective.get("crawl.handler.concurrency").unwrap();
+    let concurrency = effective
+        .effective(catalog_key("crawl.handler.concurrency"))
+        .unwrap();
     assert_eq!(
         (&concurrency.value, concurrency.layer, &concurrency.cap),
         (&json!(8), SettingsLayer::OperatorPolicy, &Some(json!(8)))
@@ -841,7 +928,9 @@ fn an_unset_rate_cap_under_an_operator_policy_cap_takes_the_cap() {
 
     let effective = resolved(&layers);
 
-    let rate = effective.get("admission.max_requests_per_minute").unwrap();
+    let rate = effective
+        .effective(catalog_key("admission.max_requests_per_minute"))
+        .unwrap();
     assert_eq!(
         (&rate.value, rate.layer),
         (&json!(120), SettingsLayer::OperatorPolicy)
@@ -1050,7 +1139,7 @@ fn an_operator_policy_caps_a_crawls_pacing(
 
     assert_eq!(
         opened
-            .map(|opened| opened.value(key).clone())
+            .map(|opened| opened.value(catalog_key(key)).clone())
             .map_err(|refused| refused.code()),
         held_to
     );
@@ -1344,7 +1433,7 @@ proptest! {
         } else {
             let expected = run.or(project).or(user).or(policy_value);
             let effective = outcome.unwrap();
-            prop_assert_eq!(effective.count("timeout.run"), expected);
+            prop_assert_eq!(effective.value(catalog_key("timeout.run")).as_u64(), expected);
         }
     }
 }
@@ -1379,7 +1468,7 @@ fn a_default_is_the_hosts_where_it_gives_one_and_still_the_default_layers(
 
     let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
 
-    let effective = resolved.get(RUN_STATE_KEY_REFERENCE.name).unwrap();
+    let effective = resolved.effective(&RUN_STATE_KEY_REFERENCE).unwrap();
     assert_eq!((&effective.value, effective.layer), (&value, layer));
 }
 
@@ -1422,7 +1511,10 @@ fn no_private_endpoints_is_taken_from_the_operator_policy_alone(
 
     match resolved {
         Ok(effective) => assert_eq!(
-            (taken, effective.value("egress.no_private_endpoints")),
+            (
+                taken,
+                effective.value(catalog_key("egress.no_private_endpoints"))
+            ),
             (true, &json!(true))
         ),
         Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
@@ -1473,7 +1565,7 @@ fn private_ranges_are_never_a_models_and_a_recipes_only_where_the_operator_polic
 
     match resolved {
         Ok(effective) => assert_eq!(
-            (taken, effective.value("egress.private_ranges")),
+            (taken, effective.value(catalog_key("egress.private_ranges"))),
             (true, &ranges)
         ),
         Err(refused) => assert_eq!(
@@ -1739,7 +1831,7 @@ fn a_recipes_domain_policy_stays_locked_unless_exposed(
 /// refusal's code and key.
 fn over_layers(layers: &Layers, key: &str) -> Result<Value, (&'static str, String)> {
     resolve(layers, Product::Foxhound, Product::Foxhound)
-        .map(|effective| effective.value(key).clone())
+        .map(|effective| effective.value(catalog_key(key)).clone())
         .map_err(|refused| {
             let SettingsError::Locked { key, .. } = &refused else {
                 panic!("{refused:?}");
@@ -1811,7 +1903,7 @@ fn a_proxy_providers_price_comes_only_from_user_configuration_and_the_operator_p
 
     match resolved {
         Ok(effective) => assert_eq!(
-            (taken, effective.value("proxy.providers")),
+            (taken, effective.value(catalog_key("proxy.providers"))),
             (true, &providers)
         ),
         Err(refused) => assert_eq!(
@@ -1854,7 +1946,7 @@ fn an_effective_value_names_whether_a_model_gave_it(
 
     let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
 
-    let effective = resolved.get("session.source").unwrap();
+    let effective = resolved.effective(catalog_key("session.source")).unwrap();
     assert_eq!(
         (effective.layer, &effective.value, effective.for_model),
         (layer, &source, for_model)

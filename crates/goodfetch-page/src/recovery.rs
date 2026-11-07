@@ -77,7 +77,7 @@ impl Declared {
         let (value, layer) = if let Some(value) = own.get(SESSION_PAGE_CHECK.name) {
             (value.clone(), SettingsLayer::Run)
         } else {
-            let effective = run.settings()?.resolved().get(SESSION_PAGE_CHECK.name)?;
+            let effective = run.settings()?.resolved().effective(&SESSION_PAGE_CHECK)?;
             (effective.value.clone(), effective.layer)
         };
         // The setting's shape was checked where it was set.

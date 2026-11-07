@@ -126,7 +126,7 @@ impl Lookups {
 /// The `network.resolve` mapping of `settings`.
 pub(crate) fn resolve_of(settings: Option<&Resolved>) -> Resolve {
     settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
         .unwrap_or_default()
         .into_iter()
         .fold(Resolve::new(), |mapping, (host, addresses)| {

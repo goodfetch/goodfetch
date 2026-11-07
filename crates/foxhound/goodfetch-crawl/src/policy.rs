@@ -33,23 +33,13 @@ pub(crate) struct CrawlPolicy {
 }
 
 impl CrawlPolicy {
-    /// The policy `resolved` gives a Foxhound Run, whose keys always hold
-    /// a value of their kind.
+    /// The policy `resolved` gives a Foxhound Run.
     pub(crate) fn of(resolved: &Resolved) -> Self {
-        let count = |key: &str| {
-            resolved
-                .count(key)
-                .expect("invariant: a crawl's count settings resolve to a count")
-        };
         Self {
-            handler_timeout: resolved
-                .duration(TIMEOUT_HANDLER.name)
-                .expect("invariant: `timeout.handler` resolves to a duration"),
-            retry_max: u32::try_from(count(CRAWL_RETRY_MAX.name)).unwrap_or(u32::MAX),
-            retry_handler_failed: resolved
-                .boolean(CRAWL_RETRY_HANDLER_FAILED.name)
-                .expect("invariant: `crawl.retry.handler_failed` resolves to a boolean"),
-            handler_concurrency: usize::try_from(count(CRAWL_HANDLER_CONCURRENCY.name))
+            handler_timeout: resolved.get(&TIMEOUT_HANDLER),
+            retry_max: u32::try_from(resolved.get::<u64>(&CRAWL_RETRY_MAX)).unwrap_or(u32::MAX),
+            retry_handler_failed: resolved.get(&CRAWL_RETRY_HANDLER_FAILED),
+            handler_concurrency: usize::try_from(resolved.get::<u64>(&CRAWL_HANDLER_CONCURRENCY))
                 .unwrap_or(usize::MAX)
                 .max(1),
         }

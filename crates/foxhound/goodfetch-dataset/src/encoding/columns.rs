@@ -94,7 +94,7 @@ impl Kind {
 
 /// The columns of a table Export, as its Records are seen.
 #[derive(Clone, Debug)]
-pub struct Columns {
+pub(crate) struct Columns {
     nested: Nested,
     names: Vec<String>,
     kinds: Vec<Kind>,
@@ -104,7 +104,7 @@ pub struct Columns {
 impl Columns {
     /// No column yet; objects written as `nested` says.
     #[must_use]
-    pub fn new(nested: Nested) -> Self {
+    pub(crate) fn new(nested: Nested) -> Self {
         Self {
             nested,
             names: Vec::new(),
@@ -115,7 +115,7 @@ impl Columns {
 
     /// Adds the fields of the Record whose committed JSON text is `json`
     /// that no Record seen before had, after those.
-    pub fn see(&mut self, json: &str) {
+    pub(crate) fn see(&mut self, json: &str) {
         let record = parsed(json);
         for (name, value) in self.fields(&record) {
             let column = if let Some(&column) = self.index.get(&name) {
@@ -137,7 +137,7 @@ impl Columns {
 
     /// The columns' names, in first-seen order.
     #[must_use]
-    pub fn names(&self) -> &[String] {
+    pub(crate) fn names(&self) -> &[String] {
         &self.names
     }
 

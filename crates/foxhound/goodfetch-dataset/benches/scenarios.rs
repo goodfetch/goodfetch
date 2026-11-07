@@ -1,25 +1,19 @@
 //! The Datasets' benchmark scenarios (ADR 0071), shared by the Callgrind
 //! and DHAT targets: a Dataset's commit of a thousand Records, one per
 //! attempt, into a run file in memory, and the writing of their Export as
-//! JSON and as JSONL from that file, through the Datasets' own commit,
-//! read and encoder, from a literal pattern, with no I/O, no sleep and no
-//! timing.
+//! JSON and as JSONL from that file, through the Datasets' own commit and
+//! `run.export`'s pipeline, from a literal pattern, with no I/O, no sleep
+//! and no timing.
 
-use goodfetch_dataset::{
-    Columns, Committing, Datasets, ExportEncoder, ExportOptions, Exported, Query, TABLES, commit,
-    read_values,
-};
+use goodfetch_dataset::{Committing, Datasets, ExportOptions, TABLES, commit, write_export};
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
-use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
 use serde_json::{Value, json};
-
-/// The most Records one read takes, as `run.export` reads them.
-const PAGE: usize = 256;
 
 /// `count` Records of a book shop, each with a title holding accents.
 pub(crate) fn records(count: usize) -> Vec<Value> {
@@ -104,43 +98,16 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
     connection
 }
 
-/// Writes the Export of `books` in `connection` in `format`, a page at a
-/// time, and answers its size in bytes.
+/// Writes the Export of `books` in `connection` in `format`, as
+/// `run.export` writes it, uncompressed, and answers its size in bytes.
 pub(crate) fn export(connection: &Connection, format: ExportFormat) -> usize {
-    let options = ExportOptions::of("books");
-    let mut encoder = ExportEncoder::new(format, &options, Columns::new(options.nested(format)));
-    let mut bytes = Vec::new();
-    encoder.begin(&mut bytes);
-    let mut after = 0;
-    loop {
-        let page = read_values(
-            connection,
-            Query {
-                dataset: "books",
-                after,
-                through: None,
-                wall: None,
-            },
-            PAGE,
-        )
-        .expect("invariant: the Records read back");
-        let full = page.len() == PAGE;
-        for record in &page {
-            encoder.value(
-                &Exported {
-                    number: record.number,
-                    value: &record.value,
-                    wall: record.wall.as_deref(),
-                    committed_at: &record.committed_at,
-                },
-                &mut bytes,
-            );
-            after = record.number;
-        }
-        if !full {
-            break;
-        }
-    }
-    encoder.end(&mut bytes);
-    bytes.len()
+    write_export(
+        connection,
+        "books",
+        format,
+        ExportOptions::of("books"),
+        ExportCompression::None,
+    )
+    .expect("invariant: the Records read back")
+    .len()
 }

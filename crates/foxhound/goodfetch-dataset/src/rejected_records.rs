@@ -4,7 +4,7 @@
 //! the crawl, and it works on a Run no program holds. It answers a page
 //! of the entries after a number, and waits for the next commit while the
 //! Run is live and none follows. A Dataset the crawl does not declare is
-//! refused with `dataset_unknown`.
+//! refused with `dataset_unknown`, as in a Run no crawl wrote.
 
 use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::RunError;
@@ -13,9 +13,8 @@ use goodfetch_protocol::foxhound::rejections::{
     REJECTED_RECORDS_PAGE, RUN_REJECTED_RECORDS, RejectedRecords, RunRejectedRecordsParams,
 };
 
-use crate::declaration::Declarations;
+use crate::open::open_dataset;
 use crate::rejections::{self, Page, RequestUrl};
-use crate::run_tables::REJECTED;
 
 /// The handler of `run.rejected_records`, reading each entry's URL through
 /// `request_url`.
@@ -36,24 +35,8 @@ async fn rejected_records(
         return Ok(answer);
     }
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(params.run_id.clone())
-        .await
-        .map_err(failed)?;
+    let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset;
-    let known = dataset.clone();
-    reader
-        .read(move |connection| {
-            if REJECTED.held_by(connection)? {
-                Declarations::read(connection)
-            } else {
-                Ok(Declarations::default())
-            }
-        })
-        .await
-        .map_err(failed)?
-        .readable(&known)?;
     let mut after = params.after.unwrap_or_default();
     loop {
         let live = reader.is_live().await;

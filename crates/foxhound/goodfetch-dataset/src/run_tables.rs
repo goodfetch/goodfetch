@@ -25,39 +25,27 @@ pub struct RunFileTable {
 
 /// Each run table's place in the run file, in the order of
 /// `goodfetch_protocol::foxhound::sql_tab::RUN_TABLES`.
-pub const RUN_FILE_TABLES: [RunFileTable; 3] = [
-    RunFileTable {
-        run_table: RECORDS,
-        name: "records",
-        key: &["dataset", "number"],
-        columns: &[
-            None,
-            Some("dataset"),
-            Some("number"),
-            Some("data"),
-            Some("work_item"),
-            Some("url"),
-            Some("committed_at"),
-            Some("provenance"),
-        ],
-    },
-    REJECTED,
-    RunFileTable {
-        run_table: DATASETS,
-        name: "datasets",
-        key: &["name"],
-        columns: &[
-            None,
-            Some("name"),
-            Some("position"),
-            Some("schema"),
-            Some("key"),
-        ],
-    },
-];
+pub const RUN_FILE_TABLES: [RunFileTable; 3] = [RECORDS_TABLE, REJECTED_TABLE, DATASETS_TABLE];
+
+/// The committed Records' place in the run file.
+pub(crate) const RECORDS_TABLE: RunFileTable = RunFileTable {
+    run_table: RECORDS,
+    name: "records",
+    key: &["dataset", "number"],
+    columns: &[
+        None,
+        Some("dataset"),
+        Some("number"),
+        Some("data"),
+        Some("work_item"),
+        Some("url"),
+        Some("committed_at"),
+        Some("provenance"),
+    ],
+};
 
 /// Each Dataset's rejection table's place in the run file.
-pub(crate) const REJECTED: RunFileTable = RunFileTable {
+pub(crate) const REJECTED_TABLE: RunFileTable = RunFileTable {
     run_table: REJECTED_RECORDS,
     name: "rejected_records",
     key: &["dataset", "number"],
@@ -68,6 +56,20 @@ pub(crate) const REJECTED: RunFileTable = RunFileTable {
         Some("data"),
         Some("work_item"),
         Some("rejection"),
+    ],
+};
+
+/// The declared Datasets' place in the run file.
+pub(crate) const DATASETS_TABLE: RunFileTable = RunFileTable {
+    run_table: DATASETS,
+    name: "datasets",
+    key: &["name"],
+    columns: &[
+        None,
+        Some("name"),
+        Some("position"),
+        Some("schema"),
+        Some("key"),
     ],
 };
 

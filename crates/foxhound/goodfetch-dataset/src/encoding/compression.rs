@@ -10,7 +10,7 @@ use flate2::write::GzEncoder;
 use goodfetch_protocol::foxhound::export::ExportCompression;
 
 /// The compressor of one Export's bytes, as they are written.
-pub struct Compressor(Inner);
+pub(crate) struct Compressor(Inner);
 
 enum Inner {
     None,
@@ -31,7 +31,7 @@ impl std::fmt::Debug for Compressor {
 impl Compressor {
     /// The compressor `compression` names.
     #[must_use]
-    pub fn new(compression: ExportCompression) -> Self {
+    pub(crate) fn new(compression: ExportCompression) -> Self {
         Self(match compression {
             ExportCompression::None => Inner::None,
             ExportCompression::Gzip => {
@@ -47,7 +47,7 @@ impl Compressor {
     /// Compresses `bytes`, the file's next, and answers what it can hand
     /// on so far.
     #[must_use]
-    pub fn write(&mut self, bytes: Vec<u8>) -> Vec<u8> {
+    pub(crate) fn write(&mut self, bytes: Vec<u8>) -> Vec<u8> {
         match &mut self.0 {
             Inner::None => bytes,
             Inner::Gzip(encoder) => {
@@ -67,7 +67,7 @@ impl Compressor {
 
     /// The compressed file's last bytes, once every byte was written.
     #[must_use]
-    pub fn finish(self) -> Vec<u8> {
+    pub(crate) fn finish(self) -> Vec<u8> {
         match self.0 {
             Inner::None => Vec::new(),
             Inner::Gzip(encoder) => encoder

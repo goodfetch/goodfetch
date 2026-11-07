@@ -13,7 +13,7 @@ use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::dataset_view::{
     DATASET_LIST, DatasetList, DatasetListParams, DatasetSummary,
 };
-use rusqlite::{Connection, OptionalExtension as _};
+use rusqlite::Connection;
 
 /// The handler of `dataset.list`.
 pub(crate) fn handler() -> Handler {
@@ -35,18 +35,14 @@ async fn list(params: DatasetListParams, context: CallContext) -> Result<Dataset
 
 /// The Datasets the run file `connection` declares, with their counts.
 fn listed(connection: &Connection) -> rusqlite::Result<DatasetList> {
-    let crawled = connection
-        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'datasets'")
-        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
-        .optional()?
-        .is_some();
-    if !crawled {
+    let declarations = Declarations::read(connection)?;
+    if declarations.declarations().is_empty() {
         return Ok(DatasetList {
             datasets: Vec::new(),
         });
     }
     let (_, counted) = crate::report::ended(connection)?;
-    let datasets = Declarations::read(connection)?
+    let datasets = declarations
         .declarations()
         .iter()
         .map(|declared| {

@@ -18,11 +18,8 @@ use goodfetch_protocol::foxhound::dataset::{
     RECORD, RUN_RECORDS, RecordRead, RecordsRead, RunRecordsParams,
 };
 
-use crate::declaration::Declarations;
-use crate::records::{self, Query};
-
-/// The most Records one read of the run file takes.
-const PAGE: usize = 256;
+use crate::open::open_dataset;
+use crate::records::Pages;
 
 /// The handler of `run.records`.
 pub(crate) fn handler() -> Handler {
@@ -34,40 +31,20 @@ async fn read_records(
     context: CallContext,
 ) -> Result<RecordsRead, CallError> {
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(params.run_id.clone())
-        .await
-        .map_err(failed)?;
-    reader
-        .read(Declarations::read)
-        .await
-        .map_err(failed)?
-        .readable(&params.dataset)?;
+    let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let stream = context.stream();
+    let after = params.after.unwrap_or_default();
     let mut read = RecordsRead {
         count: 0,
-        last: params.after.unwrap_or_default(),
+        last: after,
     };
+    let mut pages = Pages::new(&params.dataset, after, params.through, params.wall);
     loop {
         let live = reader.is_live().await;
-        let (dataset, after, through) = (params.dataset.clone(), read.last, params.through);
-        let (page, committed) = reader
-            .read(move |connection| {
-                records::read_through(
-                    connection,
-                    Query {
-                        dataset: &dataset,
-                        after,
-                        through,
-                        wall: params.wall,
-                    },
-                    PAGE,
-                )
-            })
+        let (page, full, committed) = pages
+            .next_records_through(&mut reader)
             .await
             .map_err(failed)?;
-        let full = page.len() == PAGE;
         for record in page {
             let _ = stream.spend(1).await;
             let number = record.number;

@@ -461,7 +461,7 @@ async fn supervise(supervised: Supervised) {
         mut child,
         _group: group,
     } = process;
-    let close = Deadline::of_run(&run, &TIMEOUT_CLOSE);
+    let close = Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_CLOSE);
     let clock = run.clock();
     let (_, status) = tokio::join!(driver, async {
         let status = tokio::select! {

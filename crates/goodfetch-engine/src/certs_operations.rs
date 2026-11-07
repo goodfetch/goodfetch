@@ -20,10 +20,11 @@ use goodfetch_protocol::tls::{
 use serde_json::json;
 
 use crate::audit::Origin;
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
+use crate::engine_context::CALLER;
 use crate::known_certificates::{Found, KeyHash, KnownCertificatesError};
 use crate::run::format_refusal;
-use crate::runs::CALLER;
 use crate::tls::host_key;
 
 /// The `certs.*` handlers.
@@ -36,9 +37,9 @@ pub(crate) fn handlers() -> [Handler; 3] {
 }
 
 async fn list(_: CertsListParams, context: CallContext) -> Result<CertsListed, CallError> {
-    let limits = context.runs().limits();
-    let store = limits.known_certificates.clone();
-    let owner = Arc::clone(&limits.owner);
+    let engine = context.engine();
+    let store = engine.known_certificates().clone();
+    let owner = Arc::clone(engine.owner());
     let pins = owner
         .blocking(move || store.list(CALLER))
         .await
@@ -60,9 +61,7 @@ async fn accept(
             ),
         )
     })?;
-    let runs = context.runs();
-    let limits = runs.limits().clone();
-    let audit = runs.audit().clone();
+    let engine = context.engine().clone();
     let origin = Origin {
         actor: Actor::Person {
             name: context.person(),
@@ -71,11 +70,13 @@ async fn accept(
         layer: None,
         run_id: None,
     };
-    let owner = Arc::clone(&limits.owner);
+    let owner = Arc::clone(engine.owner());
     owner
         .blocking(move || {
-            let now = limits.now();
-            let accepted = limits.known_certificates.accept(CALLER, &host, &key, now)?;
+            let now = engine.now();
+            let accepted = engine
+                .known_certificates()
+                .accept(CALLER, &host, &key, now)?;
             let pinned = match accepted.previous {
                 Found::Pinned(pinned) => json!(pinned.to_string()),
                 Found::Unpinned | Found::Unreadable => json!(null),
@@ -85,7 +86,11 @@ async fn accept(
                 "pinned_spki_sha256": pinned,
                 "accepted_spki_sha256": key.to_string(),
             });
-            if let Err(error) = audit.record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now) {
+            if let Err(error) =
+                engine
+                    .audit()
+                    .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
+            {
                 tracing::warn!(%error, "the Audit log cannot record an accepted change");
             }
             Ok(accepted.pin)
@@ -99,9 +104,7 @@ async fn forget(
     context: CallContext,
 ) -> Result<CertsForgotten, CallError> {
     let host = host_of(&params.host)?;
-    let runs = context.runs();
-    let limits = runs.limits().clone();
-    let audit = runs.audit().clone();
+    let engine = context.engine().clone();
     let origin = Origin {
         actor: Actor::Person {
             name: context.person(),
@@ -110,16 +113,19 @@ async fn forget(
         layer: None,
         run_id: None,
     };
-    let owner = Arc::clone(&limits.owner);
+    let owner = Arc::clone(engine.owner());
     let removed = host.clone();
     let forgotten = owner
         .blocking(move || {
-            let forgotten = limits.known_certificates.forget(CALLER, &removed)?;
+            let forgotten = engine.known_certificates().forget(CALLER, &removed)?;
             if forgotten {
                 let details = json!({ "host": removed });
-                if let Err(error) =
-                    audit.record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, limits.now())
-                {
+                if let Err(error) = engine.audit().record(
+                    &origin,
+                    &CERTIFICATE_PIN_FORGOTTEN,
+                    details,
+                    engine.now(),
+                ) {
                     tracing::warn!(%error, "the Audit log cannot record a forgotten pin");
                 }
             }

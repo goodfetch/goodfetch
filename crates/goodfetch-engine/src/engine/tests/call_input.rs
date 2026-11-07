@@ -13,7 +13,8 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 use super::{Client, attached, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 
 /// The notification `test.input`'s calls take as their input.
 const TEST_INPUT: &str = "$/test_input";

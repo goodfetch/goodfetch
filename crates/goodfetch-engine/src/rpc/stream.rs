@@ -14,7 +14,8 @@ use goodfetch_protocol::page::{
 
 use super::record_event;
 use crate::body;
-use crate::composition::{CallContext, CallError, CallStream, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, CallStream, Handler};
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;

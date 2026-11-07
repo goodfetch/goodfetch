@@ -12,7 +12,7 @@ use goodfetch_protocol::executables::{
     EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, ExecutableBlockedBySmartAppControlDetails,
 };
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 
 /// The `WinError.h` codes with which Windows' code integrity refuses to
 /// start a file: `ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION` (4551) and the

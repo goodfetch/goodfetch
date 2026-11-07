@@ -21,8 +21,8 @@ use goodfetch_protocol::dns::{
     RESOLUTION_DELAY,
 };
 
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
 use crate::dns::{LookupError, family_of};
 use crate::settings::{Resolved, catalog_default};
 

@@ -47,7 +47,6 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -70,13 +69,13 @@ use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
-    MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY, ReachedLimit,
-    RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress, RunReport,
-    RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs, StopReason,
-    Tags,
+    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
+    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY,
+    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress,
+    RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs,
+    StopReason, Tags,
 };
-use goodfetch_protocol::secret_reference::{Provider, SecretReference};
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
@@ -112,26 +111,24 @@ use self::takeover::TakeOver;
 use self::writer::{LockError, retried, take_lock, try_lock};
 use crate::CallError;
 use crate::admission::{Admission, Gates};
-use crate::audit::{AuditEvents, AuditLog, Origin};
+use crate::audit::{AuditLog, Origin};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
 use crate::controls::Controls;
 use crate::endpoint::Refusals;
+use crate::engine_context::{CALLER, EngineContext};
 use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::governor::{
     Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
 };
-use crate::home::{Home, RunStateLocation, major_name};
+use crate::home::{RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{
-    Charged, Charging, Counted, Ledger, LedgerError, Refusal, Reservation, SliceId,
-};
+use crate::ledger::{Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
-use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
@@ -142,10 +139,8 @@ use crate::run_state::{
     self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
 use crate::run_trace;
-use crate::secrets::{
-    Carried, Keychain, ProviderFactory, Purpose, RunSecrets, SecretError, Secrets, is_engine_key,
-};
-use crate::settings::{Resolved, RunSettings, Settings, get_or_default};
+use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
+use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
@@ -159,37 +154,25 @@ const REPORT_POLL: Duration = Duration::from_secs(1);
 /// Run bound to its machine records (ADR 0056).
 const MACHINE_FILE: &str = "machine-id";
 
-/// Who a Connection acts for: the OS user on a single-user install (ADR
-/// 0102), the only caller until accounts arrive (area 12).
-pub(crate) const CALLER: &str = "os_user";
-
 /// How many commands wait for the registry before their senders wait.
 const COMMANDS: usize = 256;
 
 /// What the registry starts from.
 pub(crate) struct RunsSetup {
+    /// What the engine gives its Runs: its home, clock and settings, and
+    /// the user's Audit log, known-certificates store and Usage ledger.
+    pub(crate) engine: EngineContext,
+    /// The engine's Secret-provider driver, which each Run resolves its
+    /// Secret references through.
+    pub(crate) secrets: Secrets,
     /// Every live Run's resolved values, which each Run's own join.
     pub(crate) masks: Masks,
-    /// The Secret providers the composition builds for each Run from its
-    /// settings.
-    pub(crate) secret_providers: Vec<(Provider, ProviderFactory)>,
-    /// The engine's environment map, which `env:` Secret references
-    /// resolve in.
-    pub(crate) environment: BTreeMap<OsString, OsString>,
-    /// The OS keychain, which `keychain:` Secret references resolve in.
-    pub(crate) keychain: Keychain,
-    /// The Goodfetch home.
-    pub(crate) home: Home,
     /// The engine's Product version, which names its per-major folder.
     pub(crate) version: ProductVersion,
     /// Where the run folders are.
     pub(crate) location: RunStateLocation,
     /// How run files open.
     pub(crate) run_state: RunStateOptions,
-    /// The VFS the Usage ledger and the Audit log open through: the run
-    /// state's own, never the install database's, which serves only the run
-    /// folders.
-    pub(crate) ledger_vfs: Option<String>,
     /// The install database `run_state`'s VFS serves the run files from,
     /// in the per-install layout, kept open while the registry lives.
     pub(crate) install: Option<Arc<InstallDatabase>>,
@@ -201,16 +184,10 @@ pub(crate) struct RunsSetup {
     pub(crate) politeness: PolitenessOptions,
     /// The tables the composition adds to the Politeness file.
     pub(crate) politeness_tables: Vec<PolitenessTables>,
-    /// The engine's clock.
-    pub(crate) clock: Clock,
     /// The engine's entropy, from which Run IDs draw.
     pub(crate) entropy: Entropy,
     /// The engine's event stream, which each axis change reaches.
     pub(crate) events: Events,
-    /// The engine's settings, which each Run resolves its own under.
-    pub(crate) settings: Settings,
-    /// Where the Audit log also sends each entry it appends.
-    pub(crate) audit_events: Option<AuditEvents>,
     /// The engine's Product, which a Run must not need more than for the
     /// engine to take its writer role (ADR 0098).
     pub(crate) product: Product,
@@ -235,8 +212,6 @@ pub(crate) struct RunsSetup {
     /// The Console's address, when this engine serves one (ADR 0031): each
     /// Run's report names its page there.
     pub(crate) console: Option<String>,
-    /// The engine's "Needs you", which `needs_you.*` reach through the Runs.
-    pub(crate) needs_you: NeedsYou,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -1209,16 +1184,15 @@ pub(crate) type ConnectionId = u64;
 #[derive(Clone)]
 pub struct Runs {
     commands: mpsc::Sender<Command>,
-    settings: Settings,
+    /// What the engine gives its Runs.
+    engine: EngineContext,
     connection: Option<ConnectionId>,
     limits: Arc<Limits>,
-    /// The Secret-provider driver, which holds the user's Audit log.
+    /// The Secret-provider driver, which each Run resolves through.
     secrets: Secrets,
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     clean_up: Option<Arc<CleanUpRules>>,
-    /// The engine's "Needs you".
-    needs_you: NeedsYou,
     /// The switchable controls each new Run reports.
     controls: Arc<Controls>,
     /// The engine's Product version, whose major's Run index its Runs
@@ -1452,7 +1426,7 @@ impl Run {
     ///
     /// Dropping the future after the write began still records it.
     pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
-        let path = self.runs.home().run_index(&self.runs.version);
+        let path = self.runs.engine.home().run_index(&self.runs.version);
         let version = self.runs.version.clone();
         let run_id = self.id.clone();
         let at = self.point_in_time();
@@ -1482,7 +1456,7 @@ impl Run {
         domain: String,
         cause: String,
     ) -> Result<(), RunStateError> {
-        let path = self.runs.home().run_index(&self.runs.version);
+        let path = self.runs.engine.home().run_index(&self.runs.version);
         let version = self.runs.version.clone();
         let at = self.point_in_time();
         let stop = run_index::RefetchStopped {
@@ -1892,18 +1866,18 @@ impl Run {
     /// The user's known-certificates store, where its exceptions pin
     /// (ADR 0042).
     pub fn known_certificates(&self) -> KnownCertificates {
-        self.runs.limits().known_certificates.clone()
+        self.runs.engine.known_certificates().clone()
     }
 
     /// The user's Audit log, which records its security events.
     pub fn audit_log(&self) -> AuditLog {
-        self.runs.audit().clone()
+        self.runs.engine.audit().clone()
     }
 
     /// Where a listener it opens records its refusals: the user's Audit
     /// log (`endpoint`).
     pub fn refusals(&self) -> Refusals {
-        self.runs.refusals()
+        self.runs.engine.refusals()
     }
 
     /// The person it acts for, whose partition of the user's stores it
@@ -2599,60 +2573,39 @@ fn redaction(settings: Option<&RunSettings>) -> Redaction {
 
 impl Runs {
     /// Starts the registry as a task of `owner`, each Run's tasks under a
-    /// child of it.
-    pub(crate) fn start_registry(mut setup: RunsSetup, owner: &TaskOwner) -> Self {
+    /// child of it, once `startup`, what the engine writes as it starts,
+    /// ends: it answers no command before.
+    pub(crate) fn start_registry(
+        mut setup: RunsSetup,
+        startup: Pin<Box<dyn Future<Output = ()> + Send>>,
+        owner: &TaskOwner,
+    ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
-        let readers = Arc::new(owner.child());
+        let readers = Arc::clone(setup.engine.owner());
         let limits = Limits {
-            home: setup.home.clone(),
             owner: Arc::clone(&readers),
-            ledger: Ledger::at(setup.home.usage_ledger(), setup.ledger_vfs.clone()),
+            ledger: setup.engine.ledger().clone(),
             work: setup.metrics.counted_work().clone(),
-            known_certificates: KnownCertificates::of(&setup.home, setup.ledger_vfs.clone()),
-            clock: setup.clock,
+            clock: setup.engine.clock(),
             product: setup.product,
             instance: setup.events.instance().as_str().to_owned(),
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
                 .then(|| major_name(&setup.version)),
         };
-        let secrets = Secrets::new(
-            Carried {
-                environment: std::mem::take(&mut setup.environment),
-                keychain: setup.keychain.clone(),
-                home: setup.home.clone(),
-                entropy: setup.entropy.fork(),
-            },
-            Arc::new(
-                AuditLog::of(&setup.home, setup.ledger_vfs.clone())
-                    .counting_on(setup.run_state.work.clone())
-                    .retained_under(setup.settings.files().clone(), setup.settings.product())
-                    .sending_to(setup.audit_events.clone()),
-            ),
-            Arc::clone(&readers),
-            setup.clock,
-        )
-        .masked_by(setup.masks.clone());
-        let secrets = setup
-            .secret_providers
-            .iter()
-            .fold(secrets, |secrets, (provider, factory)| {
-                secrets.with_configured(*provider, Arc::clone(factory))
-            });
         let runs = Self {
             commands,
-            settings: setup.settings.clone(),
+            engine: setup.engine.clone(),
             connection: None,
             limits: Arc::new(limits),
-            secrets,
+            secrets: setup.secrets.clone(),
             clean_up: CleanUpRules::of(&setup),
-            needs_you: setup.needs_you.clone(),
             controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
             metrics: setup.metrics.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
-            path: setup.home.politeness_file(),
+            path: setup.engine.home().politeness_file(),
             options: setup.politeness.clone(),
             tables: setup.politeness_tables.clone(),
             engine: format!("{:016x}", setup.entropy.next_u64()),
@@ -2672,7 +2625,6 @@ impl Runs {
             ended: EndedRuns::new(),
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
-            secrets: runs.secrets.clone(),
             machine: None,
             draining: false,
             outliving: std::collections::BTreeSet::new(),
@@ -2682,7 +2634,7 @@ impl Runs {
             unrecorded: BTreeMap::new(),
             memory_stop: MemoryStop::Idle,
         };
-        owner.spawn(registry.run(mailbox));
+        owner.spawn(registry.run(mailbox, startup));
         runs
     }
 
@@ -2696,58 +2648,10 @@ impl Runs {
         &self.metrics
     }
 
-    /// The engine's settings, which a start resolves its Run's under.
-    pub fn settings(&self) -> &Settings {
-        &self.settings
-    }
-
-    /// The engine's "Needs you" (spec #592).
-    pub fn needs_you(&self) -> &NeedsYou {
-        &self.needs_you
-    }
-
-    /// What this engine's Runs charge against: the user's Usage ledger and
-    /// the scopes they stand in.
-    pub(crate) fn limits(&self) -> &Limits {
-        &self.limits
-    }
-
-    /// The user's Audit log, to which this engine's Runs record their
-    /// security events.
-    pub(crate) fn audit(&self) -> &AuditLog {
-        self.secrets.audit()
-    }
-
-    /// The OS user's name, from the engine's environment map: the person
-    /// of a single-user install.
-    pub(crate) fn person(&self) -> String {
-        crate::people::os_user(self.secrets.environment())
-    }
-
-    /// Where this engine's listeners record their refusals: the user's
-    /// Audit log (`endpoint`).
-    pub(crate) fn refusals(&self) -> Refusals {
-        Refusals::new(
-            self.audit().clone(),
-            Arc::clone(&self.limits.owner),
-            self.limits.clock,
-        )
-    }
-
-    /// The Daemon's Connection these Runs belong to; none on an Attached
-    /// engine, whose one Connection is its Client's.
-    pub(crate) fn connection(&self) -> Option<ConnectionId> {
-        self.connection
-    }
-
-    /// The engine's clock, which a call's wait on a Run reads.
-    pub fn clock(&self) -> Clock {
-        self.limits.clock
-    }
-
-    /// The Goodfetch home the engine runs in.
-    pub fn home(&self) -> &Home {
-        &self.limits.home
+    /// The scope of the Client connection these Runs stand in, as the
+    /// Usage ledger names it.
+    pub(crate) fn connection_scope(&self) -> LimitScope {
+        self.limits.connection(self.connection)
     }
 
     /// The live Run of `run_id`, as its driver holds it.
@@ -2828,8 +2732,8 @@ impl Runs {
     ) -> RulesContext<'a> {
         RulesContext {
             settings,
-            home: self.home(),
-            clock: self.clock(),
+            home: self.engine.home(),
+            clock: self.engine.clock(),
             product: self.limits.product,
             product_version: &rules.product_version,
             owner: &self.limits.owner,
@@ -2856,7 +2760,7 @@ impl Runs {
                 .map_err(|_| StartError::Stopped)?;
             start.run_id = Some(answered.await.map_err(|_| StartError::Stopped)?);
         }
-        let audit = self.audit().clone();
+        let audit = self.engine.audit().clone();
         let chosen = start.run_id.clone().filter(|_| switched.unchains());
         let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
         let started = self.start_reported(start).await;
@@ -3194,7 +3098,7 @@ impl Runs {
             .as_ref()
             .map(|settings| self.controls.switched_off(settings.resolved()))
             .unwrap_or_default();
-        let (audit, run_id) = (self.audit().clone(), resume.run_id.clone());
+        let (audit, run_id) = (self.engine.audit().clone(), resume.run_id.clone());
         let newly_unchained = switched.unchains() && audit.unchain(run_id.clone());
         let resumed = self.resume_unchained(resume).await;
         match &resumed {
@@ -3318,7 +3222,8 @@ impl Runs {
             return (reference, layer);
         }
         let default = self
-            .settings
+            .engine
+            .settings()
             .host_defaults()
             .await
             .of(&RUN_STATE_KEY_REFERENCE);
@@ -3594,7 +3499,7 @@ impl Runs {
                 .await?;
             match (recorded, writer) {
                 (false, _) => return Err(RunError::NotFound(run_id)),
-                (true, Some(Writer::Live)) => self.clock().sleep(REPORT_POLL).await,
+                (true, Some(Writer::Live)) => self.engine.clock().sleep(REPORT_POLL).await,
                 (true, _) => return Err(RunError::Interrupted(run_id)),
             }
         }
@@ -4116,7 +4021,6 @@ struct Registry {
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
-    secrets: Secrets,
     /// The machine's identity, once read.
     machine: Option<String>,
     /// Whether the engine drains, taking no Run (ADR 0049).
@@ -4181,12 +4085,16 @@ async fn joined_weakened(
 }
 
 impl Registry {
-    async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
+    async fn run(
+        mut self,
+        mut mailbox: mpsc::Receiver<Command>,
+        startup: Pin<Box<dyn Future<Output = ()> + Send>>,
+    ) {
         // No command is answered before the reclaim ends, so a Run starts
         // on a ledger holding its major's managed Limits and rid of dead
         // runs' Slices, and an answered Run call says the engine's startup
         // writes are done.
-        self.write_managed().await;
+        startup.await;
         self.reclaim().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
@@ -4495,7 +4403,10 @@ impl Registry {
                 needs: held.needs,
             });
         }
-        let essential = vec![self.run_state_of(folder), self.setup.home.root().to_owned()];
+        let essential = vec![
+            self.run_state_of(folder),
+            self.setup.engine.home().root().to_owned(),
+        ];
         match self.critical_among(essential).await {
             Some((folder, filesystem)) => {
                 Err(RunError::ResourcesExhausted(Box::new(StorageExhausted {
@@ -4556,37 +4467,6 @@ impl Registry {
             }
         }
         reports
-    }
-
-    /// Writes the install Limits the managed Operator policy of the
-    /// engine's major names as that major's managed rows, as each engine
-    /// does when it starts (ADR 0041); a policy that names none, or none
-    /// at all, leaves that major no managed row.
-    async fn write_managed(&self) {
-        let machine = match self.setup.settings.machine().await {
-            Ok(machine) => machine,
-            Err(error) => {
-                tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
-                return;
-            }
-        };
-        let limits: Vec<goodfetch_protocol::usage::Limit> = machine
-            .operator_policy
-            .managed
-            .iter()
-            .flat_map(|managed| managed.install_limits.iter())
-            .map(goodfetch_protocol::usage::ManagedLimit::limit)
-            .collect();
-        let ledger = self.limits.ledger.clone();
-        let major = major_name(&self.setup.version);
-        let now = self.limits.now();
-        let written = self
-            .owner
-            .blocking(move || ledger.write_managed(&major, &limits, now))
-            .await;
-        if let Err(error) = written {
-            tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
-        }
     }
 
     /// Reclaims the Slices of every run whose engine is gone, as each engine
@@ -4703,7 +4583,7 @@ impl Registry {
             changes: self.live.get(run_id).map(|live| live.progress.subscribe()),
             reader: self.reader(run_id),
             parts: self.setup.progress_parts.clone(),
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
         }
     }
 
@@ -4715,7 +4595,7 @@ impl Registry {
         }
         Some(Located {
             folder: self.folder(run_id),
-            index: self.setup.home.run_index(&self.setup.version),
+            index: self.setup.engine.home().run_index(&self.setup.version),
             version: self.setup.version.clone(),
             reached_at: self.setup.reached_at.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
@@ -4725,7 +4605,7 @@ impl Registry {
 
     fn index_at(&self) -> IndexAt {
         IndexAt {
-            index: self.setup.home.run_index(&self.setup.version),
+            index: self.setup.engine.home().run_index(&self.setup.version),
             version: self.setup.version.clone(),
             tasks: Arc::clone(&self.readers),
         }
@@ -4743,7 +4623,7 @@ impl Registry {
             self.setup.run_state.vfs.clone(),
             Arc::clone(&self.readers),
             following,
-            self.setup.clock,
+            self.setup.engine.clock(),
         )
     }
 
@@ -4763,11 +4643,11 @@ impl Registry {
         }
         let erasing = Erasing {
             owner: self.owner.child(),
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
             entropy: self.setup.entropy.fork(),
             vfs: self.setup.run_state.vfs.clone(),
             install: self.setup.install.clone(),
-            index: self.setup.home.run_index(&self.setup.version),
+            index: self.setup.engine.home().run_index(&self.setup.version),
             version: self.setup.version.clone(),
         };
         let registry = self.runs.clone();
@@ -4852,7 +4732,7 @@ impl Registry {
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
         }
     }
@@ -4860,25 +4740,29 @@ impl Registry {
     fn folder(&self, run_id: &RunId) -> PathBuf {
         self.setup
             .location
-            .folder(&self.setup.home, &self.setup.version)
+            .folder(self.setup.engine.home(), &self.setup.version)
             .join(run_id.as_str())
     }
 
     /// The Run's folder as the Run index records it: relative to the
     /// per-major folder when inside it.
     fn location(&self, folder: &Path) -> String {
-        location(&self.setup.home.per_major(&self.setup.version), folder)
+        location(
+            &self.setup.engine.home().per_major(&self.setup.version),
+            folder,
+        )
     }
 
     fn now(&self) -> PointInTime {
-        point_in_time(&self.setup.clock)
+        point_in_time(&self.setup.engine.clock())
     }
 
     /// A lowercase ULID from the clock and the entropy (ADR 0059).
     fn generated_id(&mut self) -> RunId {
         let milliseconds = self
             .setup
-            .clock
+            .engine
+            .clock()
             .wall()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| {
@@ -5001,7 +4885,7 @@ impl Registry {
         let folder = self.folder(run_id);
         let discarding = discard::Discarding {
             owner: &self.owner,
-            clock: &self.setup.clock,
+            clock: &self.setup.engine.clock(),
             entropy: &mut self.setup.entropy,
         };
         let discarded = discard::discard_unclean(
@@ -5057,7 +4941,7 @@ impl Registry {
     /// engine may hold while it runs there; one found held, perhaps only by
     /// a reader's test, is retried as every writer retries it (ADR 0031).
     async fn lock(&mut self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
-        let (owner, clock) = (&self.owner, &self.setup.clock);
+        let (owner, clock) = (&self.owner, &self.setup.engine.clock());
         let taken = match try_lock(owner, folder).await {
             Ok(Some(lock)) => Ok(Some(lock)),
             // Only a retry draws from the engine's `Entropy`.
@@ -5247,7 +5131,7 @@ impl Registry {
     /// takes no new Run. An index that cannot be opened stops no Run; its
     /// row is restored by `runs reindex`.
     async fn check_index(&self) -> Result<(), StartError> {
-        let path = self.setup.home.run_index(&self.setup.version);
+        let path = self.setup.engine.home().run_index(&self.setup.version);
         let version = self.setup.version.clone();
         match self
             .owner
@@ -5274,7 +5158,7 @@ impl Registry {
     }
 
     async fn write_index(&self, row: RunIndexRow) {
-        let path = self.setup.home.run_index(&self.setup.version);
+        let path = self.setup.engine.home().run_index(&self.setup.version);
         let version = self.setup.version.clone();
         if let Err(error) = self
             .owner
@@ -5364,7 +5248,7 @@ impl Registry {
         let runs = self
             .setup
             .location
-            .folder(&self.setup.home, &self.setup.version);
+            .folder(self.setup.engine.home(), &self.setup.version);
         EngineFolders {
             run_state: self
                 .setup
@@ -5372,7 +5256,7 @@ impl Registry {
                 .as_ref()
                 .map_or_else(|| runs.clone(), |install| install.folder().to_owned()),
             runs,
-            home: self.setup.home.root().to_owned(),
+            home: self.setup.engine.home().root().to_owned(),
             temporary: std::env::temp_dir(),
         }
     }
@@ -5411,7 +5295,7 @@ impl Registry {
             id: run_id.clone(),
             folder: folder.to_owned(),
             state,
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
             admitting: Arc::clone(&self.admitting),
             shared: Arc::new(Shared {
                 stop: watch::Sender::new(None),
@@ -5456,7 +5340,7 @@ impl Registry {
             run_id.clone(),
             progress.subscribe(),
             self.setup.events.clone(),
-            self.setup.clock,
+            self.setup.engine.clock(),
         ));
         progress
     }
@@ -5467,12 +5351,11 @@ impl Registry {
                 .runs
                 .upgrade()
                 .expect("invariant: the registry runs while a handle sends to it"),
-            settings: self.setup.settings.clone(),
+            engine: self.setup.engine.clone(),
             connection,
             limits: Arc::clone(&self.limits),
-            secrets: self.secrets.clone(),
+            secrets: self.setup.secrets.clone(),
             clean_up: CleanUpRules::of(&self.setup),
-            needs_you: self.setup.needs_you.clone(),
             controls: Arc::new(self.setup.controls.clone()),
             version: self.setup.version.clone(),
             metrics: self.setup.metrics.clone(),
@@ -5504,7 +5387,7 @@ impl Registry {
         else {
             return self.report_of(run_id).await;
         };
-        let clock = self.setup.clock;
+        let clock = self.setup.engine.clock();
         let nonce = self.setup.entropy.next_u64();
         let vfs = self.setup.run_state.vfs.clone();
         let events = self.setup.events.clone();
@@ -5560,7 +5443,7 @@ impl Registry {
             governor: self.setup.governor.clone(),
         };
         let recording = Recording {
-            index: self.setup.home.run_index(&self.setup.version),
+            index: self.setup.engine.home().run_index(&self.setup.version),
             version: self.setup.version.clone(),
             row,
             events,
@@ -5664,9 +5547,9 @@ impl Registry {
             product: self.setup.product,
             run_state: self.setup.run_state.clone(),
             tables: self.setup.tables.clone(),
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
             entropy: self.setup.entropy.fork(),
-            index: self.setup.home.run_index(&self.setup.version),
+            index: self.setup.engine.home().run_index(&self.setup.version),
             version: self.setup.version.clone(),
             events: self.setup.events.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
@@ -5722,7 +5605,7 @@ impl Registry {
             folder,
             vfs: self.setup.run_state.vfs.clone(),
             nonce: self.setup.entropy.next_u64(),
-            clock: self.setup.clock,
+            clock: self.setup.engine.clock(),
             events: self.setup.events.clone(),
             tasks: Arc::new(self.ending_owner.child()),
             governor: self.setup.governor.clone(),
@@ -5756,7 +5639,7 @@ impl Registry {
         if let Some(machine) = &self.machine {
             return Ok(machine.clone());
         }
-        let root = self.setup.home.root().to_owned();
+        let root = self.setup.engine.home().root().to_owned();
         let drawn = format!(
             "{:016x}{:016x}",
             self.setup.entropy.next_u64(),
@@ -5768,7 +5651,7 @@ impl Registry {
             .await
             .map_err(|error| RunError::Unavailable {
                 run_id: RunId::parse("machine").expect("invariant: `machine` is a Run ID"),
-                folder: self.setup.home.root().to_owned(),
+                folder: self.setup.engine.home().root().to_owned(),
                 error: error.to_string(),
             })?;
         self.machine = Some(machine.clone());
@@ -6354,7 +6237,7 @@ async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
         layer: None,
         run_id: Some(run.id.clone()),
     };
-    let audit = run.runs.audit().clone();
+    let audit = run.runs.engine.audit().clone();
     let now = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
     let recorded = writer
         .blocking(move || {

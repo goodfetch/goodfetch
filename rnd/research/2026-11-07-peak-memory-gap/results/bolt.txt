@@ -1,0 +1,5 @@
+BOLT-INFO: enabling relocation mode
+BOLT-INFO: static input executable detected
+BOLT-INFO: 1430 out of 131819 functions in the binary (1.1%) have non-empty execution profile
+BOLT-INFO: enabling relocation mode
+BOLT-INFO: 1523 out of 131820 functions in the binary (1.2%) have non-empty execution profile

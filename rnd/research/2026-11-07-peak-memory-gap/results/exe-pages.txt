@@ -1,0 +1,80 @@
+== base-r1-raw-1000-c16: 15.62 MiB of the executable resident
+  .text                  9.60 MiB: rust 7.58, C:libsqlite3_sys 1.06, C:libduckdb_sys 0.60, zig:c 0.10, zig:c++ 0.09, C:libmimalloc_sys 0.08
+  .rodata                3.61 MiB: rust 2.13, linker 1.30, C:libduckdb_sys 0.09, C:libsqlite3_sys 0.05, zig:c 0.01, zig:compiler_rt 0.01
+  .data.rel.ro           2.11 MiB: rust 1.57, C:libduckdb_sys 0.44, C:btls_sys 0.06, C:libmimalloc_sys 0.02, zig:c++abi 0.01, C:libsqlite3_sys 0.01
+  .gcc_except_table      0.07 MiB: rust 0.03, C:libduckdb_sys 0.02, C:btls_sys 0.01, zig:c++ 0.01, zig:c++abi 0.00
+  read-only data by kind:
+    .rodata            rust   anon      1.56 MiB
+    .data.rel.ro       rust   anon      1.39 MiB
+    .rodata            linker merged    1.30 MiB
+    .rodata            rust   named     0.57 MiB
+    .data.rel.ro       C      named     0.51 MiB
+    .data.rel.ro       rust   named     0.17 MiB
+    .rodata            C      named     0.14 MiB
+    .rodata            zig    named     0.04 MiB
+    .gcc_except_table  C      named     0.03 MiB
+== touch-krand-r1-raw-1000-c16: 10.80 MiB of the executable resident
+  .text                  6.88 MiB: rust 5.80, C:libsqlite3_sys 0.82, C:libduckdb_sys 0.08, C:libmimalloc_sys 0.08, zig:c 0.05, zig:c++ 0.02
+  .data.rel.ro           2.11 MiB: rust 1.57, C:libduckdb_sys 0.44, C:btls_sys 0.06, zig:c++abi 0.01, C:libmimalloc_sys 0.01, C:libsqlite3_sys 0.01
+  .rodata                1.61 MiB: rust 0.92, linker 0.62, C:libsqlite3_sys 0.04, zig:c 0.01, C:libduckdb_sys 0.00, zig:c++ 0.00
+  read-only data by kind:
+    .data.rel.ro       rust   anon      1.39 MiB
+    .rodata            rust   anon      0.69 MiB
+    .rodata            linker merged    0.62 MiB
+    .data.rel.ro       C      named     0.50 MiB
+    .rodata            rust   named     0.23 MiB
+    .data.rel.ro       rust   named     0.17 MiB
+    .rodata            C      named     0.05 MiB
+touched pages: 2765 (10.80 MiB)
+  sections on touched pages: .text          rust     7.02 MiB
+  sections on touched pages: .rodata        rust     2.79 MiB
+  sections on touched pages: .data.rel.ro   rust     1.57 MiB
+  sections on touched pages: .rodata        linker   1.43 MiB
+  sections on touched pages: .text          C        1.08 MiB
+  sections on touched pages: .eh_frame_hdr  linker   1.01 MiB
+  sections on touched pages: .data.rel.ro   C        0.52 MiB
+  sections on touched pages: .bss           rust     0.13 MiB
+  sections on touched pages: .text          zig      0.12 MiB
+  sections on touched pages: .rodata        C        0.08 MiB
+  sections on touched pages: .relr.dyn      linker   0.03 MiB
+10479 text symbols, 9280 data symbols, 40503 anonymous sections
+touched pages: 2746 (10.73 MiB)
+  sections on touched pages: .text          rust     7.03 MiB
+  sections on touched pages: .rodata        rust     2.77 MiB
+  sections on touched pages: .data.rel.ro   rust     1.57 MiB
+  sections on touched pages: .rodata        linker   1.43 MiB
+  sections on touched pages: .text          C        1.08 MiB
+  sections on touched pages: .eh_frame_hdr  linker   1.01 MiB
+  sections on touched pages: .data.rel.ro   C        0.52 MiB
+  sections on touched pages: .bss           rust     0.13 MiB
+  sections on touched pages: .text          zig      0.12 MiB
+  sections on touched pages: .rodata        C        0.08 MiB
+  sections on touched pages: .relr.dyn      linker   0.03 MiB
+10492 text symbols, 9280 data symbols, 40287 anonymous sections
+order.txt (PGO) 8174, order3 67052, order5 61912 entries
+== f-ord5-r1-raw-1000-c16: 13.74 MiB of the executable resident
+  .text                  8.34 MiB: obj:rust-anon.o 7.08, C:libsqlite3_sys 0.87, C:libduckdb_sys 0.12, zig:c 0.09, C:libmimalloc_sys 0.08, zig:zigc 0.02
+  .rodata                3.03 MiB: obj:rust-anon.o 1.45, linker 1.32, C:btls_sys 0.08, C:libduckdb_sys 0.07, C:libsqlite3_sys 0.05, C:ring 0.03
+  .data.rel.ro           2.11 MiB: obj:rust-anon.o 1.57, C:libduckdb_sys 0.44, C:btls_sys 0.06, C:libmimalloc_sys 0.02, zig:c++abi 0.01, C:libsqlite3_sys 0.01
+  read-only data by kind:
+    .data.rel.ro       obj    anon      1.40 MiB
+    .rodata            linker merged    1.32 MiB
+    .rodata            obj    anon      0.97 MiB
+    .data.rel.ro       C      named     0.51 MiB
+    .rodata            obj    named     0.48 MiB
+    .rodata            C      named     0.22 MiB
+    .data.rel.ro       obj    named     0.17 MiB
+    .rodata            zig    named     0.04 MiB
+== fw-ord5-r1-raw-1000-c16: 13.96 MiB of the executable resident
+  .text                  8.46 MiB: obj:rust-anon.o 7.20, C:libsqlite3_sys 0.87, C:libduckdb_sys 0.12, zig:c 0.09, C:libmimalloc_sys 0.08, zig:zigc 0.02
+  .rodata                3.12 MiB: obj:rust-anon.o 1.51, linker 1.35, C:btls_sys 0.08, C:libduckdb_sys 0.07, C:libsqlite3_sys 0.05, C:ring 0.03
+  .data.rel.ro           2.11 MiB: obj:rust-anon.o 1.57, C:libduckdb_sys 0.44, C:btls_sys 0.06, C:libmimalloc_sys 0.02, zig:c++abi 0.01, C:libsqlite3_sys 0.01
+  read-only data by kind:
+    .data.rel.ro       obj    anon      1.40 MiB
+    .rodata            linker merged    1.35 MiB
+    .rodata            obj    anon      1.01 MiB
+    .data.rel.ro       C      named     0.51 MiB
+    .rodata            obj    named     0.50 MiB
+    .rodata            C      named     0.22 MiB
+    .data.rel.ro       obj    named     0.17 MiB
+    .rodata            zig    named     0.04 MiB

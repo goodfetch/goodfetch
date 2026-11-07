@@ -56,7 +56,7 @@ use tracing::Instrument as _;
 use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
-    self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+    self, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
 };
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
@@ -69,7 +69,7 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
-use crate::endpoint::{REFUSAL_TARGET, same_token};
+use crate::endpoint::{Authorities, Listener, REFUSAL_TARGET, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -172,15 +172,15 @@ impl Access {
         }
     }
 
-    /// Its listener's name in the endpoint table (ADR 0067), for a
-    /// Connection of newline-delimited JSON-RPC.
-    fn listener(&self) -> &'static str {
+    /// Its listener in the endpoint table (ADR 0067), for a Connection of
+    /// newline-delimited JSON-RPC.
+    fn listener(&self) -> Listener {
         match self {
-            Self::Attached(..) => "stdio",
-            Self::Daemon(_) => "daemon_socket",
-            Self::Exposed(..) => "exposed_daemon",
-            Self::PrivateEndpoint(_) => "private_endpoint",
-            Self::Console(..) => CONSOLE_LISTENER,
+            Self::Attached(..) => Listener::Stdio,
+            Self::Daemon(_) => Listener::DaemonSocket,
+            Self::Exposed(..) => Listener::ExposedDaemon,
+            Self::PrivateEndpoint(_) => Listener::PrivateEndpoint,
+            Self::Console(..) => Listener::Console,
         }
     }
 
@@ -191,12 +191,6 @@ impl Access {
         self.token().is_some() || matches!(self, Self::Console(..))
     }
 }
-
-/// The endpoint table's name of the Console's WebSocket (ADR 0067).
-pub const CONSOLE_LISTENER: &str = "console";
-
-/// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
-const WEBSOCKET_LISTENER: &str = "daemon_websocket";
 
 /// How a Connection's messages arrive: as lines, as WebSocket messages, or
 /// in the Console's `POST` bodies.
@@ -256,13 +250,13 @@ enum Writing {
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
-/// its listener's name; `None` when an Exposed Daemon's WebSocket handshake
+/// its listener; `None` when an Exposed Daemon's WebSocket handshake
 /// was refused or failed, which closes it.
 async fn carriage(
     connection: Connection,
     access: &Access,
     engine: &EngineContext,
-) -> Option<(Reading, Writing, &'static str)> {
+) -> Option<(Reading, Writing, Listener)> {
     let (mut reader, writer) = connection.split();
     let Access::Exposed(_, authorities) = access else {
         let reader = Prefixed::new(Vec::new(), reader);
@@ -287,12 +281,12 @@ async fn carriage(
         Ok((messages, sent)) => Some((
             Reading::Messages(messages),
             Writing::Messages(sent),
-            WEBSOCKET_LISTENER,
+            Listener::DaemonWebsocket,
         )),
         Err(NotOpened::Refused(refusal)) => {
             engine
                 .refusals()
-                .refused(WEBSOCKET_LISTENER, refusal.reason())
+                .refused(Listener::DaemonWebsocket, refusal.reason())
                 .await;
             None
         }
@@ -377,7 +371,7 @@ pub(crate) async fn serve_console(
     let carried = Carried {
         reading,
         writing,
-        listener: CONSOLE_LISTENER,
+        listener: Listener::Console,
     };
     serve_carried(
         dispatch,
@@ -391,11 +385,11 @@ pub(crate) async fn serve_console(
     .await;
 }
 
-/// How a Connection's messages travel, and its listener's name.
+/// How a Connection's messages travel, and its listener.
 struct Carried {
     reading: Reading,
     writing: Writing,
-    listener: &'static str,
+    listener: Listener,
 }
 
 /// Serves the Connection `carried` gives until it ends, its calls given
@@ -614,8 +608,8 @@ struct Session<'owner> {
     opened_client: Option<Box<dyn Send + Sync>>,
     /// How the Connection reached the engine.
     access: Access,
-    /// Its listener's name in the endpoint table (ADR 0067).
-    listener: &'static str,
+    /// Its listener in the endpoint table (ADR 0067).
+    listener: Listener,
 }
 
 /// A handler request the engine sent, waiting for its reply.
@@ -1211,7 +1205,7 @@ impl Session<'_> {
     async fn refused(&self, reason: &'static str) {
         let listener = self.listener;
         if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
-            tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` was closed");
+            tracing::warn!(target: REFUSAL_TARGET, listener = listener.name(), reason, "a Connection that did not open with `hello` was closed");
             sign_ins.refused(listener, reason).await;
         } else {
             self.connection

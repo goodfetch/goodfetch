@@ -43,7 +43,7 @@ use tokio::time::Instant;
 
 use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
-use crate::endpoint::same_token;
+use crate::endpoint::{Listener, same_token};
 use crate::tasks::TaskOwner;
 
 pub use key::{ConsoleKey, KeyError};
@@ -541,7 +541,8 @@ impl SignInDriver {
     /// # Cancel safety
     ///
     /// Dropping the future may leave the entry recorded.
-    pub async fn refused(&self, listener: &'static str, reason: &'static str) {
+    pub async fn refused(&self, listener: Listener, reason: &'static str) {
+        let listener = listener.name();
         let inner = Arc::clone(&self.inner);
         self.blocking(move || {
             let origin = Origin {

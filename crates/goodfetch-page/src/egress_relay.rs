@@ -70,7 +70,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
-use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
+use goodfetch_engine::endpoint::{Listener, REFUSAL_TARGET, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding, Resolve};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
@@ -731,14 +731,14 @@ impl Observe for Record {
         if !given {
             tracing::debug!(
                 target: REFUSAL_TARGET,
-                listener = "egress_relay",
+                listener = Listener::EgressRelay.name(),
                 "a connection to a Session's egress relay gave no credentials and was asked for them"
             );
             return;
         }
         let refusals = self.run.refusals();
         self.run.spawn(async move {
-            refusals.refused("egress_relay", "token_wrong").await;
+            refusals.refused(Listener::EgressRelay, "token_wrong").await;
         });
     }
 }

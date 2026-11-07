@@ -32,6 +32,7 @@ use super::{
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
+use crate::endpoint::Listener;
 use crate::home::Home;
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::connection::Surface;
@@ -403,7 +404,7 @@ fn each_change_is_in_the_audit_log_by_the_os_user_through_the_console() {
         let (id, _) = signed_in.cookie().split_once('.').unwrap();
         driver.revoke(id, Some(Surface::Console)).await.unwrap();
         driver.rotate_key(Some(Surface::Console)).await.unwrap();
-        driver.refused("console", "token_wrong").await;
+        driver.refused(Listener::Console, "token_wrong").await;
 
         let entries = audit_entries(&env);
 

@@ -40,13 +40,11 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::product::{Identity, Requested};
 
-pub use connection::CONSOLE_LISTENER;
 pub(crate) use connection::{
     Access, ConsoleConnection, ConsoleSide, Dispatch, serve, serve_console,
 };
 pub use handshake::version_refusal;
-pub use websocket::Authorities;
-pub(crate) use websocket::{ConsoleSocket, Refusal};
+pub(crate) use websocket::ConsoleSocket;
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.

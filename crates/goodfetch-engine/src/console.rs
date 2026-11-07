@@ -54,10 +54,10 @@ use crate::clock::Clock;
 use crate::composition::ConsoleBuild;
 use crate::content_origin::{BODIES, ContentFile, ContentKey, Shown};
 use crate::daemon::ContentOrigin;
-use crate::endpoint::REFUSAL_TARGET;
+use crate::endpoint::{self, Authorities, Hosts, Listener, Origins, REFUSAL_TARGET, Refusal};
 use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
-use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
+use crate::rpc::{ConsoleConnection, ConsoleSocket};
 use crate::runs::Runs;
 use crate::settings::{Settings, catalog_default};
 use crate::tasks::TaskOwner;
@@ -68,7 +68,7 @@ mod event_stream;
 pub mod links;
 mod offline_key;
 
-use content::{Asked, CONTENT_LISTENER, Content};
+use content::{Asked, Content};
 use event_stream::{EVENTS, MESSAGES, Streams};
 
 pub use event_stream::fuzz_post_fallback;
@@ -448,8 +448,8 @@ impl Site {
                 None => content.plain(StatusCode::NOT_FOUND),
             },
             Asked::Refused { reason, status } => {
-                self.sign_ins.refused(CONTENT_LISTENER, reason).await;
-                tracing::warn!(target: REFUSAL_TARGET, listener = CONTENT_LISTENER, reason, "the content origin refused a request");
+                self.sign_ins.refused(Listener::ContentOrigin, reason).await;
+                tracing::warn!(target: REFUSAL_TARGET, listener = Listener::ContentOrigin.name(), reason, "the content origin refused a request");
                 content.plain(status)
             }
             Asked::Answered(response) => response,
@@ -547,17 +547,12 @@ impl Site {
         }
         let headers = request.headers();
         let value = |name| headers.get(name).and_then(|value| value.to_str().ok());
-        let refusal = if !value(header::HOST).is_some_and(|host| self.authorities.admits_host(host))
-        {
-            Some(Refusal::HostForeign)
-        } else if value(header::ORIGIN)
-            .is_some_and(|origin| !self.authorities.admits_origin(origin))
-        {
-            Some(Refusal::OriginForeign)
-        } else {
-            None
-        };
-        if let Some(refusal) = refusal {
+        if let Some(refusal) = endpoint::refusal(
+            value(header::HOST),
+            value(header::ORIGIN),
+            Hosts::Named(&self.authorities),
+            Origins::Allowed(&[&self.authorities]),
+        ) {
             return Some(self.refused(refusal.reason(), StatusCode::FORBIDDEN).await);
         }
         if let Err(refusal) = self.signed_in(headers).await {
@@ -764,7 +759,7 @@ impl Site {
     /// A refusal by the endpoint table's rule `reason`, logged and recorded
     /// in the Audit log, answered with `status` and no body.
     async fn refused(&self, reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
-        self.sign_ins.refused(CONSOLE_LISTENER, reason).await;
+        self.sign_ins.refused(Listener::Console, reason).await;
         self.refused_plain(reason, status)
     }
 
@@ -817,8 +812,12 @@ impl Site {
     /// The rule a request's `Host` or `Origin` breaks, if any.
     fn foreign(&self, headers: &HeaderMap) -> Option<Refusal> {
         let value = |name| headers.get(name).and_then(|value| value.to_str().ok());
-        self.authorities
-            .refusal(value(header::HOST), value(header::ORIGIN))
+        endpoint::refusal(
+            value(header::HOST),
+            value(header::ORIGIN),
+            Hosts::Named(&self.authorities),
+            Origins::Required(&[&self.authorities]),
+        )
     }
 
     /// Whether the request's cookie is a sign-in, or why not.
@@ -913,7 +912,7 @@ fn refused(
     status: StatusCode,
     policy: &HeaderValue,
 ) -> Response<Full<Bytes>> {
-    tracing::warn!(target: REFUSAL_TARGET, listener = CONSOLE_LISTENER, reason, "the Console refused a request");
+    tracing::warn!(target: REFUSAL_TARGET, listener = Listener::Console.name(), reason, "the Console refused a request");
     plain(status, policy)
 }
 

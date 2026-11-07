@@ -58,7 +58,7 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::endpoint::{Refusals, new_token, same_token};
+use goodfetch_engine::endpoint::{Listener, Refusals, new_token, same_token};
 use goodfetch_engine::runs::Run;
 use secrecy::{ExposeSecret as _, SecretString};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -72,10 +72,6 @@ use crate::egress_relay::serve::{Met, socks5_request};
 use crate::egress_relay::{ByAuthority, Outcomes, authority_of, connect_deadline};
 use crate::proxy_provider::failure::ProviderAnswer;
 use crate::proxy_provider::{Ahead, ProxyUsage};
-
-/// The relay's name in the endpoint table and in its refusals' Audit log
-/// entries.
-pub(crate) const LISTENER: &str = "proxy_relay";
 
 /// The username of every relay's client credentials; the password is the
 /// Session's relay's own.
@@ -379,7 +375,10 @@ async fn relay(mut client: TcpStream, upstream: &Upstream) {
             // relay asks for them, the browser's included: only wrong ones
             // are a refusal.
             if given.is_some() {
-                upstream.refusals.refused(LISTENER, "token_wrong").await;
+                upstream
+                    .refusals
+                    .refused(Listener::ProxyRelay, "token_wrong")
+                    .await;
             }
             let _ = client.write_all(AUTHENTICATE).await;
             return;

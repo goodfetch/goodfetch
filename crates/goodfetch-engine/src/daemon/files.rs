@@ -111,27 +111,34 @@ impl DaemonFiles {
         self.folder.join(SOCKET)
     }
 
-    /// The runtime file, or `None` when there is none, or it is not one.
+    /// The runtime file, or `None` when there is none.
     ///
     /// # Errors
     ///
-    /// When it exists but cannot be read.
+    /// When it exists but cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when it is no runtime file this
+    /// version reads.
     pub fn read(&self) -> io::Result<Option<DaemonRuntimeFile>> {
-        match fs::read(self.runtime_file()) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
-        }
+        parsed(&self.runtime_file())
     }
 
     /// The running Daemon's runtime file: there, and its serving lock held.
+    /// Whatever the file holds, no Daemon runs while no one holds the lock,
+    /// so the next Daemon replaces a file that does not parse.
     ///
     /// # Errors
     ///
-    /// When the files cannot be read.
+    /// When the files cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when a Daemon holds the lock and its
+    /// runtime file is no runtime file this version reads: a Client then
+    /// cannot reach it, and starting another beside it would wait on its
+    /// lock.
     pub fn running(&self) -> io::Result<Option<DaemonRuntimeFile>> {
-        let Some(found) = self.read()? else {
-            return Ok(None);
+        let found = match self.read() {
+            Ok(None) => return Ok(None),
+            Ok(Some(found)) => Ok(found),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(error),
+            Err(error) => return Err(error),
         };
         let lock = match File::open(self.folder.join(SERVING_LOCK)) {
             Ok(lock) => lock,
@@ -140,7 +147,7 @@ impl DaemonFiles {
         };
         match lock.try_lock() {
             Ok(()) => Ok(None),
-            Err(TryLockError::WouldBlock) => Ok(Some(found)),
+            Err(TryLockError::WouldBlock) => found.map(Some),
             Err(TryLockError::Error(error)) => Err(error),
         }
     }
@@ -166,7 +173,7 @@ impl DaemonFiles {
     ///
     /// When they cannot be removed.
     pub fn unpublish(&self, pid: u32) -> io::Result<()> {
-        let Some(found) = self.read()? else {
+        let Some(found) = self.ours()? else {
             return Ok(());
         };
         if found.pid != pid {
@@ -187,9 +194,18 @@ impl DaemonFiles {
     ///
     /// When it cannot be removed.
     pub fn unpublish_activated(&self, pid: u32) -> io::Result<()> {
-        match self.read()? {
+        match self.ours()? {
             Some(found) if found.pid == pid => remove(&self.runtime_file()),
             _ => Ok(()),
+        }
+    }
+
+    /// The runtime file, as a Daemon unpublishing reads it: one that does
+    /// not parse is none it wrote, so it is left as it is.
+    fn ours(&self) -> io::Result<Option<DaemonRuntimeFile>> {
+        match self.read() {
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => Ok(None),
+            read => read,
         }
     }
 
@@ -320,17 +336,15 @@ impl DaemonFiles {
     }
 
     /// The per-user service `daemon install` registered, or `None` when
-    /// none is, or its record is not one.
+    /// none is.
     ///
     /// # Errors
     ///
-    /// When its record exists but cannot be read.
+    /// When its record exists but cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when it is no record this version
+    /// reads.
     pub fn service(&self) -> io::Result<Option<InstalledService>> {
-        match fs::read(self.folder.join(SERVICE_FILE)) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
-        }
+        parsed(&self.folder.join(SERVICE_FILE))
     }
 
     /// Records the installed `service`, readable and writable by its owner
@@ -440,6 +454,23 @@ impl DaemonFiles {
         let folder = transport::socket_folder("goodfetch-daemon-", SOCKET)?;
         Ok((folder.path().join(SOCKET), Some(folder)))
     }
+}
+
+/// The JSON file at `path`, or `None` when there is none; one that does
+/// not parse as a `T` is an error of kind [`io::ErrorKind::InvalidData`]
+/// naming it.
+fn parsed<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} does not parse: {error}", path.display()),
+        )
+    })
 }
 
 /// Whether systemd's C escaping (`cescape`) changes `byte`: a control or

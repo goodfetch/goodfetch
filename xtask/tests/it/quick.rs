@@ -111,10 +111,10 @@ fn quick_with_env(
     }
 }
 
-/// What `xtask affected` is asked: the working tree's change since the
-/// merge base with `origin/main`, as the Quick suite's own selection reads
-/// it.
-const AFFECTED: &str = "run --quiet --locked --bin xtask -- affected --local";
+/// What `xtask affected` is asked, before the change's base: the working
+/// tree's change since the merge base with it, as the Quick suite's own
+/// selection reads it.
+const AFFECTED: &str = "run --quiet --locked --bin xtask -- affected --local --since";
 
 #[test]
 fn a_change_of_documents_alone_runs_the_docs_gates_checks_and_no_code_lint_or_suite() {
@@ -129,13 +129,13 @@ fn a_change_of_documents_alone_runs_the_docs_gates_checks_and_no_code_lint_or_su
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
             "lint-documents",
             "_skips-report"
         ]
     );
-    assert_eq!(run.cargo_calls, [AFFECTED]);
+    assert_eq!(run.cargo_calls, [format!("{AFFECTED} origin/main")]);
     assert!(run.stdout.contains("gate=docs"), "{}", run.stdout);
 }
 
@@ -154,10 +154,10 @@ fn any_other_change_runs_every_lint_and_the_quick_suite_over_what_changed(#[case
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
             "lint",
-            "test-affected quick --local",
+            "test-affected quick --local --since origin/main",
             "_skips-report"
         ]
     );
@@ -177,13 +177,13 @@ fn the_change_is_read_against_the_base_the_pre_push_hook_gives() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.cargo_calls, [format!("{AFFECTED} --since 4b825dc6")]);
+    assert_eq!(run.cargo_calls, [format!("{AFFECTED} 4b825dc6")]);
     assert_eq!(
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard 4b825dc6",
+            "commit-leaks 4b825dc6",
             "lint",
             "test-affected quick --local --since 4b825dc6",
             "_skips-report"
@@ -217,11 +217,45 @@ fn without_a_base_the_change_is_read_against_the_upstream_off_main(
     let run = quick(&workspace, &stand_in, &[]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let expected = match since {
-        Some(since) => format!("{AFFECTED} --since {since}"),
-        None => AFFECTED.to_owned(),
-    };
+    let expected = format!("{AFFECTED} {}", since.unwrap_or("origin/main"));
     assert_eq!(run.cargo_calls, [expected]);
+}
+
+/// The floor guard and the scan of the change's commits judge the commits of
+/// the change `just quick` reads, against its base, `all` too: on an
+/// integration branch, the ticket's own commits, never those of the tickets
+/// merged into it before.
+#[rstest]
+#[case::the_hooks_base("ticket", Some("4b825dc6"), &[], "4b825dc6")]
+#[case::the_upstream_off_main("ticket", None, &[], "origin/spec")]
+#[case::main("main", None, &[], "origin/main")]
+#[case::all("ticket", None, &["all"], "origin/spec")]
+fn the_floor_guard_and_the_commit_scan_judge_the_change_against_its_base(
+    #[case] branch: &str,
+    #[case] hook_base: Option<&str>,
+    #[case] args: &[&str],
+    #[case] base: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    repository_on(&workspace, branch);
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "docs");
+    let variables: Vec<(&str, &str)> = hook_base
+        .map(|hook_base| ("GOODFETCH_QUICK_BASE", hook_base))
+        .into_iter()
+        .collect();
+
+    let run = quick_with_env(&workspace, &stand_in, args, &variables);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(
+        run.calls[..3],
+        [
+            "compiler-cache".to_owned(),
+            format!("floor-guard {base}"),
+            format!("commit-leaks {base}"),
+        ]
+    );
 }
 
 /// The file in the repository's common folder where a green run records its
@@ -438,8 +472,8 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
             "lint",
             "_suite quick all",
             "_skips-report"
@@ -452,15 +486,18 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
 /// suite after a red lint included, so one run reports every failure, and the
 /// summary names each failed step.
 #[rstest]
-#[case::compiler_cache("compiler-cache")]
-#[case::floor_guard("floor-guard")]
-#[case::commit_leaks("commit-leaks")]
-#[case::lint("lint")]
-fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(#[case] failing: &str) {
+#[case::compiler_cache("compiler-cache", "compiler-cache")]
+#[case::floor_guard("floor-guard", "floor-guard origin/main")]
+#[case::commit_leaks("commit-leaks", "commit-leaks origin/main")]
+#[case::lint("lint", "lint")]
+fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(
+    #[case] failing: &str,
+    #[case] call: &str,
+) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
     selection(&stand_in, "quick");
-    std::fs::write(stand_in.join("failing"), failing).unwrap();
+    std::fs::write(stand_in.join("failing"), call).unwrap();
 
     let run = quick(&workspace, &stand_in, &[]);
 
@@ -469,10 +506,10 @@ fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(#[case] faili
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
             "lint",
-            "test-affected quick --local",
+            "test-affected quick --local --since origin/main",
             "_skips-report"
         ]
     );
@@ -505,8 +542,8 @@ fn a_red_affected_ends_the_tier_before_any_lint() {
         run.calls,
         [
             "compiler-cache",
-            "floor-guard",
-            "commit-leaks",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
             "_skips-report"
         ]
     );

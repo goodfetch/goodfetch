@@ -16,7 +16,11 @@
 # What changed is the working tree against its merge base with the change's
 # base: `GOODFETCH_QUICK_BASE` when the pre-push hook gives it (the commit
 # the push's remote ref holds), else the branch's upstream off `main` (the
-# integration branch a ticket goes into), else `origin/main`.
+# integration branch a ticket goes into), else `origin/main`. The base is
+# read once, first, and every step that reads the change's commits gets it:
+# the floor guard, the scan for secrets, `xtask affected` and the Quick
+# suite, `all`'s floor guard and scan too, so on an integration branch they
+# judge the ticket's own commits, not the earlier tickets'.
 #
 # Every step runs even after one failed (ci/keep-going.sh), the lints' own
 # steps included, so one run reports every failure at once; the run then
@@ -67,24 +71,26 @@ record_green() {
 # shellcheck source=ci/keep-going.sh
 source "$(dirname "${BASH_SOURCE[0]}")/keep-going.sh"
 
+base=${GOODFETCH_QUICK_BASE:-}
+if [[ -z $base ]]; then
+  branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if [[ -n $branch && $branch != main ]]; then
+    base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+  fi
+fi
+base=${base:-origin/main}
+echo "The change: the working tree against its merge base with $base."
+quoted_base=$(printf '%q' "$base")
+
 rm -f target/skipped.txt
 trap 'just _skips-report' EXIT
 steps_begin quick
 step compiler-cache 'just compiler-cache'
-step floor-guard 'just floor-guard'
-step commit-leaks 'just commit-leaks'
+step floor-guard "just floor-guard $quoted_base"
+step commit-leaks "just commit-leaks $quoted_base"
 
 if [[ -z $all ]]; then
-  change=(--local)
-  base=${GOODFETCH_QUICK_BASE:-}
-  if [[ -z $base ]]; then
-    branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ -n $branch && $branch != main ]]; then
-      base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
-    fi
-  fi
-  [[ -z $base ]] || change+=(--since "$base")
-  echo "The change: the working tree against its merge base with ${base:-origin/main}."
+  change=(--local --since "$base")
   if ! selection=$(cargo run --quiet --locked --bin xtask -- affected "${change[@]}"); then
     echo "error: \`xtask affected\` failed, so no lint and no Quick suite ran: the tier cannot tell which checks the change takes" >&2
     steps_end || true

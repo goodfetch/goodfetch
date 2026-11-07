@@ -889,12 +889,13 @@ quick-steps:
     set -euo pipefail
     just="{{ just_executable() }}"
     echo "# Every step runs even after one failed; the run ends with the list of those that failed (ci/keep-going.sh)."
+    echo "# <base>: GOODFETCH_QUICK_BASE, else the branch's upstream off main, else origin/main."
     echo "# First, always:"
     echo "just compiler-cache"
-    echo "just floor-guard"
-    echo "just commit-leaks"
+    echo "just floor-guard <base>"
+    echo "just commit-leaks <base>"
     echo "# The change's gate, its gate= line:"
-    echo "cargo run --quiet --locked --bin xtask -- affected --local"
+    echo "cargo run --quiet --locked --bin xtask -- affected --local --since <base>"
     echo "# gate=docs: just lint-documents, and nothing after it."
     echo "# Any other gate: just lint, then the Quick suite, which runs after a red lint too."
     for recipe in fmt-check lint-documents lint; do
@@ -902,7 +903,7 @@ quick-steps:
       GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
     echo "# The Quick suite over what changed:"
-    echo "just test-affected quick --local"
+    echo "just test-affected quick --local --since <base>"
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'

@@ -257,7 +257,8 @@ impl BrowserCache {
     /// `browser_not_installed` when the build is missing and the engine
     /// cannot write the cache, `artifact_unavailable_offline` when it is
     /// missing under `offline`, `artifact_download_failed` when its download
-    /// fails.
+    /// fails, and `internal_error` when the cache's own files, the build's
+    /// or those its archive unpacks to, cannot be read or written.
     ///
     /// # Cancel safety
     ///
@@ -410,8 +411,9 @@ impl BrowserCache {
             Locking::Missing => None,
         };
         let files = store::files(&folder);
+        // A tree it cannot read now is no tampered one: it stays.
         let digest = if files.is_dir() {
-            content_digest(&files).ok()
+            Some(content_digest(&files).map_err(CacheError::cache(&files))?)
         } else {
             None
         };
@@ -595,13 +597,21 @@ impl BrowserCache {
         .await;
         match unpacked {
             Ok(digest) if digest == artifact.digest => {}
-            Ok(_) | Err(_) => {
+            Ok(_) => {
                 return Err(download_failed(
                     artifact,
                     pinned_by,
                     &host,
                     DownloadFailure::DigestMismatch,
                 ));
+            }
+            // The archive had its pinned digest: a failure to write its
+            // files out, such as a full disk, is the cache's own.
+            Err(source) => {
+                return Err(CacheError::Cache {
+                    path: files,
+                    source,
+                });
             }
         }
         let entry = BrowserCacheEntry {

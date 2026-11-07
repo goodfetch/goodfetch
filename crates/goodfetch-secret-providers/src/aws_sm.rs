@@ -19,7 +19,7 @@ use std::time::SystemTime;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
+    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -190,12 +190,8 @@ impl SecretProvider for AwsSecretsManager {
             if status == 200 {
                 value_of(answer.body(), key)
             } else {
-                Err(translate(status, answer.body()).retrying_after(retry_after(
-                    answer
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|value| value.to_str().ok()),
-                )))
+                Err(translate(status, answer.body())
+                    .retrying_after(self.endpoint.retry_after(&answer)))
             }
         })
     }

@@ -114,8 +114,6 @@ pub enum ProviderFailure {
     /// It failed in a way its translation point does not know (ADR 0127),
     /// logged at `warn` without its text: `provider_failed`.
     Unrecognized(PartyText),
-    /// The caller's resolver is missing, threw or gave no answer.
-    ResolverFailed,
 }
 
 /// What a provider's configuration lacks.
@@ -512,17 +510,6 @@ impl Secrets {
         shared.providers.remove(&provider);
         shared.configured.insert(provider, factory);
         self
-    }
-
-    /// The schemes it answers: those it carries, those added with
-    /// [`Secrets::with`] and those a Product builds for each Run.
-    pub fn schemes(&self) -> std::collections::BTreeSet<Provider> {
-        self.0
-            .providers
-            .keys()
-            .chain(self.0.configured.keys())
-            .copied()
-            .collect()
     }
 
     /// What one Run resolves through, as [`Secrets::for_run_with`], each
@@ -941,13 +928,6 @@ impl ProviderFailure {
     }
 }
 
-/// The wait a `Retry-After` header's `value` asks for: a whole number of
-/// seconds. An HTTP date, which needs the server's clock, asks none, and
-/// the driver's backoff waits instead.
-pub fn retry_after(value: Option<&str>) -> Option<Duration> {
-    value?.trim().parse::<u64>().ok().map(Duration::from_secs)
-}
-
 /// What a provider's failure on `reference` leads to: its variant and fix.
 fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretFailure, String) {
     let scheme = reference.provider().as_str();
@@ -963,10 +943,6 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
         ProviderFailure::Unrecognized(_) => (
             SecretFailure::ProviderFailed,
             format!("The `{scheme}` provider failed; its logs say why."),
-        ),
-        ProviderFailure::ResolverFailed => (
-            SecretFailure::ResolverFailed,
-            "Answer the reference from the program's `resolveSecret`.".to_owned(),
         ),
     }
 }

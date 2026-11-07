@@ -20,6 +20,7 @@
 //!   its learned ceiling and backs no domain off (ADR 0053); its other
 //!   answers, a 407 or a proxy nothing answers on, do neither.
 
+use goodfetch_cdp::NetError;
 use goodfetch_page::{Party, ProxyAnswer, party};
 
 /// What a request met: a response, or a network error and no response.
@@ -71,7 +72,19 @@ const BACKS_OFF: [&str; 4] = [
 
 /// Who gave `met`: the proxy or the site.
 pub fn party_of(met: Met<'_>) -> Party {
-    party(answer(met))
+    match met {
+        Met::Response {
+            proxy_status,
+            forwarded,
+            ..
+        } => party(ProxyAnswer::Response {
+            proxy_status,
+            forwarded,
+        }),
+        Met::Failure { error } => party(ProxyAnswer::Failure {
+            error: &NetError::of(error),
+        }),
+    }
 }
 
 /// What `met` asks of its domain or its proxy.
@@ -95,21 +108,6 @@ pub fn class(met: Met<'_>) -> Class {
         ) => Class::BackOff,
         (Party::Site, Met::Failure { error }) if BACKS_OFF.contains(&name(error)) => Class::BackOff,
         (Party::Proxy | Party::Site, _) => Class::Done,
-    }
-}
-
-/// `met` as the proxy-or-site rule reads it.
-fn answer(met: Met<'_>) -> ProxyAnswer<'_> {
-    match met {
-        Met::Response {
-            proxy_status,
-            forwarded,
-            ..
-        } => ProxyAnswer::Response {
-            proxy_status,
-            forwarded,
-        },
-        Met::Failure { error } => ProxyAnswer::Failure { error },
     }
 }
 

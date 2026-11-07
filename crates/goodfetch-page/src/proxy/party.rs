@@ -13,6 +13,8 @@
 //! refusal only as a network error of its own, so a request that failed is
 //! the proxy's when its error is one of those, and the site's otherwise.
 
+use goodfetch_cdp::NetError;
+
 pub(crate) use crate::proxy_status::PROXY_STATUS;
 use crate::proxy_status::{name, nearest, parameter};
 
@@ -29,10 +31,10 @@ pub enum Party {
 #[derive(Clone, Copy, Debug)]
 pub enum Answer<'a> {
     /// No response: the browser's network error, such as
-    /// `net::ERR_TUNNEL_CONNECTION_FAILED` for a tunnel the proxy refused.
+    /// [`NetError::TunnelRefused`] for a tunnel the proxy refused.
     Failure {
         /// The error.
-        error: &'a str,
+        error: &'a NetError,
     },
     /// A response, with its `Proxy-Status` header if it carries one.
     Response {
@@ -69,7 +71,7 @@ pub(crate) fn relays(field: &str) -> bool {
 /// Who gave `answer`.
 pub fn party(answer: Answer<'_>) -> Party {
     match answer {
-        Answer::Failure { error } if tunnel_failure(error) => Party::Proxy,
+        Answer::Failure { error } if error.from_the_proxy() => Party::Proxy,
         Answer::Response {
             proxy_status: Some(field),
             forwarded: true,
@@ -81,14 +83,12 @@ pub fn party(answer: Answer<'_>) -> Party {
 /// Whether `answer` is the proxy refusing a request its plan does not
 /// admit, which lowers its learned ceiling (ADR 0053; spec #577): its own
 /// 429 or 502, or a tunnel it refused, which Chromium reports only as
-/// `ERR_TUNNEL_CONNECTION_FAILED`. Its 407, a site's answer of any status,
+/// [`NetError::TunnelRefused`]. Its 407, a site's answer of any status,
 /// a proxy that cannot be reached and the Session's relay answering for a
 /// proxy it cannot reach are no such refusal.
 pub(crate) fn refusal(answer: Answer<'_>, status: Option<u16>) -> bool {
     match answer {
-        Answer::Failure { error } => {
-            error.strip_prefix("net::").unwrap_or(error) == "ERR_TUNNEL_CONNECTION_FAILED"
-        }
+        Answer::Failure { error } => *error == NetError::TunnelRefused,
         Answer::Response { proxy_status, .. } => {
             matches!(status, Some(429 | 502))
                 && party(answer) == Party::Proxy
@@ -101,23 +101,6 @@ pub(crate) fn refusal(answer: Answer<'_>, status: Option<u16>) -> bool {
 /// intermediary's, names, such as `destination_ip_prohibited`.
 pub(crate) fn proxy_error(field: &str) -> Option<String> {
     parameter(nearest(field)?, "error")
-}
-
-/// Whether Chromium's network error `error` is the proxy's own: one it
-/// gives when the proxy cannot be reached, its TLS fails, or it answers the
-/// tunnel's `CONNECT` or the SOCKS handshake with a refusal.
-fn tunnel_failure(error: &str) -> bool {
-    let name = error.strip_prefix("net::").unwrap_or(error);
-    [
-        "ERR_PROXY_",
-        "ERR_TUNNEL_",
-        "ERR_SOCKS_",
-        "ERR_HTTPS_PROXY_",
-        "ERR_MANDATORY_PROXY_",
-        "ERR_NO_SUPPORTED_PROXIES",
-    ]
-    .iter()
-    .any(|prefix| name.starts_with(prefix))
 }
 
 #[cfg(test)]

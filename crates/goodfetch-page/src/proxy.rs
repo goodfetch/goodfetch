@@ -30,6 +30,7 @@ use data_encoding::BASE64;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
+use goodfetch_cdp::NetError;
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, EndpointPolicy};
 use goodfetch_engine::http_client::{self, Resolve};
@@ -685,7 +686,7 @@ impl SessionProxy {
     /// network error `error` raises, when it is the proxy's own failure:
     /// `proxy_auth_failed` when the proxy refused the relay's credentials,
     /// `proxy_unavailable` otherwise.
-    pub(crate) fn failure(&self, url: &str, error: &str) -> Option<CallError> {
+    pub(crate) fn failure(&self, url: &str, error: &NetError) -> Option<CallError> {
         if let Some(refusal) = self
             .provided
             .as_ref()
@@ -706,7 +707,7 @@ impl SessionProxy {
         Some(if self.refused_credentials(url) {
             self.auth_failed(url)
         } else {
-            self.unavailable(url, error)
+            self.unavailable(url, error.name())
         })
     }
 

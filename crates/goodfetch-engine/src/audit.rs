@@ -212,7 +212,8 @@ impl AuditLog {
 
     /// Writes every later entry of `run_id` unchained, as a Run whose
     /// `security.audit_chain` is off has them (ADR 0016), here and in every
-    /// clone of this log, but those [`AuditLog::record_chained`] records;
+    /// clone of this log, but those [`AuditLog::record_together`] records
+    /// as `always_chained`;
     /// answers whether the Run was chained until now.
     pub fn unchain(&self, run_id: RunId) -> bool {
         self.unchained
@@ -287,22 +288,6 @@ impl AuditLog {
     ) -> Result<AuditEntry, AuditError> {
         let chained = !self.is_unchained(origin.run_id.as_ref());
         self.record_as(origin, kind, details, now, chained)
-    }
-
-    /// As [`AuditLog::record`], but chained whatever its Run: the record
-    /// of the switch that unchains a Run is itself chained (ADR 0016).
-    ///
-    /// # Errors
-    ///
-    /// As [`AuditLog::record`].
-    pub fn record_chained(
-        &self,
-        origin: &Origin,
-        kind: &SharedTypeValue,
-        details: Value,
-        now: Timestamp,
-    ) -> Result<AuditEntry, AuditError> {
-        self.record_as(origin, kind, details, now, true)
     }
 
     /// Appends `entries` in their order, in one transaction with one sync,

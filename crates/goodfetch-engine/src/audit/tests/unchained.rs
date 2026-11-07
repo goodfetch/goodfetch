@@ -21,7 +21,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::export::{joined, jsonl};
 use super::{at, broken, log, now, origin, tamper};
-use crate::audit::{AuditLog, Origin, verify_exported};
+use crate::audit::{AuditLog, NewEntry, Origin, verify_exported};
 
 /// The Run the tests switch the chain off for: [`origin`]'s.
 fn unchained_run() -> RunId {
@@ -112,10 +112,13 @@ fn the_switch_of_an_unchained_run_is_recorded_chained() {
     let env = TestEnv::in_memory();
     let log = around(&env, 0, 1, 0);
 
-    log.record_chained(
-        &origin(),
-        &SECURITY_SWITCH_TURNED_OFF,
-        json!({ "setting": "security.audit_chain", "value": false }),
+    log.record_together(
+        vec![NewEntry {
+            origin: origin(),
+            kind: &SECURITY_SWITCH_TURNED_OFF,
+            details: json!({ "setting": "security.audit_chain", "value": false }),
+            always_chained: true,
+        }],
         now(),
     )
     .unwrap();

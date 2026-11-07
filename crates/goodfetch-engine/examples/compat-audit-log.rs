@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use goodfetch_engine::audit::{AuditLog, Origin};
+use goodfetch_engine::audit::{AuditLog, NewEntry, Origin};
 use goodfetch_engine::home::Home;
 use goodfetch_protocol::audit::{
     Actor, CERTIFICATE_CHANGE_ACCEPTED, SECRET_REFERENCE_USED, SECURITY_SWITCH_TURNED_OFF,
@@ -89,10 +89,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_id: Some(unchained.clone()),
     };
     log.unchain(unchained);
-    log.record_chained(
-        &switched,
-        &SECURITY_SWITCH_TURNED_OFF,
-        json!({ "setting": "security.audit_chain", "value": false }),
+    log.record_together(
+        vec![NewEntry {
+            origin: switched.clone(),
+            kind: &SECURITY_SWITCH_TURNED_OFF,
+            details: json!({ "setting": "security.audit_chain", "value": false }),
+            always_chained: true,
+        }],
         start,
     )?;
     log.record(

@@ -28,6 +28,7 @@ use goodfetch_protocol::connection::{ProductVersion, VersionLine};
 use goodfetch_protocol::formats::{
     Compatibility, Format, OPERATOR_POLICY, Rule, USER_CONFIGURATION,
 };
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
 use goodfetch_protocol::settings::{SettingsFile, SettingsLayer};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
@@ -43,12 +44,6 @@ use crate::lowest_minor::{Marker, Opener};
 /// The key beside `version` that records a shared settings file's lowest
 /// minor (ADR 0098).
 pub const LOWEST_MINOR_KEY: &str = "lowest_minor";
-
-/// The Operator policy's file in the per-major folder.
-pub const OPERATOR_POLICY_FILE: &str = "operator-policy.toml";
-
-/// User configuration's file in the per-major folder.
-pub const USER_CONFIGURATION_FILE: &str = "configuration.toml";
 
 /// A project configuration's file, found in a folder or above it.
 pub const PROJECT_CONFIGURATION_FILE: &str = "goodfetch.toml";

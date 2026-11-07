@@ -11,6 +11,8 @@
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
 //!     accounts-store.sqlite
+//!     operator-policy.toml,       the major's settings files (ADR 0098)
+//!     configuration.toml
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
 //!   usage-ledger.sqlite, politeness.sqlite, audit-log.sqlite, …
 //!                                 the files every major shares
@@ -35,6 +37,14 @@ pub const RUN_INDEX: &str = "run-index.sqlite";
 
 /// The per-major accounts store, beside the Operator policy (spec #592).
 pub const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
+
+/// The Operator policy's file in the per-major folder, which both
+/// Products read (ADRs 0028 and 0098).
+pub const OPERATOR_POLICY_FILE: &str = "operator-policy.toml";
+
+/// User configuration's file in the per-major folder, which both Products
+/// read (ADRs 0083 and 0098).
+pub const USER_CONFIGURATION_FILE: &str = "configuration.toml";
 
 /// The Usage ledger's file, outside the per-major folders (ADR 0041).
 pub const USAGE_LEDGER: &str = "usage-ledger.sqlite";

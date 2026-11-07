@@ -14,9 +14,10 @@ mod settings_corpus;
 
 use std::path::PathBuf;
 
-use goodfetch_engine::settings::{OPERATOR_POLICY_FILE, operator_policy};
+use goodfetch_engine::settings::operator_policy;
 use goodfetch_protocol::catalog::{Product, Setting, ValueKind};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::home::OPERATOR_POLICY_FILE;
 
 fn any_key(_: &Setting) -> bool {
     true

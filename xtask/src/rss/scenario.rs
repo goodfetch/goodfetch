@@ -18,7 +18,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
-use goodfetch_protocol::home::per_major;
+use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -139,9 +139,6 @@ pub(crate) fn as_shipped(command: &mut Command, home: &Path, goodfetch_variables
     command.env("GOODFETCH_HOME", home);
 }
 
-/// The user configuration's file in the per-major folder.
-const USER_CONFIGURATION: &str = "configuration.toml";
-
 /// The idle-Daemon scenario's user configuration: the Daemon's Console
 /// listens on a port the OS chooses, never on its major's fixed port
 /// (TESTING.md, Isolation), so scenarios run at once and beside a Daemon of
@@ -159,7 +156,7 @@ pub(crate) fn configure(scenario: Scenario, home: &Path) -> Result<()> {
         .context("reading the workspace's Product version")?;
     let major = per_major(home, &version);
     std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
-    let configuration = major.join(USER_CONFIGURATION);
+    let configuration = major.join(USER_CONFIGURATION_FILE);
     std::fs::write(&configuration, DAEMON_CONFIGURATION)
         .with_context(|| format!("writing {}", configuration.display()))
 }

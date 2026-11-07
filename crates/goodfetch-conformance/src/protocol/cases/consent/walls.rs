@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUNS};
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUNS, USER_CONFIGURATION_FILE};
 use goodfetch_protocol::needs_you::{CONSENT_WALL, NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_LIST};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
@@ -32,9 +32,6 @@ use crate::protocol::connection::{Connection, Gone};
 
 /// How long a case waits for the runner's verdict on a page.
 const VERDICT_WAIT: Duration = Duration::from_secs(20);
-
-/// User configuration's file in a per-major folder of the Goodfetch home.
-const USER_CONFIGURATION: &str = "configuration.toml";
 
 /// The consent wall pages, each with the name its answers report under.
 const WALLS: [(&str, &str); 2] = [("/wall", "wall"), ("/pay-or-accept", "pay-or-accept")];
@@ -262,7 +259,7 @@ pub(crate) fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
     reason = "the harness is synchronous and runs no async worker"
 )]
 pub(crate) fn configure(major: &std::path::Path, text: Option<&str>) -> Option<String> {
-    let file = major.join(USER_CONFIGURATION);
+    let file = major.join(USER_CONFIGURATION_FILE);
     let before = std::fs::read_to_string(&file).ok();
     match text {
         Some(text) => drop(std::fs::write(&file, text)),

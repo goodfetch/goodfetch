@@ -23,6 +23,7 @@ use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
+use goodfetch_protocol::home::USER_CONFIGURATION_FILE;
 use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunWaitParams};
 use serde_json::{Value, json};
 
@@ -62,7 +63,7 @@ impl Daemon {
         let configuration = folder.join("home").join(major);
         std::fs::create_dir_all(&configuration).unwrap();
         std::fs::write(
-            configuration.join("configuration.toml"),
+            configuration.join(USER_CONFIGURATION_FILE),
             "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n",
         )
         .unwrap();

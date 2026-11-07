@@ -2412,7 +2412,6 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
- "encoding_rs",
  "fixed_decimal",
  "futures-util",
  "goodfetch-counted-work",

@@ -65,6 +65,10 @@
 //! place of a host, or whose name resolves to one, ends it `skipped` with
 //! `domain_policy` too, before the gate reads its robots.txt (ADR 0017); a
 //! refusal of the gate's ends it `skipped` with its reason.
+//!
+//! Size: one concern, the gate of an attempt's pages and of its document's
+//! redirect hops, with what it judges them by: the value the attempt hands
+//! over, the robots.txt groups that apply and the AI-use signals declared.
 
 use std::fmt;
 use std::sync::Arc;

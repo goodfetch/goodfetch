@@ -17,6 +17,8 @@ set -euo pipefail
 part=${1:?usage: ci/release/perf.sh build|pull-request|run}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
+# shellcheck source=ci/output-value.sh
+source "$root/ci/output-value.sh"
 
 xtask() {
   cargo run --quiet --locked --bin xtask -- "$@"
@@ -25,7 +27,8 @@ xtask() {
 case "$part" in
   build)
     selection=$(xtask affected --base HEAD^1 --head HEAD)
-    xtask perf build --base HEAD^1 --bench-targets "$(sed -n 's/^bench-targets=//p' <<<"$selection")"
+    targets=$(output_value bench-targets "$selection")
+    xtask perf build --base HEAD^1 --bench-targets "$targets"
     ;;
   pull-request)
     xtask perf pull-request --commit "$(git rev-parse HEAD)" \

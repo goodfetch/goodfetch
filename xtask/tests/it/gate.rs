@@ -15,8 +15,9 @@ use crate::workspace::{Outcome, Workspace};
 /// Now, in seconds since the Unix epoch, for every run.
 const NOW: &str = "1800000000";
 
-/// Each step's `(action, members)` from the plan's lines, and the
-/// `previous` line's head.
+/// Each step's `(action, members)` and reason from the plan's
+/// `<step>.action`, `<step>.members` and `<step>.why` lines, and the
+/// `previous` and `head` lines' heads.
 struct Plan {
     previous: String,
     head: String,
@@ -66,19 +67,26 @@ fn parse(outcome: &Outcome) -> Plan {
         why: BTreeMap::new(),
     };
     for line in outcome.stdout.lines() {
-        let fields: Vec<&str> = line.split('\t').collect();
-        match fields.as_slice() {
-            ["previous", head] => (*head).clone_into(&mut plan.previous),
-            ["head", head] => (*head).clone_into(&mut plan.head),
-            ["members" | "unowned", _] => {}
-            [step, action, members, why] => {
-                plan.steps.insert(
-                    (*step).to_owned(),
-                    ((*action).to_owned(), (*members).to_owned()),
-                );
-                plan.why.insert((*step).to_owned(), (*why).to_owned());
+        let (key, value) = line
+            .split_once('=')
+            .unwrap_or_else(|| panic!("a plan line is `<key>=<value>`, not {line:?}"));
+        match key.split_once('.') {
+            None => match key {
+                "previous" => value.clone_into(&mut plan.previous),
+                "head" => value.clone_into(&mut plan.head),
+                "members" | "unowned" => {}
+                _ => panic!("an unexpected plan line: {line:?}"),
+            },
+            Some((step, "action")) => {
+                value.clone_into(&mut plan.steps.entry(step.to_owned()).or_default().0);
             }
-            _ => panic!("an unexpected plan line: {line:?}"),
+            Some((step, "members")) => {
+                value.clone_into(&mut plan.steps.entry(step.to_owned()).or_default().1);
+            }
+            Some((step, "why")) => {
+                plan.why.insert(step.to_owned(), value.to_owned());
+            }
+            Some(_) => panic!("an unexpected plan line: {line:?}"),
         }
     }
     plan
@@ -365,7 +373,13 @@ fn a_tree_with_uncommitted_changes_reuses_and_records_nothing() {
     let late = record_outcome(&workspace, &records, &first, "perf");
 
     assert_eq!(dirty.previous, "none");
-    assert!(dirty.steps.is_empty());
+    assert_eq!(dirty.head, "none");
+    assert!(!dirty.steps.is_empty());
+    assert!(
+        dirty.steps.values().all(|(action, _)| action == "run"),
+        "{:?}",
+        dirty.steps
+    );
     assert_eq!(late.code, 0, "{}", late.stderr);
     assert_eq!(std::fs::read_to_string(&record_file).unwrap(), recorded);
 }
@@ -676,35 +690,10 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
     assert!(!rerun.contains("goodfetch-frontier"), "{rerun:?}");
 }
 
-/// Every step of `just pre-merge all`, by its name in the plan.
-const STEPS: [&str; 21] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "lint",
-    "feature-combinations",
-    "audit",
-    "commit-leaks",
-    "fuzz-check",
-    "proofs",
-    "journeys-tasks",
-    "features-tests",
-    "notices",
-    "perf",
-    "linux",
-    "visual",
-    "quick",
-    "pre-merge",
-    "stress",
-    "tlc",
-    "msrv",
-    "miri",
-];
-
 /// Records every step its plan runs as `ci/pre-merge.sh` does, green but
 /// for `red`.
 fn record_plan(workspace: &Workspace, records: &Path, plan: &Plan, red: &[&str]) {
-    for step in STEPS {
+    for step in plan.steps.keys().map(String::as_str) {
         if action(plan, step).0 == "reuse" {
             continue;
         }

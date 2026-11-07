@@ -26,8 +26,8 @@ use crate::workspace::Workspace;
 
 /// A stand-in `just` that appends its arguments to `calls` and fails with
 /// status 3 when they are `failing`'s content, and a stand-in `cargo` that
-/// appends its own to `cargo-calls` and prints `selection`'s content, as
-/// `xtask affected` prints its selection.
+/// appends its own to `cargo-calls` and prints `selection`'s content, a
+/// selection the repository's own `xtask affected` printed.
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -57,13 +57,25 @@ cat "{selection}"
     folder
 }
 
-/// `xtask affected`'s selection for a change whose gate is `gate`.
+/// `xtask affected`'s own selection, in the `affected` fixture, for a
+/// change whose gate is `gate`: a document alone (`docs`), a file no test
+/// reads (`quick`) or a crate's source (`full`).
 fn selection(stand_in: &Path, gate: &str) {
-    std::fs::write(
-        stand_in.join("selection"),
-        format!("products=\njobs=[\"docs\"]\ncrates=\ngate={gate}\n"),
-    )
-    .unwrap();
+    let (path, text) = match gate {
+        "docs" => ("docs/notes.md", "# Notes\n"),
+        "quick" => ("docs/diagram.svg", "<svg/>\n"),
+        "full" => (
+            "crates/foxhound/goodfetch-frontier/src/crawl.rs",
+            "//! Crawls.\n",
+        ),
+        other => panic!("no change takes the {other} gate here"),
+    };
+    let workspace = crate::affected::repository();
+    workspace.write(path, text.as_bytes());
+    let outcome = workspace.xtask(&["affected", "--local"]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(crate::affected::value(&outcome, "gate"), gate);
+    std::fs::write(stand_in.join("selection"), outcome.stdout).unwrap();
 }
 
 struct Run {
@@ -548,6 +560,37 @@ fn a_red_affected_ends_the_tier_before_any_lint() {
         ]
     );
     assert!(run.stderr.contains("xtask affected"), "{}", run.stderr);
+}
+
+/// A selection without the `gate=` line, such as one from an `xtask
+/// affected` whose keys changed, ends the tier before any lint, as a red
+/// `xtask affected` does, instead of taking it for some gate.
+#[test]
+fn a_selection_without_its_gate_ends_the_tier_before_any_lint() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "docs");
+    let full = std::fs::read_to_string(stand_in.join("selection")).unwrap();
+    let without: String = full
+        .lines()
+        .filter(|line| !line.starts_with("gate="))
+        .flat_map(|line| [line, "\n"])
+        .collect();
+    std::fs::write(stand_in.join("selection"), without).unwrap();
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
+            "_skips-report"
+        ]
+    );
+    assert!(run.stderr.contains("`gate=`"), "{}", run.stderr);
 }
 
 /// Runs `script`, a bash script that sources the repository's

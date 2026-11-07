@@ -327,8 +327,11 @@ features *change:
     change=({{ change }})
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
-    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
-    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    source ci/output-value.sh
+    crates=$(output_value crates "$selection")
+    vitest=$(output_value vitest-packages "$selection")
+    pytest=$(output_value pytest-packages "$selection")
+    read -ra packages <<< "$crates $vitest $pytest"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change reaches no package."
       exit 0
@@ -664,7 +667,10 @@ snapshots *arguments:
       [[ ${#pytest[@]} -gt 0 ]] || python=false
     else
       packages=(--workspace)
-      read -ra vitest <<< "$(cargo run --quiet --bin xtask -- affected --local | sed -n 's/^vitest-packages=//p')"
+      selection=$(cargo run --quiet --bin xtask -- affected --local)
+      source ci/output-value.sh
+      selected=$(output_value vitest-packages "$selection")
+      read -ra vitest <<< "$selected"
       [[ ${#vitest[@]} -gt 0 ]] || typescript=false
     fi
     # The tests find the commit's executables as under `just test`.
@@ -858,8 +864,11 @@ test-affected suite *change:
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
     echo "$selection"
-    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
-    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    source ci/output-value.sh
+    crates=$(output_value crates "$selection")
+    vitest=$(output_value vitest-packages "$selection")
+    pytest=$(output_value pytest-packages "$selection")
+    read -ra packages <<< "$crates $vitest $pytest"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change needs no {{ suite }} tests."
       # So `just features-audit` reads no earlier run's records.
@@ -1555,7 +1564,7 @@ _clear-exercise-records:
     rm -rf target/test-records target/nextest/ci/junit.xml
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
-_suite suite all:
+_suite suite all="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ all }}" in
@@ -1566,7 +1575,7 @@ _suite suite all:
 
 # TLC on the models the change reaches (`all`: every model), then the job's
 # self-test, as CI's `tlc` job runs them; listed as skipped without Java.
-_tlc all:
+_tlc all="":
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
@@ -1574,7 +1583,9 @@ _tlc all:
       all) models=(--all) ;;
       "")
         selection=$(cargo run --quiet --bin xtask -- affected --local)
-        read -ra models <<< "$(sed -n 's/^models=//p' <<< "$selection")"
+        source ci/output-value.sh
+        selected=$(output_value models "$selection")
+        read -ra models <<< "$selected"
         if [[ ${#models[@]} -eq 0 ]]; then
           echo "The change reaches no TLA+ model."
           exit 0
@@ -1588,14 +1599,17 @@ _tlc all:
 # The gate's `kennel` step: the Kennel's checks when the change reaches
 # its job (`xtask affected`'s `kennel`: a change to `kennel/` or
 # goodfetch-protocol, ADR 0141), and always with `all`.
-_kennel all:
+_kennel all="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ all }}" in
       all) ;;
       "")
         selection=$(cargo run --quiet --bin xtask -- affected --local)
-        if ! grep -q '^jobs=.*"kennel"' <<< "$selection"; then
+        source ci/output-value.sh
+        jobs=$(output_value jobs "$selection")
+        reached=$(jq 'index("kennel") != null' <<< "$jobs")
+        if [[ $reached != true ]]; then
           echo "The change does not reach the Kennel."
           exit 0
         fi
@@ -1609,6 +1623,12 @@ _kennel all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick` or
+# `docs`), in their order, with each one's `just` command, which
+# ci/pre-merge.sh follows (`xtask gate steps`, ADR 0135).
+_gate-steps form:
+    cargo run --quiet --bin xtask -- gate steps --form {{ form }}
 
 # The incremental gate's plan for HEAD (ADR 0135), from the results earlier
 # gate runs recorded in target/gate-runs/, which `just merge` keeps between

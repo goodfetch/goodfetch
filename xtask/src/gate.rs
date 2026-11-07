@@ -7,12 +7,17 @@
 //! result from another host fingerprint are never reused, a change to the
 //! gate's own inputs reruns everything, and a working tree with uncommitted
 //! changes neither reuses nor records anything.
-//! - **plan**: prints `previous`, `head`, `members` and `unowned` lines,
-//!   then each step's action as `<step>\t<run|part|reuse>\t<members>\t<why>`
-//!   lines, which `ci/pre-merge.sh` follows; says the same in words on
+//! - **steps**: prints what a form of `just pre-merge` runs, in its order,
+//!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
+//!   follows.
+//! - **plan**: prints the `previous`, `head`, `members` and `unowned` lines,
+//!   then each step's `<step>.action` (`run`, `part` or `reuse`),
+//!   `<step>.members` and `<step>.why` lines, which `ci/pre-merge.sh` reads
+//!   through `ci/output-value.sh` and follows; says the same in words on
 //!   stderr for the run's log, with the evidence that reaches a member the
 //!   selection misses; and writes the plan and the carried results into the
 //!   run's record.
+
 //! - **record**: appends a step's result to the run's record, only for the
 //!   planned head on a clean tree. A failed step run per member records
 //!   green each crate its nextest JUnit files show passed in full, and its
@@ -31,6 +36,7 @@ mod compare;
 mod evidence;
 mod plan;
 mod runs;
+mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -59,6 +65,13 @@ pub(crate) enum Status {
 /// `xtask gate`'s commands.
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
+    /// Prints the steps a form of `just pre-merge` runs, in their order,
+    /// with the `just` command of each.
+    Steps {
+        #[arg(long, value_enum)]
+        form: steps::Form,
+    },
+
     /// Prints which steps this run reruns, over which members, and which it
     /// reuses from an earlier run on an ancestor head, and writes the plan
     /// into `records`.
@@ -139,6 +152,7 @@ pub(crate) enum Command {
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = environment.root.as_path();
     match command {
+        Command::Steps { form } => output::line(steps::render(form).trim_end()),
         Command::Plan {
             records,
             full,
@@ -245,17 +259,9 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     let plan_file = runs::plan_file(records, &head);
     let dirty = !git(root, &["status", "--porcelain"])?.is_empty();
     if dirty && !options.dry_run {
-        // Nothing this run gives holds for HEAD, so nothing is recorded.
-        if plan_file.exists() {
-            std::fs::remove_file(&plan_file)
-                .with_context(|| format!("removing {}", plan_file.display()))?;
-        }
-        output::error(
-            "Gate (ADR 0135): the working tree has uncommitted changes, so every step runs in full and nothing is recorded.",
-        );
-        output::line("previous\tnone");
-        return Ok(());
+        return plan_dirty(&plan_file);
     }
+
     let base = commit(root, &git(root, &["merge-base", BASE_BRANCH, "HEAD"])?)?;
     let host = host_fingerprint(root, &environment.cargo, &options.variables);
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
@@ -337,6 +343,33 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             .collect(),
     };
     write(records, &carried, &machine)
+}
+
+/// The plan of a run on a working tree with uncommitted changes: nothing
+/// it gives holds for HEAD, so every step runs in full, nothing is
+/// recorded, and an earlier plan for HEAD is dropped.
+fn plan_dirty(plan_file: &Path) -> Result<()> {
+    if plan_file.exists() {
+        std::fs::remove_file(plan_file)
+            .with_context(|| format!("removing {}", plan_file.display()))?;
+    }
+    let why = "the working tree has uncommitted changes";
+    output::error(&format!(
+        "Gate (ADR 0135): {why}, so every step runs in full and nothing is recorded."
+    ));
+    let planned: Vec<Planned> = Step::ALL
+        .into_iter()
+        .map(|step| Planned {
+            step,
+            action: Action::Run {
+                why: why.to_owned(),
+            },
+            carried: BTreeMap::new(),
+        })
+        .collect();
+    let machine = render(None, NO_HEAD, &BTreeSet::new(), &[], &planned);
+    output::line(machine.trim_end());
+    Ok(())
 }
 
 /// Writes the run's record, its carried results, and its plan.
@@ -599,7 +632,15 @@ fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
         .transpose()
 }
 
-/// The plan as `ci/pre-merge.sh` and `xtask gate record` read it.
+/// The plan's `head` when the run records nothing: its working tree has
+/// uncommitted changes.
+const NO_HEAD: &str = "none";
+
+/// The plan as `ci/pre-merge.sh` reads it, through `ci/output-value.sh`,
+/// and `xtask gate record` (`plan_value`): the `previous`, `head`, `members`
+/// and `unowned` lines, then each step's `<step>.action` (`run`, `part` or
+/// `reuse`), `<step>.members` and `<step>.why` lines. A list is its items
+/// joined by spaces, `-` when it is empty; a value is one line.
 fn render(
     previous: Option<&str>,
     head: &str,
@@ -614,14 +655,21 @@ fn render(
             members.iter().cloned().collect::<Vec<_>>().join(" ")
         }
     };
-    let mut text = format!("previous\t{}\nhead\t{head}\n", previous.unwrap_or("none"));
-    let _ = writeln!(text, "members\t{}", joined(members));
-    let unowned = if unowned.is_empty() {
-        "-".to_owned()
-    } else {
-        unowned.join(" ")
+    let mut text = String::new();
+    let mut line = |key: &str, value: &str| {
+        let _ = writeln!(text, "{key}={}", value.replace('\n', " "));
     };
-    let _ = writeln!(text, "unowned\t{unowned}");
+    line("previous", previous.unwrap_or("none"));
+    line("head", head);
+    line("members", &joined(members));
+    line(
+        "unowned",
+        &if unowned.is_empty() {
+            "-".to_owned()
+        } else {
+            unowned.join(" ")
+        },
+    );
     for Planned { step, action, .. } in planned {
         let (name, units, why) = match action {
             Action::Run { why } => ("run", "-".to_owned(), why.clone()),
@@ -632,9 +680,24 @@ fn render(
                 format!("green on {}", joined(origins)),
             ),
         };
-        let _ = writeln!(text, "{}\t{name}\t{units}\t{why}", step.name());
+        let step = step.name();
+        line(&format!("{step}.action"), name);
+        line(&format!("{step}.members"), &units);
+        line(&format!("{step}.why"), &why);
     }
     text
+}
+
+/// The value of the plan's one `<key>=` line, as `ci/output-value.sh`
+/// reads it: a plan without the key, or with it twice, is an error.
+fn plan_value<'a>(plan: &'a str, key: &str) -> Result<&'a str> {
+    let prefix = format!("{key}=");
+    let mut values = plan.lines().filter_map(|line| line.strip_prefix(&prefix));
+    match (values.next(), values.next()) {
+        (Some(value), None) => Ok(value),
+        (None, _) => bail!("the plan has no `{key}=` line"),
+        (Some(_), Some(_)) => bail!("the plan has more than one `{key}=` line"),
+    }
 }
 
 /// The plan in words, for the run's log: each step rerun or reused, and
@@ -752,10 +815,8 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
             step.name()
         );
     }
-    let field = |key: &str| -> Option<Vec<&str>> {
-        plan.lines()
-            .find(|line| line.split('\t').next() == Some(key))
-            .map(|line| line.split('\t').skip(1).collect())
+    let value = |key: &str| {
+        plan_value(&plan, key).with_context(|| format!("reading {}", plan_file.display()))
     };
     let words = |text: &str| -> Vec<String> {
         text.split(' ')
@@ -763,17 +824,11 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
             .map(str::to_owned)
             .collect()
     };
-    let line = field(step.name()).with_context(|| {
-        format!(
-            "the plan in {} has no {} line",
-            plan_file.display(),
-            step.name()
-        )
-    })?;
+    let action = value(&format!("{}.action", step.name()))?;
     let members = if step.per_member() {
-        match line.first().copied() {
-            Some("run") => words(field("members").unwrap_or_default().first().unwrap_or(&"")),
-            Some("part") => words(line.get(1).unwrap_or(&"")),
+        match action {
+            "run" => words(value("members")?),
+            "part" => words(value(&format!("{}.members", step.name()))?),
             _ => Vec::new(),
         }
     } else {

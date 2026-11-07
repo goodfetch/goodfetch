@@ -11,7 +11,8 @@ use super::plan::{
     Action, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED, gate_input, plan,
     unit,
 };
-use super::runs;
+use super::steps::{Entry, Form, Kind, entries};
+use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
@@ -104,12 +105,14 @@ fn action(plan: &[Planned], step: Step) -> &Action {
 }
 
 /// The steps the plan reruns in full, and those it reruns over some members.
-fn reruns(plan: &[Planned]) -> (Vec<&'static str>, BTreeMap<&'static str, Vec<String>>) {
-    let mut full = Vec::new();
+fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, Vec<String>>) {
+    let mut full = BTreeSet::new();
     let mut part = BTreeMap::new();
     for planned in plan {
         match &planned.action {
-            Action::Run { .. } => full.push(planned.step.name()),
+            Action::Run { .. } => {
+                full.insert(planned.step.name());
+            }
             Action::Part { members, .. } => {
                 part.insert(planned.step.name(), members.iter().cloned().collect());
             }
@@ -124,15 +127,15 @@ const ALWAYS: [&str; 12] = [
     "dco",
     "commit-messages",
     "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
     "lint",
     "feature-combinations",
-    "audit",
-    "commit-leaks",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
     "features-tests",
-    "notices",
 ];
 
 #[test]
@@ -151,7 +154,7 @@ fn a_change_that_reaches_nothing_reruns_only_the_global_checks() {
     let plan = planned(Some(&record), &touched_since_earlier(Touched::default()));
 
     let (full, part) = reruns(&plan);
-    assert_eq!(full, ALWAYS);
+    assert_eq!(full, BTreeSet::from(ALWAYS));
     assert!(part.is_empty());
     assert_eq!(
         action(&plan, Step::Perf),
@@ -175,7 +178,7 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
     let plan = planned(Some(&record), &touched_since_earlier(touched));
 
     let (full, part) = reruns(&plan);
-    let mut expected: Vec<&str> = ALWAYS.to_vec();
+    let mut expected = BTreeSet::from(ALWAYS);
     expected.extend(["linux", "visual"]);
     assert_eq!(full, expected);
     let only = vec!["test-support/typescript".to_owned()];
@@ -368,7 +371,7 @@ fn a_moved_base_reruns_the_steps_that_compare_with_it() {
         &touched_since_earlier(Touched::default()),
     ));
 
-    let mut expected: Vec<&str> = ALWAYS.to_vec();
+    let mut expected = BTreeSet::from(ALWAYS);
     expected.extend(["perf", "stress"]);
     assert_eq!(full, expected);
 }
@@ -556,4 +559,151 @@ fn the_shuffling_runners_rerun_every_member_in_the_heads_order() {
         );
     }
     assert!(matches!(action(&plan, Step::Perf), Action::Reuse { .. }));
+}
+
+/// Where `name` stands in `form`'s list.
+fn position(form: Form, name: &str) -> usize {
+    entries(form)
+        .iter()
+        .position(|entry| entry.name == name)
+        .unwrap_or_else(|| panic!("{name} is not in the list"))
+}
+
+#[test]
+fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
+    let names: Vec<&str> = entries(Form::All)
+        .into_iter()
+        .filter(|entry| entry.kind != Kind::Command)
+        .map(|entry| entry.name)
+        .collect();
+
+    assert_eq!(names, Step::ALL.map(Step::name));
+}
+
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_whole_changes_checks_end_the_full_gate_before_the_console_build_and_any_step_beside(
+    #[case] form: Form,
+) {
+    let console = position(form, "console-build");
+
+    for step in Step::ALL {
+        if step.judges_the_whole_change() {
+            assert!(position(form, step.name()) < console, "{}", step.name());
+        }
+        if step.beside() {
+            assert!(position(form, step.name()) > console, "{}", step.name());
+        }
+    }
+}
+
+#[test]
+fn the_quick_gate_runs_no_step_beside_and_no_suite_but_the_quick_one() {
+    let list = entries(Form::Quick);
+
+    assert!(list.iter().all(|entry| entry.kind == Kind::Step));
+    for step in [
+        Step::PreMerge,
+        Step::Stress,
+        Step::Tlc,
+        Step::Msrv,
+        Step::Miri,
+    ] {
+        assert!(!list.iter().any(|entry| entry.name == step.name()));
+    }
+    for step in Step::ALL
+        .into_iter()
+        .filter(|step| step.judges_the_whole_change())
+    {
+        assert!(position(Form::Quick, step.name()) < position(Form::Quick, "lint"));
+    }
+    assert!(list.iter().any(|entry| entry.name == "quick"));
+}
+
+#[test]
+fn the_docs_gate_runs_the_checks_of_the_commits_then_the_document_checks() {
+    let list = entries(Form::Docs);
+
+    let (documents, commits_checks) = list.split_last().expect("the docs gate runs something");
+    assert_eq!(documents.just, ["lint-documents"]);
+    let commits: Vec<&str> = Step::ALL
+        .into_iter()
+        .filter(|step| step.reads_the_commits())
+        .map(Step::name)
+        .collect();
+    assert_eq!(
+        commits_checks
+            .iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>(),
+        commits
+    );
+}
+
+/// A step over the whole workspace takes `all`, one over what changed
+/// nothing; a step that is one recipe runs it by its name.
+#[rstest]
+#[case::whole(Form::All, "quick", &["_suite", "quick", "all"])]
+#[case::what_changed(Form::Changed, "quick", &["_suite", "quick"])]
+#[case::the_quick_gate(Form::Quick, "quick", &["_suite", "quick", "all"])]
+#[case::two_recipes(Form::All, "features-tests", &["features-tests", "clients-tests"])]
+#[case::its_name(Form::All, "miri", &["miri"])]
+fn each_step_runs_its_just_command(#[case] form: Form, #[case] name: &str, #[case] just: &[&str]) {
+    let list = entries(form);
+    let entry: &Entry = list
+        .iter()
+        .find(|entry| entry.name == name)
+        .expect("the form runs the step");
+
+    assert_eq!(entry.just, just);
+}
+
+#[test]
+fn a_plan_reads_back_each_steps_action_members_and_reason() {
+    let record = full_green_run();
+    let touched = Touched {
+        members: BTreeSet::from(["xtask".to_owned()]),
+        ..Touched::default()
+    };
+    let plan = planned(Some(&record), &touched_since_earlier(touched));
+
+    let text = render(Some(EARLIER), "head", &members(), &[], &plan);
+
+    assert_eq!(plan_value(&text, "previous").unwrap(), EARLIER);
+    assert_eq!(plan_value(&text, "head").unwrap(), "head");
+    assert_eq!(plan_value(&text, "unowned").unwrap(), "-");
+    assert_eq!(plan_value(&text, "quick.action").unwrap(), "part");
+    assert_eq!(plan_value(&text, "quick.members").unwrap(), "xtask");
+    assert_eq!(plan_value(&text, "lint.action").unwrap(), "run");
+    assert_eq!(
+        plan_value(&text, "lint.why").unwrap(),
+        "every run reruns it"
+    );
+    assert_eq!(plan_value(&text, "perf.action").unwrap(), "reuse");
+}
+
+#[rstest]
+#[case::missing("previous=none\n", "head")]
+#[case::twice("head=a\nhead=b\n", "head")]
+fn a_plan_without_its_key_or_with_it_twice_is_an_error(#[case] text: &str, #[case] key: &str) {
+    assert!(plan_value(text, key).is_err());
+}
+
+#[test]
+fn a_reason_over_several_lines_stays_on_its_key_line() {
+    let plan = [Planned {
+        step: Step::Lint,
+        action: Action::Run {
+            why: "git failed:\nfatal: bad object".to_owned(),
+        },
+        carried: BTreeMap::new(),
+    }];
+
+    let text = render(None, "head", &BTreeSet::new(), &[], &plan);
+
+    assert_eq!(
+        plan_value(&text, "lint.why").unwrap(),
+        "git failed: fatal: bad object"
+    );
 }

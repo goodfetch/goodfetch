@@ -70,6 +70,8 @@ record_green() {
 
 # shellcheck source=ci/keep-going.sh
 source "$(dirname "${BASH_SOURCE[0]}")/keep-going.sh"
+# shellcheck source=ci/output-value.sh
+source "$(dirname "${BASH_SOURCE[0]}")/output-value.sh"
 
 base=${GOODFETCH_QUICK_BASE:-}
 if [[ -z $base ]]; then
@@ -96,7 +98,11 @@ if [[ -z $all ]]; then
     steps_end || true
     exit 1
   fi
-  gate=$(printf '%s\n' "$selection" | sed -n 's/^gate=//p')
+  if ! gate=$(output_value gate "$selection"); then
+    echo "error: \`xtask affected\` gave no gate, so no lint and no Quick suite ran: the tier cannot tell which checks the change takes" >&2
+    steps_end || true
+    exit 1
+  fi
   if [[ $gate == docs ]]; then
     echo "The change is documents alone (xtask affected's gate=docs), so the pre-push tier runs the docs gate's checks: \`just lint-documents\`; the code lints and the Quick suite do not run, as at the merge (ADR 0135)."
     step lint-documents 'just lint-documents'

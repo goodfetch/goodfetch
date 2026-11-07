@@ -26,10 +26,14 @@ use goodfetch_protocol::formats::{Compatibility, KNOWN_CERTIFICATES};
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::tls::CertificatePin;
 use jiff::Timestamp;
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior};
 use sha2::{Digest as _, Sha256};
 
 use crate::home::Home;
+use crate::sqlite_store::{
+    self, Access, Durability, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
+    Synchronous, Wait, WalOnClose,
+};
 
 /// The kind of exception a host was reached through, as Provenance marks
 /// what was fetched under it.
@@ -57,11 +61,19 @@ impl ExceptionKind {
 /// answers busy, as while a crashed writer's journal is recovered.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How its commits reach the disk: each synced, without `F_FULLFSYNC` on
+/// macOS, its WAL copied into the file as its last connection closes.
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Full,
+    opening: Synchronous::Full,
+    full_fsync: FullFsync::Off,
+    wal_on_close: WalOnClose::Checkpointed,
+};
+
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default, so these statements keep working on its
 /// files.
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS pins (
         person TEXT NOT NULL,
         host TEXT NOT NULL,
@@ -599,7 +611,7 @@ impl KnownCertificates {
     fn open_read(&self) -> Result<Connection, KnownCertificatesError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         if self.made.get().is_none() {
-            let connection = self.connect(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let connection = self.connect(Access::ReadOnly)?;
             let tables: i64 = connection
                 .query_row(
                     "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
@@ -613,7 +625,7 @@ impl KnownCertificates {
             }
             let _ = self.made.set(());
         }
-        let connection = self.connect(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let connection = self.connect(Access::ReadOnly)?;
         let found: String = connection
             .query_row(
                 "SELECT version FROM format WHERE name = ?1",
@@ -621,20 +633,17 @@ impl KnownCertificates {
                 |row| row.get(0),
             )
             .map_err(|error| failed(&error))?;
-        check_format(&found)?;
+        sqlite_store::check_format(&KNOWN_CERTIFICATES, &found).map_err(refused)?;
         Ok(connection)
     }
 
     /// A connection to the store opened with `access`, waiting up to
     /// [`BUSY_TIMEOUT`] where SQLite answers busy.
-    fn connect(&self, access: OpenFlags) -> Result<Connection, KnownCertificatesError> {
+    fn connect(&self, access: Access) -> Result<Connection, KnownCertificatesError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let flags = access | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let connection = match &self.vfs {
-            Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
-            None => Connection::open_with_flags(&self.path, flags),
-        }
-        .map_err(|error| failed(&error))?;
+        let connection = File::new(&self.path, self.vfs.as_deref())
+            .connect(access)
+            .map_err(|error| failed(&error))?;
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
@@ -644,46 +653,22 @@ impl KnownCertificates {
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, KnownCertificatesError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        if let Some(folder) = self.path.parent() {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the store's calls run under their caller's blocking policy"
-            )]
-            std::fs::create_dir_all(folder).map_err(|error| failed(&error))?;
-        }
-        let mut connection =
-            self.connect(OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)?;
-        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
-        connection
-            .pragma_update(None, "synchronous", "FULL")
-            .map_err(|error| failed(&error))?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        for statement in SCHEMA {
-            transaction
-                .execute(statement, [])
-                .map_err(|error| failed(&error))?;
-        }
-        transaction
-            .execute(
-                "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (
-                    KNOWN_CERTIFICATES.name,
-                    KNOWN_CERTIFICATES.version.to_string(),
-                ),
-            )
-            .map_err(|error| failed(&error))?;
-        let found: String = transaction
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [KNOWN_CERTIFICATES.name],
-                |row| row.get(0),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        check_format(&found)?;
+        let connection = File::new(&self.path, self.vfs.as_deref())
+            .open(&Opening {
+                folder: Folder::Make,
+                access: Access::Create,
+                wait: Wait::Busy(BUSY_TIMEOUT),
+                durability: DURABILITY,
+                counting: None,
+                schema: Some(Schema {
+                    format: &KNOWN_CERTIFICATES,
+                    statements: &[SCHEMA],
+                }),
+            })
+            .map_err(|error| match error {
+                OpenError::Format(refusal) => refused(refusal),
+                other => self.failed(&other),
+            })?;
         let _ = self.made.set(());
         Ok(connection)
     }
@@ -738,22 +723,12 @@ fn change_in(
     }))
 }
 
-/// Refuses a store of another major (ADR 0030): every minor of this one
-/// opens.
-fn check_format(found: &str) -> Result<(), KnownCertificatesError> {
-    let refused = |compatibility| KnownCertificatesError::Format {
-        found: found.to_owned(),
-        compatibility,
-    };
-    let version = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match KNOWN_CERTIFICATES
-        .rule
-        .compatibility(KNOWN_CERTIFICATES.version, version)
-    {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
+/// The error of a store of another major (ADR 0030): every minor of this
+/// one opens.
+fn refused(refusal: FormatRefusal) -> KnownCertificatesError {
+    KnownCertificatesError::Format {
+        found: refusal.found,
+        compatibility: refusal.compatibility,
     }
 }
 

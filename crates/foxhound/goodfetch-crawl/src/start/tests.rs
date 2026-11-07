@@ -323,7 +323,7 @@ pub(crate) fn engine() -> Engine {
         .with(goodfetch_engine::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
+        .with(goodfetch_dataset::contribution(crate::url_of))
         .with(super::contribution(goodfetch_fetch_tier::FetchTiers::new()));
     Engine::new(identity, &composition).unwrap()
 }

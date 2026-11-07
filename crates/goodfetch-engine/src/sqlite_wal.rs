@@ -5,7 +5,8 @@
 //! rather than wait on the busy timeout, which would risk a deadlock. So
 //! engines opening a new file at once wait here for each other's switch,
 //! up to the file's own busy timeout. Its calls block: callers run them
-//! under their owner's blocking policy.
+//! under their owner's blocking policy. Only `sqlite_store`, which opens
+//! every store's file, calls it.
 
 use std::time::Duration;
 
@@ -67,26 +68,6 @@ fn switch(connection: &Connection) -> rusqlite::Result<()> {
         connection.pragma_update(None, "synchronous", level)
     });
     switched.and(restored)
-}
-
-/// Has `connection` leave the write-ahead log as it is when it closes,
-/// rather than copy it into the file, which syncs both, when it is the
-/// file's last connection (#2110). A commit at `synchronous=FULL` already
-/// synced the log, so what it holds survives a power cut, and the next
-/// connection reads it; SQLite's automatic checkpoint still copies it into
-/// the file once it passes its thousand pages, so it does not grow without
-/// bound.
-///
-/// # Errors
-///
-/// SQLite's error.
-pub(crate) fn no_checkpoint_on_close(connection: &Connection) -> rusqlite::Result<()> {
-    connection
-        .set_db_config(
-            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
-            true,
-        )
-        .map(drop)
 }
 
 #[cfg(test)]

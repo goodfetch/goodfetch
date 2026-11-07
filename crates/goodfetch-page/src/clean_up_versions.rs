@@ -43,6 +43,7 @@ use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact}
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
@@ -901,11 +902,7 @@ async fn known(
 /// The Clean-up rules digest `run`'s state records.
 async fn recorded_digest(run: &Run) -> Option<String> {
     run.state()
-        .read(|connection| {
-            connection.query_row("SELECT clean_up_digest FROM run", [], |row| {
-                row.get::<_, Option<String>>(0)
-            })
-        })
+        .read(run_row::clean_up_digest)
         .await
         .ok()
         .flatten()

@@ -13,13 +13,14 @@ use goodfetch_protocol::run::{
     Lifecycle, MAX_TAG_CHARACTERS, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
 };
 use goodfetch_protocol::settings::WeakenedSetting;
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
+use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
 use super::CALLER;
 use crate::clock::Clock;
 use crate::durable;
 use crate::mask::{Masks, Scope};
+use crate::sqlite_store::{Access, File};
 
 /// The Run's own row, written once when it begins.
 pub(super) struct RunRow {
@@ -161,20 +162,7 @@ pub(super) fn open_reader(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
     if vfs.is_none() && !file.exists() {
         return Ok(None);
     }
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(file, flags, vfs),
-        None => Connection::open_with_flags(file, flags),
-    };
-    match connection {
-        Ok(connection) => Ok(Some(connection)),
-        Err(rusqlite::Error::SqliteFailure(failure, _))
-            if failure.code == rusqlite::ErrorCode::CannotOpen =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error),
-    }
+    File::new(file, vfs).connect_existing(Access::ReadOnly)
 }
 
 pub(super) fn read_found(file: &Path, vfs: Option<&str>) -> Result<Option<Found>, String> {

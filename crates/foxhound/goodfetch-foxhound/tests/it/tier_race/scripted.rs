@@ -284,7 +284,7 @@ fn engine(tiers: &FetchTiers) -> Engine {
     let composition = goodfetch_collie::composition_with(tiers.clone())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
+        .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
         .with(goodfetch_crawl::contribution(tiers.clone()));
     Engine::new(identity, &composition).unwrap()
 }

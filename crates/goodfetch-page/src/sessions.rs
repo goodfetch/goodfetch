@@ -60,7 +60,7 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::{RunStateError, RunStateTables};
+use goodfetch_engine::run_state::{RunStateError, RunStateTables, run_row};
 use goodfetch_engine::runs::{Run, RunError};
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
@@ -1786,13 +1786,9 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
         return false;
     };
     reader
-        .read(|connection| {
-            connection.query_row("SELECT lifecycle FROM run", [], |row| {
-                row.get::<_, String>(0)
-            })
-        })
+        .read(run_row::lifecycle)
         .await
-        .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished.as_str())
+        .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished)
 }
 
 /// The Run's `timeout.wait`, an app-state wait's deadline.

@@ -92,7 +92,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
     let composition = goodfetch_collie::composition_with(tiers.clone())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
-        .with(goodfetch_dataset::contribution())
+        .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
         .with(goodfetch_crawl::contribution(tiers));
     let engine = Engine::new(identity, &composition).unwrap();
     goodfetch_test_support::runtime().block_on(async {

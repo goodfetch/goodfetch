@@ -12,6 +12,11 @@ const MANIFEST: &str = "crates/foxhound/goodfetch-frontier/Cargo.toml";
 
 /// A workspace of one crate whose one bench target is `bench`.
 fn crate_with_bench(workspace: &Workspace, bench: &str) {
+    crate_with_benches(workspace, &[bench]);
+}
+
+/// A workspace of one crate with these bench targets.
+fn crate_with_benches(workspace: &Workspace, benches: &[&str]) {
     workspace.write(
         "Cargo.toml",
         b"[workspace]\nresolver = \"3\"\nmembers = [\"crates/foxhound/goodfetch-frontier\"]\n",
@@ -20,10 +25,15 @@ fn crate_with_bench(workspace: &Workspace, bench: &str) {
         "Cargo.lock",
         b"version = 4\n\n[[package]]\nname = \"goodfetch-frontier\"\nversion = \"0.0.0\"\n",
     );
+    let targets = benches
+        .iter()
+        .map(|bench| format!("\n[[bench]]\nname = \"{bench}\"\nharness = false\n"))
+        .collect::<Vec<_>>()
+        .concat();
     workspace.write(
         MANIFEST,
         format!(
-            "[package]\nname = \"goodfetch-frontier\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[[bench]]\nname = \"{bench}\"\nharness = false\n"
+            "[package]\nname = \"goodfetch-frontier\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n{targets}"
         )
         .as_bytes(),
     );
@@ -31,11 +41,210 @@ fn crate_with_bench(workspace: &Workspace, bench: &str) {
         "crates/foxhound/goodfetch-frontier/src/lib.rs",
         b"//! The Frontier.\n",
     );
-    workspace.write(
-        &format!("crates/foxhound/goodfetch-frontier/benches/{bench}.rs"),
-        b"//! A benchmark.\n\nfn main() {}\n",
-    );
+    for bench in benches {
+        workspace.write(
+            &format!("crates/foxhound/goodfetch-frontier/benches/{bench}.rs"),
+            b"//! A benchmark.\n\nfn main() {}\n",
+        );
+    }
     workspace.write("ci/perf-reference.toml", b"");
+}
+
+/// A stand-in for Cargo that hands every command but `fetch` and `bench` to
+/// the real one. It logs each `fetch` and `bench` as it starts and ends, with
+/// its folder, `CARGO_TARGET_DIR` and arguments, and hands `fetch` on too.
+/// Each `bench` waits, up to 10 s, until the other side's has started, and
+/// fails when the sides build one after the other; then it writes a line to
+/// stderr and exits with `status`.
+#[cfg(unix)]
+fn building_cargo(workspace: &Workspace, status: u8) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let folder = workspace.path().join("stand-in");
+    let runs = folder.join("runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    let real = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let script = format!(
+        r#"#!/bin/sh
+case "$1" in
+  fetch | bench) ;;
+  *) exec "{real}" "$@" ;;
+esac
+case "$CARGO_TARGET_DIR" in
+  */perf-base) side=base ;;
+  *) side=head ;;
+esac
+log() {{ printf '%s\t%s\t%s\t%s\n' "$1" "$(pwd -P)" "$CARGO_TARGET_DIR" "$2" >> "{log}"; }}
+log start "$*"
+if [ "$1" = fetch ]; then
+  "{real}" "$@" || exit $?
+  log end "$*"
+  exit 0
+fi
+touch "{runs}/started.$side"
+waited=0
+until [ "$(ls "{runs}" | grep -c '^started\.')" -gt 1 ]; do
+  if [ "$waited" -ge 200 ]; then
+    echo "the $side's bench targets built alone" >&2
+    exit 1
+  fi
+  sleep 0.05
+  waited=$((waited + 1))
+done
+echo "built $*" >&2
+log end "$*"
+exit {status}
+"#,
+        runs = runs.display(),
+        log = folder.join("log").display(),
+    );
+    let cargo = folder.join("cargo");
+    std::fs::write(&cargo, script).unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    cargo
+}
+
+/// One `fetch` or `bench` the stand-in Cargo logged.
+#[cfg(unix)]
+#[derive(Debug, PartialEq)]
+struct Logged {
+    event: String,
+    folder: std::path::PathBuf,
+    target_directory: String,
+    args: String,
+}
+
+#[cfg(unix)]
+fn logged(workspace: &Workspace) -> Vec<Logged> {
+    String::from_utf8(workspace.read("stand-in/log").unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let [event, folder, target_directory, args] =
+                line.split('\t').collect::<Vec<_>>().try_into().unwrap();
+            Logged {
+                event: event.to_owned(),
+                folder: folder.into(),
+                target_directory: target_directory.to_owned(),
+                args: args.to_owned(),
+            }
+        })
+        .collect()
+}
+
+/// The base's bench targets build at the same time as the head's, so the
+/// two builds of about 50 minutes each overlap, and each side runs the very
+/// commands it ran when they built one after the other: the same arguments,
+/// folder and `CARGO_TARGET_DIR`, in the same order, so the binaries and
+/// what they measure stay the same. Each line a side's command writes
+/// carries the side's name.
+#[cfg(unix)]
+#[test]
+fn the_bases_and_the_heads_bench_targets_build_at_the_same_time() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_benches(&workspace, &["instructions", "heap"]);
+    let base = workspace.commit_all();
+    let cargo = building_cargo(&workspace, 0);
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "perf",
+            "build",
+            "--base",
+            &base,
+            "--bench-targets",
+            "goodfetch-frontier/instructions goodfetch-frontier/heap",
+        ],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let plan: Value =
+        serde_json::from_slice(&workspace.read("target/perf/plan.json").unwrap()).unwrap();
+    let target_directory = plan["target_directory"].as_str().unwrap().to_owned();
+    let root = workspace.path().canonicalize().unwrap();
+    let tree = root.join("target/perf-base-tree");
+    let logged = logged(&workspace);
+    let first_end = logged
+        .iter()
+        .position(|logged| logged.event == "end" && logged.args.starts_with("bench"))
+        .unwrap();
+    for folder in [&root, &tree] {
+        assert!(
+            logged[..first_end]
+                .iter()
+                .any(|logged| &logged.folder == folder && logged.args.starts_with("bench")),
+            "no bench of {} started before the first ended: {logged:#?}",
+            folder.display()
+        );
+    }
+    let started = |folder: &std::path::Path| -> Vec<(String, String)> {
+        logged
+            .iter()
+            .filter(|logged| logged.event == "start" && logged.folder == folder)
+            .map(|logged| (logged.target_directory.clone(), logged.args.clone()))
+            .collect()
+    };
+    let base_directory = format!("{target_directory}/perf-base");
+    let bench =
+        |name: &str| format!("bench --locked --package goodfetch-frontier --bench {name} --no-run");
+    assert_eq!(
+        started(&tree),
+        vec![
+            (base_directory.clone(), "fetch --locked".to_owned()),
+            (base_directory.clone(), bench("heap")),
+            (base_directory, bench("instructions")),
+        ]
+    );
+    assert_eq!(
+        started(&root),
+        vec![
+            (target_directory.clone(), bench("instructions")),
+            (target_directory, bench("heap")),
+        ]
+    );
+    for (side, name) in [
+        ("base", "heap"),
+        ("base", "instructions"),
+        ("head", "instructions"),
+        ("head", "heap"),
+    ] {
+        let line = format!("[{side}] built {}", bench(name));
+        assert!(
+            outcome.stderr.lines().any(|written| written == line),
+            "no `{line}` in:\n{}",
+            outcome.stderr
+        );
+    }
+}
+
+/// When both sides fail, the build fails naming each failure, not only the
+/// first one to end.
+#[cfg(unix)]
+#[test]
+fn when_both_sides_fail_each_failure_is_reported() {
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_benches(&workspace, &["instructions"]);
+    let base = workspace.commit_all();
+    let cargo = building_cargo(&workspace, 1);
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "perf",
+            "build",
+            "--base",
+            &base,
+            "--bench-targets",
+            "goodfetch-frontier/instructions",
+        ],
+        &[("CARGO", cargo.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    for side in ["base", "head"] {
+        let failure = format!("building the {side}'s goodfetch-frontier/instructions failed");
+        assert!(outcome.stderr.contains(&failure), "{}", outcome.stderr);
+    }
 }
 
 #[test]

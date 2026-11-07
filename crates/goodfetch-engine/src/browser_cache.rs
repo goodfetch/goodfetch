@@ -583,36 +583,13 @@ impl BrowserCache {
             return Err(download_failed(artifact, pinned_by, &host, failure));
         }
         let files = store::files(partial.path());
-        let unpacked = blocking(|| {
-            if Path::new(&file_name)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-            {
-                extract::unpack(&archive, &files)?;
-            } else {
-                extract::place(&archive, &files, &file_name)?;
-            }
-            content_digest(&files)
-        })
-        .await;
-        match unpacked {
-            Ok(digest) if digest == artifact.digest => {}
-            Ok(_) => {
-                return Err(download_failed(
-                    artifact,
-                    pinned_by,
-                    &host,
-                    DownloadFailure::DigestMismatch,
-                ));
-            }
-            // The archive had its pinned digest: a failure to write its
-            // files out, such as a full disk, is the cache's own.
-            Err(source) => {
-                return Err(CacheError::Cache {
-                    path: files,
-                    source,
-                });
-            }
+        if unpacked(&archive, &files, &file_name).await? != artifact.digest {
+            return Err(download_failed(
+                artifact,
+                pinned_by,
+                &host,
+                DownloadFailure::DigestMismatch,
+            ));
         }
         let entry = BrowserCacheEntry {
             format_version: BROWSER_CACHE.version,
@@ -703,6 +680,26 @@ impl BrowserCache {
             }),
         }
     }
+}
+
+/// Unpacks the archive at `archive` into `files`, or places it there as the
+/// executable `file_name` names when it is no ZIP archive, and answers the
+/// digest of what it wrote. The archive had its pinned digest: a failure
+/// to write its files out, such as a full disk, is the cache's own.
+async fn unpacked(archive: &Path, files: &Path, file_name: &str) -> Result<Digest, CacheError> {
+    blocking(|| {
+        if Path::new(file_name)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+        {
+            extract::unpack(archive, files)?;
+        } else {
+            extract::place(archive, files, file_name)?;
+        }
+        content_digest(files)
+    })
+    .await
+    .map_err(CacheError::cache(files))
 }
 
 fn download_failed(

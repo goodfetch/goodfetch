@@ -263,12 +263,12 @@ pub fn upgrade_files(
     Ok(upgraded)
 }
 
+/// A major's order and its folder's name.
+type Major = ((u64, u64), String);
+
 /// The newest major older than `current` whose folder Goodfetch home at
 /// `root` holds; none when there is no Goodfetch home yet.
-fn newest_older_major(
-    root: &Path,
-    current: (u64, u64),
-) -> Result<Option<((u64, u64), String)>, UpgradeError> {
+fn newest_older_major(root: &Path, current: (u64, u64)) -> Result<Option<Major>, UpgradeError> {
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),

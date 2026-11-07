@@ -6,20 +6,39 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
+use serde::Serialize;
 
 use super::plan::Step;
 use super::{commit, runs};
 use crate::git;
 use crate::output;
 
+/// One result another run reused that the full run did not find green.
+#[derive(Serialize)]
+struct Found {
+    /// `miss` when the full run found it red; `suspect` for a step run per
+    /// member, whose red the members that run reran may hold; `unchecked`
+    /// when the full run has no result for it, as when it stopped at a red
+    /// step.
+    kind: &'static str,
+    /// The unit, `<step>` or `<step>:<member>`.
+    unit: String,
+    /// Its step.
+    step: String,
+    /// Its member, for a step run per member.
+    member: Option<String>,
+    /// The head of the run that reused it.
+    run: String,
+    /// The head of the run it was reused from.
+    origin: String,
+}
+
 /// For the full run on `full`, whose record is in `records`, each result
 /// that another run in `others` on the same tree reused from an earlier head
-/// and the full run found red, as `miss\t<unit>\t<run>\t<origin>` lines, or
-/// `suspect` lines for a step run per member, whose red the members that
-/// run reran may hold; `unchecked` lines for a reused result the full run
-/// has no result for, as when it stopped at a red step. Fails when the run
-/// on `full` reused anything, so it is no full run.
+/// and the full run did not find green, printed as one JSON array of
+/// [`Found`] objects. Fails when the run on `full` reused anything, so it is
+/// no full run.
 pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) -> Result<ExitCode> {
     let full = commit(root, full)?;
     let record = runs::read(records, &full)?;
@@ -34,6 +53,7 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
         ));
         return Ok(ExitCode::FAILURE);
     }
+    let mut found = Vec::new();
     let tree = git::line(
         root,
         &["rev-parse", "--verify", &format!("{full}^{{tree}}")],
@@ -63,20 +83,25 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
             if !outcome.green || outcome.origin == head {
                 continue;
             }
+            let (step, member) = unit
+                .split_once(':')
+                .map_or((unit.as_str(), None), |(step, member)| (step, Some(member)));
             let kind = match record.units.get(unit) {
                 None => "unchecked",
-                Some(found) if found.green => continue,
-                Some(_) => {
-                    let step = unit.split_once(':').map_or(unit.as_str(), |(step, _)| step);
-                    if Step::from_name(step).is_some_and(Step::per_member) {
-                        "suspect"
-                    } else {
-                        "miss"
-                    }
-                }
+                Some(full) if full.green => continue,
+                Some(_) if Step::from_name(step).is_some_and(Step::per_member) => "suspect",
+                Some(_) => "miss",
             };
-            output::line(&format!("{kind}\t{unit}\t{head}\t{}", outcome.origin));
+            found.push(Found {
+                kind,
+                unit: unit.clone(),
+                step: step.to_owned(),
+                member: member.map(str::to_owned),
+                run: head.clone(),
+                origin: outcome.origin.clone(),
+            });
         }
     }
+    output::line(&serde_json::to_string(&found).context("writing the comparison as JSON")?);
     Ok(ExitCode::SUCCESS)
 }

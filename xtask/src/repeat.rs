@@ -32,6 +32,7 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::process::{Command, ExitCode};
@@ -200,9 +201,9 @@ pub(crate) enum Iterations {
     OneACommand,
 }
 
-/// Each runner's commands' arguments, as `(runner, batch, argument)` in
-/// order, the batches numbered from 1 within each runner; `lazyfs` says
-/// whether the host has a LazyFS build.
+/// Each runner's commands, by its name, in the order they run: each
+/// command's arguments, a batch of its tests; none for a runner with no test
+/// chosen. `lazyfs` says whether the host has a LazyFS build.
 pub(crate) fn arguments(
     root: &Path,
     selection: Selection,
@@ -210,7 +211,7 @@ pub(crate) fn arguments(
     iterations: Iterations,
     limits: Limits,
     lazyfs: bool,
-) -> Result<Vec<(&'static str, usize, String)>> {
+) -> Result<BTreeMap<&'static str, Vec<Vec<String>>>> {
     let tests = match selection {
         Selection::Tests(tests) => tests,
         Selection::Quarantined(limit) => {
@@ -293,22 +294,17 @@ pub(crate) fn arguments(
         ),
     ];
 
-    let mut arguments = Vec::new();
+    let mut commands = BTreeMap::new();
     for (runner, fixed, alternatives, selecting) in runners {
-        if alternatives.is_empty() {
-            continue;
-        }
-        let commands = batches(&fixed, alternatives, &selecting, limits)
-            .with_context(|| format!("dividing {runner}'s tests into commands"))?;
-        for (index, command) in commands.into_iter().enumerate() {
-            arguments.extend(
-                command
-                    .into_iter()
-                    .map(|argument| (runner, index + 1, argument)),
-            );
-        }
+        let runner_commands = if alternatives.is_empty() {
+            Vec::new()
+        } else {
+            batches(&fixed, alternatives, &selecting, limits)
+                .with_context(|| format!("dividing {runner}'s tests into commands"))?
+        };
+        commands.insert(runner, runner_commands);
     }
-    Ok(arguments)
+    Ok(commands)
 }
 
 /// nextest's arguments besides its filtersets for `tests`, which run
@@ -404,8 +400,9 @@ fn parse_test(value: &str) -> Result<(Runner, TestId)> {
     Ok((runner, TestId::parse(runner, id)?))
 }
 
-/// Prints each runner's commands' arguments as `<runner>\t<batch>\t<argument>`
-/// lines.
+/// Prints each runner's commands as one JSON object: each runner's name and
+/// its commands in the order they run, each command its arguments,
+/// `{"nextest": [["--stress-count=20", "--filterset=…"]], "vitest": [], …}`.
 pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<ExitCode> {
     let selection = match (arguments.quarantined, arguments.tests_file) {
         (Some(limit), _) => Selection::Quarantined(limit),
@@ -413,7 +410,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         (None, None) => Selection::Tests(arguments.test),
     };
     let limits = Limits::of_host(environment.variables_bytes)?;
-    for (runner, batch, argument) in self::arguments(
+    let commands = self::arguments(
         &environment.root,
         selection,
         arguments.count,
@@ -424,8 +421,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         },
         limits,
         environment.lazyfs,
-    )? {
-        output::line(&format!("{runner}\t{batch}\t{argument}"));
-    }
+    )?;
+    output::line(&serde_json::to_string(&commands).context("writing the commands as JSON")?);
     Ok(ExitCode::SUCCESS)
 }

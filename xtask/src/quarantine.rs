@@ -11,7 +11,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::num::NonZeroU64;
 use std::path::Path;
@@ -171,10 +171,10 @@ pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> 
     Ok(findings)
 }
 
-/// Each runner's arguments that skip the listed tests, as `(runner, argument)`
-/// pairs in the order they go on its command line; none for a runner with no
-/// listed test.
-pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
+/// Each runner's arguments that skip the listed tests, by its name, in the
+/// order they go on its command line; none for a runner with no listed test.
+/// Every runner has its entry, so a reader never meets a missing one.
+pub(crate) fn exclusions(root: &Path) -> Result<BTreeMap<&'static str, Vec<String>>> {
     let entries = read(root)?;
     let tests = |runner: Runner| -> Vec<&TestId> {
         entries
@@ -183,16 +183,22 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
             .map(|entry| &entry.test)
             .collect()
     };
-    let mut arguments = Vec::new();
+    let mut arguments: BTreeMap<&'static str, Vec<String>> = Runner::ALL
+        .into_iter()
+        .map(|runner| (runner.name(), Vec::new()))
+        .collect();
+    let mut push = |runner: Runner, argument: String| {
+        arguments.entry(runner.name()).or_default().push(argument);
+    };
 
     // nextest's filtersets cannot reach it through `cargo insta test`, so its
     // libtest-style `--skip` does, after `--`.
     let nextest = tests(Runner::Nextest);
     if !nextest.is_empty() {
-        arguments.push(("nextest", "--".to_owned()));
+        push(Runner::Nextest, "--".to_owned());
         for test in nextest {
-            arguments.push(("nextest", "--skip".to_owned()));
-            arguments.push(("nextest", test.nextest_name().to_owned()));
+            push(Runner::Nextest, "--skip".to_owned());
+            push(Runner::Nextest, test.nextest_name().to_owned());
         }
     }
 
@@ -201,19 +207,22 @@ pub(crate) fn exclusions(root: &Path) -> Result<Vec<(&'static str, String)>> {
     let vitest = tests(Runner::Vitest);
     if !vitest.is_empty() {
         let names = runners::alternation(vitest.iter().map(|test| test.as_str().to_owned()));
-        arguments.push(("vitest", format!("--testNamePattern=^(?!(?:{names})$)")));
+        push(
+            Runner::Vitest,
+            format!("--testNamePattern=^(?!(?:{names})$)"),
+        );
     }
 
     let playwright = tests(Runner::Playwright);
     if !playwright.is_empty() {
-        arguments.push((
-            "playwright",
+        push(
+            Runner::Playwright,
             format!("--grep-invert={}", runners::playwright_pattern(&playwright)),
-        ));
+        );
     }
 
     for test in tests(Runner::Pytest) {
-        arguments.push(("pytest", format!("--deselect={test}")));
+        push(Runner::Pytest, format!("--deselect={test}"));
     }
     Ok(arguments)
 }
@@ -231,8 +240,9 @@ pub(crate) enum Command {
         #[arg(long)]
         cargo_profile: Option<String>,
     },
-    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
-    /// runner skip the listed tests.
+    /// Prints, as one JSON object, the arguments that make each runner skip
+    /// the listed tests: each runner's name and its arguments in their
+    /// order, `{"nextest": ["--", "--skip", "<test>"], "vitest": [], …}`.
     Exclude,
 }
 
@@ -252,9 +262,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(crate::check::report(&check(root, &sources)?))
         }
         Command::Exclude => {
-            for (runner, argument) in exclusions(root)? {
-                output::line(&format!("{runner}\t{argument}"));
-            }
+            output::line(
+                &serde_json::to_string(&exclusions(root)?)
+                    .context("writing the exclusions as JSON")?,
+            );
             Ok(ExitCode::SUCCESS)
         }
     }

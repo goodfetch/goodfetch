@@ -751,19 +751,25 @@ fn a_full_run_finds_each_reused_result_it_finds_red() {
     let compared = compare(&workspace, &backstop, &records, &full.head);
 
     assert_eq!(compared.code, 0, "{}", compared.stderr);
-    let lines: BTreeSet<&str> = compared.stdout.lines().collect();
+    let found: Vec<serde_json::Value> = serde_json::from_str(&compared.stdout).unwrap();
     assert!(
-        lines.contains(format!("miss\tperf\t{second}\t{first}").as_str()),
+        found.contains(&serde_json::json!({
+            "kind": "miss", "unit": "perf", "step": "perf", "member": null,
+            "run": second, "origin": first,
+        })),
         "{}",
         compared.stdout
     );
     assert!(
-        lines.contains(format!("suspect\tpre-merge:goodfetch-engine\t{second}\t{first}").as_str()),
+        found.contains(&serde_json::json!({
+            "kind": "suspect", "unit": "pre-merge:goodfetch-engine", "step": "pre-merge",
+            "member": "goodfetch-engine", "run": second, "origin": first,
+        })),
         "{}",
         compared.stdout
     );
     assert!(
-        !lines.iter().any(|line| line.contains("\ttlc\t")),
+        !found.iter().any(|result| result["step"] == "tlc"),
         "{}",
         compared.stdout
     );

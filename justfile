@@ -491,20 +491,24 @@ test suite *packages:
     mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # Each runner skips the tests on the test quarantine list through its own
-    # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
-    # nextest's arguments, which also skip the tests of an OS service a local
-    # host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh and
-    # ci/asan.sh.
+    # filter (ADR 0064): `xtask quarantine exclude` prints each runner's
+    # arguments as JSON. nextest's, which also skip the tests of an OS service
+    # a local host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh
+    # and ci/asan.sh.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
     exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        vitest) skip_vitest+=("$argument") ;;
-        playwright) skip_playwright+=("$argument") ;;
-        pytest) skip_pytest+=("$argument") ;;
-      esac
-    done <<< "$exclusions"
-    skips=$(ci/nextest-skips.sh)
+    for runner in vitest playwright pytest; do
+      arguments=$(jq -r --arg runner "$runner" '.[$runner][]' <<< "$exclusions")
+      while IFS= read -r argument; do
+        [[ -n "$argument" ]] || continue
+        case "$runner" in
+          vitest) skip_vitest+=("$argument") ;;
+          playwright) skip_playwright+=("$argument") ;;
+          pytest) skip_pytest+=("$argument") ;;
+        esac
+      done <<< "$arguments"
+    done
+    skips=$(ci/nextest-skips.sh "$exclusions")
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
@@ -732,8 +736,9 @@ repeat count *selection:
     mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
     mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
-    # `<runner>\t<batch>\t<argument>` lines, each runner's batches from 1.
-    arguments=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
+    # Each runner's commands, as JSON: `{"<runner>": [[<argument>, …], …]}`,
+    # one list of arguments a command, a batch of its tests.
+    batched=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
@@ -742,16 +747,15 @@ repeat count *selection:
         echo "Repeat run: $runner does not run after a red iteration"
         continue
       fi
-      batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
+      batches=$(jq --arg runner "$runner" '.[$runner] | length' <<< "$batched")
       commands=1
       [[ "$runner" != nextest ]] || commands=$iterations
       # Each iteration after the first runs only while the run is green.
       for (( iteration = 1; iteration <= commands && (iteration == 1 || status == 0); iteration++ )); do
         for (( batch = 1; batch <= batches; batch++ )); do
           selected=()
-          while IFS=$'\t' read -r line_runner line_batch argument; do
-            if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
-          done <<< "$arguments"
+          arguments=$(jq -r --arg runner "$runner" --argjson batch "$batch" '.[$runner][$batch - 1][]' <<< "$batched")
+          while IFS= read -r argument; do [[ -z "$argument" ]] || selected+=("$argument"); done <<< "$arguments"
           case "$runner" in
             nextest)
               cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
@@ -828,7 +832,11 @@ stress base="" since="" *within:
     # Each count's tests go to `just repeat` in a file: a change's new and
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
-    for count in 20 200; do
+    # Each count `xtask stress select` gives a test, smallest first.
+    source ci/output-value.sh
+    listed=$(cargo run --quiet --bin xtask -- stress counts)
+    counts=$(output_value counts "$listed")
+    for count in $counts; do
       # A red run stops at the end of its first red iteration: no later count runs.
       if (( status != 0 )); then
         echo "Stress run: the $count count does not run after a red iteration"

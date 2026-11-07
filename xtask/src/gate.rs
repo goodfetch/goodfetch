@@ -133,8 +133,10 @@ pub(crate) enum Command {
         #[arg(long)]
         selection: Option<std::path::PathBuf>,
     },
-    /// Prints each result an incremental run on the full run's tree reused
-    /// and the full run on `full` found red: the backstop's check.
+    /// Prints, as a JSON array, each result an incremental run on the full
+    /// run's tree reused and the full run on `full` did not find green, with
+    /// its kind (`miss`, `suspect`, `unchecked`), unit, step and member: the
+    /// backstop's check.
     Compare {
         /// The folder of the full run's record.
         #[arg(long)]

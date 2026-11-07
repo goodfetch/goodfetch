@@ -300,8 +300,8 @@ enum Command {
         #[command(subcommand)]
         command: release_suite::Command,
     },
-    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
-    /// runner run the chosen tests `--count` times, whatever each run's
+    /// Prints, as a JSON object of each runner's commands, the arguments that
+    /// make each runner run the chosen tests `--count` times, whatever each run's
     /// result (ADR 0064): the diagnostic runs and the daily test-health job.
     Repeat(repeat::Arguments),
     /// The results store, `test-results` (ADR 0064).

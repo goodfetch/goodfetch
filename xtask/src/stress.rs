@@ -47,6 +47,10 @@ const CHANGED_RUNS: u32 = 20;
 /// How many times a test taken off the quarantine list runs (ADR 0064).
 const UNQUARANTINED_RUNS: u32 = 200;
 
+/// Every count a selected test runs, smallest first: the order `just
+/// stress` runs them in.
+const COUNTS: [u32; 2] = [CHANGED_RUNS, UNQUARANTINED_RUNS];
+
 /// The file a runner's saved listing is written to, in its commit's folder.
 fn saved_file(runner: Runner) -> &'static str {
     match runner {
@@ -542,6 +546,9 @@ pub(crate) enum Command {
         #[arg(long, requires = "within")]
         since: Option<String>,
     },
+    /// Prints every count `select` gives a test, smallest first, as one
+    /// `counts=<count> <count>…` line: `just stress` runs each in turn.
+    Counts,
     /// Saves each runner's listing of the workspace into `<out>/<HEAD's
     /// commit>/`, for the changes whose base it is.
     Listings {
@@ -591,6 +598,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     selected.test
                 ));
             }
+        }
+        Command::Counts => {
+            let counts: Vec<String> = COUNTS.iter().map(u32::to_string).collect();
+            output::line(&format!("counts={}", counts.join(" ")));
         }
         Command::Listings { out, cargo_profile } => {
             let runners = Runners {

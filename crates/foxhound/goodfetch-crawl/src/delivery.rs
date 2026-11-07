@@ -85,8 +85,8 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
-    RobotsTxtFetch, SetTier, SignalFiles, TierChoice, UntouchedDemand, UntouchedReaders,
+    Choosing, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier, LocalSource,
+    PooledSession, RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -139,7 +139,8 @@ mod attempt;
 mod politeness;
 
 use attempt::{
-    Answer, Attempt, Gating, Taught, Tiering, attempt, block_cause, effect, leased_count,
+    Answer, Attempt, Taught, Tiering, attempt, block_cause, effect, handler_lease, leased_count,
+    run_hand_over,
 };
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
@@ -240,8 +241,6 @@ pub(crate) async fn drive(
         tiers: &tiers,
         http: http.as_ref(),
         interface,
-        robots: http.as_ref().map(HttpTier::robots_txt_fetch),
-        egress: std::sync::Arc::clone(&arrivals.egress),
         labels: std::sync::Arc::new(labels),
         run_tier,
         run_encoding: settings
@@ -259,14 +258,16 @@ pub(crate) async fn drive(
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         untouched,
         code_free: code_free.map(std::sync::Arc::new),
-        signal_files: SignalFiles::default(),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if settings.resolved().boolean(setting) == Some(false) {
             warn_switched_off(&run, code, message).await;
         }
     }
-    deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
+    // What every attempt hands over alike, built once (ADR 0138).
+    let handing = run_hand_over(&run, fetching.http, &arrivals.egress).await;
+    let fetching = (&fetching, &handing);
+    deliver(&run, &mut servers, &mut arrivals, &settings, fetching).await;
     crawls.close(run.id()).await;
 }
 
@@ -375,13 +376,14 @@ impl Read {
     }
 }
 
-/// The delivery's loop, which returns once the Run ended or stopped.
+/// The delivery's loop, which returns once the Run ended or stopped, each
+/// attempt it starts handing over `handing` with its own part.
 async fn deliver(
     run: &Run,
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
     settings: &RunSettings,
-    fetching: &Fetching<'_>,
+    (fetching, handing): (&Fetching<'_>, &std::sync::Arc<RunHandOver>),
 ) {
     // The pool is out of `pool` only while a write that leases work items
     // draws from it: the loop ends on that write's error.
@@ -403,7 +405,7 @@ async fn deliver(
                 run,
                 &run_leases,
                 policy,
-                Pooled::of(&mut pool, read.pool, fetching),
+                Pooled::of(&mut pool, read.pool, (fetching, handing)),
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -657,15 +659,9 @@ struct Fetching<'a> {
     /// The browser-fetch latencies of each Label on each domain, which
     /// time a race's navigation.
     latencies: tokio::sync::Mutex<Latencies>,
-    /// How the navigation gate fetches robots.txt.
-    robots: Option<RobotsTxtFetch>,
     /// What a code-free crawl handles its requests with; none when its
     /// program does.
     code_free: Option<std::sync::Arc<CodeFree>>,
-    /// The AI-use signal files the Run fetched, each once.
-    signal_files: SignalFiles,
-    /// The Run's domain policy, which judges each redirect hop.
-    egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
     /// The readers of the untouched page of each Label, built once.
@@ -717,20 +713,25 @@ impl Untouched {
 }
 
 impl Fetching<'_> {
-    /// What one attempt's handler pages, of a request of `label`, are
-    /// gated and judged with.
-    fn gating(
+    /// What the attempt of `leased`, holding `lease`, hands over with its
+    /// Run's pages, built once as it is leased: `of_run`, what every
+    /// attempt of the Run hands over alike, with its own room beside the
+    /// Run's requests, `second_copies`, its HTTP admission and what its
+    /// request's Label declares.
+    fn hand_over(
         &self,
-        label: &str,
+        of_run: &std::sync::Arc<RunHandOver>,
+        (leased, lease): (&Leased, &WorkItemLease),
         second_copies: &SecondCopies,
         fetch_admission: FetchAdmission,
-    ) -> Gating {
-        Gating {
-            tiers: self.tiers.clone(),
+    ) -> std::sync::Arc<HandOver> {
+        let label = leased.crawl_request.label.as_str();
+        std::sync::Arc::new(HandOver {
+            of_run: std::sync::Arc::clone(of_run),
+            domain_key: leased.waiting.key.clone(),
             second_copies: second_copies.clone(),
-            robots: self.robots.clone(),
-            egress: std::sync::Arc::clone(&self.egress),
-            addresses: self.http.map(HttpTier::address_check),
+            lease: handler_lease(&of_run.run, leased, lease, &self.in_flight),
+            fetch_admission,
             page_check: self.labels.settings.page_check(label).cloned(),
             extractor: self.labels.settings.extractor(label),
             encoding: self
@@ -741,11 +742,9 @@ impl Fetching<'_> {
                 .labels
                 .settings
                 .content_types(label, &self.run_content_types),
-            code_free: self.code_free.clone(),
-            signal_files: self.signal_files.clone(),
-            fetch_admission,
             untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
-        }
+            capture: None,
+        })
     }
 
     /// How `leased`'s attempt runs, as `chosen` (its Label and the Run's
@@ -850,26 +849,30 @@ impl Fetching<'_> {
 }
 
 /// What each attempt is given: a Session drawn from the crawl's Session
-/// pool under the Run's settings now, and the tier that fetches its
-/// request's document. The pool is out of `pool` only while a write that
-/// leases work items draws from it.
+/// pool under the Run's settings now, the tier that fetches its request's
+/// document, and what every attempt of the Run hands over alike. The pool
+/// is out of `pool` only while a write that leases work items draws from
+/// it.
 struct Pooled<'a> {
     pool: &'a mut Option<SessionPool>,
     settings: PoolSettings,
     fetching: &'a Fetching<'a>,
+    handing: &'a std::sync::Arc<RunHandOver>,
 }
 
 impl<'a> Pooled<'a> {
-    /// Draws from `pool` under `settings`, fetching on `fetching`.
+    /// Draws from `pool` under `settings`, fetching on `fetching`, each
+    /// attempt handing over `handing` with its own part.
     fn of(
         pool: &'a mut Option<SessionPool>,
         settings: PoolSettings,
-        fetching: &'a Fetching<'a>,
+        (fetching, handing): (&'a Fetching<'a>, &'a std::sync::Arc<RunHandOver>),
     ) -> Self {
         Self {
             pool,
             settings,
             fetching,
+            handing,
         }
     }
 }
@@ -1054,7 +1057,12 @@ async fn lease_to_servers(
                     .pop()
                     .expect("invariant: one admission per work item admitted"),
             );
-            let gating = fetching.gating(&leased.crawl_request.label, &copies, admission.clone());
+            let hand_over = fetching.hand_over(
+                pooled.handing,
+                (&leased, &lease),
+                &copies,
+                admission.clone(),
+            );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -1079,7 +1087,7 @@ async fn lease_to_servers(
                     server.context.clone(),
                     (leased, (session, in_browser), leased_count(run)),
                     lease,
-                    (tiering, gating),
+                    (tiering, (hand_over, fetching.code_free.clone())),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));

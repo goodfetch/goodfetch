@@ -53,13 +53,10 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let started = run.clock().now();
-        let hand_over = self
-            .gating
-            .hand_over(run, leased, lease, self.in_flight)
-            .await;
+        let hand_over = self.hand_over;
         // The navigation's page takes the attempt's value as it opens.
-        let handed_over = self.gating.tiers.hand_over(Arc::clone(&hand_over));
-        let fetching = tiers.in_browser(http, run, self.in_browser, &hand_over, self.context);
+        let handed_over = tiers.hand_over(Arc::clone(hand_over));
+        let fetching = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
         let (cancel, cancelled) = oneshot::channel::<()>();
         let (navigated, mut navigation) = oneshot::channel::<Navigated>();
         let (sending, mut sent) = oneshot::channel::<()>();
@@ -72,7 +69,7 @@ impl On<'_> {
                 Navigation {
                     run: run.clone(),
                     tiers: tiers.clone(),
-                    hand_over: Arc::clone(&hand_over),
+                    hand_over: Arc::clone(hand_over),
                     pooled: self.in_browser.clone(),
                     url: leased.crawl_request.url.clone(),
                     context: self.context.clone(),
@@ -84,9 +81,7 @@ impl On<'_> {
             );
         }
         let document = Box::pin(async {
-            let served = self
-                .document(tiering, &fetching, &RACED, &hand_over)
-                .await?;
+            let served = self.document(tiering, &fetching, &RACED, hand_over).await?;
             let page_id = served.page_id();
             let latency = run.clock().now().duration_since(started);
             // A document only a guess could read never wins: the
@@ -152,14 +147,7 @@ impl On<'_> {
                 )
             }
             Won::BrowserFetch(page_id) => {
-                let merged = learn(
-                    run,
-                    tiers,
-                    &page_id,
-                    leased,
-                    self.gating.code_free.is_some(),
-                )
-                .await;
+                let merged = learn(run, tiers, &page_id, leased, self.code_free.is_some()).await;
                 let encoding = tiers.encoding(&page_id);
                 let certificate_exception = tiers.certificate_exception(&page_id);
                 record_tier(

@@ -112,17 +112,61 @@ pub type RobotsTxtFetch = Arc<dyn Fn(Run, Url) -> Fetch<'static> + Send + Sync>;
 /// waiters.
 const FULL_RETRY: Duration = Duration::from_millis(250);
 
-/// What an attempt hands over with its Run's pages while its handler runs.
+/// What an attempt hands over with its Run's pages while its handler runs:
+/// what every attempt of its Run hands over alike, built once as the Run's
+/// crawl starts and shared (ADR 0138), and what is its own. The crawl
+/// builds it once per attempt, before the attempt starts, and each of its
+/// runs on a tier takes it whole.
+#[derive(Clone)]
 pub struct HandOver {
-    /// The attempt's Run.
-    pub run: Run,
+    /// What every attempt of its Run hands over alike.
+    pub of_run: Arc<RunHandOver>,
     /// The domain key of its crawl request, whose Permit its admission
     /// holds.
     pub domain_key: String,
-    /// How the Run keys its requests' domains.
-    pub keys: DomainKeys,
     /// Room for requests beside those the Run admitted.
     pub second_copies: SecondCopies,
+    /// The attempt's lease.
+    pub lease: Arc<dyn LeaseCheck>,
+    /// The HTTP admission the Resource governor gave the attempt, given
+    /// back once its crawl request's own document is fetched.
+    pub fetch_admission: FetchAdmission,
+    /// The Page check its crawl request's Label declares of its own, which
+    /// judges the browser pages the attempt opens in place of their
+    /// Session's (ADR 0093).
+    pub page_check: Option<PageCheck>,
+    /// The main-content step its crawl request's Label chooses with
+    /// `content.extractor`, which every page the attempt serves or opens
+    /// reads its formats with over the Run's; none when the Label leaves
+    /// it to the Run.
+    pub extractor: Option<goodfetch_extractor::BuiltIn>,
+    /// The encoding `fetch.encoding` forces on the crawl request's own
+    /// document, its Label's else the Run's (ADR 0119); none of the
+    /// handler's own navigations takes it.
+    pub encoding: Option<&'static encoding_rs::Encoding>,
+    /// The types `crawl.content_types` lets the crawl request's own
+    /// document be, its Label's else the Run's (ADR 0119); none of the
+    /// handler's own navigations is judged by them.
+    pub content_types: ContentTypes,
+    /// The readers of the untouched page its crawl request's Label reads
+    /// each document it is served with, built once per Run (ADR 0138).
+    pub untouched: Arc<crate::untouched::UntouchedReaders>,
+    /// What a sample's browser run captures of the JSON calls its page
+    /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
+    /// any other run ([`HandOver::capturing`]).
+    pub capture: Option<Capture>,
+}
+
+/// What every attempt of a Run hands over alike with its pages: the Run,
+/// its settings as its navigation gate reads them, the Politeness it
+/// shares and the files it fetched once. Built once as the Run's crawl
+/// starts, never per attempt (ADR 0138), and shared by each attempt's
+/// [`HandOver`].
+pub struct RunHandOver {
+    /// The Run.
+    pub run: Run,
+    /// How the Run keys its requests' domains.
+    pub keys: DomainKeys,
     /// The Politeness the Run shares, once it opened; none while the Run's
     /// Politeness paces nothing, which consults no store (ADR 0138).
     pub politeness: Option<Politeness>,
@@ -153,13 +197,8 @@ pub struct HandOver {
     pub use_signals: Option<Purpose>,
     /// The AI-use signal files the Run fetched, each once for all its
     /// requests: the RSL licenses those documents name are read through
-    /// them, fetched with [`HandOver::robots`].
+    /// them, fetched with [`RunHandOver::robots`].
     pub signal_files: SignalFiles,
-    /// The attempt's lease.
-    pub lease: Arc<dyn LeaseCheck>,
-    /// The HTTP admission the Resource governor gave the attempt, given
-    /// back once its crawl request's own document is fetched.
-    pub fetch_admission: FetchAdmission,
     /// The Run's domain policy, which judges each redirect hop.
     pub egress: Arc<Policy>,
     /// The address check of the Run's HTTP tier, which judges each
@@ -167,30 +206,6 @@ pub struct HandOver {
     /// its robots.txt is read; `None` without the tier, the URL alone then
     /// judged.
     pub addresses: Option<AddressCheck>,
-    /// The Page check its crawl request's Label declares of its own, which
-    /// judges the browser pages the attempt opens in place of their
-    /// Session's (ADR 0093).
-    pub page_check: Option<PageCheck>,
-    /// The main-content step its crawl request's Label chooses with
-    /// `content.extractor`, which every page the attempt serves or opens
-    /// reads its formats with over the Run's; none when the Label leaves
-    /// it to the Run.
-    pub extractor: Option<goodfetch_extractor::BuiltIn>,
-    /// The encoding `fetch.encoding` forces on the crawl request's own
-    /// document, its Label's else the Run's (ADR 0119); none of the
-    /// handler's own navigations takes it.
-    pub encoding: Option<&'static encoding_rs::Encoding>,
-    /// The types `crawl.content_types` lets the crawl request's own
-    /// document be, its Label's else the Run's (ADR 0119); none of the
-    /// handler's own navigations is judged by them.
-    pub content_types: ContentTypes,
-    /// What a sample's browser run captures of the JSON calls its page
-    /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
-    /// any other run.
-    pub capture: Option<Capture>,
-    /// The readers of the untouched page its crawl request's Label reads
-    /// each document it is served with, built once per Run (ADR 0138).
-    pub untouched: Arc<crate::untouched::UntouchedReaders>,
 }
 
 /// The HTTP admission the Resource governor gave an attempt (ADR 0040),
@@ -226,6 +241,21 @@ impl FetchAdmission {
 }
 
 impl HandOver {
+    /// The attempt's Run.
+    pub(crate) fn run(&self) -> &Run {
+        &self.of_run.run
+    }
+
+    /// This hand-over for a sample's browser run, whose page's JSON calls
+    /// are captured into `capture` (ADR 0020).
+    #[must_use]
+    pub fn capturing(&self, capture: Capture) -> Self {
+        Self {
+            capture: Some(capture),
+            ..self.clone()
+        }
+    }
+
     /// Records `hop`'s send as the last start of its domain key for every
     /// run sharing it (ADR 0086), when the Run's Politeness opened. The
     /// `lead` send, its crawl request's own, first waits for its delay
@@ -242,12 +272,13 @@ impl HandOver {
     /// first waits for its delay after the key's last send and, in a rated
     /// run, for a token of the key's sends, renewing the lease meanwhile.
     async fn sent(&self, url: &str, lead: bool) {
-        let Some(politeness) = &self.politeness else {
+        let of_run = &self.of_run;
+        let Some(politeness) = &of_run.politeness else {
             return;
         };
-        let run = &self.run;
-        let key = self.keys.key(url);
-        let pace = lead.then_some(self.pace);
+        let run = &of_run.run;
+        let key = of_run.keys.key(url);
+        let pace = lead.then_some(of_run.pace);
         loop {
             match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), pace).await {
                 Ok(Some(until)) => {
@@ -264,7 +295,9 @@ impl HandOver {
             }
         }
     }
+}
 
+impl RunHandOver {
     /// Judges `url` by the Run's egress policy as its HTTP tier's
     /// connection to it would be judged: the URL, then the addresses its
     /// name resolves to (ADR 0017), the URL alone without the tier.
@@ -280,8 +313,8 @@ impl HandOver {
     }
 
     /// The body at `location`, an AI-use signal file, fetched with
-    /// [`HandOver::robots`] once for the Run through its signal files; none
-    /// for a fetch that answers no 2xx, or without the fetch.
+    /// [`RunHandOver::robots`] once for the Run through its signal files;
+    /// none for a fetch that answers no 2xx, or without the fetch.
     async fn signal_file(&self, location: &Url) -> Option<Arc<[u8]>> {
         let fetch = self.robots.as_ref()?;
         let run = self.run.clone();
@@ -325,7 +358,7 @@ impl fmt::Debug for Gate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Gate")
-            .field("run", self.0.run.id())
+            .field("run", self.0.run().id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
     }
@@ -415,7 +448,7 @@ impl NavigationGate for Gate {
     /// RSL license either names, fetched once for the Run.
     fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
         Box::pin(async move {
-            let Some(purpose) = self.0.use_signals else {
+            let Some(purpose) = self.0.of_run.use_signals else {
                 return Ok(());
             };
             let refused = |signal: &str| Refusal {
@@ -429,9 +462,9 @@ impl NavigationGate for Gate {
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
                     let readers = Arc::clone(&self.0.untouched);
-                    let work = self.0.run.metrics().counted_work().clone();
+                    let work = self.0.run().metrics().counted_work().clone();
                     self.0
-                        .run
+                        .run()
                         .owner()
                         .analysis(move || readers.markup_use_signals(signals, &html, &url, &work))
                         .await
@@ -444,7 +477,7 @@ impl NavigationGate for Gate {
             let Some(license) = signals.license() else {
                 return Ok(());
             };
-            let file = self.0.signal_file(&license).await;
+            let file = self.0.of_run.signal_file(&license).await;
             match file.and_then(|file| rsl_refusing(&file, purpose)) {
                 Some(signal) => Err(refused(signal)),
                 None => Ok(()),
@@ -454,7 +487,7 @@ impl NavigationGate for Gate {
 
     /// Only while the Run honours AI-use signals, whose `<meta>` it reads.
     fn reads_document_body(&self) -> bool {
-        self.0.use_signals.is_some()
+        self.0.of_run.use_signals.is_some()
     }
 }
 
@@ -490,10 +523,10 @@ impl Applying {
 impl Gate {
     /// Admits a request to `url`, or refuses it.
     pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, Refusal> {
-        let hand_over = &self.0;
+        let hand_over = &self.0.of_run;
         let run = &hand_over.run;
         let key = hand_over.keys.key(url.as_str());
-        let own = key == hand_over.domain_key;
+        let own = key == self.0.domain_key;
         let before = self.last_start(&key).await;
         let permit = if own {
             Permit::unlimited()
@@ -575,7 +608,7 @@ impl Gate {
         read: Option<&Read>,
         crawl_delay: Duration,
     ) -> Option<SystemTime> {
-        let hand_over = &self.0;
+        let hand_over = &self.0.of_run;
         let run = &hand_over.run;
         let wall = run.clock().wall();
         let spacing = hand_over.domain_delay.max(crawl_delay);
@@ -634,11 +667,11 @@ impl Gate {
 
     /// When the last request of `key` started, by any sharing run.
     async fn last_start(&self, key: &str) -> Option<SystemTime> {
-        let politeness = self.0.politeness.as_ref()?;
+        let politeness = self.0.of_run.politeness.as_ref()?;
         goodfetch_frontier::last_start(politeness, key)
             .await
             .unwrap_or_else(|error| {
-                tracing::warn!(%error, run_id = %self.0.run.id(), "a domain's last start could not be read");
+                tracing::warn!(%error, run_id = %self.0.run().id(), "a domain's last start could not be read");
                 None
             })
     }
@@ -646,7 +679,7 @@ impl Gate {
     /// A Permit of `key` beside the Run's own requests, once the domain
     /// has room, given back once released.
     async fn beside(&self, key: &str) -> Permit {
-        let run = &self.0.run;
+        let run = self.0.run();
         loop {
             match self.0.second_copies.take(key, run.clock().now()).await {
                 Room::Taken(copy) => {
@@ -667,7 +700,7 @@ impl Gate {
     /// the earliest moment the request is known to have reached the site,
     /// never from the fetch's send (ADR 0086).
     async fn robots_txt(&self, url: &Url, key: &str) -> (Applying, Option<Read>) {
-        let hand_over = &self.0;
+        let hand_over = &self.0.of_run;
         let run = &hand_over.run;
         let Some(location) = robots_txt::location(url) else {
             return (Applying::nothing(), None);
@@ -711,12 +744,12 @@ impl Gate {
         url: &Url,
         content_signals: &[(String, bool)],
     ) -> Option<&'static str> {
-        let purpose = self.0.use_signals?;
+        let purpose = self.0.of_run.use_signals?;
         if let Some(signal) = content_signals_refusing(content_signals, purpose) {
             return Some(signal);
         }
         let location = url.join(TDMREP_FILE).ok()?;
-        let file = self.0.signal_file(&location).await?;
+        let file = self.0.of_run.signal_file(&location).await?;
         tdmrep_file_refusing(&file, url, purpose)
     }
 }
@@ -835,9 +868,9 @@ impl ChainGate {
     /// another request. A run file that cannot answer leaves the hop to the
     /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
-        let run = &self.hand_over.run;
+        let run = self.hand_over.run();
         let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
-        let egress = Arc::clone(&self.hand_over.egress);
+        let egress = Arc::clone(&self.hand_over.of_run.egress);
         let work = run.metrics().counted_work().clone();
         work.count(Row::HopTransactions);
         // A hop's check-and-set answers the chain, not the outside: the
@@ -901,7 +934,7 @@ impl HopGate for ChainGate {
                 }
                 goodfetch_frontier::Hop::Follow => {}
             }
-            if let Err(refused) = self.hand_over.address_check(&hop.url).await {
+            if let Err(refused) = self.hand_over.of_run.address_check(&hop.url).await {
                 return skipped(
                     SkipReason::DomainPolicy,
                     format!(
@@ -924,7 +957,7 @@ impl HopGate for ChainGate {
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run.clock();
+            let clock = self.hand_over.run().clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }
@@ -946,7 +979,7 @@ impl HopGate for ChainGate {
     /// Records the hop's latency for its domain key, for every run sharing
     /// it, while the Run's adaptive delay is on (spec #582's Settings).
     fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
-        Box::pin(self.hand_over.answered(hop, latency))
+        Box::pin(self.hand_over.of_run.answered(hop, latency))
     }
 
     /// Records the chain's final URL under its key, unless another request
@@ -955,7 +988,7 @@ impl HopGate for ChainGate {
     /// file that cannot answer lets the chain end on its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
-            let run = &self.hand_over.run;
+            let run = self.hand_over.run();
             let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
             let recorded = run
                 .state()

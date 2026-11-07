@@ -27,8 +27,8 @@ use anyhow::{Context as _, Result};
 use super::plan::{UNOWNED, short};
 use crate::affected::{Kind, RepoPath, WorkspaceMembers};
 use crate::metadata;
-use crate::quarantine::Runner;
-use crate::quarantine::listing::{self, Listed, Location};
+use crate::runners::Runner;
+use crate::runners::listing::{self, Listed, Location};
 
 /// What each crate's last build read, by crate, as repository paths.
 pub(crate) struct RustInputs {

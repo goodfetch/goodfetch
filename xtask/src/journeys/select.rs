@@ -17,7 +17,7 @@
 
 use goodfetch_protocol::journey::{JourneyId, Milestone};
 
-use crate::quarantine::Runner;
+use crate::runners::Runner;
 
 use super::variants::{FOXHOUND_CLI, Variant};
 

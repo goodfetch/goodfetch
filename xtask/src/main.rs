@@ -65,6 +65,7 @@ mod release_suite;
 mod repeat;
 mod results;
 mod rss;
+mod runners;
 mod scan;
 mod screenshots;
 mod self_hosted;

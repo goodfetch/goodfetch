@@ -14,13 +14,12 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
-use crate::quarantine::Runner;
-use crate::quarantine::listing;
+use crate::runners::{Runner, listing};
 
 use super::variants::{self, Carried, JourneyTest};
 
@@ -52,54 +51,21 @@ pub(super) fn write(
         std::fs::write(&path, output).with_context(|| format!("writing {}", path.display()))?;
     }
     let vitest = out.join(file(Runner::Vitest));
-    run(
+    listing::run(
         Command::new("node")
             .args(["--input-type=module", "--eval", VITEST_LISTING])
-            .arg(&vitest),
-        root,
+            .arg(&vitest)
+            .current_dir(root),
         "the Vitest listing",
         &[0],
     )?;
     let pytest = out.join(file(Runner::Pytest));
-    let program = root.join(".venv/bin/pytest");
-    if !program.is_file() {
-        bail!(
-            "{} is missing; run `uv sync` to list the workspace's tests",
-            program.display()
-        );
-    }
-    // Exit code 5: no test collected, which writes the listing too.
-    run(
-        Command::new(program)
-            .args([
-                "--collect-only",
-                "-q",
-                "-p",
-                "no:randomly",
-                "-p",
-                "no:cacheprovider",
-            ])
-            .arg(format!("--marker-listing={}", pytest.display())),
-        root,
-        "pytest --collect-only",
+    // No test collected writes the listing too.
+    listing::run(
+        listing::pytest_collection(root)?.arg(format!("--marker-listing={}", pytest.display())),
+        listing::PYTEST_COLLECTION,
         &[0, 5],
     )?;
-    Ok(())
-}
-
-fn run(command: &mut Command, root: &Path, name: &str, success: &[i32]) -> Result<()> {
-    let output = command
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("running {name}"))?;
-    if !output
-        .status
-        .code()
-        .is_some_and(|code| success.contains(&code))
-    {
-        bail!("{name} failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
     Ok(())
 }
 
@@ -115,7 +81,7 @@ pub(super) fn read(root: &Path, folder: &Path) -> Result<Vec<JourneyTest>> {
             )
         })?;
         let parsed = match runner {
-            Runner::Nextest => nextest(&bytes),
+            Runner::Nextest => nextest(root, &bytes),
             Runner::Vitest => vitest(root, &bytes),
             Runner::Playwright => playwright(&bytes),
             Runner::Pytest => pytest(&bytes),
@@ -125,31 +91,16 @@ pub(super) fn read(root: &Path, folder: &Path) -> Result<Vec<JourneyTest>> {
     Ok(tests)
 }
 
-#[derive(Deserialize)]
-struct NextestListing {
-    #[serde(rename = "rust-suites")]
-    suites: std::collections::BTreeMap<String, NextestSuite>,
-}
-
-#[derive(Deserialize)]
-struct NextestSuite {
-    testcases: std::collections::BTreeMap<String, serde_json::Value>,
-}
-
-fn nextest(bytes: &[u8]) -> Result<Vec<JourneyTest>> {
-    let listing: NextestListing = serde_json::from_slice(bytes)?;
-    let mut tests = Vec::new();
-    for (binary, suite) in listing.suites {
-        for name in suite.testcases.into_keys() {
-            if let Some(carried) = nextest_variant(&name) {
-                tests.push(JourneyTest {
-                    subject: format!("nextest {binary} {name}"),
-                    carried,
-                });
-            }
-        }
-    }
-    Ok(tests)
+fn nextest(root: &Path, bytes: &[u8]) -> Result<Vec<JourneyTest>> {
+    Ok(listing::parse(Runner::Nextest, root, bytes)?
+        .into_iter()
+        .filter_map(|listed| {
+            Some(JourneyTest {
+                carried: nextest_variant(listed.test.nextest_name())?,
+                subject: format!("nextest {}", listed.test),
+            })
+        })
+        .collect())
 }
 
 /// The variant a nextest test's path carries, if it names a Journey.

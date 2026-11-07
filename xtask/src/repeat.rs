@@ -40,7 +40,8 @@ use anyhow::{Context as _, Result, bail, ensure};
 
 use crate::environment::Environment;
 use crate::output;
-use crate::quarantine::{self, Runner, TestId, alternation};
+use crate::quarantine;
+use crate::runners::{self, Runner, TestId, alternation};
 
 /// The tests to repeat: the given ones, or the oldest quarantined ones.
 pub(crate) enum Selection {
@@ -230,7 +231,7 @@ pub(crate) fn arguments(
             .map(|(_, test)| test)
             .collect()
     };
-    let (playwright_before, playwright_after) = quarantine::PLAYWRIGHT_AROUND;
+    let (playwright_before, playwright_after) = runners::PLAYWRIGHT_AROUND;
     let playwright_before = format!("--grep={playwright_before}");
     let runners: [(&'static str, Vec<String>, Vec<String>, Selecting<'_>); 4] = [
         (
@@ -272,7 +273,7 @@ pub(crate) fn arguments(
             vec![format!("--repeat-each={count}")],
             of(Runner::Playwright)
                 .iter()
-                .map(|test| quarantine::playwright_alternative(test))
+                .map(|test| runners::playwright_alternative(test))
                 .collect(),
             Selecting::Patterns {
                 before: &playwright_before,

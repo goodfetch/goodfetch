@@ -225,7 +225,7 @@ fn each_variant_gets_its_outcome_from_the_documents_of_mains_latest_release_run(
 fn write_listings(workspace: &Workspace) {
     workspace.write(
         "listings/nextest.json",
-        br#"{ "rust-suites": { "sample::it": { "testcases": { "journeys::j001::cli": {} } } } }"#,
+        br#"{ "rust-suites": { "sample::it": { "package-name": "sample", "kind": "test", "binary-name": "it", "testcases": { "journeys::j001::cli": {} } } } }"#,
     );
     workspace.write("listings/vitest.json", b"[]");
     workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);

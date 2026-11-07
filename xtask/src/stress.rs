@@ -37,8 +37,9 @@ use crate::environment::Environment;
 use crate::git;
 use crate::metadata::{self, Package};
 use crate::output;
-use crate::quarantine::listing::{self, Listed, Location};
-use crate::quarantine::{self, Runner, TestId};
+use crate::quarantine;
+use crate::runners::listing::{self, Listed, Location};
+use crate::runners::{Runner, TestId};
 
 /// How many times a new or changed test runs (ADR 0064).
 const CHANGED_RUNS: u32 = 20;
@@ -334,15 +335,7 @@ fn file(root: &Path, packages: &[Package], location: &Location, test: &TestId) -
             let source = target_source(packages, package, kind, name)?;
             let modules: Vec<&str> = test.nextest_name().split("::").collect();
             let file = module_file(&source, &modules[..modules.len().saturating_sub(1)]);
-            let file = std::fs::canonicalize(file).ok()?;
-            let relative = file.strip_prefix(root).ok()?;
-            Some(
-                relative
-                    .components()
-                    .map(|component| component.as_os_str().to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join("/"),
-            )
+            listing::relative(root, &file)
         }
     }
 }

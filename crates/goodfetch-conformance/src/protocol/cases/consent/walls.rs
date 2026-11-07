@@ -17,6 +17,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUNS};
 use goodfetch_protocol::needs_you::{CONSENT_WALL, NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_LIST};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
@@ -41,7 +42,7 @@ const WALLS: [(&str, &str); 2] = [("/wall", "wall"), ("/pay-or-accept", "pay-or-
 /// The Provenance entries of the Consent prompt runner on the Run
 /// `run_id`'s page `page`, each with its `answer`.
 fn consent_entries(home: Option<&str>, run_id: &str, page: &PageOpened) -> Vec<Value> {
-    trace(home, run_id, "provenance.jsonl")
+    trace(home, run_id, RUN_TRACE_PROVENANCE)
         .into_iter()
         .filter(|line| line["action"] == json!("consent") && line["page_id"] == json!(page.page_id))
         .collect()
@@ -251,7 +252,7 @@ pub(crate) fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
         .ok()?
         .flatten()
         .map(|major| major.path())
-        .find(|major| major.join("runs").join(run_id).is_dir())
+        .find(|major| major.join(RUNS).join(run_id).is_dir())
 }
 
 /// Writes `text` as user configuration in `major`, answering what was

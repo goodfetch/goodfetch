@@ -16,6 +16,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::home::{POLITENESS_FILE, RUN_TRACE_CDP_COMMANDS};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::session_pages::SESSION_PAGES;
@@ -162,7 +163,7 @@ fn now() -> SystemTime {
 /// blocked one names another Session ID and makes a second context in a
 /// browser already holding one.
 fn kept_one_session(target: &EngineTarget, run_id: &str) -> bool {
-    let commands = trace_lines(target, run_id, "trace/cdp-commands.jsonl");
+    let commands = trace_lines(target, run_id, RUN_TRACE_CDP_COMMANDS);
     let sent = |method: &str| {
         commands
             .iter()
@@ -184,7 +185,7 @@ pub(super) fn politeness_names(target: &EngineTarget, host: &str) -> bool {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
         return false;
     };
-    let file = Path::new(home).join("politeness.sqlite");
+    let file = Path::new(home).join(POLITENESS_FILE);
     if !file.is_file() {
         return false;
     }

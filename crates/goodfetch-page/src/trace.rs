@@ -22,7 +22,7 @@ use goodfetch_engine::tasks::TaskOwner;
 use tokio::sync::mpsc;
 
 /// The log's file in the Run's folder.
-pub(crate) const FILE: &str = "trace/cdp-commands.jsonl";
+pub(crate) const FILE: &str = goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 
 /// Records `entry`, one Provenance entry of `run`, such as of one of its
 /// pages or of a request a fetch tier sent for it, as a line of

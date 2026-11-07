@@ -50,7 +50,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
-use goodfetch_engine::home::{Home, major_name};
+use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
@@ -252,7 +252,7 @@ impl Machine<'_> {
     }
 
     pub(super) fn major(&self) -> String {
-        major_name(&self.identity.product_version)
+        self.identity.product_version.line().to_string()
     }
 
     pub(super) fn list(&self) -> InstalledList {

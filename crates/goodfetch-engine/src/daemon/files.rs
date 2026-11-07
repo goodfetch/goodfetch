@@ -1,6 +1,7 @@
 //! The Daemon's files on the machine (ADRs 0024, 0030 and 0059), in its
 //! major's per-major folder of Goodfetch home, so each major has its own
-//! and both Products share them:
+//! and both Products share them, named by `goodfetch_protocol::home`'s
+//! `DaemonFile`:
 //!
 //! ```text
 //! <home>/<major>/daemon.json         the runtime file, mode 0600
@@ -55,6 +56,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
 };
+use goodfetch_protocol::home::DaemonFile;
 
 use sha2::{Digest as _, Sha256};
 
@@ -62,16 +64,15 @@ use crate::endpoint::new_token;
 use crate::home::Home;
 use crate::transport::{self, LONGEST_SOCKET_PATH};
 
-const RUNTIME_FILE: &str = "daemon.json";
-const SOCKET: &str = "daemon.sock";
-const SERVING_LOCK: &str = "daemon.lock";
-const START_LOCK: &str = "daemon-start.lock";
-const TOKEN_FILE: &str = "daemon.token";
-const SERVICE_FILE: &str = "daemon-service.json";
-const OPS_TOKEN_FILE: &str = "ops.token";
-const HTTP_LISTENER_TOKEN_FILE: &str = "http-listener.token";
-/// The page that opens the Console's sign-in link in a browser.
-const CONSOLE_OPENER: &str = "console.html";
+const RUNTIME_FILE: &str = DaemonFile::RuntimeFile.name();
+const SOCKET: &str = DaemonFile::Socket.name();
+const SERVING_LOCK: &str = DaemonFile::ServingLock.name();
+const START_LOCK: &str = DaemonFile::StartLock.name();
+const TOKEN_FILE: &str = DaemonFile::Token.name();
+const SERVICE_FILE: &str = DaemonFile::ServiceRecord.name();
+const OPS_TOKEN_FILE: &str = DaemonFile::OpsToken.name();
+const HTTP_LISTENER_TOKEN_FILE: &str = DaemonFile::HttpListenerToken.name();
+const CONSOLE_OPENER: &str = DaemonFile::ConsoleOpener.name();
 
 /// The token in the file at `path`, or `None` when there is none.
 fn read_token(path: &Path) -> io::Result<Option<String>> {

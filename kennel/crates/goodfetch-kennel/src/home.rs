@@ -14,20 +14,12 @@ use std::fs::{self, File, TryLockError};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::connection::VersionLine;
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
+use goodfetch_protocol::home::{DaemonFile, HOME_FOLDER, INSTALLED_EXECUTABLES};
 
-/// The folder the home is under the OS's data folder when
-/// `GOODFETCH_HOME` is unset, as the Products name it.
-const HOME_FOLDER: &str = "goodfetch";
 /// The Kennel's own settings file, in the home (ADR 0141).
 const SETTINGS_FILE: &str = "kennel.toml";
-/// The list each Product's executable keeps of the installed executables
-/// (ADR 0098).
-const INSTALLED_EXECUTABLES_FILE: &str = "installed-executables.json";
-/// The Daemon's runtime file, in its per-major folder (ADR 0024).
-const RUNTIME_FILE: &str = "daemon.json";
-/// The lock a serving Daemon holds beside its runtime file.
-const SERVING_LOCK: &str = "daemon.lock";
 
 /// The Goodfetch home.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,7 +54,7 @@ impl Home {
 
     /// The installed executables' list.
     pub fn installed_executables_file(&self) -> PathBuf {
-        self.0.join(INSTALLED_EXECUTABLES_FILE)
+        self.0.join(INSTALLED_EXECUTABLES)
     }
 
     /// The running Daemon's runtime file. Each per-major folder may hold a
@@ -77,7 +69,7 @@ impl Home {
                 if !serving_lock_held(&folder) {
                     return None;
                 }
-                let text = fs::read(folder.join(RUNTIME_FILE)).ok()?;
+                let text = fs::read(folder.join(DaemonFile::RuntimeFile.name())).ok()?;
                 let runtime = serde_json::from_slice::<DaemonRuntimeFile>(&text).ok()?;
                 Some((order, runtime))
             })
@@ -86,9 +78,9 @@ impl Home {
     }
 }
 
-/// The per-major folders in the home at `home`, each with its major's
-/// order; none when the home cannot be read. Blocks.
-pub(crate) fn major_folders(home: &Path) -> Vec<((u64, u64), PathBuf)> {
+/// The per-major folders in the home at `home`, each with its line; none
+/// when the home cannot be read. Blocks.
+pub(crate) fn major_folders(home: &Path) -> Vec<(VersionLine, PathBuf)> {
     let Ok(entries) = fs::read_dir(home) else {
         return Vec::new();
     };
@@ -97,7 +89,7 @@ pub(crate) fn major_folders(home: &Path) -> Vec<((u64, u64), PathBuf)> {
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .filter_map(|entry| {
             Some((
-                major_order(&entry.file_name().to_string_lossy())?,
+                VersionLine::parse(&entry.file_name().to_string_lossy())?,
                 entry.path(),
             ))
         })
@@ -109,38 +101,19 @@ pub(crate) fn major_folders(home: &Path) -> Vec<((u64, u64), PathBuf)> {
 /// file, which a Daemon writes when it starts, by rename, and removes
 /// when it stops.
 pub(crate) fn names_a_daemons_file(name: &OsStr) -> bool {
-    name == RUNTIME_FILE
+    name == DaemonFile::RuntimeFile.name()
         || name
             .to_str()
-            .is_some_and(|name| major_order(name).is_some())
+            .is_some_and(|name| VersionLine::parse(name).is_some())
 }
 
 /// Whether a Daemon holds the serving lock in `folder`: taking it fails
 /// with `WouldBlock`. A lock this check takes is let go at once.
 fn serving_lock_held(folder: &Path) -> bool {
-    let Ok(lock) = File::open(folder.join(SERVING_LOCK)) else {
+    let Ok(lock) = File::open(folder.join(DaemonFile::ServingLock.name())) else {
         return false;
     };
     matches!(lock.try_lock(), Err(TryLockError::WouldBlock))
-}
-
-/// The order of a per-major folder's name, `1` or `0.4`, by which majors
-/// compare: `None` for a name that is no major's (the engine's rule).
-fn major_order(name: &str) -> Option<(u64, u64)> {
-    let number = |part: &str| {
-        let canonical = !part.is_empty()
-            && part.bytes().all(|byte| byte.is_ascii_digit())
-            && (part == "0" || !part.starts_with('0'));
-        canonical.then(|| part.parse().ok()).flatten()
-    };
-    match name.split_once('.') {
-        Some(("0", minor)) => Some((0, number(minor)?)),
-        Some(_) => None,
-        None => match number(name)? {
-            0 => None,
-            major => Some((major, 0)),
-        },
-    }
 }
 
 /// `folder`'s canonical path, or `folder` when it has none. Blocks.

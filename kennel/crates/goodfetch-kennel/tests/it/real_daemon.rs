@@ -21,7 +21,7 @@ use std::time::Duration;
 use goodfetch_kennel::client::{Call, ConnectionChange};
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
-use goodfetch_protocol::connection::DaemonEndpoint;
+use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
 use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunWaitParams};
 use serde_json::{Value, json};
@@ -96,13 +96,8 @@ impl Daemon {
             .output()
             .unwrap();
         let printed = String::from_utf8(output.stdout).unwrap();
-        let version = printed.split_whitespace().last().unwrap().to_owned();
-        let mut parts = version.split('.');
-        match (parts.next(), parts.next()) {
-            (Some("0"), Some(minor)) => format!("0.{minor}"),
-            (Some(major), _) => major.to_owned(),
-            (None, _) => panic!("a version in {printed:?}"),
-        }
+        let version = printed.split_whitespace().last().unwrap();
+        ProductVersion::parse(version).unwrap().line().to_string()
     }
 
     fn command(executable: &Path, variables: &[(String, PathBuf)]) -> Command {

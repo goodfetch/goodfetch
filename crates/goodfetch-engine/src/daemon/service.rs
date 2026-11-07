@@ -31,7 +31,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::{InstalledService, ServiceManager};
 use sha2::{Digest as _, Sha256};
 
-use crate::home::{Home, major_name};
+use crate::home::Home;
 use crate::transport::{HeldPort, LAUNCHD_CONSOLE_SOCKET, LAUNCHD_SOCKETS, hold_free_port};
 
 /// The deployment variables a service passes on to the Daemon it starts:
@@ -66,7 +66,7 @@ pub fn activates_sockets(manager: ServiceManager) -> bool {
 /// under `manager`: a reverse-DNS launch agent label, a user unit's name,
 /// or a logon task's path in the `Goodfetch` folder.
 pub fn service_name(manager: ServiceManager, home: &Home, version: &ProductVersion) -> String {
-    let major = major_name(version);
+    let major = version.line();
     let digest = Sha256::digest(home.root().as_os_str().as_encoded_bytes());
     let home = digest.iter().fold(String::new(), |mut hex, byte| {
         let _ = write!(hex, "{byte:02x}");
@@ -237,7 +237,7 @@ pub fn plan(request: &ServiceRequest<'_>) -> Result<ServicePlan, ServiceError> {
         arguments: arguments(request)?,
         description: format!(
             "Goodfetch's Daemon of major {}, for {working}",
-            major_name(request.version),
+            request.version.line(),
         ),
         working,
         socket: socket.map(unicode).transpose()?,

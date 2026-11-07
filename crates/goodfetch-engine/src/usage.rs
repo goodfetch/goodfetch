@@ -24,7 +24,6 @@ use goodfetch_protocol::usage::{
 use jiff::tz::TimeZone;
 
 use crate::composition::{CallContext, CallError, Handler};
-use crate::home::major_name;
 use crate::ledger::LedgerError;
 use crate::product::Requested;
 use crate::runs::CALLER;
@@ -158,7 +157,7 @@ fn limit_of(named: Named, set_by: LimitSetter, context: &CallContext) -> Result<
     let own = match named.scope.as_str() {
         INSTALL => Some(String::new()),
         PERSON => Some(CALLER.to_owned()),
-        DAEMON => Some(major_name(&identity.product_version)),
+        DAEMON => Some(identity.product_version.line().to_string()),
         CONNECTION => Some(runs.limits().connection(runs.connection()).id),
         _ => None,
     };

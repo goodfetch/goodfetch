@@ -123,7 +123,7 @@ use crate::events::Events;
 use crate::governor::{
     Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
 };
-use crate::home::{Home, RunStateLocation, major_name};
+use crate::home::{Home, RunStateLocation};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{
     Charged, Charging, Counted, Ledger, LedgerError, Refusal, Reservation, SliceId,
@@ -152,7 +152,7 @@ use crate::trace::Link;
 use crate::transition;
 
 /// A Run's state, in its folder.
-const RUN_FILE: &str = "run.sqlite";
+const RUN_FILE: &str = goodfetch_protocol::home::RUN_FILE;
 
 /// How often a report read of a Run another engine writes, whose owner did
 /// not answer it, reads the Run's file again for its end (ADR 0102).
@@ -2616,7 +2616,7 @@ impl Runs {
             product: setup.product,
             instance: setup.events.instance().as_str().to_owned(),
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
-                .then(|| major_name(&setup.version)),
+                .then(|| setup.version.line().to_string()),
         };
         let secrets = Secrets::new(
             Carried {
@@ -4581,7 +4581,7 @@ impl Registry {
             .map(goodfetch_protocol::usage::ManagedLimit::limit)
             .collect();
         let ledger = self.limits.ledger.clone();
-        let major = major_name(&self.setup.version);
+        let major = self.setup.version.line().to_string();
         let now = self.limits.now();
         let written = self
             .owner

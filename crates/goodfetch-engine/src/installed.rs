@@ -14,7 +14,6 @@
     reason = "the list's file is read and written on the tasks module's blocking policy or before any runtime starts, never on an async worker"
 )]
 
-use std::cmp::Ordering;
 use std::fs::{self, File};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -28,12 +27,12 @@ use serde_json::{Map, Value};
 
 use crate::browser_cache::{self, MaxUnusedAge};
 use crate::durable;
-use crate::home::{Home, major_name};
+use crate::home::Home;
 use crate::lowest_minor;
 use crate::settings::{LOWEST_MINOR_KEY, SettingsFiles};
 
 /// The list's file in Goodfetch home.
-const FILE: &str = "installed-executables.json";
+const FILE: &str = goodfetch_protocol::home::INSTALLED_EXECUTABLES;
 
 /// The lock that every rewrite of the list holds.
 const LOCK: &str = "installed-executables.lock";
@@ -301,21 +300,21 @@ pub fn pick<'a>(
     now: jiff::Timestamp,
     max_unused_age: MaxUnusedAge,
 ) -> Option<&'a InstalledExecutable> {
-    let major = major_name(version);
+    let line = version.line();
     seen.iter()
         .filter(|seen| {
             let entry = seen.entry;
             entry.kind == ExecutableKind::ProductExecutable
-                && major_name(&entry.product_version) == major
+                && entry.product_version.line() == line
                 && counts_as_installed(seen.still_at_path, entry.last_seen, now, max_unused_age)
                 && (seen.still_at_path || seen.copy_present)
-                && lowest_minor.is_none_or(|floor| at_least(&entry.product_version, floor))
+                && lowest_minor.is_none_or(|floor| entry.product_version.major_minor() >= floor)
         })
         .map(|seen| seen.entry)
         .max_by(|left, right| {
             rank(left.product)
                 .cmp(&rank(right.product))
-                .then_with(|| newer(&left.product_version, &right.product_version))
+                .then_with(|| left.product_version.cmp(&right.product_version))
         })
 }
 
@@ -327,10 +326,10 @@ pub fn pick<'a>(
 /// marked for every minor: its engine reports it when it opens it.
 /// Blocking.
 pub fn stores_floor(home: &Home, version: &ProductVersion) -> Option<ProtocolVersion> {
-    let engine = version.major_minor();
-    if engine.major == 0 {
+    if version.line().is_preview() {
         return None;
     }
+    let engine = version.major_minor();
     let files = SettingsFiles::of(home, version);
     let settings = [files.operator_policy(), files.user_configuration()]
         .into_iter()
@@ -386,68 +385,6 @@ fn rank(product: Product) -> u8 {
         Product::Collie => 0,
         Product::Foxhound => 1,
     }
-}
-
-/// A Product version's numbers and pre-release, for ordering only: the
-/// pick takes the newest (ADR 0098), Product versions being otherwise
-/// reported, never compared (ADR 0095).
-fn parts(version: &ProductVersion) -> (Vec<u64>, Option<String>) {
-    let text = version.to_string();
-    let (core, pre_release) = match text.split_once('-') {
-        Some((core, pre_release)) => (core.to_owned(), Some(pre_release.to_owned())),
-        None => (text, None),
-    };
-    let numbers = core
-        .split('.')
-        .map(|number| number.parse().unwrap_or(0))
-        .collect();
-    (numbers, pre_release)
-}
-
-/// Semantic Versioning's precedence of `left` over `right`.
-fn newer(left: &ProductVersion, right: &ProductVersion) -> Ordering {
-    let ((left_numbers, left_pre), (right_numbers, right_pre)) = (parts(left), parts(right));
-    left_numbers
-        .cmp(&right_numbers)
-        .then_with(|| match (left_pre, right_pre) {
-            (None, None) => Ordering::Equal,
-            (None, Some(_)) => Ordering::Greater,
-            (Some(_), None) => Ordering::Less,
-            (Some(left), Some(right)) => pre_release_order(&left, &right),
-        })
-}
-
-fn pre_release_order(left: &str, right: &str) -> Ordering {
-    let mut left_parts = left.split('.');
-    let mut right_parts = right.split('.');
-    loop {
-        match (left_parts.next(), right_parts.next()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(left), Some(right)) => {
-                let order = match (left.parse::<u64>(), right.parse::<u64>()) {
-                    (Ok(left), Ok(right)) => left.cmp(&right),
-                    (Ok(_), Err(_)) => Ordering::Less,
-                    (Err(_), Ok(_)) => Ordering::Greater,
-                    (Err(_), Err(_)) => left.cmp(right),
-                };
-                if order != Ordering::Equal {
-                    return order;
-                }
-            }
-        }
-    }
-}
-
-/// Whether `version` is at least the minor `floor`.
-fn at_least(version: &ProductVersion, floor: ProtocolVersion) -> bool {
-    let (numbers, _) = parts(version);
-    let (major, minor) = (
-        numbers.first().copied().unwrap_or(0),
-        numbers.get(1).copied().unwrap_or(0),
-    );
-    (major, minor) >= (u64::from(floor.major), u64::from(floor.minor))
 }
 
 #[cfg(test)]

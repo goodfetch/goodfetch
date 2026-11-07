@@ -20,6 +20,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUNS};
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_CONTINUE};
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
@@ -206,12 +207,12 @@ pub(super) fn finish(connection: &mut Connection, run_id: &str) -> Result<Value,
 /// The lines of the Run `run_id`'s request log in the Run trace, under the
 /// Goodfetch home `target` names: `<home>/<major>/runs/<run_id>/trace/`.
 pub(super) fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, "trace/requests.jsonl")
+    trace_lines(target, run_id, RUN_TRACE_REQUESTS)
 }
 
 /// The lines of the Run `run_id`'s Provenance log in the Run trace.
 pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, "trace/provenance.jsonl")
+    trace_lines(target, run_id, RUN_TRACE_PROVENANCE)
 }
 
 /// The lines of the Run trace's file `file` of the Run `run_id`.
@@ -227,7 +228,7 @@ pub(super) fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Ve
         .into_iter()
         .flatten()
         .flatten()
-        .map(|major| major.path().join("runs").join(run_id).join(file))
+        .map(|major| major.path().join(RUNS).join(run_id).join(file))
         .filter(|file| file.is_file())
         .flat_map(|file: PathBuf| lines(&file))
         .collect()

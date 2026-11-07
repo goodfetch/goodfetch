@@ -23,7 +23,7 @@ use std::io::Write;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::home::{Home, major_name};
+use goodfetch_engine::home::Home;
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::settings::Resolved;
@@ -185,7 +185,7 @@ pub(super) fn file_of(
     match process {
         Process::DaemonRun | Process::DaemonLaunched => LogFile::open(
             &folder,
-            &format!("daemon-{}", major_name(version)),
+            &format!("daemon-{}", version.line()),
             rotation,
             clock,
         ),

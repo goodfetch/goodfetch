@@ -17,6 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUNS};
 use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
@@ -377,7 +378,7 @@ fn notice(
         !markdown.contains("This website uses cookies") && markdown.contains("The article's text"),
     );
     finish(connection, run_id)?;
-    let made = trace(home, run_id, "cdp-commands.jsonl")
+    let made = trace(home, run_id, RUN_TRACE_CDP_COMMANDS)
         .iter()
         .filter(|line| line["method"] == json!("CSS.createStyleSheet"))
         .count();
@@ -418,8 +419,8 @@ fn overrides(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
     finish(connection, run_id)
 }
 
-/// The JSON lines of `file` in the trace folder of the Run `run_id`, under
-/// the Goodfetch home `home`: `<home>/<major>/runs/<run_id>/trace/`.
+/// The JSON lines of the Run trace's file `file`, by its path in the run
+/// folder, of the Run `run_id`, under the Goodfetch home `home`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
@@ -432,14 +433,7 @@ fn trace(home: Option<&str>, run_id: &str, file: &str) -> Vec<Value> {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|major| {
-            major
-                .path()
-                .join("runs")
-                .join(run_id)
-                .join("trace")
-                .join(file)
-        })
+        .map(|major| major.path().join(RUNS).join(run_id).join(file))
         .filter(|path: &PathBuf| path.is_file())
         .flat_map(|path| lines(&path))
         .collect()
@@ -504,14 +498,14 @@ fn worlds(
         arrives(site, "/consent/answered", saved, before, ANSWER_WAIT),
     );
     finish(connection, run_id)?;
-    let commands = trace(home, run_id, "cdp-commands.jsonl");
+    let commands = trace(home, run_id, RUN_TRACE_CDP_COMMANDS);
     let sent = |method: &str| commands.iter().any(|line| line["method"] == json!(method));
     checks.check("`Runtime.enable` was never sent", !sent("Runtime.enable"));
     checks.check(
         "the main-world snippet went through `DOM.resolveNode`",
         sent("DOM.resolveNode"),
     );
-    let outcomes = trace(home, run_id, "provenance.jsonl");
+    let outcomes = trace(home, run_id, RUN_TRACE_PROVENANCE);
     for rule in ["Cybotcookiebot", "Moove"] {
         checks.check(
             format!("Provenance records {rule}'s prompt refused"),

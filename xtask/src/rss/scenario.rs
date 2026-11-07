@@ -18,6 +18,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::home::per_major;
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -154,23 +155,13 @@ pub(crate) fn configure(scenario: Scenario, home: &Path) -> Result<()> {
     if scenario != Scenario::IdleDaemon {
         return Ok(());
     }
-    let major = home.join(major_folder(env!("CARGO_PKG_VERSION")));
+    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+        .context("reading the workspace's Product version")?;
+    let major = per_major(home, &version);
     std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
     let configuration = major.join(USER_CONFIGURATION);
     std::fs::write(&configuration, DAEMON_CONFIGURATION)
         .with_context(|| format!("writing {}", configuration.display()))
-}
-
-/// The per-major folder's name of a Product version (ADR 0030): `1` for
-/// any `1.x.y`, `0.4` for any `0.4.y`, since during `0.y` each minor counts
-/// as a major.
-fn major_folder(product_version: &str) -> String {
-    let mut numbers = product_version.split(['.', '-']);
-    let major = numbers.next().unwrap_or("0");
-    match (major, numbers.next()) {
-        ("0", Some(minor)) => format!("0.{minor}"),
-        (major, _) => major.to_owned(),
-    }
 }
 
 /// The `hello` line a Client needing `needs` opens with, as the engine

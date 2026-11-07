@@ -34,7 +34,7 @@ use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
-use crate::home::{Home, RunStateLocation, major_name};
+use crate::home::{Home, RunStateLocation};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::log::LogEvents;
@@ -720,7 +720,7 @@ impl Engine {
                         sign_ins: sign_ins.clone(),
                         cookie: format!(
                             "goodfetch_console_{}",
-                            major_name(&self.identity().product_version)
+                            self.identity().product_version.line()
                         ),
                         connections: opened_connections,
                         runs: runs.clone(),

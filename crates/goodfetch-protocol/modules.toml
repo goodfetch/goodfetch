@@ -23,6 +23,7 @@ formats = ["audit", "browser_cache", "catalog", "clean_up_rules", "entries", "ex
 foxhound = ["block", "catalog", "governor", "jsonrpc", "page", "politeness", "run", "sample", "settings"]
 foxhound_names = []
 governor = ["catalog", "page", "settings"]
+home = ["connection"]
 hostile_input = ["catalog"]
 journey = ["catalog", "releases"]
 jsonrpc = ["catalog"]

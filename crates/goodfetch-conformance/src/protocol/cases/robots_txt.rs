@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::RUNS;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
@@ -655,7 +656,7 @@ fn walk(folder: &Path, found: &mut Vec<PathBuf>) {
         let Ok(kind) = entry.file_type() else {
             continue;
         };
-        let is_run_folder = folder.file_name().is_some_and(|name| name == "runs");
+        let is_run_folder = folder.file_name().is_some_and(|name| name == RUNS);
         if kind.is_dir() && !is_run_folder {
             walk(&path, found);
         } else if kind.is_file()

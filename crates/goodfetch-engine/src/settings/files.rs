@@ -24,7 +24,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::{Authority, Product, ProtocolVersion};
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{ProductVersion, VersionLine};
 use goodfetch_protocol::formats::{
     Compatibility, Format, OPERATOR_POLICY, Rule, USER_CONFIGURATION,
 };
@@ -37,7 +37,7 @@ use super::error::SettingsError;
 use super::keys;
 use super::resolve::Policy;
 use super::values::Values;
-use crate::home::{Home, major_name, major_order};
+use crate::home::Home;
 use crate::lowest_minor::{Marker, Opener};
 
 /// The key beside `version` that records a shared settings file's lowest
@@ -133,7 +133,7 @@ impl SettingsFiles {
                     .and_then(Path::file_name)
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                current: major_name(&self.version),
+                current: self.version.line().to_string(),
             });
         }
         let user_text = read(&self.user_configuration, SettingsLayer::UserConfiguration)?;
@@ -180,7 +180,8 @@ impl SettingsFiles {
     /// start). Only a release major without an older major's policy lists
     /// it, since the previews before it have no known count.
     fn older_operator_policy(&self) -> Option<PathBuf> {
-        let (major, minor) = major_order(&major_name(&self.version))?;
+        let line = self.version.line();
+        let (major, minor) = (line.major(), line.minor());
         let policy = |folder: String| {
             Some(self.root.join(folder).join(OPERATOR_POLICY_FILE)).filter(|path| path.is_file())
         };
@@ -203,11 +204,9 @@ impl SettingsFiles {
             .filter_map(Result::ok)
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                let order @ (0, _) = major_order(&name)? else {
-                    return None;
-                };
+                let line = VersionLine::parse(&name).filter(|line| line.is_preview())?;
                 let policy = entry.path().join(OPERATOR_POLICY_FILE);
-                policy.is_file().then_some((order, policy))
+                policy.is_file().then_some((line, policy))
             })
             .max_by_key(|(order, _)| *order)
             .map(|(_, policy)| policy)

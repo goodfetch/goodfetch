@@ -51,8 +51,9 @@ fn location(environment: &BTreeMap<OsString, OsString>) -> Option<(Home, CacheLo
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
     };
-    let home =
-        variable(HOME_VARIABLE).or_else(|| dirs::data_dir().map(|data| data.join("goodfetch")))?;
+    let home = variable(HOME_VARIABLE).or_else(|| {
+        dirs::data_dir().map(|data| data.join(goodfetch_protocol::home::HOME_FOLDER))
+    })?;
     let location = CacheLocation::new(&home, variable(BROWSERS_PATH_VARIABLE));
     Some((Home::new(home), location))
 }

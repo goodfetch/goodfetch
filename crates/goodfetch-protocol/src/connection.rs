@@ -10,6 +10,7 @@
 //! its schema (ADR 0096).
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -173,12 +174,92 @@ impl Surface {
 }
 
 /// A Product version, `major.minor.patch` with an optional pre-release
-/// (ADR 0090). Reported, never compared (ADR 0095).
+/// (ADR 0090). Reported, never compared across a Connection (ADR 0095);
+/// on one machine it orders by Semantic Versioning's precedence, so the
+/// newest installed executable can be picked (ADR 0098), and it names its
+/// [`VersionLine`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProductVersion {
     text: String,
     major: u64,
     minor: u64,
+}
+
+/// A Product version's line: its major, or during `0.y` previews its `0.y`
+/// minor, since each preview minor counts as a major (ADR 0030). Lines
+/// order as their versions do, and each has its own per-major folder in
+/// Goodfetch home, named by its text: `1` for any `1.x.y`, `0.4` for any
+/// `0.4.y`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VersionLine {
+    major: u64,
+    /// The preview's minor when `major` is 0, else 0.
+    minor: u64,
+}
+
+impl VersionLine {
+    /// The line a per-major folder's name, `1` or `0.4`, names: `None` for
+    /// a name that is no line's, such as `0`, `01` or `1.2`.
+    pub fn parse(name: &str) -> Option<Self> {
+        let number = |part: &str| {
+            let canonical = !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part == "0" || !part.starts_with('0'));
+            canonical.then(|| part.parse().ok()).flatten()
+        };
+        match name.split_once('.') {
+            Some(("0", minor)) => Some(Self {
+                major: 0,
+                minor: number(minor)?,
+            }),
+            Some(_) => None,
+            None => match number(name)? {
+                0 => None,
+                major => Some(Self { major, minor: 0 }),
+            },
+        }
+    }
+
+    /// Whether it is a `0.y` preview's.
+    pub fn is_preview(self) -> bool {
+        self.major == 0
+    }
+
+    /// Its major: 0 for a preview.
+    pub fn major(self) -> u64 {
+        self.major
+    }
+
+    /// The preview's minor, which counts as its major; 0 for a release.
+    pub fn minor(self) -> u64 {
+        self.minor
+    }
+
+    /// The line after it: the next `0.y` during previews, else the next
+    /// major; `None` past `u64::MAX`.
+    pub fn next(self) -> Option<Self> {
+        if self.is_preview() {
+            Some(Self {
+                major: 0,
+                minor: self.minor.checked_add(1)?,
+            })
+        } else {
+            Some(Self {
+                major: self.major.checked_add(1)?,
+                minor: 0,
+            })
+        }
+    }
+}
+
+impl fmt::Display for VersionLine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_preview() {
+            write!(formatter, "0.{}", self.minor)
+        } else {
+            write!(formatter, "{}", self.major)
+        }
+    }
 }
 
 /// Text that is no Product version.
@@ -228,6 +309,14 @@ impl ProductVersion {
         self.major
     }
 
+    /// Its line: its major, or its `0.y` minor during previews (ADR 0030).
+    pub fn line(&self) -> VersionLine {
+        VersionLine {
+            major: self.major,
+            minor: if self.major == 0 { self.minor } else { 0 },
+        }
+    }
+
     /// Its major and minor, as the formats' rules compare them (ADRs 0030
     /// and 0098); a number past `u16::MAX` reads as `u16::MAX`.
     pub fn major_minor(&self) -> ProtocolVersion {
@@ -248,13 +337,84 @@ impl ProductVersion {
     /// plus the minor during `0.y` previews, where each minor counts as a
     /// major (ADR 0030).
     pub(crate) fn loopback_of_its_major(&self, release_base: u16, preview_base: u16) -> SocketAddr {
-        let number = |number: u64| u16::try_from(number).ok();
-        let port = match (number(self.major), number(self.minor)) {
-            (Some(0), Some(minor)) => preview_base.saturating_add(minor),
-            (Some(major), _) => release_base.saturating_add(major),
-            (None, _) => release_base,
+        let line = self.line();
+        let (base, number) = if line.is_preview() {
+            (preview_base, line.minor())
+        } else {
+            (release_base, line.major())
         };
+        let port = u16::try_from(number).map_or(release_base, |number| base.saturating_add(number));
         SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+    }
+
+    /// Its pre-release, the text after the first `-`, if any.
+    fn pre_release(&self) -> Option<&str> {
+        self.text
+            .split_once('-')
+            .map(|(_, pre_release)| pre_release)
+    }
+
+    /// Its patch number's text, canonical digits.
+    fn patch(&self) -> &str {
+        let core = self
+            .text
+            .split_once('-')
+            .map_or(self.text.as_str(), |(core, _)| core);
+        core.rsplit('.').next().unwrap_or(core)
+    }
+}
+
+impl Ord for ProductVersion {
+    /// Semantic Versioning's precedence: the numbers, then a release above
+    /// its pre-releases, which compare identifier by identifier; versions
+    /// of equal precedence order by their text, so the order agrees with
+    /// equality.
+    fn cmp(&self, other: &Self) -> Ordering {
+        // A canonical number's text orders by its length, then its digits,
+        // however long it is.
+        let (patch, other_patch) = (self.patch(), other.patch());
+        (self.major, self.minor)
+            .cmp(&(other.major, other.minor))
+            .then_with(|| (patch.len(), patch).cmp(&(other_patch.len(), other_patch)))
+            .then_with(|| match (self.pre_release(), other.pre_release()) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(left), Some(right)) => pre_release_order(left, right),
+            })
+            .then_with(|| self.text.cmp(&other.text))
+    }
+}
+
+impl PartialOrd for ProductVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Semantic Versioning's precedence of two pre-releases: identifier by
+/// identifier, numbers numerically and below words, words by their bytes,
+/// and a shorter list below a longer one it begins.
+fn pre_release_order(left: &str, right: &str) -> Ordering {
+    let mut left_parts = left.split('.');
+    let mut right_parts = right.split('.');
+    loop {
+        match (left_parts.next(), right_parts.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(left), Some(right)) => {
+                let order = match (left.parse::<u64>(), right.parse::<u64>()) {
+                    (Ok(left), Ok(right)) => left.cmp(&right),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => left.cmp(right),
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+        }
     }
 }
 

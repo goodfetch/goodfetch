@@ -11,20 +11,23 @@ use goodfetch_frontier::sitemap;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
 
-use super::{Answer, On, address_check, failed, read_robots_txt, robots_txt_refusal};
+use super::{
+    Answer, On, address_check, failed, read_robots_txt, respects_robots_txt, robots_txt_refusal,
+};
 
 impl On<'_> {
     /// The fetch of a sitemap seed's sitemap, or of the robots.txt whose
     /// `Sitemap:` lines it reads (ADR 0093), under the lease, on the Run's
     /// HTTP tier, whatever `fetch.tier` says: its URL judged by the address
-    /// check first, then its origin's robots.txt read, which may refuse it
-    /// as it refuses a page, and the sitemap
+    /// check first, then its origin's robots.txt read while the crawl obeys
+    /// it, which may refuse it as it refuses a page, and the sitemap
     /// read, plain or gzip, within sitemaps.org's limits and the Run's
     /// response limits, no handler run, each hop's send recorded as its
     /// domain's start and its latency for the adaptive delay, for every run sharing
     /// it, through the attempt's hand-over as a page's hops are. A
     /// robots.txt seed reads the copy its origin's robots.txt read gave,
-    /// with no second fetch.
+    /// with no second fetch, whether or not the crawl obeys robots.txt,
+    /// since the crawl asked for its `Sitemap:` lines (ADR 0138).
     pub(super) async fn sitemap(&self, http: &HttpTier) -> Answer {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         tokio::select! {
@@ -39,13 +42,17 @@ impl On<'_> {
                     return refused;
                 }
                 let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
-                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
-                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
-                    return refused;
-                }
                 let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
                     return unreadable(&leased.crawl_request.url, "its URL does not parse");
                 };
+                let read = if respects_robots_txt(run) || sitemap::is_robots_txt(&url) {
+                    read_robots_txt(run, http, leased, &*hand_over.lease).await
+                } else {
+                    None
+                };
+                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
+                    return refused;
+                }
                 if sitemap::is_robots_txt(&url) {
                     return match read.as_deref() {
                         Some(Fetched::File(file)) => Answer::SitemapRead(sitemap::Document::Sitemaps(

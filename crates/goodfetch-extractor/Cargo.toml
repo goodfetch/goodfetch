@@ -1,6 +1,6 @@
 [package]
 name = "goodfetch-extractor"
-description = "The page formats read from a serialized document: its main content found by the extractor and written as Markdown, pure over its input (spec #580; ADRs 0007, 0033 and 0088)."
+description = "The page formats read from one tree of a document: its main content found by the extractor and written as Markdown, pure over its input (spec #580; ADRs 0007, 0033, 0088 and 0138)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,14 +14,13 @@ autobenches = false
 dom_query.workspace = true
 goodfetch-counted-work.workspace = true
 dom_smoothie.workspace = true
-ego-tree.workspace = true
 goodfetch-protocol.workspace = true
 htmd.workspace = true
 html5ever.workspace = true
 lol_html.workspace = true
+markup5ever_htmd.workspace = true
 markup5ever_rcdom.workspace = true
 phonenumber.workspace = true
-scraper.workspace = true
 rs-trafilatura.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

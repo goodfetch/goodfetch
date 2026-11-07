@@ -397,6 +397,15 @@ fn just_lint_runs_the_check() {
     let lint = recipe("lint");
     let documents = recipe("lint-documents");
 
-    assert!(lint.starts_with(" lint-documents\n"), "{lint}");
+    // `just lint` runs its checks as keep-going steps (#2131): the first is
+    // `lint-documents`.
+    let first = lint
+        .lines()
+        .find(|line| line.trim_start().starts_with("step "));
+    assert_eq!(
+        first.map(str::trim),
+        Some("step lint-documents '{{ just_executable() }} lint-documents'"),
+        "{lint}"
+    );
     assert!(documents.contains("xtask -- register check"), "{documents}");
 }

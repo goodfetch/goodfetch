@@ -104,6 +104,10 @@ pub(crate) struct Row {
     pub(crate) value: String,
     /// The measured figure, absent when not measured.
     pub(crate) figure: Option<String>,
+    /// For a resident-memory target, how much of its figure is the
+    /// executable's own file-backed pages: the median of the peaks' samples,
+    /// absent where they were not sampled (outside Linux).
+    pub(crate) executable_pages: Option<String>,
     pub(crate) verdict: Verdict,
     /// For a miss, how far the figure is from its target.
     pub(crate) gap: Option<String>,
@@ -195,7 +199,8 @@ fn median(mut values: Vec<u64>) -> Option<u64> {
 /// A target's figure on `product` with where it comes from, or why it was
 /// not measured.
 fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figure>, String) {
-    let spider_source = |commit: &str| format!("`just compare-spider`'s report, commit `{commit}`");
+    let spider_source =
+        |commit: &str| format!("scenario 1 of `just compare`'s report, commit `{commit}`");
     match target {
         Target::StartupToHello => match measured.startup.get(&product) {
             Some(startup) => (
@@ -238,9 +243,16 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
                 }),
                 spider_source(&report.commit),
             ),
-            None => (None, "no `just compare-spider` report yet".to_owned()),
+            None => (None, "no `just compare` report yet".to_owned()),
         },
     }
+}
+
+/// The median of the executable's own pages of `target`'s peaks on
+/// `product`, for a resident-memory target whose peaks sampled them.
+fn executable_pages(target: Target, product: Product, measured: &Measured) -> Option<String> {
+    let scenario = target.scenario()?;
+    median(measured.executable_bytes(scenario, product)).map(mebibytes)
 }
 
 /// Every target's row on each Product it is measured on.
@@ -267,6 +279,7 @@ pub(crate) fn rows(measured: &Measured) -> Vec<Row> {
                     .as_ref()
                     .map_or_else(|| target.stated(), Figure::value),
                 figure: figure.as_ref().map(Figure::figure),
+                executable_pages: executable_pages(target, product, measured),
                 verdict,
                 gap,
                 write_up,

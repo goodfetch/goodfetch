@@ -20,6 +20,7 @@
 //! interfaces: a Run's driver, the tables a contribution keeps in every
 //! run file, and reads of them.
 
+mod attempt_outcome;
 mod code_free;
 mod completeness;
 mod dataset_list;

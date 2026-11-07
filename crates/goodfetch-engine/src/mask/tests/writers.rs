@@ -239,8 +239,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/run_state.rs",
-        7,
-        "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference",
+        8,
+        "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference; the \"unclean\" mark at `off` is a constant row with no value of the Run's",
     ),
     (
         "crates/goodfetch-engine/src/run_state/install.rs",
@@ -249,8 +249,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/goodfetch-engine/src/run_trace.rs",
-        1,
-        "masked: the request and Provenance logs pass through the Run's `Mask`, `Scope::KeptOutput`",
+        2,
+        "masked: the request log's lines and the Provenance log's, which the Run's held file takes, pass through the Run's `Mask`, `Scope::KeptOutput`",
     ),
     (
         "crates/goodfetch-engine/src/rpc/connection.rs",

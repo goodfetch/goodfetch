@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 dom_query.workspace = true
 glob.workspace = true
+lol_html.workspace = true
+moka.workspace = true
 regex.workspace = true
 goodfetch-workspace-hack.workspace = true
 

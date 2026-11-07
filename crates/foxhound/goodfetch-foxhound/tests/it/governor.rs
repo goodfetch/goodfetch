@@ -3,10 +3,11 @@
 //! admission from its governor, whose fixed cap holds both, and what one
 //! gives back goes to the other in turn.
 
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
+use crate::fetch_tiers::settings;
 
 /// The user configuration of a home whose engines keep `in_flight` HTTP
 /// admissions at once whatever the machine: each engine is held at
@@ -242,4 +243,64 @@ fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under
         group,
         json!({ "reason": "governor", "count": 1, "domains": [{ "domain": "b.test" }] })
     );
+}
+
+/// With `governor.http` fixed at 1, a crawl on the `http` tier hands its
+/// two requests, on two domains, to its handler at once: each attempt
+/// gives its HTTP admission back once its document is fetched, so a page
+/// being analysed or handled holds no place among the requests in flight
+/// (ADRs 0004 and 0138), and the second request is fetched meanwhile.
+///
+/// Covers: setting:fetch.tier, operation:crawl.start, operation:run.progress
+#[test]
+fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
+    let env = TestEnv::new();
+    env.user_configuration(&in_flight_whatever_the_machine(1));
+    let proving_ground = ProvingGround::start(&env, 1905).unwrap();
+    let mut engine = Attached::start(&env);
+    let seeds = [
+        proving_ground.url("extraction.test", "/values"),
+        proving_ground.url("catalog.test", "/catalog/1"),
+    ];
+    let mut held = Vec::new();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": {
+            "run_id": "analysed",
+            "seeds": seeds.iter().map(|url| json!({ "url": url, "label": "page" })).collect::<Vec<_>>(),
+            "settings": settings(&proving_ground, &json!({
+                "fetch": { "tier": "http" },
+                "crawl": { "handler": { "concurrency": 2 } },
+            })),
+        },
+    }));
+    loop {
+        let message = engine.next().unwrap();
+        if message["method"] == "crawl_request.handle" {
+            held.push(message);
+        } else if message["id"] == "start" {
+            assert!(message.get("result").is_some(), "{message}");
+            break;
+        }
+    }
+
+    // Both handler requests come, neither answered: the first page gave
+    // its admission back once its document was fetched, and the second was
+    // fetched meanwhile. Held until the first's answer, the admission
+    // would keep the second from ever coming, and the engine's silence
+    // would fail the read at its 10 s deadline. The verdict reads the requests themselves, not
+    // `run.progress`: its `waiting` is the delivery's view at its last
+    // admission, which still shows the second under `governor` for a
+    // moment after the admission came back (4 of 20 runs, #1905's flake).
+    while held.len() < 2 {
+        let message = engine
+            .next()
+            .expect("the engine closed before the second handler request");
+        if message["method"] == "crawl_request.handle" {
+            held.push(message);
+        }
+    }
+    answer(&mut engine, held);
+    let _ = turn(&mut engine, (&[("analysed", 2)], 2), &[], Vec::new());
+    assert!(engine.finish());
 }

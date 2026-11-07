@@ -3,9 +3,9 @@
 // tables and its version, read with `config.policy_read`, and a change to
 // one entry, written with `config.policy_write` against the digest read, so
 // a hand edit since is never lost: the engine then answers `policy_conflict`,
-// and the section offers to read the policy again. A tightened cap reaches
-// running runs at their next admission point; every other change applies
-// to new runs, each naming the policy version it ran under.
+// and the section offers to read the policy again. Every change, a
+// tightened cap included, applies to new runs, each naming the policy
+// version it ran under: a run resolves its settings once (ADR 0138).
 import type {
   OperatorPolicyRead,
   PolicyTable,
@@ -133,8 +133,8 @@ function Notice({
     return (
       <output className="block">
         <Trans>
-          Written. New runs name the policy version <code translate="no">{digest}</code>; a
-          tightened cap reaches running runs at their next admission point.
+          Written. New runs take it, a tightened cap included, and name the policy version{" "}
+          <code translate="no">{digest}</code>.
         </Trans>
       </output>
     );

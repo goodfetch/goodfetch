@@ -2,9 +2,8 @@
 //! handler has, the lease that bounds it, how many work items the program
 //! handles at once, and which failures are retried and how often, each read
 //! from the Run's resolved settings (`timeout.handler`, `crawl.retry.max`,
-//! `crawl.retry.handler_failed`, `crawl.handler.concurrency`) at each
-//! admission point, so a tightened Operator policy cap reaches a crawl
-//! already going (ADR 0028); and the Run's domain policy, which its
+//! `crawl.retry.handler_failed`, `crawl.handler.concurrency`), resolved once
+//! as the Run opens (ADR 0138); and the Run's domain policy, which its
 //! Frontier judges each seed and enqueue by.
 
 use std::time::Duration;

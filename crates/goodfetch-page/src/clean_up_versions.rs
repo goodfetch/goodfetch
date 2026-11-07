@@ -11,7 +11,9 @@
 //! cache as an artifact of kind `clean_up_rules`, its build the digest of
 //! its files, held there while a Run holds to it, and compiled on this
 //! machine when a page first needs it. Each loaded version is shared by the
-//! Runs that hold to it, and goes when none does. Every fetch at a start or
+//! Runs that hold to it, and the engine keeps the [`KEPT_VERSIONS`] it
+//! used last once none does, so the next Run on one of them compiles
+//! nothing again; an older one goes. Every fetch at a start or
 //! a resume ends within `clean_up.fetch_timeout`.
 //!
 //! What the engine cannot do yet is refused when the Run starts, never
@@ -30,7 +32,7 @@
     reason = "each lock guards a table for one operation, never across another lock or an `.await` (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
@@ -82,6 +84,13 @@ const FILE_LIMIT: usize = 64 * 1024 * 1024;
 /// `clean_up.fetch_timeout` is not resolved.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How many loaded versions the engine keeps once no Run holds them, the
+/// most recently used: the next Run on one of them reuses its Filter lists
+/// rather than compiling them again. Two covers a switch of version, Runs
+/// on the old one ending while Runs on the new one start, and the embedded
+/// part a fallback holds beside a fetched version.
+const KEPT_VERSIONS: usize = 2;
+
 /// The file a version's sources keep their state in, in the per-major
 /// folder of Goodfetch home: the newest version fetched from the lists'
 /// authors, and the URLs it came from.
@@ -96,13 +105,16 @@ pub(crate) struct Versions {
     /// wait on its cell, never on a lock held while it compiles; a load that
     /// failed keeps its failure there for the loads that waited on it.
     loaded: Mutex<BTreeMap<String, Arc<Loaded>>>,
+    /// The versions used last, newest first, at most [`KEPT_VERSIONS`]:
+    /// each stays loaded once no Run holds it, for the next Run.
+    kept: Mutex<VecDeque<(String, Arc<FilterLists>)>>,
     holding: Mutex<BTreeMap<RunId, Held>>,
     /// The fetches of the Filter lists from their authors' URLs.
     upstream: upstream::Fetches,
 }
 
-/// One version's load: the version once loaded, while a Run holds it, or
-/// why it did not load.
+/// One version's load: the version once loaded, while a Run holds it or
+/// the engine keeps it, or why it did not load.
 type Loaded = OnceCell<Result<Weak<FilterLists>, Unobtained>>;
 
 /// The version one live Run holds to: its digest, and its files, held in
@@ -611,7 +623,7 @@ impl Versions {
             entry["fallback"] = json!({ "reason": fallback.reason, "message": fallback.message });
             entry["recorded"] = json!(recorded);
         }
-        trace::provenance(run, &entry).await;
+        trace::provenance(run, entry).await;
         if let Some(fallback) = fallback {
             warn_of(run, &fallback).await;
         }
@@ -681,7 +693,7 @@ impl Versions {
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
                     trace::provenance(
                         run,
-                        &json!({
+                        json!({
                             "action": "clean_up_rules",
                             "digest": EMBEDDED_DIGEST,
                             "source": RulesSource::Embedded,
@@ -712,10 +724,11 @@ impl Versions {
     }
 
     /// The version of `digest`, loaded by `load` unless a Run still holds
-    /// it loaded: the loads of one digest run one at a time on its cell, so
-    /// each version is compiled once for every Run that holds to it; a load
-    /// that failed fails the loads that waited on it with it, and leaves the
-    /// next to try again.
+    /// it loaded or the engine kept it: the loads of one digest run one at a
+    /// time on its cell, so each version is compiled once for every Run that
+    /// holds to it, and once for the Runs after while it is among the
+    /// [`KEPT_VERSIONS`] used last; a load that failed fails the loads that
+    /// waited on it with it, and leaves the next to try again.
     async fn loaded_once<Load, Loading>(
         &self,
         digest: &str,
@@ -746,12 +759,29 @@ impl Versions {
                 .await
                 .as_ref()
                 .map_err(Clone::clone)?;
-            // A version another load compiled whose Runs all ended since
-            // is loaded again.
+            // A version another load compiled whose Runs all ended since,
+            // and which the engine no longer keeps, is loaded again.
             if let Some(lists) = compiled.or_else(|| weak.upgrade()) {
+                self.keep(digest, &lists);
                 return Ok(lists);
             }
         }
+    }
+
+    /// Keeps `lists`, the version of `digest`, as the one used last, and
+    /// lets go of the versions past [`KEPT_VERSIONS`], outside the lock.
+    fn keep(&self, digest: &str, lists: &Arc<FilterLists>) {
+        let gone = {
+            let mut kept = lock(&self.kept);
+            if kept.front().is_some_and(|(newest, _)| newest == digest) {
+                return;
+            }
+            kept.retain(|(kept_digest, _)| kept_digest != digest);
+            kept.push_front((digest.to_owned(), Arc::clone(lists)));
+            let past = KEPT_VERSIONS.min(kept.len());
+            kept.split_off(past)
+        };
+        drop(gone);
     }
 
     /// Loads the version of `digest` from its texts in the cache, which

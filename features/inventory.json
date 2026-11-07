@@ -6444,6 +6444,16 @@
       ]
     },
     {
+      "id": "setting:dataset.records",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:delivery.report_guarantee_class",
       "kind": "setting",
       "area": 6,
@@ -6683,6 +6693,27 @@
       ]
     },
     {
+      "id": "setting:extraction.removal_share",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.block_classification",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:fetch.coalesce",
       "kind": "setting",
       "area": 3,
@@ -6865,6 +6896,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:frontier.learning",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -7384,6 +7425,16 @@
       ]
     },
     {
+      "id": "setting:provenance.log",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:proxy.bypass",
       "kind": "setting",
       "area": 5,
@@ -7495,6 +7546,17 @@
     },
     {
       "id": "setting:resolver.resolution_delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:run_state.commit_interval",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -7805,6 +7867,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:site_preferences.mark_robots_txt_ignored",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

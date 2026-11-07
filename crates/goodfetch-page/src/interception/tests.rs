@@ -9,7 +9,6 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::{PageId, SessionId};
-use goodfetch_protocol::run::RunId;
 
 use super::{EngineRequests, Interception, Learned, LeftFailure, PageState, lock, steps};
 use crate::page_value::Permit;
@@ -131,23 +130,4 @@ fn a_failure_on_a_service_workers_request_waits_for_the_sessions_next_call() {
         ),
         (Some(CLOSED.name), true)
     );
-}
-
-/// A Run's pages and served documents read with one set of parsed
-/// selectors while any of them holds it, so the Run parses each selector
-/// once (#1765); another Run has its own, and the interception keeps none
-/// once the Run's last holder lets go of it.
-#[test]
-fn a_runs_documents_share_their_parsed_selectors_while_any_holds_them() {
-    let interception = Interception::default();
-    let [one, other] = ["run-1", "run-2"].map(|run| RunId::parse(run).unwrap());
-
-    let work = goodfetch_counted_work::CountedWork::default();
-    let first = interception.shared.selectors(&one, &work);
-    let [again, others] = [&one, &other].map(|run| interception.shared.selectors(run, &work));
-    let shared = [Arc::ptr_eq(&first, &again), Arc::ptr_eq(&first, &others)];
-    let held = Arc::downgrade(&first);
-    drop((first, again));
-
-    assert_eq!((shared, held.upgrade().is_none()), ([true, false], true));
 }

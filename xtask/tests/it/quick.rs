@@ -7,7 +7,9 @@
 //! against the base the hook gives, else the branch's upstream off `main`, else
 //! `origin/main`. A green run on a clean checkout records its tree, and the
 //! hook skips a push of a recorded tree, so `just quick` never runs twice on
-//! one tree (`TESTING.md`, Checks by role). The steps run through a stand-in
+//! one tree (`TESTING.md`, Checks by role). Every step runs even after one
+//! failed, through `ci/keep-going.sh`, and the run then names each failed step
+//! and fails. The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
 //! `cargo`. The Quick suite's Cargo targets come from `ci/quick-targets.sh`,
 //! run here on a fixture workspace, and it runs its selected members' tests
@@ -235,7 +237,11 @@ fn recorded_trees(workspace: &Workspace) -> Option<String> {
 fn a_green_run_on_a_clean_checkout_records_its_tree(#[case] gate: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
-    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        "/stand-in/\n/target/\n",
+    )
+    .unwrap();
     repository_on(&workspace, "ticket");
     selection(&stand_in, gate);
 
@@ -255,7 +261,11 @@ fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
 ) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
-    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        "/stand-in/\n/target/\n",
+    )
+    .unwrap();
     repository_on(&workspace, "ticket");
     selection(&stand_in, "quick");
     if let Some(failing) = failing {
@@ -269,7 +279,10 @@ fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
 
     assert_eq!(
         run.code,
-        Some(if failing.is_some() { 3 } else { 0 }),
+        Some(match failing {
+            Some(_) => 1,
+            None => 0,
+        }),
         "{}",
         run.stderr
     );
@@ -330,7 +343,11 @@ const NO_COMMIT: &str = "0000000000000000000000000000000000000000";
 /// A repository with two commits on `ticket`: the first, the commit the
 /// remote ref holds, and the head. Returns both.
 fn two_commits(workspace: &Workspace) -> (String, String) {
-    std::fs::write(workspace.path().join(".gitignore"), "/stand-in/\n").unwrap();
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        "/stand-in/\n/target/\n",
+    )
+    .unwrap();
     repository_on(workspace, "ticket");
     let first = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
     workspace.write("change.txt", b"changed\n");
@@ -431,23 +448,224 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
     assert!(run.cargo_calls.is_empty(), "{:?}", run.cargo_calls);
 }
 
+/// A red step does not end the tier: every later step still runs, the Quick
+/// suite after a red lint included, so one run reports every failure, and the
+/// summary names each failed step.
 #[rstest]
-#[case::compiler_cache("compiler-cache", &["compiler-cache", "_skips-report"])]
-#[case::floor_guard("floor-guard", &["compiler-cache", "floor-guard", "_skips-report"])]
-#[case::commit_leaks(
-    "commit-leaks",
-    &["compiler-cache", "floor-guard", "commit-leaks", "_skips-report"]
-)]
-fn a_red_first_check_ends_the_tier_before_any_lint(#[case] failing: &str, #[case] calls: &[&str]) {
+#[case::compiler_cache("compiler-cache")]
+#[case::floor_guard("floor-guard")]
+#[case::commit_leaks("commit-leaks")]
+#[case::lint("lint")]
+fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(#[case] failing: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
-    selection(&stand_in, "docs");
+    selection(&stand_in, "quick");
     std::fs::write(stand_in.join("failing"), failing).unwrap();
 
     let run = quick(&workspace, &stand_in, &[]);
 
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert_eq!(run.calls, calls);
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard",
+            "commit-leaks",
+            "lint",
+            "test-affected quick --local",
+            "_skips-report"
+        ]
+    );
+    assert!(
+        run.stdout.contains(&format!("failed   {failing}: ")),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Without `xtask affected`'s `gate=` line the tier cannot tell which checks
+/// the change takes, so it runs no lint and no suite.
+#[test]
+fn a_red_affected_ends_the_tier_before_any_lint() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    std::fs::write(
+        stand_in.join("cargo"),
+        format!(
+            "#!/bin/sh\necho \"$*\" >>\"{}\"\nexit 101\n",
+            stand_in.join("cargo-calls").display()
+        ),
+    )
+    .unwrap();
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard",
+            "commit-leaks",
+            "_skips-report"
+        ]
+    );
+    assert!(run.stderr.contains("xtask affected"), "{}", run.stderr);
+}
+
+/// Runs `script`, a bash script that sources the repository's
+/// `ci/keep-going.sh`, in a new workspace, with `variables` added.
+fn keep_going(script: &str, variables: &[(&str, &str)]) -> (Workspace, Run) {
+    let workspace = Workspace::from_fixture("empty");
+    let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/keep-going.sh");
+    let output = workspace
+        .command("bash")
+        .arg("-c")
+        .arg(format!(
+            "set -euo pipefail\nsource \"{}\"\n{script}",
+            library.display()
+        ))
+        .env("PATH", "/usr/bin:/bin")
+        .envs(variables.iter().copied())
+        .output()
+        .unwrap();
+    let run = Run {
+        code: output.status.code(),
+        calls: Vec::new(),
+        cargo_calls: Vec::new(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+    (workspace, run)
+}
+
+#[test]
+fn a_failed_step_fails_the_run_and_the_steps_after_it_still_run() {
+    let (workspace, run) = keep_going(
+        "steps_begin fake\n\
+         step red 'echo the red step said this; exit 4'\n\
+         step green 'echo ran > green.txt'\n\
+         steps_end\n",
+        &[],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert!(
+        workspace.path().join("green.txt").is_file(),
+        "{}",
+        run.stdout
+    );
+    let log = workspace
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("target/steps/fake/red.log");
+    assert!(
+        run.stdout
+            .contains(&format!("failed   red: {}", log.display())),
+        "{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("failed   green"), "{}", run.stdout);
+    assert_eq!(
+        std::fs::read_to_string(log).unwrap(),
+        "the red step said this\n"
+    );
+}
+
+#[test]
+fn a_step_after_a_failed_one_it_needs_is_skipped_and_named() {
+    let (workspace, run) = keep_going(
+        "steps_begin fake\n\
+         step build 'exit 1'\n\
+         step --after build check 'echo ran > check.txt'\n\
+         step --after check later 'echo ran > later.txt'\n\
+         steps_end\n",
+        &[],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert!(!workspace.path().join("check.txt").exists());
+    assert!(!workspace.path().join("later.txt").exists());
+    assert!(
+        run.stdout.contains("skipped  check: build did not pass"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("skipped  later: check did not pass"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_run_whose_steps_all_pass_passes() {
+    let (_, run) = keep_going(
+        "steps_begin fake\nstep one 'true'\nstep two 'true'\nsteps_end\n",
+        &[],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert!(
+        run.stdout.contains("fake: 2 passed, 0 failed, 0 skipped."),
+        "{}",
+        run.stdout
+    );
+}
+
+/// `just quick`'s step `just lint` is a run of its own: the outer summary
+/// names the inner run's failed step, not the step that started it.
+#[test]
+fn the_summary_names_the_failed_steps_of_a_run_inside_a_step() {
+    let workspace = Workspace::from_fixture("empty");
+    let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/keep-going.sh");
+    workspace.write(
+        "inner.sh",
+        format!(
+            "set -euo pipefail\nsource \"{}\"\nsteps_begin inner\nstep clippy 'exit 1'\nstep modules 'exit 1'\nsteps_end\n",
+            library.display()
+        )
+        .as_bytes(),
+    );
+
+    let (_, run) = keep_going(
+        &format!(
+            "steps_begin outer\nstep lint 'bash {}'\nstep suite 'true'\nsteps_end\n",
+            workspace.path().join("inner.sh").display()
+        ),
+        &[],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert!(run.stdout.contains("failed   clippy: "), "{}", run.stdout);
+    assert!(run.stdout.contains("failed   modules: "), "{}", run.stdout);
+    assert!(!run.stdout.contains("failed   lint: "), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("outer: 1 passed, 2 failed, 0 skipped."),
+        "{}",
+        run.stdout
+    );
+}
+
+/// `just quick-steps` lists each step's command without running it.
+#[test]
+fn the_list_mode_prints_each_command_without_running_it() {
+    let (workspace, run) = keep_going(
+        "steps_begin fake\n\
+         step build 'echo ran > build.txt'\n\
+         step --after build check 'cargo check'\n\
+         steps_end\n",
+        &[("GOODFETCH_STEPS_LIST", "1")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "echo ran > build.txt  # build\ncargo check  # check, after build\n"
+    );
+    assert!(!workspace.path().join("build.txt").exists());
+    assert!(!workspace.path().join("target").exists());
 }
 
 #[test]

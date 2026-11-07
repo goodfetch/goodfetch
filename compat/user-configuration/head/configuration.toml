@@ -108,6 +108,9 @@ hiding = "auto"
 [settings.content]
 extractor = "dom_smoothie"
 
+[settings.extraction]
+removal_share = "estimate"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -122,6 +125,7 @@ providers = { "example.test" = { endpoint = "http://proxy.example:8000", passwor
 [settings.run_state]
 location = "example"
 durability = "full"
+commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
@@ -250,6 +254,7 @@ purpose = "search"
 respect_use_signals = true
 robots_txt_user_agent = "example"
 respect_robots_txt = true
+mark_robots_txt_ignored = true
 max_crawl_delay = 30000
 
 [settings.crawl]
@@ -288,6 +293,7 @@ tier_race = true
 light_browser = true
 encoding = "example"
 coalesce = true
+block_classification = true
 
 [settings.fetch.sample]
 count = 4
@@ -305,6 +311,9 @@ max_delay = 30000
 
 [settings.fetch.kept_responses]
 urls = ["example"]
+
+[settings.frontier]
+learning = true
 
 [settings.export.csv]
 bom = true
@@ -339,6 +348,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.provenance]
+log = true
+
+[settings.dataset]
+records = true
 
 [settings.dataset.query]
 memory_limit = 4

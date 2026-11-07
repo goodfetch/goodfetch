@@ -6,10 +6,16 @@
 //! asides, and the header and footer of the page rather than of an
 //! article): then the answer is empty, never the page's chrome, which
 //! Readability falls back to, in its place (pitfall D02).
+//!
+//! The step reads the page's tree and consumes it (ADR 0138): the text
+//! outside the landmarks is read on the tree before it, which removes
+//! nothing, and the fallback's HTML, when a reader needs it, from the one
+//! copy of the tree made for it.
 
-use goodfetch_counted_work::{CountedWork, Row};
+use dom_query::{Matcher, NodeRef};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
-use crate::extractor::{Extractor, dom_smoothie_article};
+use crate::extractor::{Article, Extractor, Found};
 
 /// What holds no main content: navigation landmarks, and what no person
 /// reads.
@@ -20,48 +26,102 @@ const NOT_CONTENT: &str = "script, style, noscript, template, [hidden], nav, asi
 /// not the page's banner and content information (WAI-ARIA's HTML mapping).
 const SECTIONING: &str = "article, aside, main, nav, section";
 
-/// The main content `extractor` finds in `html`, read at `url`, as HTML,
-/// and the length of its text, as [`main_text_length`] counts it; none
-/// when the document has no text a person reads it for.
+/// Every selector the step matches, which [`compile_selectors`] keeps.
+const SELECTORS: [&str; 5] = [
+    "head title",
+    NOT_CONTENT,
+    "header, footer",
+    SECTIONING,
+    "body",
+];
+
+/// Compiles into the engine's cache on `work` every selector the step
+/// matches, so that a Run which runs it compiles them before its first page,
+/// not on it (ADRs 0138 and 0140).
+pub fn compile_selectors(work: &CountedWork) {
+    for selector in SELECTORS {
+        let _ = work.literal_selector(Row::PageSelectorCompilations, selector);
+    }
+}
+
+/// The main content `extractor` finds in `tree`, the page at `url`, which
+/// it consumes, as the tree it is read from, and the length of its text, as
+/// [`main_text_length`] counts it; none when the document has no text a
+/// person reads it for. A step that finds no text where the document holds
+/// some answers what is left of its body outside those landmarks, read
+/// from the one copy of the tree made for it (`F1.tree_copies`): a document
+/// with text a person reads is never answered as one without (pitfall D02).
 pub(crate) fn main_content(
-    html: &str,
+    tree: ParsedHtml,
     url: &str,
     extractor: &dyn Extractor,
     work: &CountedWork,
-) -> Option<(String, usize)> {
-    read(html, url, extractor, work)
+) -> Option<(Article, usize)> {
+    let remaining = text_outside_landmarks(&tree, work);
+    if length(&remaining) == 0 {
+        return None;
+    }
+    let copy = work.copy_tree(Row::PageTreeCopies, &tree);
+    work.count(Row::PageReadabilityRuns);
+    match extractor.main_content(tree, url) {
+        Some(Found { article, text }) if length(&text) > 0 => {
+            let found = length(&text);
+            Some((article, found))
+        }
+        Some(_) | None => Some((outside_landmarks(copy, work), length(&remaining))),
+    }
 }
 
-/// The length of the text of the main content `extractor` finds in `html`,
-/// read at `url`, white space aside, in characters; 0 when it has none.
+/// The length of the text of the main content `extractor` finds in `tree`,
+/// the page at `url`, which it consumes, white space aside, in characters;
+/// 0 when it has none: ADR 0047's exact share, its run counted on
+/// `F1.share_readability_runs`, apart from the formats' own.
 pub(crate) fn main_text_length(
-    html: &str,
+    tree: ParsedHtml,
     url: &str,
     extractor: &dyn Extractor,
     work: &CountedWork,
 ) -> usize {
-    read(html, url, extractor, work).map_or(0, |(_, length)| length)
+    let remaining = text_outside_landmarks(&tree, work);
+    if length(&remaining) == 0 {
+        return 0;
+    }
+    work.count(Row::PageShareReadabilityRuns);
+    extractor
+        .main_content(tree, url)
+        .map(|found| length(&found.text))
+        .filter(|found| *found > 0)
+        .unwrap_or_else(|| length(&remaining))
 }
 
-/// The text of `html`'s main content, read at `url`, and its title, each
-/// with every run of white space made one space and none at either end;
-/// an empty text when it has no main content.
-pub(crate) fn title_and_main_text(html: &str, url: &str, work: &CountedWork) -> (String, String) {
+/// The text of `tree`'s main content, the page at `url`, found by
+/// `extractor`, and its title, each with every run of white space made one
+/// space and none at either end; an empty text when it has no main
+/// content. The main-content step consumes the tree, the last reader of the
+/// page as it was served (ADR 0138), with its fallback as the formats read
+/// it, and no copy: the fallback's text is read before it.
+pub(crate) fn title_and_main_text_of(
+    tree: ParsedHtml,
+    url: &str,
+    extractor: &dyn Extractor,
+    work: &CountedWork,
+) -> (String, String) {
     let title = collapsed(
-        &work
-            .parse_html(Row::PageParses, html)
+        &tree
             .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "head title"))
             .text(),
     );
-    let text = has_content_text(html, work)
-        .then(|| {
-            work.count(Row::PageReadabilityRuns);
-            dom_smoothie_article(html, url)
-        })
-        .flatten()
-        .map(|article| collapsed(&article.text_content))
-        .unwrap_or_default();
-    (title, text)
+    let remaining = text_outside_landmarks(&tree, work);
+    if length(&remaining) == 0 {
+        return (title, String::new());
+    }
+    work.count(Row::PageReadabilityRuns);
+    let text = extractor
+        .main_content(tree, url)
+        .map(|found| found.text)
+        .filter(|text| length(text) > 0)
+        .unwrap_or(remaining);
+    (title, collapsed(&text))
 }
 
 /// `text` with each run of white space made one space, none at either end.
@@ -69,61 +129,57 @@ fn collapsed(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The main content `extractor` finds in `html`, read at `url`, as HTML,
-/// and the length of its text; none when the document holds no text
-/// outside its navigation landmarks. A step that finds no text where the
-/// document holds some answers what is left of its body outside those
-/// landmarks: a document with text a person reads is never answered as
-/// one without (pitfall D02).
-fn read(
-    html: &str,
-    url: &str,
-    extractor: &dyn Extractor,
-    work: &CountedWork,
-) -> Option<(String, usize)> {
-    let remaining = outside_landmarks(html, work)?;
-    work.count(Row::PageReadabilityRuns);
-    let found = extractor.main_content(html, url).map(|content| {
-        let length = text_length(&content);
-        (content, length)
-    });
-    match found {
-        Some(found) if found.1 > 0 => Some(found),
-        Some(_) | None => {
-            let length = text_length(&remaining);
-            Some((remaining, length))
+/// The length of `text`, white space aside, in characters.
+fn length(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// The text of `tree`'s body outside its navigation landmarks and what no
+/// person reads, in document order, read without removing anything.
+fn text_outside_landmarks(tree: &ParsedHtml, work: &CountedWork) -> String {
+    let not_content = work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT);
+    let landmarks = work.literal_selector(Row::PageSelectorCompilations, "header, footer");
+    let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
+    let body = tree.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"));
+    let mut text = String::new();
+    // Depth first, by hand: a page's tree can be deeper than a thread's
+    // stack allows a recursion.
+    let mut next: Vec<NodeRef<'_>> = body.nodes().iter().rev().copied().collect();
+    while let Some(node) = next.pop() {
+        if node.is_text() {
+            text.push_str(&node.text());
+        } else if node.is_element() && !is_landmark(&node, (&not_content, &landmarks, &sectioning))
+        {
+            next.extend(node.children_it(true));
         }
     }
+    text
 }
 
-/// The length of the text of the HTML fragment `html`, white space aside.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-fn text_length(html: &str) -> usize {
-    visible(&dom_query::Document::fragment(html).root().text())
-        .chars()
-        .count()
+/// Whether `node` is what [`outside_landmarks`] removes: what holds no main
+/// content, or a header or footer of the page, not of a sectioning element.
+fn is_landmark(
+    node: &NodeRef<'_>,
+    (not_content, landmarks, sectioning): (&Matcher, &Matcher, &Matcher),
+) -> bool {
+    node.is_match(not_content)
+        || (node.is_match(landmarks)
+            && !node
+                .ancestors_it(None)
+                .any(|ancestor| ancestor.is_match(sectioning)))
 }
 
-/// Whether `html` holds text outside its navigation landmarks.
-fn has_content_text(html: &str, work: &CountedWork) -> bool {
-    outside_landmarks(html, work).is_some()
-}
-
-/// The HTML of `html`'s body without its navigation landmarks and what no
-/// person reads; none when no text is left in it.
-fn outside_landmarks(html: &str, work: &CountedWork) -> Option<String> {
-    let document = work.parse_html(Row::PageParses, html);
+/// `document`'s body without its navigation landmarks and what no person
+/// reads, which it removes from the tree it takes.
+fn outside_landmarks(document: ParsedHtml, work: &CountedWork) -> Article {
     document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, NOT_CONTENT))
         .remove();
+    let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
     for landmark in document
         .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "header, footer"))
         .nodes()
     {
-        let sectioning = work.literal_selector(Row::PageSelectorCompilations, SECTIONING);
         if !landmark
             .ancestors_it(None)
             .any(|ancestor| ancestor.is_match(&sectioning))
@@ -131,12 +187,10 @@ fn outside_landmarks(html: &str, work: &CountedWork) -> Option<String> {
             landmark.remove_from_parent();
         }
     }
-    let body =
-        document.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"));
-    (!visible(&body.text()).is_empty()).then(|| body.inner_html().to_string())
-}
-
-/// `text` without its white space.
-fn visible(text: &str) -> String {
-    text.chars().filter(|c| !c.is_whitespace()).collect()
+    let body = document
+        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "body"))
+        .nodes()
+        .first()
+        .map_or_else(|| document.root().id, |body| body.id);
+    Article::children_of(document, body)
 }

@@ -49,11 +49,11 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
-use goodfetch_counted_work::{CountedWork, Row as CountedRow};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
-use goodfetch_page::page_value::{DocumentResponse, NavigationGate};
+use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
 use goodfetch_protocol::page::events::{
@@ -87,7 +87,7 @@ use crate::served_calls::{Row, Verdict, verdict};
 use markup::{Shown, shown};
 use navigation::{Step, navigate};
 
-mod markup;
+pub(crate) mod markup;
 mod navigation;
 mod replayed;
 
@@ -379,44 +379,72 @@ fn waited(
     Box::pin(async move {
         let document = Arc::clone(&page.document);
         let work = page.document.run.metrics().counted_work().clone();
-        let met = page
-            .document
-            .run
-            .owner()
-            .blocking(move || match wait {
-                Wait::Shown(state) => {
-                    let shown = shown(&document.html, &selector, &work)?;
-                    let met = shown == state || (state == Shown::Hidden && shown == Shown::Absent);
-                    met.then(|| encoded(&Reached {}))
+        let met = on_tree(&page.document, move |tree| match wait {
+            Wait::Shown(state) => {
+                let shown = shown((tree, &document.html), &selector, &work)?;
+                let met = shown == state || (state == Shown::Hidden && shown == Shown::Absent);
+                met.then(|| encoded(&Reached {}))
+            }
+            Wait::One | Wait::None | Wait::Count(_) => {
+                let count = matches((tree, &document.html), &selector, &work)?;
+                match wait {
+                    Wait::One => (count == 1).then(|| encoded(&Reached {})),
+                    Wait::None => (count == 0).then(|| encoded(&Reached {})),
+                    Wait::Count(bounds) => (bounds.min.is_none_or(|min| count >= min)
+                        && bounds.max.is_none_or(|max| count <= max))
+                    .then(|| encoded(&Counted { count })),
+                    Wait::Shown(_) => None,
                 }
-                Wait::One | Wait::None | Wait::Count(_) => {
-                    let count = matches(&document.html, &selector, &work)?;
-                    match wait {
-                        Wait::One => (count == 1).then(|| encoded(&Reached {})),
-                        Wait::None => (count == 0).then(|| encoded(&Reached {})),
-                        Wait::Count(bounds) => (bounds.min.is_none_or(|min| count >= min)
-                            && bounds.max.is_none_or(|max| count <= max))
-                        .then(|| encoded(&Counted { count })),
-                        Wait::Shown(_) => None,
-                    }
-                }
-            })
-            .await;
+            }
+        })
+        .await
+        .flatten();
         met.ok_or_else(|| tiers.unserved(&page_id, operation, true))
     })
 }
 
-/// How many elements of the markup `html` the CSS selector `selector`
-/// matches; `None` when the markup alone cannot tell, the selector being
-/// one the matcher does not parse or the document holding a declarative
-/// shadow root.
-pub(crate) fn matches(html: &str, selector: &str, work: &CountedWork) -> Option<u64> {
+/// What `read` reads of the untouched tree of `document`, a served page's
+/// document: its kept tree, which its owner lends the read while a handler
+/// reads the page (ADR 0138), else a parse of its HTML for this read
+/// alone, on the CPU pool; none once the kept tree's owner is gone, as its
+/// Run stops.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a served page with no kept tree, a code-free crawl's, parsed for this read alone"
+)]
+pub(in crate::tiers) async fn on_tree<T, F>(document: &Arc<ServedDocument>, read: F) -> Option<T>
+where
+    F: FnOnce(&ParsedHtml) -> T + Send + 'static,
+    T: Send + 'static,
+{
+    if let Some(tree) = &document.tree {
+        return tree.read(read).await;
+    }
+    let served = Arc::clone(document);
+    let work = served.run.metrics().counted_work().clone();
+    Some(
+        document
+            .run
+            .owner()
+            .analysis(move || read(&work.parse_html(CountedRow::PageParses, &served.html)))
+            .await,
+    )
+}
+
+/// How many elements of `tree`, the tree of the markup `html`, the CSS
+/// selector `selector` matches; `None` when the markup alone cannot tell,
+/// the selector being one the matcher does not parse or the document
+/// holding a declarative shadow root.
+pub(crate) fn matches(
+    (tree, html): (&ParsedHtml, &str),
+    selector: &str,
+    work: &CountedWork,
+) -> Option<u64> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = work.compile_selector(CountedRow::PageSelectorCompilations, selector)?;
-    let document = work.parse_html(CountedRow::PageParses, html);
-    u64::try_from(document.select_matcher(&matcher).length()).ok()
+    let matcher = work.selector(CountedRow::PageSelectorCompilations, selector)?;
+    u64::try_from(tree.select_matcher(&matcher).length()).ok()
 }
 
 /// `page.request` from the served page `page_id`, sent on its tier's HTTP

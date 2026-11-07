@@ -51,8 +51,8 @@ use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
-    ServedDocument,
+    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
+    ProgramPages, Reader, ServedDocument,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
@@ -72,11 +72,12 @@ use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
+use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
-    BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
-    PageResponse, SessionId,
+    BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
+    PageId, PageResponse, SessionId,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -88,23 +89,24 @@ use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES,
 use url::Url;
 
 use crate::canonical::canonical;
-use crate::chain::{Following, Skip, Stop, follow};
+use crate::chain::{Following, HopRead, Reading, Skip, Stop, follow_reading};
 use crate::charset::{self, Kind, Read};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::discovered_api::Plan;
-use crate::document::{self, FieldElement, Matched, SelectorInvalid, matched};
+use crate::document::{self, FieldElement, LocatorInvalid, Matched, SelectorInvalid, matched};
 use crate::driver::{FetchBounds, Hop, Transport, fetch_accepting, fetch_start};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
+use crate::untouched::{self, UntouchedReaders};
 use crate::use_signals::UseSignals;
 
-mod calls;
+pub(crate) mod calls;
 mod reading;
 mod sitemap;
 #[cfg(test)]
@@ -163,6 +165,14 @@ impl Drop for HandedOver {
             }
         }
     }
+}
+
+tokio::task_local! {
+    /// The hand-over of the attempt whose own browser page
+    /// [`FetchTiers::browser`] opens on this task: the page takes its
+    /// value as it opens, in its Session, while the Run's other attempts
+    /// hand its pages over at once.
+    static OPENING: Arc<HandOver>;
 }
 
 #[derive(Default)]
@@ -247,6 +257,10 @@ struct ServedPage {
     /// The encoding its document was read in and where that came from;
     /// none for a page holding no document.
     read: Option<Read>,
+    /// What the readers of its untouched page read of its crawl request's
+    /// own document, while the page holds it; nothing once a navigation
+    /// replaced it.
+    untouched: Arc<untouched::Read>,
     /// The response of its crawl request's own document and its body,
     /// stored in the Run's folder only once `response.body` asks for it.
     own: Option<(PageResponse, Bytes)>,
@@ -259,7 +273,8 @@ struct ServedPage {
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
-/// its encoding, its `Link` header fields and its AI-use signals.
+/// its encoding, its `Link` header fields, its AI-use signals and what the
+/// readers of its untouched page read of it.
 struct Opened {
     document: Arc<ServedDocument>,
     /// The response's type when it is no HTML or XHTML document, its page
@@ -272,21 +287,49 @@ struct Opened {
     read: Option<Read>,
     links: Vec<(String, String)>,
     use_signals: UseSignals,
+    /// What the readers of the untouched page read of a crawl request's
+    /// own document; nothing of a handler's own navigation's.
+    untouched: Arc<untouched::Read>,
 }
 
-impl Opened {
-    /// The document `fetched` answered for `run`, its formats read with
-    /// `extractor`, its Label's `content.extractor`, decoded in the
-    /// encoding ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
+/// A document a fetch answered, decoded and parsed once, before the
+/// readers of its untouched page read its tree (ADR 0138).
+struct Decoded {
+    /// The response's type when it is no HTML or XHTML document.
+    not_document: Option<String>,
+    encoding: &'static Encoding,
+    read: Option<Read>,
+    /// Its text: empty for a response holding no document.
+    html: String,
+    /// What the readers of its untouched page read it on.
+    untouched: Untouched,
+}
+
+/// What the readers of a document's untouched page read it on.
+enum Untouched {
+    /// The tree of its text, the one parse of the document.
+    Tree(goodfetch_counted_work::ParsedHtml),
+    /// What they read of it in one streaming pass, with no tree.
+    Streamed(untouched::StreamRead),
+}
+
+impl Decoded {
+    /// The document `fetched` answered for `run`, decoded in the encoding
+    /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
-    /// document.
+    /// document. `readers` read it in one streaming pass when they can,
+    /// else on its tree.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
+    )]
     fn of(
         run: &Run,
-        fetched: crate::driver::Fetched,
-        (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
+        fetched: &crate::driver::Fetched,
+        (forced, readers): (Option<&'static Encoding>, &UntouchedReaders),
     ) -> Self {
-        let url = fetched.url.to_string();
+        let url = fetched.url.as_str();
         let header = fetched
             .headers
             .iter()
@@ -316,36 +359,175 @@ impl Opened {
                 encoding_rs::UTF_8,
             ),
         };
-        let base_url = goodfetch_frontier::document_base(
-            &url,
-            base_href(&html, run.metrics().counted_work()).as_deref(),
-        )
-        .map_or_else(|| url.clone(), |base| base.to_string());
-        let markup = if not_document.is_none() {
-            html.as_str()
-        } else {
-            ""
+        let untouched = match readers.stream(&html) {
+            Some(streamed) => Untouched::Streamed(streamed),
+            None => Untouched::Tree(
+                run.metrics()
+                    .counted_work()
+                    .parse_html(Row::PageParses, &html),
+            ),
         };
-        let use_signals = UseSignals::of(&fetched.headers).with_markup(markup, &fetched.url);
+        Self {
+            not_document,
+            encoding,
+            read,
+            html,
+            untouched,
+        }
+    }
+
+    /// The refresh directive the markup of the HTML hop `fetched` holds,
+    /// read on its tree with `readers`: a body whose type sniffs as no
+    /// document is read whole for it, as the chain reads every HTML hop.
+    fn refresh(
+        &self,
+        fetched: &crate::driver::Fetched,
+        readers: &UntouchedReaders,
+        work: &CountedWork,
+    ) -> Option<crate::refresh::Refresh> {
+        if self.not_document.is_some() {
+            return crate::refresh::in_markup(&fetched.url, &fetched.body, work);
+        }
+        match &self.untouched {
+            Untouched::Tree(tree) => readers.refresh(&fetched.url, tree),
+            Untouched::Streamed(streamed) => streamed.refresh(&fetched.url),
+        }
+    }
+
+    /// The served page's read of this document, which `fetched` answered
+    /// for `run`, its formats read with `extractor`, its Label's
+    /// `content.extractor`: its `<base>` and AI-use signals, then, for a
+    /// crawl request's `own` document, what `readers` read of it, its
+    /// Page signature last, which consumes the tree.
+    fn opened(
+        self,
+        run: &Run,
+        fetched: &crate::driver::Fetched,
+        (extractor, readers, own): (Option<BuiltIn>, &UntouchedReaders, bool),
+    ) -> Opened {
+        let Self {
+            not_document,
+            encoding,
+            read,
+            html,
+            untouched,
+        } = self;
+        let url = fetched.url.to_string();
+        let base_href = match &untouched {
+            Untouched::Tree(tree) => readers.base_href(tree),
+            Untouched::Streamed(streamed) => streamed.base_href(),
+        };
+        let base_url = goodfetch_frontier::document_base(&url, base_href.as_deref())
+            .map_or_else(|| url.clone(), |base| base.to_string());
+        let signals = UseSignals::of(&fetched.headers);
+        let work = run.metrics().counted_work();
+        let (use_signals, untouched, kept) = match untouched {
+            Untouched::Tree(tree) => {
+                let use_signals = readers.use_signals(signals, (&html, &tree), &fetched.url);
+                let (untouched, kept) = if own {
+                    let signed = |tree| {
+                        goodfetch_extractor::page_signature_of(
+                            tree,
+                            &goodfetch_extractor::Document {
+                                html: &html,
+                                url: &url,
+                                base_url: &base_url,
+                                serialization: goodfetch_extractor::Serialization::Served,
+                            },
+                            chosen_extractor(run, extractor).extractor(),
+                            work,
+                        )
+                    };
+                    readers.read(tree, (&url, &base_url), (signed, work))
+                } else {
+                    (untouched::Read::default(), Some(tree))
+                };
+                (use_signals, untouched, kept.map(KeptFrom::Tree))
+            }
+            Untouched::Streamed(streamed) => (
+                UntouchedReaders::streamed_use_signals(signals, &fetched.url),
+                if own {
+                    readers.read_streamed(streamed, &url)
+                } else {
+                    untouched::Read::default()
+                },
+                None,
+            ),
+        };
+        // A handler's reads keep the page's untouched tree, or its HTML,
+        // which the first read that needs a tree parses (ADR 0138).
+        let tree = (readers.keeps() && not_document.is_none()).then(|| {
+            KeptTree::keep(
+                run,
+                kept.unwrap_or_else(|| KeptFrom::Html(Arc::from(html.as_str()))),
+            )
+        });
         let links = fetched
             .headers
-            .into_iter()
+            .iter()
             .filter(|(name, _)| name == "link")
+            .cloned()
             .collect();
-        Self {
+        Opened {
             document: Arc::new(ServedDocument {
                 run: run.clone(),
                 url,
                 base_url,
                 html,
                 extractor,
+                tree,
             }),
             not_document,
             encoding,
             read,
             links,
             use_signals,
+            untouched: Arc::new(untouched),
         }
+    }
+}
+
+impl Opened {
+    /// The document `fetched` answered for `run`, as [`Decoded::of`] reads
+    /// it with `forced` and [`Decoded::opened`] with `extractor`, `readers`
+    /// and `own`.
+    fn of(
+        run: &Run,
+        fetched: &crate::driver::Fetched,
+        (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
+        (readers, own): (&UntouchedReaders, bool),
+    ) -> Self {
+        Decoded::of(run, fetched, (forced, readers)).opened(run, fetched, (extractor, readers, own))
+    }
+}
+
+/// How a crawl request's chain reads each HTML hop's document: its refresh
+/// directive on its one tree, and the document the chain ends on whole, on
+/// the same tree (ADR 0138).
+struct OpenedReading {
+    run: Run,
+    forced: Option<&'static Encoding>,
+    extractor: Option<BuiltIn>,
+    readers: Arc<UntouchedReaders>,
+}
+
+impl Reading for OpenedReading {
+    type Read = Opened;
+
+    fn read(
+        &self,
+        fetched: &crate::driver::Fetched,
+        follows: &dyn Fn(&crate::refresh::Refresh) -> bool,
+    ) -> HopRead<Opened> {
+        let decoded = Decoded::of(&self.run, fetched, (self.forced, &self.readers));
+        let work = self.run.metrics().counted_work();
+        if let Some(refresh) = decoded
+            .refresh(fetched, &self.readers, work)
+            .filter(|refresh| follows(refresh))
+        {
+            return HopRead::Refresh(refresh);
+        }
+        HopRead::Document(decoded.opened(&self.run, fetched, (self.extractor, &self.readers, true)))
     }
 }
 
@@ -779,8 +961,14 @@ impl FetchTiers {
         };
         let clock = run.clock();
         let mut first = true;
-        let on = (&clock, run.owner(), run.metrics().counted_work());
-        let fetched = follow(hop, &tier.following, &gate, on, |hop| {
+        let reading = Arc::new(OpenedReading {
+            run: run.clone(),
+            forced: hand_over.encoding,
+            extractor: hand_over.extractor,
+            readers: Arc::clone(&hand_over.untouched),
+        });
+        let on = (&clock, run.owner(), &reading);
+        let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
             let (accepts, clock) = (&accepts, &clock);
             async move {
@@ -806,7 +994,11 @@ impl FetchTiers {
                 }
             }
         })
-        .await?;
+        .await;
+        // The document's fetch ended: the page being analysed holds no
+        // place among the requests in flight (ADR 0138).
+        hand_over.fetch_admission.give_back();
+        let (fetched, opened) = fetched?;
         if let Some(refused) = &fetched.unaccepted {
             return Err(Stop::Skipped(Skip {
                 reason: SkipReason::ContentType,
@@ -816,14 +1008,22 @@ impl FetchTiers {
                 ),
             }));
         }
-        self.open_served(tier, run, choice, fetched, (hand_over, hand_over.encoding))
-            .await
+        self.open_served(
+            tier,
+            run,
+            choice,
+            (fetched, opened),
+            (hand_over, hand_over.encoding),
+        )
+        .await
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
     /// served as `choice` says and gated by `hand_over`, the attempt's, its
-    /// document read with `forced` from `fetch.encoding` and its formats
-    /// with the hand-over's extractor, its Label's `content.extractor`.
+    /// document read with `forced` from `fetch.encoding`, its formats with
+    /// the hand-over's extractor, its Label's `content.extractor`, and its
+    /// untouched page with the hand-over's readers: `opened` when its
+    /// chain read it already.
     ///
     /// # Errors
     ///
@@ -834,13 +1034,13 @@ impl FetchTiers {
     /// # Cancel safety
     ///
     /// Dropping the future opens no page; the document's read, on the
-    /// blocking pool, runs to its end.
+    /// CPU pool, runs to its end once it started.
     async fn open_served(
         &self,
         tier: &HttpTier,
         run: &Run,
         choice: &TierChoice,
-        fetched: crate::driver::Fetched,
+        (fetched, opened): (crate::driver::Fetched, Option<Opened>),
         (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
@@ -850,12 +1050,17 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        // The document is decoded and parsed on the blocking pool, never on
-        // an async worker (STYLE.md).
-        let opened = {
+        // The document is decoded and parsed on the CPU pool, never on an
+        // async worker (STYLE.md; ADR 0138).
+        let opened = if let Some(opened) = opened {
+            opened
+        } else {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
+            let readers = Arc::clone(&hand_over.untouched);
             run.owner()
-                .blocking(move || Opened::of(&reading, fetched, (forced, extractor)))
+                .analysis(move || {
+                    Opened::of(&reading, &fetched, (forced, extractor), (&readers, true))
+                })
                 .await
         };
         // A document only a guess could read is never served: under a
@@ -894,6 +1099,7 @@ impl FetchTiers {
                 bodies: BTreeMap::new(),
                 not_document: opened.not_document.clone(),
                 read: opened.read,
+                untouched: Arc::clone(&opened.untouched),
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
@@ -988,7 +1194,7 @@ impl FetchTiers {
             // exception is taken on this tier.
             certificate_exception: None,
         };
-        self.open_served(tier, run, choice, fetched, (hand_over, None))
+        self.open_served(tier, run, choice, (fetched, None), (hand_over, None))
             .await
     }
 
@@ -1068,20 +1274,36 @@ impl FetchTiers {
     ///
     /// Dropping the future loses only what it reads; the page stays open.
     pub async fn signature(&self, page_id: &PageId) -> Option<Signed> {
-        if self.served_page(page_id)?.not_document.is_some() {
+        let page = self.served_page(page_id)?;
+        if page.not_document.is_some() {
             return None;
         }
-        let served = self.document(page_id)?;
+        let served = page.document;
         let links = lock(&self.served.pages)
             .links
             .get(page_id)
             .cloned()
             .unwrap_or_default();
+        // The readers of its untouched page signed it as they read it.
+        if let Some((signature, in_head)) = page.untouched.signed() {
+            let canonical = in_head.cloned().or_else(|| {
+                Url::parse(&served.url)
+                    .ok()
+                    .and_then(|url| crate::canonical::in_headers(&links, &url))
+            });
+            return Some(Signed {
+                url: served.url.clone(),
+                signature,
+                canonical,
+            });
+        }
+        let served = ServedDocument::clone(&served);
         let run = served.run.clone();
         let work = run.metrics().counted_work().clone();
+        let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 let signature = goodfetch_extractor::page_signature(
                     &goodfetch_extractor::Document {
                         html: &served.html,
@@ -1089,6 +1311,7 @@ impl FetchTiers {
                         base_url: &served.base_url,
                         serialization: goodfetch_extractor::Serialization::Served,
                     },
+                    extractor.extractor(),
                     &work,
                 );
                 let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
@@ -1124,6 +1347,7 @@ impl FetchTiers {
         &self,
         page_id: &PageId,
         selector: &str,
+        work: &CountedWork,
     ) -> Option<Result<ServedLinks, LinksUnread>> {
         let opened = {
             let pages = lock(&self.served.pages);
@@ -1133,26 +1357,43 @@ impl FetchTiers {
                     .get(page_id)
                     .copied()
                     .unwrap_or(encoding_rs::UTF_8);
-                (Arc::clone(&page.document), encoding)
+                (
+                    Arc::clone(&page.document),
+                    encoding,
+                    Arc::clone(&page.untouched),
+                )
             })
         };
-        let Some((served, encoding)) = opened else {
-            return self.browser_links(page_id, selector).await;
+        let Some((served, encoding, untouched)) = opened else {
+            return self.browser_links(page_id, selector, work).await;
         };
-        let selector = selector.to_owned();
-        let run = served.run.clone();
-        let work = run.metrics().counted_work().clone();
-        let read = run
-            .owner()
-            .blocking(move || {
-                matched(&served.html, &selector, &work).map(|elements| ServedLinks {
+        // The readers of its untouched page read the links the Run asked
+        // for as they read it.
+        if let Some(read) = untouched.links(selector) {
+            return Some(
+                read.map(|elements| ServedLinks {
                     url: served.url.clone(),
                     base_url: served.base_url.clone(),
                     encoding,
                     elements,
                 })
+                .map_err(LinksUnread::Selector),
+            );
+        }
+        // Any other selector reads the page's kept tree while a handler
+        // reads it, else a parse of its document (ADR 0138).
+        let selector = selector.to_owned();
+        let work = served.run.metrics().counted_work().clone();
+        let document = Arc::clone(&served);
+        let read = calls::on_tree(&served, move |tree| {
+            matched(tree, &selector, &work).map(|elements| ServedLinks {
+                url: document.url.clone(),
+                base_url: document.base_url.clone(),
+                encoding,
+                elements,
             })
-            .await;
+        })
+        .await?;
         Some(read.map_err(LinksUnread::Selector))
     }
 
@@ -1180,28 +1421,34 @@ impl FetchTiers {
             pages
                 .open
                 .get(page_id)
-                .map(|page| Arc::clone(&page.document))
+                .map(|page| (Arc::clone(&page.document), Arc::clone(&page.untouched)))
         };
-        let Some(served) = served else {
+        let Some((served, untouched)) = served else {
             return self.browser_field_elements(page_id, locators).await;
         };
-        let locators = locators.to_vec();
-        let run = served.run.clone();
-        let work = run.metrics().counted_work().clone();
-        let read = run
-            .owner()
-            .blocking(move || {
-                document::first_elements(&served.html, &locators, &work).map(|elements| {
-                    FieldElements {
-                        base_url: served.base_url.clone(),
-                        elements,
-                    }
-                })
-            })
-            .await;
-        Some(read.map_err(|invalid| {
+        let invalid = |invalid: LocatorInvalid| {
             CallError::protocol(ProtocolFailure::InvalidParams, invalid.to_string())
-        }))
+        };
+        // The readers of its untouched page read the fields the Run asked
+        // for as they read it.
+        if let Some(read) = untouched.fields(locators) {
+            return Some(
+                read.map(|elements| FieldElements {
+                    base_url: served.base_url.clone(),
+                    elements,
+                })
+                .map_err(invalid),
+            );
+        }
+        let locators = locators.to_vec();
+        let work = served.run.metrics().counted_work().clone();
+        let base_url = served.base_url.clone();
+        let read = calls::on_tree(&served, move |tree| {
+            document::first_elements(tree, &locators, &work)
+                .map(|elements| FieldElements { base_url, elements })
+        })
+        .await?;
+        Some(read.map_err(invalid))
     }
 
     /// The first element each of `locators` finds in the browser page
@@ -1247,9 +1494,12 @@ impl FetchTiers {
         &self,
         page_id: &PageId,
         selector: &str,
+        work: &CountedWork,
     ) -> Option<Result<ServedLinks, LinksUnread>> {
         let pages = self.served.browser.get()?;
-        if let Err(invalid) = document::check_selector(selector) {
+        // Checked through the engine's cache, so a Run's pages compile the
+        // selector once between them (#1884's C2-3).
+        if let Err(invalid) = document::matcher(selector, work) {
             return Some(Err(LinksUnread::Selector(invalid)));
         }
         let answer = match pages
@@ -1303,24 +1553,28 @@ impl FetchTiers {
             status,
             choice,
             own,
+            untouched,
             ..
         } = page;
         let run = document.run.clone();
-        let check = check.clone();
         let url = document.url.clone();
         let headers = own
             .map(|(response, _)| response.headers)
             .unwrap_or_default();
-        let work = run.metrics().counted_work().clone();
-        let (verdict, noindex) = run
-            .owner()
-            .blocking(move || {
-                let verdict = expected_page::judge(&check, &document.url, &document.html, &work);
-                let noindex = verdict == Verdict::NotExpected
-                    && expected_page::noindex(&headers, &document.html);
-                (verdict, noindex)
-            })
-            .await;
+        // The readers of its untouched page judged it as they read it.
+        let (verdict, noindex) = if let Some((verdict, robots)) = untouched.judged(check) {
+            let noindex = verdict == Verdict::NotExpected
+                && goodfetch_page::noindex::marked(&headers, robots);
+            (verdict, noindex)
+        } else {
+            let check = check.clone();
+            let work = run.metrics().counted_work().clone();
+            run.owner()
+                .analysis(move || {
+                    expected_page::judge(&check, &document.url, &document.html, &headers, &work)
+                })
+                .await
+        };
         Some(match verdict {
             Verdict::Expected => Judged::Passed,
             Verdict::LoginPage => Judged::Failed(expected_page::logged_out(&url, status)),
@@ -1359,19 +1613,27 @@ impl FetchTiers {
     /// The Block cause of `document`, which `response` answered for
     /// `run`, as the Product's Block classification tells it (ADR 0035),
     /// with the `blocked` its crawl request ends with when nothing moves
-    /// it, read on the blocking pool. `None` for a document no rule
-    /// classifies, or before the engine's pages were handed over.
+    /// it, read on the CPU pool, and counted on `F1.block_classifications`.
+    /// `None` for a document no rule classifies, under
+    /// `fetch.block_classification` off, which reads none (ADR 0138), or
+    /// before the engine's pages were handed over.
     async fn classified(
         &self,
         run: &Run,
         response: PageResponse,
         document: Arc<ServedDocument>,
     ) -> Option<(Block, CallError)> {
+        if !classifies_blocks(run) {
+            return None;
+        }
         let pages = Arc::clone(self.served.browser.get()?);
+        run.metrics()
+            .counted_work()
+            .count(Row::PageBlockClassifications);
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })
@@ -1443,8 +1705,9 @@ impl FetchTiers {
     /// `context`, whose
     /// Connection's Client then reaches it, and navigates it to `url`
     /// through its navigation gate: the attempt hands its Run's pages over
-    /// first, so the page takes its value. Answers its ID and the
-    /// navigation's answer.
+    /// first, as `hand_over`, and the page takes that hand-over's value,
+    /// reader and observer, however many of the Run's attempts handed its
+    /// pages over since. Answers its ID and the navigation's answer.
     ///
     /// # Errors
     ///
@@ -1456,7 +1719,7 @@ impl FetchTiers {
     /// with it.
     pub async fn browser(
         &self,
-        run_id: &RunId,
+        hand_over: &Arc<HandOver>,
         pooled: &PooledSession,
         url: &str,
         context: &CallContext,
@@ -1467,7 +1730,13 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        pages.open(run_id, pooled, url, context).await
+        let run_id = hand_over.run.id();
+        OPENING
+            .scope(
+                Arc::clone(hand_over),
+                pages.open(run_id, pooled, url, context),
+            )
+            .await
     }
 
     /// The invalid-certificate exception the browser page `page_id`
@@ -1574,8 +1843,17 @@ impl FetchTiers {
         lock(&self.served.pages).open.get(page_id).cloned()
     }
 
-    /// The hand-over of the attempt that handed `run`'s pages over last.
+    /// The hand-over whose value, reader and observer a page of `run`
+    /// opening now takes: that of the attempt whose own browser page
+    /// [`FetchTiers::browser`] is opening, whichever attempt of the Run
+    /// handed its pages over since (#2083); else that of the attempt that
+    /// handed `run`'s pages over last.
     fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
+        if let Ok(opening) = OPENING.try_with(Arc::clone)
+            && opening.run.id() == run
+        {
+            return Some(opening);
+        }
         lock(&self.served.handed)
             .by_run
             .get(run)
@@ -1625,6 +1903,7 @@ impl FetchTiers {
         page.document = Arc::clone(&opened.document);
         page.not_document.clone_from(&opened.not_document);
         page.read = opened.read;
+        page.untouched = Arc::clone(&opened.untouched);
         pages.opened(page_id, opened);
     }
 
@@ -1653,15 +1932,11 @@ impl FetchTiers {
 }
 
 impl HandlerPages for FetchTiers {
-    /// The value of the attempt that handed its Run's pages over last,
-    /// while its handler runs; else a program's page's, empty.
+    /// The value of the attempt opening its own browser page, else of the
+    /// one that handed its Run's pages over last, while its handler runs
+    /// ([`FetchTiers::handed_over`]); else a program's page's, empty.
     fn value(&self, run: &RunId, session: &SessionId) -> PageValue {
-        let handed = lock(&self.served.handed)
-            .by_run
-            .get(run)
-            .and_then(|attempts| attempts.last())
-            .map(|(_, hand_over)| Arc::clone(hand_over));
-        match handed {
+        match self.handed_over(run) {
             Some(hand_over) => {
                 let (page_check, extractor) = (hand_over.page_check.clone(), hand_over.extractor);
                 PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))
@@ -2029,7 +2304,7 @@ pub async fn record_tier(
             entry["encoding_source"] = serde_json::json!(EncodingSource::Detected);
         }
     }
-    goodfetch_page::provenance(run, &entry).await;
+    goodfetch_page::provenance(run, entry).await;
     encoding
 }
 
@@ -2093,7 +2368,7 @@ pub async fn record_race(run: &Run, race: &Race<'_>) {
     };
     goodfetch_page::provenance(
         run,
-        &serde_json::json!({
+        serde_json::json!({
             "action": TIER_RACE_ACTION,
             "crawl_request_id": race.request_id,
             "label": race.label,
@@ -2171,14 +2446,6 @@ fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
     })
 }
 
-/// The `href` of the document's first `<base>` element that has one.
-fn base_href(html: &str, work: &CountedWork) -> Option<String> {
-    let document = work.parse_html(Row::PageParses, html);
-    let base = document
-        .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "base[href]"));
-    base.attr("href").map(|href| href.to_string())
-}
-
 /// The Provenance mark of the exception `used`.
 fn mark(used: &ExceptionUsed) -> CertificateExceptionMark {
     CertificateExceptionMark {
@@ -2216,6 +2483,14 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
 /// The `blocked` a crawl request whose document `response` answered,
 /// received at `received`, ends with for `block`: its cause, URL, status
 /// and the time the site's `Retry-After` asks for (ADR 0079).
+/// Whether the Run `run` reads its documents for a Block cause, its
+/// `fetch.block_classification` (ADR 0138).
+fn classifies_blocks(run: &Run) -> bool {
+    run.settings()
+        .and_then(|settings| settings.resolved().boolean(FETCH_BLOCK_CLASSIFICATION.name))
+        != Some(false)
+}
+
 fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTime) -> CallError {
     let retry_after = response
         .headers
@@ -2248,4 +2523,18 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
             retry_after,
         },
     )
+}
+
+/// The Extractor a page of `run` is signed with, as its formats read its
+/// main content: its Label's `content.extractor`, `label`, else the Run's;
+/// dom-smoothie without either (ADR 0138).
+fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
+    label
+        .or_else(|| {
+            run.settings()
+                .map(|settings| settings.resolved().value(CONTENT_EXTRACTOR.name))
+                .and_then(serde_json::Value::as_str)
+                .and_then(BuiltIn::named)
+        })
+        .unwrap_or_default()
 }

@@ -92,7 +92,7 @@ impl Reader {
         let forms = || work.count(Row::PageLocaleFormBuilds);
         let matched = field.matched.as_ref().and_then(|matched| {
             Some((
-                work.compile_regex(Row::PageSelectorCompilations, &matched.pattern)
+                work.regex(Row::PageSelectorCompilations, &matched.pattern)
                     .ok()?,
                 usize::try_from(matched.group).ok()?,
             ))

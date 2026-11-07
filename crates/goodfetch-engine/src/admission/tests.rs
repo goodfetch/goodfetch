@@ -23,8 +23,8 @@ use tokio::time::Instant;
 use goodfetch_protocol::catalog::Product;
 
 use super::{
-    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, RateCap, Room, SecondCopies,
-    Waiting,
+    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, Keys, RateCap, Room,
+    SecondCopies, Waiting,
 };
 use crate::clock::Clock;
 use crate::politeness::{
@@ -79,24 +79,6 @@ fn a_cap_of_zero_admits_nothing() {
     let mut cap = RateCap::per_minute(0);
 
     assert_eq!((cap.admit(start), cap.ready_at(start)), (Err(None), None));
-}
-
-/// Covers: story:3-51
-#[test]
-fn a_tightened_cap_spaces_the_next_admission_by_its_own_interval() {
-    let start = Instant::now();
-    let mut cap = RateCap::per_minute(60);
-    cap.admit(start).unwrap();
-
-    let mut tightened = cap.set_to(6);
-
-    assert_eq!(
-        (
-            tightened.admit(start + Duration::from_secs(1)).is_ok(),
-            tightened.admit(start + Duration::from_secs(10)).is_ok(),
-        ),
-        (true, false)
-    );
 }
 
 proptest! {
@@ -346,6 +328,10 @@ impl Gate for OneKey {
         "shop.test".to_owned()
     }
 
+    fn keys(&self) -> Keys {
+        Keys::new(|_| "shop.test".to_owned())
+    }
+
     fn bound(&self) -> usize {
         1
     }
@@ -459,6 +445,10 @@ struct InOrder {
 impl Gate for InOrder {
     fn key(&self, _: &str) -> String {
         "shop.test".to_owned()
+    }
+
+    fn keys(&self) -> Keys {
+        Keys::new(|_| "shop.test".to_owned())
     }
 
     fn bound(&self) -> usize {

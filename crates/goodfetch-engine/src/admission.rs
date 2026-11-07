@@ -5,11 +5,11 @@
 //! gate. Beside it, the Run's rate cap, `admission.max_requests_per_minute`,
 //! bounds every request it admits by the Generic Cell Rate Algorithm with
 //! no burst, so admissions are spaced at least a minute's share apart. A
-//! Run going on takes its settings again at each admission point, so a
-//! tightened Operator policy cap reaches it there.
+//! Run's admission takes its settings once, as it opens (ADR 0138).
 //!
-//! When the gate names a rule for its keys, such as Foxhound's per-domain
-//! Politeness, each request the gate would admit also takes a Permit under
+//! When the gate names a rule for its keys that paces them, such as
+//! Foxhound's per-domain Politeness, each request the gate would admit also
+//! takes a Permit under
 //! its key from the Politeness the Run shares with the other runs of its
 //! user, and gives it back once it ended: a key the Politeness refuses is
 //! held, until the moment it names or until a wake says a Permit came back
@@ -17,7 +17,9 @@
 //! held for that, until the Run tries it again. A key its Run refuses
 //! until a moment, its site having asked for a time further away than the
 //! Run waits (ADR 0118), comes with each of its requests refused until
-//! then, unsent, whatever the Politeness says meanwhile.
+//! then, unsent, whatever the Politeness says meanwhile. A rule that
+//! paces nothing ([`PermitRule::paces`]) has the Run consult no Politeness
+//! store at all: its gate backs its keys off itself (ADR 0138).
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
@@ -143,6 +145,30 @@ pub struct QueuedGroup {
     pub sample: Vec<(String, Option<Instant>)>,
 }
 
+/// How a gate keys its requests' URLs, apart from the gate, so a write of
+/// the run state that adds work items keys each as it adds it, as the gate
+/// would key it ([`Gate::keys`]).
+#[derive(Clone)]
+pub struct Keys(Arc<dyn Fn(&str) -> String + Send + Sync>);
+
+impl Keys {
+    /// Keys each URL as `key` does.
+    pub fn new(key: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+        Self(Arc::new(key))
+    }
+
+    /// The key a request to `url` waits under.
+    pub fn key(&self, url: &str) -> String {
+        (self.0)(url)
+    }
+}
+
+impl fmt::Debug for Keys {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("Keys").finish_non_exhaustive()
+    }
+}
+
 /// What a gate writes into the run file, in one of its writer's commits.
 pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
 
@@ -151,6 +177,9 @@ pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
 pub trait Gate: Send {
     /// The key a request to `url` waits under.
     fn key(&self, url: &str) -> String;
+
+    /// How it keys a request's URL, as [`Gate::key`] does, apart from it.
+    fn keys(&self) -> Keys;
 
     /// How many requests of one key it holds at most.
     fn bound(&self) -> usize;
@@ -323,7 +352,7 @@ impl Admission {
 
     /// The same, sharing `politeness` as `holder` under the rule its gate
     /// names for `settings`, reading the wall time from `clock`; unchanged
-    /// when the gate names none.
+    /// when the gate names none, or one that paces nothing.
     pub(crate) fn sharing(
         mut self,
         politeness: Politeness,
@@ -331,7 +360,7 @@ impl Admission {
         clock: Clock,
         settings: &Resolved,
     ) -> Self {
-        if let Some(rule) = self.gate.rule(settings) {
+        if let Some(rule) = self.gate.rule(settings).filter(|rule| rule.paces()) {
             let wakes = Some(politeness.wakes());
             self.shared = Some(Shared {
                 politeness,
@@ -347,28 +376,9 @@ impl Admission {
     }
 
     /// Whether its gate names a rule of shared Politeness under
-    /// `settings`.
+    /// `settings` that paces its keys (ADR 0138).
     pub(crate) fn shares(&self, settings: &Resolved) -> bool {
-        self.gate.rule(settings).is_some()
-    }
-
-    /// Takes the rate cap of `settings`, and the rule of its shared
-    /// Politeness, as a Run does at each admission point, keeping when it
-    /// last admitted.
-    pub fn update(&mut self, settings: &Resolved) {
-        {
-            let mut rate = lock(&self.rate);
-            *rate = match (*rate, rate_cap_of(settings)) {
-                (Some(rate), Some(per_minute)) => Some(rate.set_to(per_minute)),
-                (None, Some(per_minute)) => Some(RateCap::per_minute(per_minute)),
-                (_, None) => None,
-            };
-        }
-        if let Some(shared) = &mut self.shared
-            && let Some(rule) = self.gate.rule(settings)
-        {
-            shared.rule = rule;
-        }
+        self.gate.rule(settings).is_some_and(|rule| rule.paces())
     }
 
     /// The wakes of the keys its shared Politeness holds, once: `None` when
@@ -410,6 +420,11 @@ impl Admission {
     /// The key a request to `url` waits under.
     pub fn key(&self, url: &str) -> String {
         self.gate.key(url)
+    }
+
+    /// How its gate keys a request's URL, apart from it ([`Gate::keys`]).
+    pub fn keys(&self) -> Keys {
+        self.gate.keys()
     }
 
     /// How many requests of one key the gate holds at most.
@@ -783,15 +798,6 @@ impl RateCap {
         Self {
             interval: interval(per_minute),
             next: None,
-        }
-    }
-
-    /// The same cap set to `per_minute`, keeping when it last admitted.
-    #[must_use]
-    pub fn set_to(self, per_minute: u64) -> Self {
-        Self {
-            interval: interval(per_minute),
-            ..self
         }
     }
 

@@ -1,4 +1,8 @@
 //! Covers: story:6-259
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use super::{Shown, shown};
 
@@ -75,12 +79,8 @@ fn an_elements_visibility_is_its_markups_or_unknown(
     #[case] selector: &str,
     #[case] expected: Option<Shown>,
 ) {
-    assert_eq!(
-        shown(
-            html,
-            selector,
-            &goodfetch_counted_work::CountedWork::default()
-        ),
-        expected
-    );
+    let work = goodfetch_counted_work::CountedWork::default();
+    let tree = work.parse_html(goodfetch_counted_work::Row::PageParses, html);
+
+    assert_eq!(shown((&tree, html), selector, &work), expected);
 }

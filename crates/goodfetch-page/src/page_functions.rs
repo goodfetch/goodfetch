@@ -610,7 +610,7 @@ impl Injections {
         if first {
             trace::provenance(
                 run,
-                &json!({
+                json!({
                     "action": MAIN_WORLD_INJECTION,
                     "page_id": page_id,
                     "session_id": session,

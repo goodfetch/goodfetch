@@ -31,7 +31,8 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, ValueKind, ValueShape,
+    schema_of,
 };
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
@@ -760,6 +761,35 @@ fn no_fragment() -> Value {
     Value::Bool(false)
 }
 
+/// `frontier.learning` (ADRs 0005 and 0138).
+pub const FRONTIER_LEARNING: Setting = Setting {
+    name: "frontier.learning",
+    description: "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
+    kind: ValueKind::Boolean,
+    default: learning_on,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(learning_switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Audit log kind of a Run that switched `frontier.learning` off (ADR
+/// 0138).
+pub const LEARNING_SWITCHED_OFF: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "learning_switched_off",
+    description: "A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.",
+    arrived_in: ARRIVED_IN,
+};
+
+fn learning_on() -> Value {
+    Value::Bool(true)
+}
+
+fn learning_switched_off(value: &Value) -> bool {
+    value == &Value::Bool(false)
+}
+
 /// `crawl.payload.max_size` (ADR 0082).
 pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
     name: "crawl.payload.max_size",
@@ -904,9 +934,10 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_PATH_BUDGETS,
         CRAWL_PAYLOAD_MAX_SIZE,
         CRAWL_KEEP_URL_FRAGMENT,
+        FRONTIER_LEARNING,
     ],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &[LEARNING_SWITCHED_OFF],
 };
 
 /// The settings fixed for a Run's life (ADRs 0102 and 0120): those that

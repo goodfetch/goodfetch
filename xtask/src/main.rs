@@ -21,7 +21,7 @@ mod child_cargo;
 mod clients;
 mod codegen;
 mod commit_messages;
-mod compare_spider;
+mod compare;
 mod compat;
 mod console;
 mod containment;
@@ -155,12 +155,13 @@ enum Command {
         #[arg(long)]
         since: String,
     },
-    /// Spider's comparison (ADR 0134): Foxhound's and Spider's crawls of the
-    /// Proving ground's 1,000-page site, on the owner's machine, reported
-    /// only once both did the same work.
-    CompareSpider {
+    /// The comparison matrix (ADRs 0134 and 0138): each scenario's cells,
+    /// Foxhound against Spider, Crawlee and Scrapy, crawling the Proving
+    /// ground's 1,000-page site on one machine, every metric reported only
+    /// once every trial did the same work.
+    Compare {
         #[command(subcommand)]
-        command: compare_spider::Command,
+        command: compare::Command,
     },
     /// The Compatibility corpus under `compat/` (ADR 0066).
     Compat {
@@ -540,7 +541,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),
         Command::Results { command } => run_results(command, environment),
-        Command::CompareSpider { command } => compare_spider::run(command, environment),
+        Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

@@ -99,10 +99,11 @@ pub(crate) fn key_all(links: &[Url]) -> usize {
 }
 
 /// Admits each of `links` as a seed into a run file in memory holding the
-/// Frontier's visited set, each added request numbered by the scenario;
-/// answers how many were added.
+/// Frontier's visited set, each added request numbered by the scenario,
+/// [`BATCH`] seeds to a transaction, as a crawl admits its seeds inside the
+/// run file's write transaction; answers how many were added.
 pub(crate) fn admit_seeds(links: &[String]) -> usize {
-    let connection =
+    let mut connection =
         Connection::open_in_memory().expect("invariant: SQLite opens a database in memory");
     create_tables(&connection);
     let scope = Scope::default();
@@ -110,23 +111,31 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
         Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
     let mut added = 0_usize;
-    for link in links {
-        let candidate = Candidate::Seed {
-            url: link,
-            declared: Declared {
-                method: &get,
-                body: None,
-                key: None,
-                keeps_fragment: false,
-            },
-        };
-        let answer = admit(&connection, &scope, &policy, candidate, |_| {
-            Ok((added + 1).to_string())
-        })
-        .expect("invariant: the visited set in memory is written");
-        if matches!(answer, Enqueued::Added { .. }) {
-            added += 1;
+    for batch in links.chunks(BATCH) {
+        let transaction = connection
+            .transaction()
+            .expect("invariant: the run file in memory starts a transaction");
+        for link in batch {
+            let candidate = Candidate::Seed {
+                url: link,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                    keeps_fragment: false,
+                },
+            };
+            let answer = admit(&transaction, &scope, &policy, candidate, |_| {
+                Ok((added + 1).to_string())
+            })
+            .expect("invariant: the visited set in memory is written");
+            if matches!(answer, Enqueued::Added { .. }) {
+                added += 1;
+            }
         }
+        transaction
+            .commit()
+            .expect("invariant: the run file in memory commits a batch");
     }
     added
 }

@@ -108,6 +108,9 @@ hiding = "auto"
 [settings.content]
 extractor = "dom_smoothie"
 
+[settings.extraction]
+removal_share = "estimate"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -122,6 +125,7 @@ providers = { "example.test" = { endpoint = "http://proxy.example:8000", passwor
 [settings.run_state]
 location = "example"
 durability = "full"
+commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
@@ -250,6 +254,7 @@ purpose = "search"
 respect_use_signals = true
 robots_txt_user_agent = "example"
 respect_robots_txt = true
+mark_robots_txt_ignored = true
 max_crawl_delay = 30000
 
 [settings.crawl]
@@ -288,6 +293,7 @@ tier_race = true
 light_browser = true
 encoding = "example"
 coalesce = true
+block_classification = true
 
 [settings.fetch.sample]
 count = 4
@@ -305,6 +311,9 @@ max_delay = 30000
 
 [settings.fetch.kept_responses]
 urls = ["example"]
+
+[settings.frontier]
+learning = true
 
 [settings.export.csv]
 bom = true
@@ -339,6 +348,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.provenance]
+log = true
+
+[settings.dataset]
+records = true
 
 [settings.dataset.query]
 memory_limit = 4
@@ -451,6 +466,9 @@ hiding = "auto"
 [lock.content]
 extractor = "dom_smoothie"
 
+[lock.extraction]
+removal_share = "estimate"
+
 [lock.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -465,6 +483,7 @@ providers = { "example.test" = { endpoint = "http://proxy.example:8000", passwor
 [lock.run_state]
 location = "example"
 durability = "full"
+commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
@@ -593,6 +612,7 @@ purpose = "search"
 respect_use_signals = true
 robots_txt_user_agent = "example"
 respect_robots_txt = true
+mark_robots_txt_ignored = true
 max_crawl_delay = 30000
 
 [lock.crawl]
@@ -631,6 +651,7 @@ tier_race = true
 light_browser = true
 encoding = "example"
 coalesce = true
+block_classification = true
 
 [lock.fetch.sample]
 count = 4
@@ -648,6 +669,9 @@ max_delay = 30000
 
 [lock.fetch.kept_responses]
 urls = ["example"]
+
+[lock.frontier]
+learning = true
 
 [lock.export.csv]
 bom = true
@@ -682,6 +706,12 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [lock.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[lock.provenance]
+log = true
+
+[lock.dataset]
+records = true
 
 [lock.dataset.query]
 memory_limit = 4
@@ -740,6 +770,9 @@ max_json_depth = 4
 
 [cap.proxy]
 sticky_lifetime = 30000
+
+[cap.run_state]
+commit_interval = 30000
 
 [cap.checkpoint]
 interval = 30000

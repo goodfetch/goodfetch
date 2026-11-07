@@ -318,6 +318,17 @@ impl Charging {
         self.uncapped
     }
 
+    /// What the run has now used of each of `slices` it holds, for it to
+    /// journal: a charge's journal written later than the charge, with the
+    /// Usage of the Slices it took from as it is when the journal is queued.
+    pub fn used_of(&self, slices: &[SliceId]) -> Vec<(SliceId, u64)> {
+        self.held
+            .iter()
+            .filter(|held| slices.contains(&held.id))
+            .map(|held| (held.id, held.used))
+            .collect()
+    }
+
     /// Takes `amount` from the run's Slices of every Limit on `usage_kind`
     /// in `currency` that holds it, taking a Slice of each Limit that runs
     /// short; answers what it took of each Slice, and the run's Usage of

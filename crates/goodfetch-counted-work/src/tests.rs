@@ -1,3 +1,7 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 use super::{CountedWork, Row};
 
 #[test]
@@ -14,6 +18,20 @@ fn each_parse_counts_once_on_every_clone_and_no_other_value() {
         (work.read(Row::PageParses), other.read(Row::PageParses)),
         (2, 0)
     );
+}
+
+/// A parsed tree is `Send` (`dom_query`'s `atomic` tendrils), so a page's one
+/// tree can move to the task that keeps it and be read there (#2109, #1918).
+#[test]
+fn a_parsed_tree_is_send_so_one_task_can_keep_it_and_read_it() {
+    fn moved<T: Send>(value: T) -> T {
+        value
+    }
+    let work = CountedWork::default();
+    let parsed = moved(work.parse_html(Row::PageParses, "<p class=one>one</p>"));
+
+    let paragraph = work.literal_selector(Row::PageSelectorCompilations, "p.one");
+    assert_eq!(parsed.select_matcher(&paragraph).text().as_ref(), "one");
 }
 
 #[test]
@@ -59,7 +77,7 @@ fn a_compilation_or_an_opening_counts_one_on_its_row_and_answers_as_the_raw_call
 }
 
 /// Each row's name, in `Row::ALL`'s order.
-const NAMES: [&str; 97] = [
+const NAMES: [&str; 101] = [
     "F1.parses",
     "F1.selector_compilations",
     "F1.readability_runs",
@@ -67,6 +85,9 @@ const NAMES: [&str; 97] = [
     "F1.locale_form_builds",
     "F1.plugin_serializations",
     "F1.plugin_answer_parses",
+    "F1.tree_copies",
+    "F1.share_readability_runs",
+    "F1.block_classifications",
     "E1.deep_copies",
     "E1.encodes",
     "F5.messages_no_hook",
@@ -144,6 +165,7 @@ const NAMES: [&str; 97] = [
     "C2.commands",
     "C2.world_creations",
     "C2.document_worlds",
+    "C2.serialization_commands",
     "E4.configuration_reads",
     "E4.meminfo_opens",
     "E4.static_opens",
@@ -170,5 +192,59 @@ fn each_row_counts_on_its_own() {
     assert_eq!(
         Row::ALL.map(|row| work.read(row)),
         Row::ALL.map(|row| u64::from(row.name() == "F6.writer_reads"))
+    );
+}
+
+/// The engine's cache compiles each text once, counted on its miss, and
+/// answers every later lookup from what it kept, a selector that does not
+/// parse included; a selector of the Clean-up rules is kept apart for each
+/// version of them.
+#[test]
+fn a_kept_compilation_counts_once_for_its_text_and_its_rules_version() {
+    let work = CountedWork::default();
+    let row = Row::PageSelectorCompilations;
+    let answers = (0..3)
+        .map(|_| {
+            (
+                work.selector(row, "p").is_some(),
+                work.selector(row, "p[").is_some(),
+                work.parse_html(Row::PageParses, "<h1>a</h1>")
+                    .select_matcher(&work.literal_selector(row, "h1"))
+                    .nodes()[0]
+                    .is_match(&work.literal_selector(row, "h1, h2")),
+                work.rules_selector(row, "version-a", "p").is_some(),
+                work.rules_selector(row, "version-b", "p").is_some(),
+                work.regex(row, "a+").is_ok(),
+                work.regex(row, "a(").is_ok(),
+                work.glob(row, "*.rs").is_ok(),
+                work.glob(row, "***").is_ok(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        (answers[0], answers[0] == answers[2], work.read(row)),
+        (
+            (true, false, true, true, true, true, false, true, false),
+            true,
+            10
+        )
+    );
+}
+
+/// The cache holds at most [`super::CAPACITY`] compilations: one over it
+/// evicts one kept before rather than grows.
+#[test]
+fn a_compilation_over_the_bound_evicts_rather_than_grows() {
+    let work = CountedWork::default();
+    let row = Row::PageSelectorCompilations;
+    let over = super::CAPACITY + 64;
+    for class in 0..over {
+        let _ = work.selector(row, &format!(".c{class}"));
+    }
+
+    assert_eq!(
+        (work.kept() <= super::CAPACITY, work.read(row)),
+        (true, over)
     );
 }

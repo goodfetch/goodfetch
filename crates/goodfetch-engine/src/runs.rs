@@ -63,6 +63,7 @@ use goodfetch_protocol::checkpoint::{
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
@@ -70,9 +71,10 @@ use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime, Presence,
-    ProgressMessage, RUN_IN_USE, RUN_STATE_DURABILITY, ReachedLimit, RunAxes, RunId, RunIndexRow,
-    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
-    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY, ReachedLimit,
+    RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress, RunReport,
+    RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs, StopReason,
+    Tags,
 };
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
@@ -123,7 +125,9 @@ use crate::governor::{
 };
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
+use crate::ledger::{
+    Charged, Charging, Counted, Ledger, LedgerError, Refusal, Reservation, SliceId,
+};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -135,8 +139,9 @@ use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
+    self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
+use crate::run_trace;
 use crate::secrets::{
     Carried, Keychain, ProviderFactory, Purpose, RunSecrets, SecretError, Secrets, is_engine_key,
 };
@@ -584,6 +589,43 @@ pub(crate) fn critical_among(
 
 /// The `storage_low` warning of a Run whose worst filesystem is `storage`
 /// (ADR 0122): its folder, its free space and what the Run sheds there.
+/// The code of the warning a Run resumed after an unclean end hands over
+/// when its reclaimed Slices may have been charged past what it used (ADR
+/// 0138's note of #1926).
+pub(crate) const LIMIT_MAY_BE_OVER_CHARGED: &str = "limit_may_be_over_charged";
+
+/// Hands over [`LIMIT_MAY_BE_OVER_CHARGED`] once for `run`, resumed after an
+/// unclean end, when an earlier run epoch charged a Limit in writes a power
+/// cut could have taken: the reclaim then charged their Slices past its
+/// journal, so a Limit may be over-charged, never under-charged.
+async fn warn_over_charged(run: &Run) {
+    let epoch = run.state.epoch();
+    let beyond = run
+        .state
+        .read(move |connection| slices::reclaimed_beyond(connection, epoch))
+        .await;
+    let message = match beyond {
+        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly at a Durability level that syncs no commit, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
+        Ok(Some(slices::OverCharge::UpTo(requests))) => format!(
+            "the Run ended uncleanly, so the Usage ledger charged its earlier Slices up to {requests} past what its journal held, for the requests that may have been in flight: its Limits may be over-charged by as much"
+        ),
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "whether the Run's Limits may be over-charged could not be read");
+            return;
+        }
+    };
+    let warning = RunWarning {
+        code: LIMIT_MAY_BE_OVER_CHARGED.to_owned(),
+        message,
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the Run's possible over-charge could not be handed over");
+    }
+}
+
 fn storage_low(storage: &RunStorage) -> RunWarning {
     RunWarning {
         code: goodfetch_protocol::run::warning::STORAGE_LOW.to_owned(),
@@ -608,6 +650,42 @@ pub enum ChargeError {
     /// What it charged could not be journaled in its run state.
     #[error(transparent)]
     State(#[from] RunStateError),
+}
+
+/// What a Run charged with [`Run::charge_unjournaled`] that no journal
+/// holds yet: the Slices its charges took from, and what they counted in
+/// the Run's Usage, which [`Run::write_charged`] journals.
+#[derive(Debug, Default)]
+pub struct UnjournaledCharges {
+    slices: Vec<SliceId>,
+    counted: Vec<Counted>,
+}
+
+impl UnjournaledCharges {
+    /// Whether no charge is held.
+    pub fn is_empty(&self) -> bool {
+        self.slices.is_empty() && self.counted.is_empty()
+    }
+
+    /// Adds `charged`: each Slice it touched once, and its counts summed
+    /// with those of the same kind, currency and part.
+    fn add(&mut self, charged: Charged) {
+        for (slice, _) in charged.used {
+            if !self.slices.contains(&slice) {
+                self.slices.push(slice);
+            }
+        }
+        for counted in charged.counted {
+            match self.counted.iter_mut().find(|held| {
+                held.usage_kind == counted.usage_kind
+                    && held.currency == counted.currency
+                    && held.part == counted.part
+            }) {
+                Some(held) => held.delta += counted.delta,
+                None => self.counted.push(counted),
+            }
+        }
+    }
 }
 
 /// What a Run reserved ahead of a part of a Usage kind it is about to use,
@@ -1239,6 +1317,8 @@ struct Shared {
     /// Where its crawl's attempts stage the writes made through a
     /// handler's `ctx.run`, once its crawl registered it.
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
+    /// Its Run trace's Provenance log, which holds its file (ADR 0140's E5).
+    provenance: run_trace::Provenance,
 }
 
 impl Shared {
@@ -1643,10 +1723,11 @@ impl Run {
 
     /// Its admission under `settings`: the gate in admission the
     /// composition passes in, opened from what its run file journaled, its
-    /// rate cap, and, when the gate names a rule for its keys, the
+    /// rate cap, and, when the gate names a rule that paces its keys, the
     /// Politeness `politeness.sharing` says it shares: the per-user
     /// Politeness file for `shared` and `per_daemon`, a file of its own in
-    /// memory for `run`. `None` when the composition passes in no gate.
+    /// memory for `run`. A rule that paces nothing opens none (ADR 0138).
+    /// `None` when the composition passes in no gate.
     ///
     /// # Errors
     ///
@@ -1837,6 +1918,30 @@ impl Run {
     /// Its owner, whose tasks and blocking work stop with the Run.
     pub fn owner(&self) -> &TaskOwner {
         &self.owner
+    }
+
+    /// Records `entry`, one Provenance entry of the Run, such as of one of
+    /// its pages or of a request a fetch tier sent for it, as a line of its
+    /// Run trace's Provenance log (ADR 0047), masked by its `Mask` and
+    /// written through its blocking policy to the file the Run holds.
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be opened or written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it began.
+    pub async fn provenance(&self, entry: serde_json::Value) -> std::io::Result<()> {
+        self.shared
+            .provenance
+            .record(
+                &self.owner,
+                self.secrets().mask(),
+                self.metrics().counted_work(),
+                entry,
+            )
+            .await
     }
 
     /// Starts `future` as one of the Run's tasks, in its span.
@@ -2075,6 +2180,113 @@ impl Run {
         .map(drop)
     }
 
+    /// Charges `amount` of `usage_kind` as [`Run::charge`] does, without
+    /// journaling it: what it charged joins `charges`, which
+    /// [`Run::write_charged`] journals in the write that uses it, so the
+    /// journal and that write commit as one job of the run state's writer.
+    ///
+    /// # Errors
+    ///
+    /// `Refused` as [`Run::charge`]'s, which asks the Run to stop as its
+    /// does; nothing joins `charges` then.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a Slice taken, or the charge made and
+    /// not in `charges`: charged and never journaled, before anything used
+    /// it, so never more charged than the Run used.
+    pub async fn charge_unjournaled(
+        &self,
+        charges: &mut UnjournaledCharges,
+        usage_kind: &str,
+        amount: u64,
+    ) -> Result<(), ChargeError> {
+        let kind = usage_kind.to_owned();
+        let shared = Arc::clone(&self.shared);
+        let now = self.runs.limits.now();
+        let changed = self
+            .owner
+            .blocking(move || {
+                let mut held = shared.charging();
+                let charging = held.as_mut()?;
+                Some(charging.charge(&kind, amount, now))
+            })
+            .await;
+        match changed {
+            None => Ok(()),
+            Some(Ok(journaled)) => {
+                charges.add(journaled);
+                Ok(())
+            }
+            Some(Err(refusal)) => Err(self.refused(refusal).await),
+        }
+    }
+
+    /// Queues `work` as one write of the Run's state that first journals
+    /// `charges` under its run epoch, as [`Run::charge`] journals each:
+    /// with what the Run has now used of each Slice they took from, read
+    /// under its charging's lock as the write takes its place in the queue,
+    /// so journals reach the run state in the order of the changes. A Run
+    /// whose charging ended journals nothing. Answers what `work` returned
+    /// once the write's commit is acknowledged, before a sync of its own:
+    /// it is an attempt's claim, which a power cut may take, and the
+    /// writer bounds what such writes charge by [`DEFERRED_CHARGES`] (ADR
+    /// 0138's note of #1926).
+    ///
+    /// [`DEFERRED_CHARGES`]: crate::run_state::DEFERRED_CHARGES
+    ///
+    /// # Errors
+    ///
+    /// `State` when `work` or its commit failed, or the run state's writer
+    /// stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the write is queued does not withdraw it.
+    pub async fn write_charged<T, F>(
+        &self,
+        charges: UnjournaledCharges,
+        work: F,
+    ) -> Result<T, ChargeError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let place = self.state.reserve().await?;
+        let shared = Arc::clone(&self.shared);
+        let epoch = self.state.epoch();
+        let written = self
+            .owner
+            .blocking(move || {
+                let held = shared.charging();
+                let at_most = charges
+                    .counted
+                    .iter()
+                    .map(|counted| u64::try_from(counted.delta).unwrap_or(0))
+                    .fold(0_u64, u64::saturating_add);
+                let journaled = held.as_ref().map(|charging| {
+                    let UnjournaledCharges { slices, counted } = charges;
+                    (
+                        Charged {
+                            used: charging.used_of(&slices),
+                            counted,
+                        },
+                        charging.uncapped(),
+                    )
+                });
+                place.write_with(Syncing::Deferred { charged: at_most }, move |connection| {
+                    if let Some((journaled, uncapped)) = journaled
+                        && (!journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped)
+                    {
+                        journal(connection, epoch, &journaled, uncapped)?;
+                    }
+                    work(connection)
+                })
+            })
+            .await;
+        Ok(written.await?)
+    }
+
     /// Reserves ahead an amount of `usage_kind` the Run is about to use, as
     /// [`Run::reserve`] reserves a worst case, counted under `part` of the
     /// kind, and with `currency` its `cost` too, in one ledger transaction:
@@ -2304,11 +2516,21 @@ impl Run {
                 }
                 Ok(Some(value))
             }
-            Err(Refusal::Reached(reached)) => {
+            Err(refusal) => Err(self.refused(refusal).await),
+        }
+    }
+
+    /// What `refusal`, a Limit's or the ledger's, does to the Run: a Limit
+    /// with nothing left, or one this engine cannot evaluate, asks it to
+    /// stop at its next safe point; a ledger that cannot be stored stops
+    /// every Run of the engine (ADR 0122).
+    async fn refused(&self, refusal: Refusal) -> ChargeError {
+        match refusal {
+            Refusal::Reached(reached) => {
                 self.stop_at_safe_point(StopReason::Limit(Box::new(ReachedLimit::clone(&reached))));
-                Err(Refusal::Reached(reached).into())
+                Refusal::Reached(reached).into()
             }
-            Err(Refusal::NotUnderstood(limit)) => {
+            Refusal::NotUnderstood(limit) => {
                 self.stop_at_safe_point(StopReason::LimitNotUnderstood(Box::new(
                     NotUnderstoodLimit {
                         scope: limit.scope.clone(),
@@ -2317,9 +2539,9 @@ impl Run {
                         period: limit.period.clone(),
                     },
                 )));
-                Err(Refusal::NotUnderstood(limit).into())
+                Refusal::NotUnderstood(limit).into()
             }
-            Err(Refusal::Ledger(LedgerError::Storage { path, message })) => {
+            Refusal::Ledger(LedgerError::Storage { path, message }) => {
                 // The ledger holds every Run's Limits: each Run of the
                 // engine stops as at `critical` (ADR 0122).
                 let folder = path.parent().map_or_else(|| path.clone(), Path::to_owned);
@@ -2328,9 +2550,9 @@ impl Run {
                     .commands
                     .send(Command::StorageFailed(folder))
                     .await;
-                Err(Refusal::Ledger(LedgerError::Storage { path, message }).into())
+                Refusal::Ledger(LedgerError::Storage { path, message }).into()
             }
-            Err(refusal) => Err(refusal.into()),
+            refusal => refusal.into(),
         }
     }
 
@@ -3760,6 +3982,58 @@ struct Erasing {
     version: ProductVersion,
 }
 
+/// Why the run file a crash left at `off` of the Run `run_id` was not
+/// discarded.
+struct UncleanDiscard {
+    run_id: RunId,
+    folder: PathBuf,
+    error: discard::DiscardError,
+}
+
+/// The error a start of the Run answers.
+impl From<UncleanDiscard> for StartError {
+    fn from(unclean: UncleanDiscard) -> Self {
+        let UncleanDiscard {
+            run_id,
+            folder,
+            error,
+        } = unclean;
+        match error {
+            discard::DiscardError::Held => StartError::InUse { run_id, folder },
+            discard::DiscardError::State(error) => StartError::Unavailable {
+                run_id,
+                folder,
+                error: error.to_string(),
+            },
+            discard::DiscardError::Io(error) => StartError::Unavailable {
+                run_id,
+                folder,
+                error,
+            },
+        }
+    }
+}
+
+/// The error a resume of the Run answers.
+impl From<UncleanDiscard> for RunError {
+    fn from(unclean: UncleanDiscard) -> Self {
+        let UncleanDiscard {
+            run_id,
+            folder,
+            error,
+        } = unclean;
+        match error {
+            discard::DiscardError::Held => RunError::InUse { run_id, folder },
+            discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
+            discard::DiscardError::Io(error) => RunError::Unavailable {
+                run_id,
+                folder,
+                error,
+            },
+        }
+    }
+}
+
 /// How a discard went.
 struct Erased {
     run_id: RunId,
@@ -4464,6 +4738,7 @@ impl Registry {
         let following = self.live.get(run_id).map(|live| Following {
             commits: live.run.as_ref().map(|run| run.state.commits()),
             report: live.report.subscribe(),
+            readers: live.run.as_ref().map(|run| run.state.readers()),
         });
         RunReader::new(
             run_id.clone(),
@@ -4575,14 +4850,12 @@ impl Registry {
         None
     }
 
-    /// How a Run's run file opens under its `settings`: in the durability
-    /// `run_state.durability` names, `full` when it has none.
+    /// How a Run's run file opens under its `settings`: at the Durability
+    /// level `run_state.durability` names, `full` when it has none.
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
-        let durability = settings.map_or(Durability::Full, |settings| {
-            Durability::named(settings.resolved().value(RUN_STATE_DURABILITY.name))
-        });
         RunStateOptions {
-            durability,
+            durability: durability_of(settings),
+            clock: self.setup.clock,
             ..self.setup.run_state.clone()
         }
     }
@@ -4642,6 +4915,10 @@ impl Registry {
         }
         let inputs = canonical_inputs(&kept);
         start.tags = masked_tags(&self.setup.masks, &start.tags);
+        // A run file a crash left at `off` is discarded, never read: the Run
+        // starts again (ADR 0138).
+        self.discard_unclean(&run_id, start.settings.as_ref())
+            .await?;
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
             if found.needs != start.needs {
@@ -4709,6 +4986,48 @@ impl Registry {
             link.add_to(run.span());
         }
         Ok(started)
+    }
+
+    /// Discards the state of the Run `run_id`, which this engine does not
+    /// run, when its run file is one a crash left at `off` (ADR 0138), the
+    /// Run's Durability level now being the one its `settings` name: under
+    /// its writer lock, as a discard does, so another engine's live Run is
+    /// never touched.
+    async fn discard_unclean(
+        &mut self,
+        run_id: &RunId,
+        settings: Option<&RunSettings>,
+    ) -> Result<(), UncleanDiscard> {
+        if self.live.contains_key(run_id) {
+            return Ok(());
+        }
+        let folder = self.folder(run_id);
+        let discarding = discard::Discarding {
+            owner: &self.owner,
+            clock: &self.setup.clock,
+            entropy: &mut self.setup.entropy,
+        };
+        let discarded = discard::discard_unclean(
+            discarding,
+            run_id.as_str(),
+            &folder,
+            self.setup.run_state.vfs.as_deref(),
+            self.setup.install.as_ref(),
+            durability_of(settings),
+        )
+        .await
+        .map_err(|error| UncleanDiscard {
+            run_id: run_id.clone(),
+            folder,
+            error,
+        })?;
+        if discarded {
+            tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
+            self.ended.forget(run_id);
+            self.found_ended.remove(run_id);
+            self.unrecorded.remove(run_id);
+        }
+        Ok(())
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -4834,7 +5153,7 @@ impl Registry {
         let tags = start.tags.clone();
         let initialize = start.initialize;
         state
-            .write(move |connection| {
+            .write_with(start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(
@@ -5090,6 +5409,12 @@ impl Registry {
             .as_ref()
             .and_then(|settings| settings.resolved().count(RUN_SHARE.name))
             .unwrap_or(100);
+        // `provenance.log`, Foxhound's (ADR 0138): a Run whose Product holds
+        // no such key logs its Provenance.
+        let logs_provenance = settings
+            .as_ref()
+            .and_then(|settings| settings.resolved().boolean(PROVENANCE_LOG.name))
+            != Some(false);
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -5122,6 +5447,7 @@ impl Registry {
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
+                provenance: run_trace::Provenance::logging(folder, logs_provenance),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),
@@ -5509,6 +5835,9 @@ impl Registry {
         if let Some(live) = self.live.get(&run_id) {
             return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
         }
+        // A run file a crash left at `off` is discarded, never read: the Run
+        // is then not found, and starts again (ADR 0138).
+        self.discard_unclean(&run_id, settings.as_ref()).await?;
         let held = self
             .held_with_key(&run_id, checkpoint.as_deref(), stored)
             .await?;
@@ -5537,6 +5866,9 @@ impl Registry {
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
+        if held.lifecycle == Lifecycle::Running {
+            warn_over_charged(&run).await;
+        }
         run.shared
             .progress
             .resumed(lifecycle, progress_message.clone());
@@ -5783,6 +6115,17 @@ impl Registry {
         }
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
         self.write_index(row).await;
+    }
+}
+
+/// How a Run of `kind`'s start commits: a crawl's claims defer their
+/// charges (ADR 0138's note of #1926), so its start declares their bound in
+/// its own synced commit rather than its first claim's (#2117); another
+/// Run's declares none.
+fn start_syncing(kind: RunKind) -> Syncing {
+    match kind {
+        RunKind::Crawl => Syncing::Declaring,
+        RunKind::Collie => Syncing::Required,
     }
 }
 
@@ -6326,6 +6669,20 @@ impl SharedPoliteness {
             .await
             .cloned()
     }
+}
+
+/// The Durability level a Run's `settings` name (`run_state.durability`,
+/// with `run_state.commit_interval` at `periodic`), `full` when it has none.
+fn durability_of(settings: Option<&RunSettings>) -> Durability {
+    settings.map_or(Durability::Full, |settings| {
+        let resolved = settings.resolved();
+        let interval = resolved
+            .duration(RUN_STATE_COMMIT_INTERVAL.name)
+            .unwrap_or_default();
+        Durability::named(resolved.value(RUN_STATE_DURABILITY.name), interval).expect(
+            "invariant: the settings resolver lets only `run_state.durability`'s choices through",
+        )
+    })
 }
 
 /// Whether the Run in `folder` that took Permits under `epoch` is gone

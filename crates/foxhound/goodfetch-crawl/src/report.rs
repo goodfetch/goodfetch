@@ -27,7 +27,9 @@ pub(crate) struct CrawlParts;
 
 impl ReportPart for CrawlParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        let kind: String = connection.query_row("SELECT kind FROM run", [], |row| row.get(0))?;
+        let kind: String = connection
+            .prepare_cached("SELECT kind FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         if kind != RunKind::Crawl.as_str() {
             return Ok(());
         }
@@ -52,11 +54,9 @@ impl ReportPart for CrawlParts {
                 serde_json::to_value(sitemaps).expect("invariant: sitemap counts encode"),
             );
         }
-        let handled: bool = connection.query_row(
-            "SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)",
-            [],
-            |row| row.get(0),
-        )?;
+        let handled: bool = connection
+            .prepare_cached("SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)")
+            .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;
         if report.nothing_done.is_none() && report.lifecycle == Lifecycle::Finished && !handled {
             report.nothing_done = Some(NothingDone::NoSeedHandled {
                 seeds: kept(connection)?,
@@ -71,8 +71,8 @@ impl ReportPart for CrawlParts {
 /// ended before its handler ran.
 fn kept(connection: &Connection) -> rusqlite::Result<Vec<SeedsKept>> {
     let mut kept: BTreeMap<String, u64> = BTreeMap::new();
-    let mut answers = connection.prepare("SELECT answer FROM seeds ORDER BY position")?;
-    let mut latest = connection.prepare(
+    let mut answers = connection.prepare_cached("SELECT answer FROM seeds ORDER BY position")?;
+    let mut latest = connection.prepare_cached(
         "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
     )?;
     for answer in answers.query_map([], |row| row.get::<_, String>(0))? {

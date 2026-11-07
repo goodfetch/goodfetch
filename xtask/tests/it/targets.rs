@@ -2,7 +2,7 @@
 //! what `just targets` measured on the owner's machine, each Product's
 //! startup to `hello` as hyperfine exports it and each resident-memory
 //! scenario's peaks as `xtask rss measure` writes them, and the latest `just
-//! compare-spider` report's pages per second, and
+//! compare` report's pages per second, and
 //! gives each target its figure and verdict: met at or under its target,
 //! missed over it with the gap and the optimization pass's write-up, or not
 //! measured. It never fails on a miss. Measurements are fixtures here.
@@ -14,7 +14,7 @@ use crate::workspace::{Outcome, Workspace};
 
 const MIB: u64 = 1024 * 1024;
 const MEASURED: &str = "target/targets";
-const SPIDER: &str = "target/compare-spider/report.json";
+const SPIDER: &str = "target/compare/report.json";
 const REPORT: &str = "target/targets/report.json";
 
 /// A hyperfine export of one command whose median took `seconds`.
@@ -84,7 +84,7 @@ fn peaks(workspace: &Workspace, peaks: &[(&str, &str, u64)]) {
     workspace.write(&format!("{MEASURED}/peaks.jsonl"), lines.as_bytes());
 }
 
-/// A `just compare-spider` report with each tool's medians.
+/// A `just compare` report with each tool's medians.
 fn spider_report(workspace: &Workspace, foxhound: (f64, u64), spider: (f64, u64)) {
     let report = json!({
         "label": "local-controlled",
@@ -164,7 +164,7 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
             ("foxhound", "crawl", 32 * MIB),
         ],
     );
-    // The crawl's peak is the resident-memory check's, not compare-spider's.
+    // The crawl's peak is the resident-memory check's, not the comparison's.
     spider_report(&workspace, (30.0, 20 * MIB), (40.0, 25 * MIB));
 
     let (outcome, report) = report(&workspace);
@@ -339,4 +339,79 @@ fn startup_is_read_from_hyperfine_two_s_export_too() {
             ("missed".to_owned(), json!("1.2 ms")),
         ]
     );
+}
+
+/// Each resident-memory row shows how much of its figure is the
+/// executable's own file-backed pages: the median of its peaks' samples,
+/// none where the peaks sampled none (outside Linux), and none on a row
+/// that measures no memory.
+#[test]
+fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    let peak = |product: &str, scenario: &str, bytes: u64, executable: Option<u64>| {
+        let mut peak = json!({
+            "product": product,
+            "platform": "linux-x64",
+            "scenario": scenario,
+            "bytes": bytes,
+        });
+        if let Some(executable) = executable {
+            peak["executable_bytes"] = json!(executable);
+        }
+        peak.to_string()
+    };
+    let lines = [
+        peak("foxhound", "crawl", 40 * MIB, Some(9 * MIB)),
+        peak("foxhound", "crawl", 41 * MIB, Some(11 * MIB)),
+        peak("foxhound", "crawl", 42 * MIB, Some(10 * MIB)),
+        peak("collie", "idle-daemon", 16 * MIB, None),
+    ];
+    workspace.write(
+        &format!("{MEASURED}/peaks.jsonl"),
+        lines.join("\n").as_bytes(),
+    );
+    startup(&workspace, "collie", 0.009);
+
+    let (outcome, report) = report(&workspace);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let executable_pages = |target: &str, product: &str| {
+        report["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["target"] == target && row["product"] == product)
+            .unwrap()["executable_pages"]
+            .clone()
+    };
+    assert_eq!(
+        [
+            executable_pages("crawl-peak", "foxhound"),
+            executable_pages("idle-daemon", "collie"),
+            executable_pages("startup-to-hello", "collie"),
+        ],
+        [json!("10.0 MiB"), Value::Null, Value::Null]
+    );
+    let markdown = workspace.read_text("target/targets/report.md");
+    assert!(
+        markdown.contains("| 41.0 MiB | 10.0 MiB | 32.0 MiB | missed | 9.0 MiB |"),
+        "{markdown}"
+    );
+}
+
+/// On Linux the report measures the static musl build the Products ship
+/// (ADR 0024), and says so; elsewhere the host's own build.
+#[test]
+fn the_report_names_the_rust_target_it_measured() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let (outcome, report) = report(&workspace);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let expected = if cfg!(target_os = "linux") {
+        json!(format!("{}-unknown-linux-musl", std::env::consts::ARCH))
+    } else {
+        Value::Null
+    };
+    assert_eq!(report["build_target"], expected);
 }

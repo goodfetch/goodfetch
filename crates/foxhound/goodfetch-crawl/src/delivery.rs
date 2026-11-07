@@ -64,11 +64,13 @@
 //! drives, kept whole so every work item's way from pending to its ending
 //! passes through one loop.
 
-use std::collections::BTreeSet;
-use std::time::SystemTime;
+use std::collections::{BTreeMap, BTreeSet};
+use std::pin::Pin;
+use std::time::{Duration, SystemTime};
 
 use futures_util::future::join_all;
 use goodfetch_counted_work::Row;
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
@@ -80,11 +82,11 @@ use goodfetch_engine::local_addresses::{
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
 use goodfetch_engine::run_state::RunStateError;
-use goodfetch_engine::runs::{ChargeError, Ending, Run};
+use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    Choosing, ContentTypes, FetchTiers, HttpTier, LocalSource, PooledSession, RobotsTxtFetch,
-    SetTier, SignalFiles, TierChoice,
+    Choosing, ContentTypes, FetchAdmission, FetchTiers, HttpTier, LocalSource, PooledSession,
+    RobotsTxtFetch, SetTier, SignalFiles, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -96,22 +98,31 @@ use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
     SampleRefresh,
 };
+use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::report::LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK;
+use goodfetch_protocol::foxhound::report::{
+    BLOCK_CLASSIFICATION_OFF, LEARNING_OFF, LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK, PROVENANCE_OFF,
+    RECORDS_OFF,
+};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::foxhound::settings::{
+    DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
+};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
-use goodfetch_session_pool::{LocalAddressing, PoolSettings, Rotated, SessionPool};
+use goodfetch_session_pool::{Changes, LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use crate::attempt_outcome::{self, Outcome, Refusing};
 use crate::code_free::{self, CodeFree};
 use crate::completeness;
 use crate::labels;
@@ -119,7 +130,7 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
-use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices};
+use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
 use crate::tier_race::{Latencies, Raced};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
@@ -127,7 +138,9 @@ use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlig
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, Gating, Tiering, attempt, block_cause, effect, leased_count};
+use attempt::{
+    Answer, Attempt, Gating, Taught, Tiering, attempt, block_cause, effect, leased_count,
+};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -222,13 +235,14 @@ pub(crate) async fn drive(
             None
         }
     };
+    let untouched = Untouched::of(&run, &labels, code_free.as_ref());
     let fetching = Fetching {
         tiers: &tiers,
         http: http.as_ref(),
         interface,
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
         egress: std::sync::Arc::clone(&arrivals.egress),
-        labels: &labels,
+        labels: std::sync::Arc::new(labels),
         run_tier,
         run_encoding: settings
             .resolved()
@@ -243,11 +257,57 @@ pub(crate) async fn drive(
         light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
+        untouched,
         code_free: code_free.map(std::sync::Arc::new),
         signal_files: SignalFiles::default(),
     };
+    for (setting, code, message) in SWITCHED_OFF {
+        if settings.resolved().boolean(setting) == Some(false) {
+            warn_switched_off(&run, code, message).await;
+        }
+    }
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
+}
+
+/// Each per-page feature a crawl switches off with its warning (ADR 0138):
+/// its key, the warning's code and its message, so an empty result is not
+/// misread.
+const SWITCHED_OFF: [(&str, &str, &str); 4] = [
+    (
+        FRONTIER_LEARNING.name,
+        LEARNING_OFF,
+        "`frontier.learning` is off: the Frontier signed no page and learned no URL rule, so `learned_rules` lists none.",
+    ),
+    (
+        PROVENANCE_LOG.name,
+        PROVENANCE_OFF,
+        "`provenance.log` is off: the Run trace holds no Provenance log; each Record still carries its own Provenance.",
+    ),
+    (
+        DATASET_RECORDS.name,
+        RECORDS_OFF,
+        "`dataset.records` is off: the crawl kept no Record, so its Datasets hold none.",
+    ),
+    (
+        FETCH_BLOCK_CLASSIFICATION.name,
+        BLOCK_CLASSIFICATION_OFF,
+        "`fetch.block_classification` is off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the successes.",
+    ),
+];
+
+/// Hands the Run's report, once, the warning `code` with `message`, of a
+/// per-page feature its settings switch off (ADR 0138).
+async fn warn_switched_off(run: &Run, code: &str, message: &str) {
+    let warning = RunWarning {
+        code: code.to_owned(),
+        message: message.to_owned(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn_once(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
+    }
 }
 
 /// How the Run samples its tier choices: `fetch.sample.count` and
@@ -278,11 +338,41 @@ fn wall_ms(run: &Run) -> u64 {
 }
 
 /// Where `run`'s leases are granted, each attempt staging in the crawl's
-/// staging.
-fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
+/// staging, and its commit keying the work items it adds as `admission`'s
+/// gate keys them.
+fn leases_of(run: &Run, arrivals: &Opened, admission: &Admission) -> Leases {
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
         .staging_in(arrivals.staging.clone())
+        .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())
+        .keyed_by(admission.keys())
+}
+
+/// What the delivery's loop reads of the Run's settings, resolved once as
+/// the Run opened: no admission, lease or settlement reads them again (ADR
+/// 0138).
+#[derive(Clone, Copy)]
+struct Read {
+    /// How its attempts are bounded and retried.
+    policy: CrawlPolicy,
+    /// The bounds its Session pool draws and scores under.
+    pool: PoolSettings,
+    /// Whether its requests go through a proxy.
+    proxied: bool,
+    /// The longest wait a response may ask of its domain.
+    longest_wait: Option<Duration>,
+}
+
+impl Read {
+    /// What `resolved` gives the loop.
+    fn of(resolved: &Resolved) -> Self {
+        Self {
+            policy: CrawlPolicy::of(resolved),
+            pool: PoolSettings::of(resolved),
+            proxied: proxied(resolved),
+            longest_wait: goodfetch_frontier::longest_wait(resolved),
+        }
+    }
 }
 
 /// The delivery's loop, which returns once the Run ended or stopped.
@@ -293,23 +383,27 @@ async fn deliver(
     settings: &RunSettings,
     fetching: &Fetching<'_>,
 ) {
-    let run_leases = leases_of(run, arrivals);
+    // The pool is out of `pool` only while a write that leases work items
+    // draws from it: the loop ends on that write's error.
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
+    let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
+    // Resolved once, as the Run opened: no turn reads the settings again
+    // (ADR 0138).
+    let resolved = settings.resolved();
+    let read = Read::of(resolved);
+    let policy = read.policy;
     loop {
-        let resolved = settings.at_admission().await;
-        let policy = CrawlPolicy::of(&resolved);
-        admission.update(&resolved);
         if stop.is_none()
             && let Err(error) = lease_to_servers(
                 run,
                 &run_leases,
                 policy,
-                Pooled::of(&mut pool, &resolved, fetching),
+                Pooled::of(&mut pool, read.pool, fetching),
                 &mut admission,
                 servers,
                 &mut attempts,
@@ -338,7 +432,7 @@ async fn deliver(
                 Ok(Idle::Admit) if !starved => continue,
                 Ok(Idle::Admit | Idle::Wait) => {}
                 Ok(Idle::Done) => {
-                    match drained(run, &resolved, &mut admission, servers, arrivals).await {
+                    match drained(run, resolved, &mut admission, servers, arrivals).await {
                         Waited::Ended => return,
                         Waited::Stop(reason) => stop = Some(reason),
                         Waited::Again => {}
@@ -360,7 +454,8 @@ async fn deliver(
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         let room = [stop.is_some(), free, starved];
-        show(run, (&mut admission, &mut queued), &resolved, servers, room);
+        let shown = (resolved, policy);
+        show(run, (&mut admission, &mut queued), shown, servers, room);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -382,8 +477,8 @@ async fn deliver(
             }
             Some(first) = attempts.join_next() => {
                 let ended = ended_with(first, &mut attempts);
-                let pool = (&mut pool, fetching);
-                settled(run, settings, &mut admission, pool, servers, ended).await;
+                let pool = (held(&mut pool), fetching);
+                settled(run, (resolved, read), &mut admission, pool, servers, ended).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
@@ -414,14 +509,14 @@ fn ended_with(
 fn show(
     run: &Run,
     (admission, count): (&mut Admission, &mut Level),
-    resolved: &Resolved,
+    (resolved, policy): (&Resolved, CrawlPolicy),
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
 ) {
     let serving = servers.iter_mut().any(Serving::serves);
     let handlers = servers.iter().map(|server| server.in_flight).sum();
     let room = progress::room(stopping || !serving, free, starved);
-    let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
+    let concurrency = policy.handler_concurrency;
     let now = run.clock().now();
     let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
@@ -479,7 +574,7 @@ pub(crate) async fn resume(
     crawls: Crawls,
     tiers: FetchTiers,
 ) {
-    let policy = CrawlPolicy::of(&settings.at_admission().await);
+    let policy = CrawlPolicy::of(settings.resolved());
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
     let resolved = settings.resolved().clone();
@@ -496,18 +591,18 @@ pub(crate) async fn resume(
                 labels::read(connection)?,
                 labels::Fragments::read(connection)?,
                 tier_choice::read(connection)?,
-                code_free::read(connection)?,
+                (code_free::read(connection)?, Datasets::read(connection)?),
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices, extraction)| {
+    let left = left.map(|(left, declared, fragments, choices, declarations)| {
         let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::default()
         });
-        (left, (labels, choices, extraction))
+        (left, (labels, choices, declarations))
     });
-    let (labels, choices, extraction) = match left {
+    let (labels, choices, (extraction, datasets)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -522,8 +617,8 @@ pub(crate) async fn resume(
         Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
-    let opened = crawls.open(&run, egress).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers, run.metrics().counted_work());
+    let opened = crawls.open(&run, egress, datasets).await;
+    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
     drive(
         run,
         context,
@@ -545,7 +640,7 @@ struct Fetching<'a> {
     /// Session's sockets bind (ADR 0044).
     interface: Option<String>,
     /// The Labels the crawl declares: their settings and their pools.
-    labels: &'a labels::Declared,
+    labels: std::sync::Arc<labels::Declared>,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
     /// The Run's own `fetch.encoding`, a WHATWG Encoding label.
@@ -573,12 +668,63 @@ struct Fetching<'a> {
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
+    /// The readers of the untouched page of each Label, built once.
+    untouched: Untouched,
+}
+
+/// The readers of the untouched page a Run's documents are read by (ADR
+/// 0138), built once as its crawl starts: those of the Labels that declare
+/// a Page check of their own, and the Run's, for every other Label.
+struct Untouched {
+    run: std::sync::Arc<UntouchedReaders>,
+    labels: BTreeMap<String, std::sync::Arc<UntouchedReaders>>,
+}
+
+impl Untouched {
+    /// `run`'s readers, of its Labels `labels`: a code-free crawl's
+    /// `code_free` links and fields, each Label's Page check, else the
+    /// Run's, and the Page signature while the Run learns; a program's
+    /// keep each page's tree for its handler.
+    fn of(run: &Run, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
+        let work = run.metrics().counted_work();
+        goodfetch_fetch_tier::compile_served_call_selectors(work);
+        let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
+        let demand = |page_check: Option<PageCheck>| UntouchedDemand {
+            links: links.clone(),
+            fields: fields.clone(),
+            page_check,
+            signs: attempt::learns(run),
+            // A program's handler reads its pages: each keeps its untouched
+            // tree for the handler's calls (spec #1577's #1918).
+            keeps: code_free.is_none(),
+        };
+        let readers =
+            |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));
+        Self {
+            run: readers(attempt::run_page_check(run)),
+            labels: labels
+                .settings
+                .page_checks()
+                .map(|(label, check)| (label.to_owned(), readers(Some(check.clone()))))
+                .collect(),
+        }
+    }
+
+    /// The readers of a request of `label`.
+    fn of_label(&self, label: &str) -> &std::sync::Arc<UntouchedReaders> {
+        self.labels.get(label).unwrap_or(&self.run)
+    }
 }
 
 impl Fetching<'_> {
     /// What one attempt's handler pages, of a request of `label`, are
     /// gated and judged with.
-    fn gating(&self, label: &str, second_copies: &SecondCopies) -> Gating {
+    fn gating(
+        &self,
+        label: &str,
+        second_copies: &SecondCopies,
+        fetch_admission: FetchAdmission,
+    ) -> Gating {
         Gating {
             tiers: self.tiers.clone(),
             second_copies: second_copies.clone(),
@@ -597,74 +743,45 @@ impl Fetching<'_> {
                 .content_types(label, &self.run_content_types),
             code_free: self.code_free.clone(),
             signal_files: self.signal_files.clone(),
+            fetch_admission,
+            untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
         }
     }
 
-    /// How `leased`'s attempt runs, as its Label and the Run's
-    /// `fetch.tier` choose and, under `auto`, on the browser for a domain a
-    /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
-    /// races its tiers, as a sample while its Label on its domain is due
-    /// one, else as a race timed by its Label on its domain's browser-fetch
-    /// latencies, else as its Label on its domain learned, and what it
-    /// fetches its document with. Each request a learned choice
-    /// serves is counted in `run`'s file.
+    /// How `leased`'s attempt runs, as `chosen` (its Label and the Run's
+    /// `fetch.tier` chose it as its Session was drawn): a race is timed by
+    /// its Label on its domain's browser-fetch latencies; and what it
+    /// fetches its document with.
     async fn served(
         &self,
-        run: &Run,
         leased: &Leased,
-        (to_browser, local): (bool, Local),
+        (chosen, local): (Chosen, Local),
         second_copies: &SecondCopies,
     ) -> Tiering {
-        let now = wall_ms(run);
         let request = &leased.crawl_request;
-        // A sitemap's fetch runs no handler and takes no tier choice: its
-        // attempt fetches it on the Run's HTTP tier.
-        let choosing = if leased.sitemap {
-            Choosing::Alone
-        } else {
-            self.labels.settings.choose(&request.label, self.run_tier)
-        };
-        // A request keeping its URL's fragment is served only by a tier
-        // that runs the page's scripts, which the engine's choice is then
-        // (ADR 0120); the start refused it on any forced tier but those.
-        let keeps_fragment = !leased.sitemap && self.labels.fragments.keeps(&request.label);
-        let plan = match choosing {
-            Choosing::Alone | Choosing::Engine if keeps_fragment => AttemptPlan::On(TierChoice {
-                tier: FetchTier::Browser,
-                forced: None,
+        let plan = match chosen {
+            Chosen::Planned(plan) => plan,
+            // Until the sample comparison weighs a race's runs (#768), a
+            // race learns nothing: a Label on its domain due a sample takes
+            // it, so a racing Run learns its choice as any other (ADR
+            // 0040's #945 note).
+            Chosen::Racing(sample @ AttemptPlan::Sample(_)) => sample,
+            Chosen::Racing(learned) => AttemptPlan::Race(Raced {
+                label: request.label.clone(),
+                domain_key: leased.waiting.key.clone(),
+                delay: self
+                    .latencies
+                    .lock()
+                    .await
+                    .delay(&request.label, &leased.waiting.key),
+                agrees: !matches!(
+                    learned,
+                    AttemptPlan::On(TierChoice {
+                        tier: FetchTier::Browser,
+                        ..
+                    })
+                ),
             }),
-            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
-                match self.learned(run, leased, now).await {
-                    // Until the sample comparison weighs a race's runs
-                    // (#768), a race learns nothing: a Label on its domain
-                    // due a sample takes it, so a racing Run learns its
-                    // choice as any other (ADR 0040's #945 note).
-                    sample @ AttemptPlan::Sample(_) => sample,
-                    learned => AttemptPlan::Race(Raced {
-                        label: request.label.clone(),
-                        domain_key: leased.waiting.key.clone(),
-                        delay: self
-                            .latencies
-                            .lock()
-                            .await
-                            .delay(&request.label, &leased.waiting.key),
-                        agrees: !matches!(
-                            learned,
-                            AttemptPlan::On(TierChoice {
-                                tier: FetchTier::Browser,
-                                ..
-                            })
-                        ),
-                    }),
-                }
-            }
-            Choosing::Alone => AttemptPlan::Alone,
-            Choosing::Forced(choice) => AttemptPlan::On(choice),
-            Choosing::Engine if to_browser => AttemptPlan::On(TierChoice {
-                tier: FetchTier::Browser,
-                forced: None,
-            }),
-            Choosing::Engine => self.learned(run, leased, now).await,
         };
         let http = self.session_tier(local);
         Tiering::of(
@@ -674,30 +791,6 @@ impl Fetching<'_> {
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
-    }
-
-    /// How `leased`'s attempt runs at `now` as its Label on its domain
-    /// learned, its choice's count of requests served written into `run`'s
-    /// file, so a resumed crawl goes on counting toward its refresh.
-    async fn learned(&self, run: &Run, leased: &Leased, now: u64) -> AttemptPlan {
-        let request = &leased.crawl_request;
-        let (plan, counted) = {
-            let mut choices = self.choices.lock().await;
-            let (plan, unit) =
-                choices.serve_attempt(&request.label, &leased.waiting.key, &request.url, now);
-            (plan, unit.cloned())
-        };
-        if let Some(unit) = counted {
-            let (label, key) = (request.label.clone(), leased.waiting.key.clone());
-            if let Err(error) = run
-                .state()
-                .write(move |connection| tier_choice::record(connection, &label, &key, &unit))
-                .await
-            {
-                tracing::warn!(%error, run_id = %run.id(), "a Label's count of requests served was not written; a resumed crawl counts from the last one written");
-            }
-        }
-        plan
     }
 
     /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
@@ -741,61 +834,180 @@ impl Fetching<'_> {
         }
     }
 
-    /// Classifies the sample `attempt` was, if it was one, and writes what
-    /// its Label on its domain now learned into the run file.
-    async fn classify(&self, run: &Run, attempt: &mut Attempt) {
-        let Some((sampled, weighed)) = attempt.sampled.take() else {
-            return;
-        };
+    /// Classifies the sample `attempt` was, if it was one, answering what
+    /// its Label on its domain now learned, by Label and domain key, for
+    /// its outcome to write into the run file.
+    async fn classify(&self, run: &Run, attempt: &mut Attempt) -> Option<(String, String, Unit)> {
+        let (sampled, weighed) = attempt.sampled.take()?;
         let unit = self
             .choices
             .lock()
             .await
             .classify(&sampled, weighed, wall_ms(run))
             .clone();
-        if let Err(error) = run
-            .state()
-            .write(move |connection| {
-                tier_choice::record(connection, &sampled.label, &sampled.domain_key, &unit)
-            })
-            .await
-        {
-            tracing::warn!(%error, run_id = %run.id(), "a Label's tier choice was not written; a resumed crawl samples it again");
-        }
+        Some((sampled.label, sampled.domain_key, unit))
     }
 }
 
 /// What each attempt is given: a Session drawn from the crawl's Session
 /// pool under the Run's settings now, and the tier that fetches its
-/// request's document.
+/// request's document. The pool is out of `pool` only while a write that
+/// leases work items draws from it.
 struct Pooled<'a> {
-    pool: &'a mut SessionPool,
+    pool: &'a mut Option<SessionPool>,
     settings: PoolSettings,
     fetching: &'a Fetching<'a>,
 }
 
 impl<'a> Pooled<'a> {
-    /// Draws from `pool` under `resolved`, fetching on `fetching`.
-    fn of(pool: &'a mut SessionPool, resolved: &Resolved, fetching: &'a Fetching<'a>) -> Self {
+    /// Draws from `pool` under `settings`, fetching on `fetching`.
+    fn of(
+        pool: &'a mut Option<SessionPool>,
+        settings: PoolSettings,
+        fetching: &'a Fetching<'a>,
+    ) -> Self {
         Self {
             pool,
-            settings: PoolSettings::of(resolved),
+            settings,
             fetching,
         }
     }
 }
 
+/// How an attempt's tier is chosen, settled as its Session is drawn.
+enum Chosen {
+    /// On this plan.
+    Planned(AttemptPlan),
+    /// As a race, unless its Label on its domain, which learned this plan,
+    /// is due a sample, which it then takes.
+    Racing(AttemptPlan),
+}
+
+/// A work item leased, with the Session drawn for its attempt, as that
+/// Session runs in the browser, its local addresses, and how its tier is
+/// chosen.
+struct Drawn {
+    leased: Leased,
+    session: ServingSession,
+    in_browser: PooledSession,
+    local: Local,
+    chosen: Chosen,
+}
+
+/// What a write that leases work items draws their Sessions and tier
+/// choices with, on the writer's connection.
+struct Drawing {
+    labels: std::sync::Arc<labels::Declared>,
+    settings: PoolSettings,
+    run_tier: SetTier,
+    races: bool,
+    /// The Run's wall clock as the write was queued, and in milliseconds
+    /// since the Unix epoch.
+    wall: (SystemTime, u64),
+}
+
+impl Drawing {
+    /// Draws the Session of `pool` that serves `leased`, and chooses how its
+    /// tier is chosen, as its Label and the Run's `fetch.tier` choose and,
+    /// under `auto`, on the browser for a domain a Challenge moved there
+    /// (ADR 0021), else, when the Run races its tiers, as a sample while its
+    /// Label on its domain is due one, else as a race, else as its Label on
+    /// its domain learned in `choices`; answers too the choice whose count
+    /// of requests served moved, which the write records, so a resumed
+    /// crawl goes on counting toward its refresh.
+    fn draw(
+        &self,
+        (pool, choices): (&mut SessionPool, &mut TierChoices),
+        leased: Leased,
+    ) -> (Drawn, Option<Unit>) {
+        let request = &leased.crawl_request;
+        let key = self.labels.pools.pool(&request.label);
+        let session = pool.draw(&key, &leased.waiting.key, &self.settings, self.wall.0);
+        let in_browser = PooledSession {
+            id: session.id.clone(),
+            source: self.labels.pools.source(&key),
+            address_ordinal: pool.address_ordinal(&session.id),
+        };
+        let to_browser = pool.browser(&leased.waiting.key);
+        let local = pool.local_addresses(&session.id);
+        // A sitemap's fetch runs no handler and takes no tier choice: its
+        // attempt fetches it on the Run's HTTP tier.
+        let choosing = if leased.sitemap {
+            Choosing::Alone
+        } else {
+            self.labels.settings.choose(&request.label, self.run_tier)
+        };
+        // A request keeping its URL's fragment is served only by a tier
+        // that runs the page's scripts, which the engine's choice is then
+        // (ADR 0120); the start refused it on any forced tier but those.
+        let keeps_fragment = !leased.sitemap && self.labels.fragments.keeps(&request.label);
+        let browser = AttemptPlan::On(TierChoice {
+            tier: FetchTier::Browser,
+            forced: None,
+        });
+        let mut learned = || {
+            let (plan, unit) = choices.serve_attempt(
+                &request.label,
+                &leased.waiting.key,
+                &request.url,
+                self.wall.1,
+            );
+            (plan, unit.cloned())
+        };
+        let (chosen, counted) = match choosing {
+            Choosing::Alone | Choosing::Engine if keeps_fragment => {
+                (Chosen::Planned(browser), None)
+            }
+            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
+                let (plan, counted) = learned();
+                (Chosen::Racing(plan), counted)
+            }
+            Choosing::Alone => (Chosen::Planned(AttemptPlan::Alone), None),
+            Choosing::Forced(choice) => (Chosen::Planned(AttemptPlan::On(choice)), None),
+            Choosing::Engine if to_browser => (Chosen::Planned(browser), None),
+            Choosing::Engine => {
+                let (plan, counted) = learned();
+                (Chosen::Planned(plan), counted)
+            }
+        };
+        let drawn = Drawn {
+            leased,
+            session,
+            in_browser,
+            local,
+            chosen,
+        };
+        (drawn, counted)
+    }
+}
+
+/// The Session pool and tier choices a write that leases work items draws
+/// from, sent back to the delivery loop once the write is done with them:
+/// when it ran, or when the writer dropped it unrun.
+struct Lent {
+    held: Option<(SessionPool, TierChoices)>,
+    back: Option<oneshot::Sender<(SessionPool, TierChoices)>>,
+}
+
+impl Drop for Lent {
+    fn drop(&mut self) {
+        if let (Some(held), Some(back)) = (self.held.take(), self.back.take()) {
+            let _ = back.send(held);
+        }
+    }
+}
+
 /// Admits work items up to each serving Connection's room and the HTTP
-/// admissions the engine's Resource governor gives the Run now, draws the
-/// Session of the pool that serves each, written in run state before any
-/// handler request is sent, and starts an attempt for each on that
-/// Connection, which holds its admission until it ends (ADR 0040). A Run
-/// the governor gave none waits for its turn.
+/// admissions the engine's Resource governor gives the Run now, leases
+/// them and draws the Session of the pool that serves each in one write of
+/// run state, committed before any handler request is sent, and starts an
+/// attempt for each on that Connection, which holds its admission until it
+/// ends (ADR 0040). A Run the governor gave none waits for its turn.
 async fn lease_to_servers(
     run: &Run,
     run_leases: &Leases,
     policy: CrawlPolicy,
-    pooled: Pooled<'_>,
+    mut pooled: Pooled<'_>,
     admission: &mut Admission,
     servers: &mut [Serving],
     attempts: &mut JoinSet<Attempt>,
@@ -811,43 +1023,23 @@ async fn lease_to_servers(
         if permits.is_empty() {
             return Ok(());
         }
-        let labels = &pooled.fetching.labels.pools;
-        let served: Vec<(Leased, ServingSession, PooledSession, (bool, Local))> =
-            admit(run, admission, permits.len())
-                .await?
-                .into_iter()
-                .map(|leased| {
-                    let key = labels.pool(&leased.crawl_request.label);
-                    let session = pooled.pool.draw(
-                        &key,
-                        &leased.waiting.key,
-                        &pooled.settings,
-                        run.clock().wall(),
-                    );
-                    let in_browser = PooledSession {
-                        id: session.id.clone(),
-                        source: labels.source(&key),
-                        address_ordinal: pooled.pool.address_ordinal(&session.id),
-                    };
-                    let to_browser = pooled.pool.browser(&leased.waiting.key);
-                    let local = pooled.pool.local_addresses(&session.id);
-                    (leased, session, in_browser, (to_browser, local))
-                })
-                .collect();
-        for rotated in pooled.pool.rotated_within_block() {
+        let served = admit(run, admission, permits.len(), &mut pooled).await?;
+        let pool = pooled
+            .pool
+            .as_mut()
+            .ok_or(ChargeError::State(RunStateError::Closed))?;
+        for rotated in pool.rotated_within_block() {
             warn_rotated(run, rotated).await;
         }
-        pooled
-            .fetching
-            .retire(run, pooled.pool, &server.context)
-            .await;
-        let changes = pooled.pool.changes();
-        if !changes.is_empty() {
-            run.state()
-                .write(move |connection| changes.write(connection))
-                .await?;
-        }
-        for (leased, session, in_browser, (to_browser, local)) in served {
+        pooled.fetching.retire(run, pool, &server.context).await;
+        for drawn in served {
+            let Drawn {
+                leased,
+                session,
+                in_browser,
+                local,
+                chosen,
+            } = drawn;
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
@@ -856,10 +1048,13 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering = fetching
-                .served(run, &leased, (to_browser, local), &copies)
-                .await;
-            let gating = fetching.gating(&leased.crawl_request.label, &copies);
+            let tiering = fetching.served(&leased, (chosen, local), &copies).await;
+            let admission = FetchAdmission::holding(
+                permits
+                    .pop()
+                    .expect("invariant: one admission per work item admitted"),
+            );
+            let gating = fetching.gating(&leased.crawl_request.label, &copies, admission.clone());
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -876,11 +1071,8 @@ async fn lease_to_servers(
                     started_at: run.point_in_time(),
                 },
             );
-            let permit = permits
-                .pop()
-                .expect("invariant: one admission per work item admitted");
             attempts.spawn(holding(
-                permit,
+                admission,
                 attempt(
                     run.clone(),
                     place,
@@ -896,10 +1088,18 @@ async fn lease_to_servers(
     Ok(())
 }
 
-/// Runs `attempt`, holding `permit` until it ends.
-async fn holding(permit: Permit, attempt: impl Future<Output = Attempt>) -> Attempt {
+/// The Session pool `pool` holds: back in it once each write that drew
+/// from it answered.
+fn held(pool: &mut Option<SessionPool>) -> &mut SessionPool {
+    pool.as_mut()
+        .expect("invariant: the Session pool is back once each write that drew from it answered")
+}
+
+/// Runs `attempt`, holding its HTTP `admission` until it ends, unless its
+/// document's fetch gave it back first.
+async fn holding(admission: FetchAdmission, attempt: impl Future<Output = Attempt>) -> Attempt {
     let ended = attempt.await;
-    drop(permit);
+    admission.give_back();
     ended
 }
 
@@ -915,8 +1115,8 @@ enum Waited {
 }
 
 /// Finishes a crawl with no work item left, with what its bounds and caps
-/// cut as its Completeness reasons, unless `crawl.keep_alive`,
-/// read at each admission point as its policy is, holds it until
+/// cut as its Completeness reasons, unless `crawl.keep_alive`, one of the
+/// settings the Run resolved as it opened, holds it until
 /// `run.finish` lets it finish: until then it waits for new work, as the
 /// Run's own timeout and a stop still end it (RT-12). Before it finishes,
 /// it closes its intake in a job of the Run state's writer that looks once
@@ -934,9 +1134,12 @@ async fn drained(
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
         let intake = arrivals.intake.clone();
+        // Its answer promises nothing outside (#2117): the Run's end, which
+        // follows it, syncs, and so does a later call's refusal, as its own
+        // write commits after the close.
         match run
             .state()
-            .write(move |connection| intake.close_if_drained(connection))
+            .write_deferred(move |connection| intake.close_if_drained(connection))
             .await
         {
             Ok(true) => {}
@@ -1026,59 +1229,60 @@ struct Settling {
     held: Option<SystemTime>,
 }
 
+/// What one ended attempt's outcome writes beside its work item's end:
+/// what its Session's score changed, and its tier choice once its sample
+/// was classified.
+struct Scored {
+    changes: Changes,
+    chosen: Option<(String, String, Unit)>,
+}
+
 /// Settles the attempts that ended, `ended`, in the order they ended,
-/// under the Run's policy now: takes each out of the requests in flight
+/// under the Run's policy and pool settings, resolved as it opened (ADR
+/// 0138): takes each out of the requests in flight
 /// its progress shows, frees its place on its Connection and scores its
-/// Session, writing the pool's changes once; commits or ends them all
-/// together, so the run state's writer takes their writes in one group
-/// rather than the loop waiting for each in turn (#1765); then returns
-/// each one's domain turn and puts each retried work item back in its
-/// queue, in their order, and journals what the queues changed.
+/// Session; queues each one's outcome as one job of the run state's
+/// writer, in their order, so the writer takes them in one group rather
+/// than the loop waiting for each in turn (#1765), and each one's failure
+/// rolls back its own alone (ADR 0138); then returns each one's domain
+/// turn and puts each retried work item back in its queue, in their order,
+/// offers its domain's queue each work item an outcome added, keyed as it
+/// was added, and journals what the queues changed.
 async fn settled(
     run: &Run,
-    settings: &RunSettings,
+    (resolved, read): (&Resolved, Read),
     admission: &mut Admission,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) {
-    let resolved = settings.at_admission().await;
-    let (attempts, settlings) =
-        scored(run, &resolved, (&mut *pool, fetching), servers, ended).await;
-    let changes = pool.changes();
-    if !changes.is_empty()
-        && let Err(error) = run
-            .state()
-            .write(move |connection| changes.write(connection))
-            .await
-    {
-        tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
-    }
+    let (attempts, mut settlings, scores) =
+        scored(run, read, (&mut *pool, fetching), servers, ended).await;
     for attempt in &attempts {
         fetching
             .retire(run, pool, &servers[attempt.server].context)
             .await;
     }
-    let policy = CrawlPolicy::of(&resolved);
-    let retried = join_all(
-        attempts
-            .into_iter()
-            .zip(&settlings)
-            .map(|(attempt, settling)| {
-                let resolved = &resolved;
-                async move {
-                    match attempt.answer {
-                        Answer::SitemapRead(_) => {
-                            read_sitemap(run, resolved, attempt).await;
-                            false
-                        }
-                        _ => settle(run, policy, settling.held.is_some(), attempt).await,
-                    }
-                }
-            }),
-    )
-    .await;
+    let mut queued = Vec::with_capacity(attempts.len());
+    for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
+        let held = settling.held.is_some();
+        queued.push(queue_outcome(run, (resolved, read.policy), held, attempt, scored).await);
+    }
+    let mut retried = Vec::with_capacity(queued.len());
+    let mut keyed = Vec::new();
+    for (outcome, settling) in join_all(queued.into_iter().map(QueuedOutcome::finished))
+        .await
+        .into_iter()
+        .zip(&mut settlings)
+    {
+        settling.merged.extend(outcome.merged);
+        keyed.extend(outcome.keyed);
+        retried.push(outcome.retried);
+    }
     returned(run, admission, settlings.into_iter().zip(retried)).await;
+    for waiting in keyed {
+        admission.enqueue(waiting);
+    }
     if let Err(error) = key_new(run, admission).await {
         tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
     }
@@ -1087,20 +1291,21 @@ async fn settled(
 
 /// Takes each attempt of `ended` out of the requests in flight its
 /// progress shows, frees its place on its Connection and scores its
-/// Session in `pool` under `resolved`, in their order, answering them with
-/// what each one's settling keeps.
+/// Session in `pool` under what the loop `read`, in their order, answering them with
+/// what each one's settling keeps and what its outcome writes of its
+/// score and tier choice.
 async fn scored(
     run: &Run,
-    resolved: &Resolved,
+    read: Read,
     (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
-) -> (Vec<Attempt>, Vec<Settling>) {
-    let pool_settings = PoolSettings::of(resolved);
+) -> (Vec<Attempt>, Vec<Settling>, Vec<Scored>) {
     let mut attempts = Vec::with_capacity(ended.len());
     let mut settlings = Vec::with_capacity(ended.len());
+    let mut scores = Vec::with_capacity(ended.len());
     for mut attempt in ended {
-        fetching.classify(run, &mut attempt).await;
+        let chosen = fetching.classify(run, &mut attempt).await;
         fetching.time(&mut attempt).await;
         fetching
             .in_flight
@@ -1113,11 +1318,11 @@ async fn scored(
             server.gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
-        let merged = std::mem::take(&mut attempt.merged);
+        let merged = std::mem::take(&mut attempt.taught.merged);
         let domain = domain_ending(
             &attempt.answer,
             attempt.document.as_ref(),
-            proxied(resolved),
+            read.proxied,
             run.clock().now(),
             run.clock().wall(),
         );
@@ -1128,12 +1333,12 @@ async fn scored(
             &attempt.session,
             &waiting.key,
             effect(&attempt.answer),
-            &pool_settings,
+            &read.pool,
         );
         let held = held_past_bound(
             &attempt.answer,
             attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
-            goodfetch_frontier::longest_wait(resolved),
+            read.longest_wait,
         );
         settlings.push(Settling {
             waiting,
@@ -1141,9 +1346,13 @@ async fn scored(
             domain,
             held,
         });
+        scores.push(Scored {
+            changes: pool.changes(),
+            chosen,
+        });
         attempts.push(attempt);
     }
-    (attempts, settlings)
+    (attempts, settlings, scores)
 }
 
 /// Returns, in their order, each settled attempt's domain turn to
@@ -1191,9 +1400,9 @@ async fn returned(
 
 /// Opens the Run's admission and Session pool, or ends the Run as failed
 /// when they could not open.
-async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, SessionPool)> {
+async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Option<SessionPool>)> {
     match open(run, settings).await {
-        Ok(opened) => Some(opened),
+        Ok((admission, pool)) => Some((admission, Some(pool))),
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
             run.end(failed(run, &error)).await;
@@ -1206,9 +1415,9 @@ async fn opened(run: &Run, settings: &RunSettings) -> Option<(Admission, Session
 /// keys the work items not keyed yet and fills each domain's queue; and
 /// opens its Session pool from its run state, on an `Entropy` of its own.
 async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPool), String> {
-    let resolved = settings.at_admission().await;
+    let resolved = settings.resolved();
     let mut admission = run
-        .admission(&resolved)
+        .admission(resolved)
         .await
         .map_err(|error| error.to_string())?
         .ok_or("the composition passes in no gate in admission")?;
@@ -1224,10 +1433,10 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
         .read(move |connection| SessionPool::open(connection, entropy))
         .await
         .map_err(|error| error.to_string())?;
-    let pool = match Rotation::of(&resolved) {
+    let pool = match Rotation::of(resolved) {
         Some(rotation) => pool.with_local_addresses(LocalAddressing::new(
             rotation,
-            BlockSizes::of(&resolved),
+            BlockSizes::of(resolved),
             std::sync::Arc::new(System),
             // No Session's every request leaves through the Run's proxy
             // yet: the HTTP tiers send direct from its addresses, so a block
@@ -1338,8 +1547,11 @@ async fn key(
         .iter()
         .map(|waiting| (waiting.id.clone(), waiting.key.clone()))
         .collect();
+    // Keys promise nothing outside (#2117): the outcome of the attempt that
+    // claims the item syncs them, and a power cut that takes them leaves
+    // the items unkeyed, which the next look keys again.
     run.state()
-        .write(move |connection| work_items::set_keys(connection, &keys))
+        .write_deferred(move |connection| work_items::set_keys(connection, &keys))
         .await?;
     for waiting in keyed {
         admission.enqueue(waiting);
@@ -1365,21 +1577,24 @@ async fn fill(
     Ok(())
 }
 
-/// Admits up to `room` work items ready now and leases them, then fills
-/// again each domain's queue that drained. Each one first charges the
-/// request it is against the Limits that hold the Run (ADR 0041): once one
-/// has nothing left, or one the engine cannot evaluate covers it, the Run
-/// is asked to stop at its next safe point and nothing more is admitted.
+/// Admits up to `room` work items ready now, leases them and draws their
+/// Sessions, then fills again each domain's queue that drained. Each one
+/// first charges the request it is against the Limits that hold the Run
+/// (ADR 0041): once one has nothing left, or one the engine cannot
+/// evaluate covers it, the Run is asked to stop at its next safe point and
+/// nothing more is admitted.
 async fn admit(
     run: &Run,
     admission: &mut Admission,
     room: usize,
-) -> Result<Vec<Leased>, ChargeError> {
+    pooled: &mut Pooled<'_>,
+) -> Result<Vec<Drawn>, ChargeError> {
     let now = run.clock().now();
     let mut ids = Vec::new();
     let mut keys = Vec::new();
     let mut drained = Vec::new();
     let mut refused = Vec::new();
+    let mut charges = UnjournaledCharges::default();
     while ids.len() < room {
         let Some(admitted) = admission.admit(now).await else {
             break;
@@ -1391,7 +1606,7 @@ async fn admit(
             refused.push((admitted, until));
             continue;
         }
-        match run.charge(REQUESTS, 1).await {
+        match run.charge_unjournaled(&mut charges, REQUESTS, 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(_) | Refusal::NotUnderstood(_))) => break,
             Err(error) => return Err(error),
@@ -1406,24 +1621,91 @@ async fn admit(
         end_unsent(run, admission, refused).await?;
     }
     let asked = ids.clone();
-    let leased = if ids.is_empty() {
+    let drawn = if ids.is_empty() {
         Vec::new()
     } else {
-        run.state()
-            .write(move |connection| work_items::lease(connection, &ids))
-            .await?
+        leased_and_drawn(run, charges, ids, pooled).await?
     };
     // A work item a rule learned later merged after the gate took it is
     // no longer pending: it gives its domain's turn back unsent.
     for (id, key) in asked.iter().zip(&keys) {
-        if !leased.iter().any(|leased| leased.crawl_request.id == *id) {
+        if !drawn
+            .iter()
+            .any(|drawn| drawn.leased.crawl_request.id == *id)
+        {
             admission.ended(id, key, now, Ended::Done).await;
         }
     }
     for key in drained {
         fill(run, admission, Some(key)).await?;
     }
-    Ok(leased)
+    Ok(drawn)
+}
+
+/// Leases each pending work item of `ids` and draws the Session of
+/// `pooled`'s pool that serves each, in one write of run state that also
+/// journals `charges` and holds what the pool's draws changed and each
+/// tier choice's count of requests served: each attempt's claim, one job
+/// of the writer (ADR 0138). The pool and the tier choices are the write's
+/// while it runs.
+async fn leased_and_drawn(
+    run: &Run,
+    unjournaled: UnjournaledCharges,
+    ids: Vec<String>,
+    pooled: &mut Pooled<'_>,
+) -> Result<Vec<Drawn>, ChargeError> {
+    let pool = pooled
+        .pool
+        .take()
+        .ok_or(ChargeError::State(RunStateError::Closed))?;
+    let fetching = pooled.fetching;
+    let mut choices = fetching.choices.lock().await;
+    let (back, returned) = oneshot::channel();
+    let mut lent = Lent {
+        held: Some((pool, std::mem::take(&mut *choices))),
+        back: Some(back),
+    };
+    let drawing = Drawing {
+        labels: std::sync::Arc::clone(&fetching.labels),
+        settings: pooled.settings,
+        run_tier: fetching.run_tier,
+        races: fetching.races,
+        wall: (run.clock().wall(), wall_ms(run)),
+    };
+    let written = run
+        .write_charged(unjournaled, move |connection| {
+            let (pool, choices) = lent
+                .held
+                .as_mut()
+                .expect("invariant: a write that draws holds the pool until it is dropped");
+            let mut drawn = Vec::new();
+            let mut counted = Vec::new();
+            for leased in work_items::lease(connection, &ids)? {
+                let key = (
+                    leased.crawl_request.label.clone(),
+                    leased.waiting.key.clone(),
+                );
+                let (one, unit) = drawing.draw((pool, choices), leased);
+                drawn.push(one);
+                counted.extend(unit.map(|unit| (key, unit)));
+            }
+            let changes = pool.changes();
+            if !changes.is_empty() {
+                changes.write(connection)?;
+            }
+            for ((label, domain_key), unit) in &counted {
+                tier_choice::record(connection, label, domain_key, unit)?;
+            }
+            Ok(drawn)
+        })
+        .await;
+    // The write's job is dropped once it ran, or unrun once the writer
+    // stopped: either way the pool and the choices come back.
+    if let Ok((pool, taken)) = returned.await {
+        *pooled.pool = Some(pool);
+        *choices = taken;
+    }
+    written
 }
 
 /// Writes what the gate changed into the run file.
@@ -1432,7 +1714,9 @@ async fn journal(run: &Run, admission: &mut Admission) {
     if let Some(journal) = admission.journal(clock.wall(), clock.now())
         && let Err(error) = run
             .state()
-            .write(move |connection| journal(connection))
+            // A domain's hold or backoff joins the next group that syncs
+            // (ADR 0138's note of #1926).
+            .write_deferred(move |connection| journal(connection))
             .await
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's per-domain queues were not journaled");
@@ -1457,19 +1741,59 @@ fn count_retry(run: &Run) {
         .add(1, &[]);
 }
 
-/// Commits an attempt's outcome: its Records once while its lease holds,
-/// its handler's skip, its block, or its work item retried or failed, with
-/// no retry when its failure's site asked for a time further away than the
-/// Run waits (`held`); then releases its lease. Answers whether its work
-/// item waits again for a retry.
-async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) -> bool {
+/// An ended attempt's outcome, queued as one job of the run state's
+/// writer, and what finishing it needs once that job answers.
+struct QueuedOutcome {
+    leased: Leased,
+    lease: WorkItemLease,
+    run: Run,
+    /// Whether it commits its answer.
+    commits: bool,
+    written: Pin<Box<dyn Future<Output = Written> + Send>>,
+}
+
+/// What an outcome's job answered.
+type Written = Result<(attempt_outcome::Ended, Vec<(String, String)>), RunStateError>;
+
+/// What an attempt's outcome left the delivery to do once it was written:
+/// the pending requests a rule its page taught merged, by ID with their
+/// domain key, each work item it added keyed, in order, and whether its
+/// work item waits again for a retry.
+struct Finished {
+    merged: Vec<(String, String)>,
+    keyed: Vec<Waiting>,
+    retried: bool,
+}
+
+/// Queues `attempt`'s outcome as one job of the run state's writer (ADR
+/// 0138), with what its Session's score changed and its tier choice,
+/// `scored`, and what its page teaches the Frontier when it left that to
+/// its outcome: its Records committed once while its lease holds, its
+/// links admitted and keyed, or its handler's skip, its block, or its work
+/// item retried or failed, under the Run's `policy`, with no retry when its
+/// failure's site asked for a time further away than the Run waits
+/// (`held`), or its sitemap's entries admitted under the Run's domain
+/// policy as `resolved` holds it, within the scope the run file holds,
+/// the fetch ended with no outcome (ADR 0093).
+async fn queue_outcome(
+    run: &Run,
+    (resolved, policy): (&Resolved, CrawlPolicy),
+    held: bool,
+    attempt: Attempt,
+    scored: Scored,
+) -> QueuedOutcome {
     let Attempt {
         leased,
         lease,
         answer,
+        taught,
         ..
     } = attempt;
-    let failure = |failure, retryable| retried_or_failed(policy, leased.tries, failure, retryable);
+    let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let masks = run.secrets().mask().masks().clone();
+    let tries = leased.tries;
+    let failure = move |failure, retryable| retried_or_failed(policy, tries, failure, retryable);
+    let mut commits = false;
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
@@ -1483,49 +1807,41 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
         Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
-        // Read by `read_sitemap`, never settled here.
-        Answer::SitemapRead(_) => {
-            lease.release();
-            return false;
+        Answer::SitemapRead(document) => {
+            let work = run.metrics().counted_work().clone();
+            work.count(Row::SitemapTransactions);
+            let ending = attempt_outcome::Ending::Sitemap {
+                work_item,
+                lease_epoch,
+                egress: resumed_domain_policy(resolved, run.id()),
+                document,
+                work,
+            };
+            return queued(run, (leased, lease), (scored, taught, ending), false).await;
         }
         Answer::Handled(handled) => {
-            match lease
-                .commit(
-                    run.state(),
-                    run.secrets().mask().masks(),
-                    handled.records,
-                    run.point_in_time(),
-                )
-                .await
-            {
-                Ok(committed) => {
-                    lease.release();
-                    crate::enqueue::links::mark_suspected(
-                        run,
-                        &leased.crawl_request.id,
-                        &committed.suspected,
-                    )
-                    .await;
-                    goodfetch_engine::key_value_store::forget_files(run, committed.files).await;
-                    return false;
+            match lease.committing(run.state(), &masks, handled.records, run.point_in_time()) {
+                Ok(commit) => {
+                    commits = true;
+                    let refused: Refusing =
+                        Box::new(move |refusal: goodfetch_engine::CallError| {
+                            failure(
+                                kept_failure(
+                                    &masks,
+                                    refusal.code().to_owned(),
+                                    refusal.message(),
+                                    refusal.details().cloned().unwrap_or_default(),
+                                ),
+                                refusal.retryable(),
+                            )
+                        });
+                    let ending = attempt_outcome::Ending::Commit { commit, refused };
+                    return queued(run, (leased, lease), (scored, taught, ending), commits).await;
                 }
-                Err(CommitError::LeaseLost) => failure(
+                Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
                 ),
-                Err(CommitError::Refused(refused)) => failure(
-                    kept_failure(
-                        run,
-                        refused.code().to_owned(),
-                        refused.message(),
-                        refused.details().cloned().unwrap_or_default(),
-                    ),
-                    refused.retryable(),
-                ),
-                Err(CommitError::RunState(error)) => {
-                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-                    return false;
-                }
             }
         }
         Answer::ClientGone => failure(
@@ -1542,7 +1858,7 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             message,
             details,
         } => {
-            let failed = kept_failure(run, code, &message, details);
+            let failed = kept_failure(&masks, code, &message, details);
             match block_cause(&failed.code, &failed.details) {
                 Some(cause) => Unsuccessful::Blocked(cause),
                 None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
@@ -1550,50 +1866,133 @@ async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) ->
             }
         }
     };
-    end_unsuccessful(run, &lease, &leased, unsuccessful).await
+    let ending = attempt_outcome::Ending::End {
+        work_item,
+        lease_epoch,
+        unsuccessful,
+        ended_at: run.point_in_time(),
+    };
+    queued(run, (leased, lease), (scored, taught, ending), commits).await
 }
 
-/// Reads what the sitemap fetch `attempt` gave while its lease holds, in
-/// one write: its entries and nested sitemaps admitted under the Run's
-/// domain policy as `resolved` holds it, within the scope the run file
-/// holds, and the fetch ended with no outcome (ADR 0093); the delivery
-/// then keys the work items it added. Releases its lease.
-async fn read_sitemap(run: &Run, resolved: &Resolved, attempt: Attempt) {
-    let Attempt {
+/// Queues the outcome of `leased`'s attempt under `lease`, ending as
+/// `ending` says beside `scored` and what `taught` leaves to it, in the
+/// run state's writer's queue now.
+async fn queued(
+    run: &Run,
+    (leased, lease): (Leased, WorkItemLease),
+    (scored, taught, ending): (Scored, Taught, attempt_outcome::Ending),
+    commits: bool,
+) -> QueuedOutcome {
+    let outcome = Outcome {
+        scored: scored.changes,
+        chosen: scored.chosen,
+        learning: taught.learning.map(|learning| *learning),
+        ending,
+    };
+    let written: Pin<Box<dyn Future<Output = Written> + Send>> = match run.state().reserve().await {
+        Ok(place) => Box::pin(place.write(move |connection| outcome.write(connection))),
+        Err(error) => Box::pin(std::future::ready(Err(error))),
+    };
+    QueuedOutcome {
         leased,
         lease,
-        answer: Answer::SitemapRead(document),
-        ..
-    } = attempt
-    else {
-        return;
-    };
-    let egress = resumed_domain_policy(resolved, run.id());
-    let (id, epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
-    let work = run.metrics().counted_work().clone();
-    work.count(Row::SitemapTransactions);
-    let written = run
-        .state()
-        .write(move |connection| {
-            work_items::read_sitemap(connection, &egress, (&id, epoch), &document, &work)
-        })
-        .await;
-    lease.release();
-    match written {
-        Ok(true) => {}
-        Ok(false) => {
-            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "a sitemap's entries were not admitted");
-        }
+        run: run.clone(),
+        commits,
+        written,
     }
 }
 
-/// A handler's failure as the Run's state keeps it: no value the Run
-/// resolved stays in its message or details (spec #564).
-fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Value>) -> Failure {
-    let masks = run.secrets().mask().masks();
+impl QueuedOutcome {
+    /// Waits for its job's answer, then releases its lease and finishes
+    /// what the job committed: a committed attempt's suspected trap links'
+    /// Provenance and the files it took out, and the failure an attempt
+    /// ended with counted in its Run's outcomes.
+    async fn finished(self) -> Finished {
+        let Self {
+            leased,
+            lease,
+            run,
+            commits,
+            written,
+        } = self;
+        let mut finished = Finished {
+            merged: Vec::new(),
+            keyed: Vec::new(),
+            retried: false,
+        };
+        let ended = match written.await {
+            Ok((ended, merged)) => {
+                finished.merged = merged;
+                ended
+            }
+            Err(error) => {
+                if commits {
+                    // Traced as a commit the run file refused, its lease
+                    // left to end.
+                    if let Err(CommitError::RunState(error)) = lease.committed(Err(error)) {
+                        tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                    }
+                } else {
+                    lease.release();
+                    tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
+                }
+                return finished;
+            }
+        };
+        match ended {
+            attempt_outcome::Ended::Committed(committed) => {
+                let committed = lease
+                    .committed(Ok(Some(Ok(committed))))
+                    .expect("invariant: a commit written is committed");
+                lease.release();
+                crate::enqueue::links::mark_suspected(
+                    &run,
+                    &leased.crawl_request.id,
+                    &committed.suspected,
+                )
+                .await;
+                goodfetch_engine::key_value_store::forget_files(&run, committed.files).await;
+                finished.keyed = committed.keyed;
+            }
+            attempt_outcome::Ended::LeaseLost => {
+                let _ = lease.committed(Ok(None));
+                lease.release();
+            }
+            attempt_outcome::Ended::Unsuccessful {
+                ended,
+                recorded,
+                retried,
+            } => {
+                lease.release();
+                if ended {
+                    if let Some(code) = recorded {
+                        run.record_outcome(&code);
+                    }
+                    finished.retried = retried;
+                } else {
+                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
+                }
+            }
+            attempt_outcome::Ended::SitemapRead(read) => {
+                lease.release();
+                if !read {
+                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+                }
+            }
+        }
+        finished
+    }
+}
+
+/// A handler's failure as the Run's state keeps it: no value of `masks`,
+/// those the Run resolved, stays in its message or details (spec #564).
+fn kept_failure(
+    masks: &goodfetch_engine::mask::Masks,
+    code: String,
+    message: &str,
+    details: Map<String, Value>,
+) -> Failure {
     let mut kept = Value::Object(details);
     masks.apply_value(&mut kept, Scope::Kept);
     let Value::Object(details) = kept else {
@@ -1603,48 +2002,6 @@ fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Val
         code,
         message: masks.apply(message, Scope::Kept).into_owned(),
         details,
-    }
-}
-
-/// Ends `leased`'s work item `unsuccessful` while its lease holds,
-/// counting its failure's code in the Run's outcomes, then releases
-/// `lease`. Answers whether the work item waits again for a retry.
-async fn end_unsuccessful(
-    run: &Run,
-    lease: &WorkItemLease,
-    leased: &Leased,
-    unsuccessful: Unsuccessful,
-) -> bool {
-    let id = leased.crawl_request.id.clone();
-    let epoch = leased.lease_epoch;
-    let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
-    let recorded = match &unsuccessful {
-        Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
-            Some(failure.code.clone())
-        }
-        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
-    };
-    let ended_at = run.point_in_time();
-    let written = run
-        .state()
-        .write(move |connection| work_items::end(connection, &id, epoch, unsuccessful, &ended_at))
-        .await;
-    lease.release();
-    match written {
-        Ok(true) => {
-            if let Some(code) = recorded {
-                run.record_outcome(&code);
-            }
-            retried
-        }
-        Ok(false) => {
-            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
-            false
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
-            false
-        }
     }
 }
 

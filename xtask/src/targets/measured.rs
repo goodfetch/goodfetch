@@ -1,5 +1,5 @@
 //! What `report` reads: hyperfine's export of each Product's startup, the
-//! peaks `xtask rss measure` wrote, the latest `just compare-spider`
+//! peaks `xtask rss measure` wrote, the latest `just compare`
 //! report and the optimization pass's write-ups. A missing file is a
 //! figure not measured yet, never an error.
 #![expect(
@@ -74,7 +74,7 @@ pub(crate) struct Startup {
     pub(crate) runs: usize,
 }
 
-/// One tool's median pages per second in a `just compare-spider` report;
+/// One tool's median pages per second in scenario 1 of a `just compare` report;
 /// the crawl's peak is the resident-memory check's `crawl` scenario's.
 #[derive(Deserialize)]
 pub(crate) struct CrawlFigures {
@@ -87,7 +87,7 @@ pub(crate) struct SpiderTools {
     pub(crate) spider: CrawlFigures,
 }
 
-/// The parts of a `just compare-spider` report the targets read.
+/// The parts of a `just compare` report the targets read.
 #[derive(Deserialize)]
 pub(crate) struct SpiderReport {
     pub(crate) commit: String,
@@ -143,6 +143,16 @@ impl Measured {
             .iter()
             .filter(|peak| peak.product == product && peak.scenario == scenario)
             .map(|peak| peak.bytes)
+            .collect()
+    }
+
+    /// The executable's own file-backed pages of each peak of `scenario` on
+    /// `product` that has them, in bytes.
+    pub(crate) fn executable_bytes(&self, scenario: Scenario, product: Product) -> Vec<u64> {
+        self.peaks
+            .iter()
+            .filter(|peak| peak.product == product && peak.scenario == scenario)
+            .filter_map(|peak| peak.executable_bytes)
             .collect()
     }
 

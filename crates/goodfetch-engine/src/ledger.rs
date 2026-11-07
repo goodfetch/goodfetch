@@ -35,7 +35,7 @@ use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior};
 
-pub use self::charging::{Charged, Charging, Refusal, Reservation};
+pub use self::charging::{Charged, Charging, Counted, Refusal, Reservation};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
@@ -149,10 +149,15 @@ pub enum Probed {
     Live,
     /// Its writer lock is free, or held at a later run epoch: the engine
     /// that took the Slice is gone. `used` is the Usage the run journaled
-    /// under the Slice's epoch, by Slice.
+    /// under the Slice's epoch, by Slice, and `beyond` what writes a power
+    /// cut may have taken could have charged of each Slice past it (ADR
+    /// 0138's note of #1926): the requests in flight at `full`, the whole
+    /// Slice at a lower Durability level.
     Gone {
         /// What it used of each Slice.
         used: BTreeMap<SliceId, u64>,
+        /// What it may have charged of each Slice past `used`.
+        beyond: u64,
     },
     /// Its run state cannot be read.
     Unreadable,
@@ -326,16 +331,18 @@ impl Ledger {
         self.vfs.is_some() || matches!(self.path.try_exists(), Ok(false))
     }
 
-    /// Connects to the file read-write, with `extra` flags: one counted open,
-    /// and a commit hook that counts what no wrapper sees, each transaction
-    /// the connection commits, its set-up's among them (ADR 0140).
+    /// Connects to the file read-write, with `extra` flags: one counted open
+    /// once it opened, as a read of a ledger no engine created opens none
+    /// (#2110), and a commit hook that counts what no wrapper sees, each
+    /// transaction the connection commits, its set-up's among them (ADR
+    /// 0140).
     fn connect(&self, extra: OpenFlags) -> rusqlite::Result<Connection> {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX | extra;
-        self.work.count(CountedRow::ChargeOpens);
         let connection = match &self.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
             None => Connection::open_with_flags(&self.path, flags),
         }?;
+        self.work.count(CountedRow::ChargeOpens);
         let work = self.work.clone();
         connection.commit_hook(Some(move || {
             work.count(CountedRow::ChargeTransactions);
@@ -355,6 +362,7 @@ impl Ledger {
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;
+        crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(|error| failed(&error))?;
         if cfg!(target_os = "macos") {
             connection
                 .pragma_update(None, "fullfsync", "ON")
@@ -489,13 +497,17 @@ impl Ledger {
         Ok(id)
     }
 
-    /// Every Limit row, in the order they were added.
+    /// Every Limit row, in the order they were added; none in a ledger no
+    /// engine created yet, which a read leaves uncreated, so a run no Limit
+    /// holds syncs none of it (#2110).
     ///
     /// # Errors
     ///
     /// When the ledger cannot be read.
     pub fn limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
-        let connection = self.open()?;
+        let Some(connection) = self.open_existing()? else {
+            return Ok(Vec::new());
+        };
         stored_limits(&connection).map_err(|error| self.failed(&error))
     }
 
@@ -503,6 +515,9 @@ impl Ledger {
     /// connection its caller keeps between reads, opened now when it holds
     /// none and let go when a read fails, so the next one opens afresh
     /// (the deep review's 599-12: a run's every charge reopened the file).
+    /// A ledger no engine created yet holds no Limit, and stays uncreated:
+    /// the next read tries again, so a Limit set meanwhile holds the next
+    /// charge.
     ///
     /// # Errors
     ///
@@ -511,7 +526,10 @@ impl Ledger {
         self.work.count(CountedRow::ChargeStatements);
         let read = match kept {
             Some(connection) => stored_limits(connection),
-            None => stored_limits(kept.insert(self.open()?)),
+            None => match self.open_existing()? {
+                Some(connection) => stored_limits(kept.insert(connection)),
+                None => return Ok(Vec::new()),
+            },
         };
         read.map_err(|error| {
             *kept = None;
@@ -566,7 +584,9 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     pub fn left(&self, stored: &StoredLimit, now: Timestamp) -> Result<u64, LedgerError> {
-        let connection = self.open()?;
+        let Some(connection) = self.open_existing()? else {
+            return Ok(stored.amount);
+        };
         let (key, _) = stored.period_key(now);
         let (charged, held) =
             counted(&connection, stored.id, &key).map_err(|error| self.failed(&error))?;
@@ -790,7 +810,9 @@ impl Ledger {
     }
 
     /// Reclaims every held Slice whose run `probe` finds gone: charges what
-    /// the run journaled under the Slice's epoch, at most the Slice, or the
+    /// the run journaled under the Slice's epoch and what it may have
+    /// charged beyond it in writes a power cut took, at most the Slice, so
+    /// a Limit is over-charged rather than under-charged, or the
     /// whole Slice, marked for review, when its run state cannot be read.
     /// A ledger no engine created yet holds no Slice, and stays uncreated.
     ///
@@ -807,11 +829,12 @@ impl Ledger {
             let probed = probe(&holder);
             let charges: Vec<(SliceId, u64, &'static str)> = match &probed {
                 Probed::Live => continue,
-                Probed::Gone { used } => slices
+                Probed::Gone { used, beyond } => slices
                     .iter()
                     .map(|slice| {
                         let used = used.get(&slice.id).copied().unwrap_or(0);
-                        (slice.id, used.min(slice.size), "reclaimed")
+                        let charged = used.saturating_add(*beyond).min(slice.size);
+                        (slice.id, charged, "reclaimed")
                     })
                     .collect(),
                 Probed::Unreadable => slices
@@ -951,7 +974,8 @@ fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Resu
 }
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {
-    let mut statement = connection.prepare(
+    // Kept prepared: each admission of a page reads the Limits (ADR 0138).
+    let mut statement = connection.prepare_cached(
         "SELECT limit_id, scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, managed_major, set_at
          FROM limits ORDER BY limit_id",
     )?;

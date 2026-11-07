@@ -696,15 +696,7 @@ impl Observe for Record {
         });
         let run = self.run.clone();
         self.run.spawn(async move {
-            if let Err(error) = goodfetch_engine::run_trace::provenance(
-                run.owner(),
-                run.folder(),
-                run.secrets().mask(),
-                run.metrics().counted_work(),
-                &entry,
-            )
-            .await
-            {
+            if let Err(error) = run.provenance(entry).await {
                 tracing::warn!(%error, "the Run's Provenance did not take a host the egress relay terminated");
             }
         });
@@ -922,7 +914,7 @@ pub fn fuzz_request_head(data: &[u8]) {
     if let Ok(Some((head, _))) = head::parse(data) {
         let _ = head.target.url();
         let _ = head.target.authority();
-        let _ = head.forwarded(true, Some("Basic Z29vZGZldGNoOng="));
+        let _ = head.as_sent(true, Some("Basic Z29vZGZldGNoOng="));
     }
 }
 

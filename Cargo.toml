@@ -17,10 +17,19 @@ members = [
   "proving-ground",
   "xtask",
 ]
-# Goodfetch's forks of `wreq` and `wreq-util`, which `[patch.crates-io]`
-# below carries: crates of their own, not members. The Kennel's workspace,
-# `kennel/`, has its own lockfile and toolchain (ADR 0141).
-exclude = ["kennel", "vendor/wreq", "vendor/wreq-util"]
+# Goodfetch's forks of `wreq`, `wreq-util`, `dom_smoothie`, `rs-trafilatura`
+# and the two crates rs-trafilatura reads trees with, which
+# `[patch.crates-io]` below carries: crates of their own, not members. The
+# Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
+exclude = [
+  "kennel",
+  "vendor/dom_smoothie",
+  "vendor/html-cleaning",
+  "vendor/quick_html2md",
+  "vendor/rs-trafilatura",
+  "vendor/wreq",
+  "vendor/wreq-util",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -83,9 +92,12 @@ expectrl = { version = "0.9.0", default-features = false }
 # (ADR 0007): dom-smoothie finds a document's main content and htmd writes
 # it as Markdown, from the html5ever tree markup5ever_rcdom holds, which
 # goodfetch-extractor's own htmd handlers read.
+# Carried as Goodfetch's fork (the `[patch.crates-io]` below).
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
-dom_query = { version = "0.28.0", default-features = false }
+# `atomic`: its tendrils are atomic, so a page's tree is `Send` and can live
+# on one owner task (#1918; #2109).
+dom_query = { version = "0.28.0", default-features = false, features = ["atomic"] }
 # Its CSS tokenizer, on which the fetch tiers find the selector extensions
 # dom_query reads and a browser refuses; the version dom_query links.
 cssparser = { version = "0.37.0", default-features = false }
@@ -95,17 +107,18 @@ htmd = { version = "0.5.6", default-features = false }
 # (ADR 0119); the version dom_query already links.
 html5ever = { version = "0.39.0", default-features = false }
 markup5ever_rcdom = { version = "0.38.0", default-features = false }
+# The names of markup5ever_rcdom's tree, into which the Markdown converter
+# walks the page's own tree for htmd (ADR 0138); the version htmd links.
+markup5ever_htmd = { package = "markup5ever", version = "0.38.0", default-features = false }
 # The page formats' streaming pass over a document for its links, images and
 # media (spec #580; ADR 0007): no tree, one pass.
 lol_html = { version = "3.0.2", default-features = false }
-# The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
+# An html5ever tree with CSS selectors, which Foxhound's own readers use.
 scraper = { version = "0.27.0", default-features = false }
-# scraper's tree, whose node IDs the microdata reader keys on (#787).
-ego-tree = { version = "0.11.1", default-features = false }
 # The other built-in main-content step, `content.extractor = "trafilatura"`
 # (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
-# (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning
-# lines come with it.
+# (`rnd/lab/adapters/extract-rust`), carried as Goodfetch's fork (the
+# `[patch.crates-io]` below).
 rs-trafilatura = { version = "=0.2.2", default-features = false }
 # The page formats' telephone numbers in E.164 (spec #580; #787):
 # libphonenumber's metadata and parser, so a national number written with
@@ -273,6 +286,11 @@ hickory-resolver = { version = "0.26.3", default-features = false }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }
+# The engine's bounded cache of compiled selectors, regular expressions
+# and globs (ADRs 0138 and 0140), in goodfetch-counted-work: concurrent, so
+# a lookup takes no lock around a page's others. hickory-resolver already
+# links it with the same feature.
+moka = { version = "0.12.16", default-features = false, features = ["sync"] }
 # `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
 # starts its child with raw system calls on Linux (ADR 0067).
@@ -305,7 +323,7 @@ rstest = { version = "0.27.0", default-features = false }
 # SQLite it bundles. goodfetch-test-support's crash VFS (ADR 0060) registers
 # with that same SQLite through sqlite-plugin, whose build script runs
 # bindgen (libclang) and downloads nothing.
-rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "hooks", "serialize"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled", "cache", "hooks", "serialize"] }
 sqlite-plugin = { version = "0.11.0", default-features = false, features = ["static"] }
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 # Credentials held as `SecretString`, zeroized when dropped (STYLE.md).
@@ -451,7 +469,38 @@ undocumented_unsafe_blocks = "deny"
 # left out. Drop this patch, the folder and its `exclude` above when a
 # `wreq-util` release takes zstd 0.14.3 or newer, and move the `wreq-util`
 # pin to that release. The fuzz crate carries this patch too.
+#
+# And of `rs-trafilatura` 0.2.2 (#1916, folding in #1634), carried in
+# `vendor/rs-trafilatura` as version `0.2.2+goodfetch.1`: upstream's commit
+# a20bb0d58ee17f0315d2e5f7d2a7119560aecd06 plus a document entry,
+# `extract_document_with_options`, which reads a tree the caller parsed, so
+# `content.extractor = "trafilatura"` reads the Page analysis's tree with no
+# parse of its own (ADR 0138). Its `dom_query` is this workspace's, so the
+# tree is the one type every reader shares; `html-cleaning` 0.3.0 (upstream's
+# 5dad3bc6e85739091e260a47055ed731bc184afa) and `quick_html2md` 0.2.1
+# (b7b8fcb195436059bd8011800063cbbe48a525dc), the crates it hands that tree
+# to, are carried beside it in `vendor/` as `+goodfetch.1` for that version
+# alone. Their binaries, examples, tests and benchmarks are left out. Drop
+# these three patches, their folders and their `exclude` entries above when
+# an rs-trafilatura release takes a tree and links this workspace's
+# `dom_query`, and move the `rs-trafilatura` pin to that release. The fuzz
+# crates that link goodfetch-extractor carry these patches too.
+#
+# And of `dom_smoothie` 0.18.2, carried in `vendor/dom_smoothie` as version
+# `0.18.2+goodfetch.1`: upstream's commit
+# 51c7f93e0218e406057d5a49a0935c2bb6f62726 (its `.cargo_vcs_info.json`) with
+# one line of `src/helpers.rs` changed, `get_node_matching_string`'s
+# `push_tendril` of an attribute's value to `push_slice`, so it builds under
+# `dom_query`'s `atomic` feature (#2109; 0.19.0 has the same line); its tests
+# are left out. Drop this patch, the folder and its `exclude` above when a
+# `dom_smoothie` release builds under `atomic`, and move the `dom_smoothie`
+# pin to that release. The fuzz crates that link goodfetch-extractor carry
+# this patch too.
 [patch.crates-io]
+dom_smoothie = { path = "vendor/dom_smoothie" }
+html-cleaning = { path = "vendor/html-cleaning" }
+quick_html2md = { path = "vendor/quick_html2md" }
+rs-trafilatura = { path = "vendor/rs-trafilatura" }
 wreq = { path = "vendor/wreq" }
 wreq-util = { path = "vendor/wreq-util" }
 

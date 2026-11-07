@@ -700,12 +700,42 @@ number = 6
 kind = "setting"
 prefix = "content."
 
+# How `page.formats` measures ADR 0047's share of the main content the
+# Clean-up rules removed (ADR 0138, #1913).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "extraction."
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]
 number = 6
 kind = "setting"
 prefix = "crawl.keep_url_fragment"
+
+# The Frontier's learning from the crawl's pages, switchable (ADR 0138).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "frontier.learning"
+
+# The per-page features a crawl switches off for throughput (ADR 0138,
+# #1921): its Provenance log, its Records and its Block classification.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "provenance.log"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "dataset.records"
+
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.block_classification"
 
 # The redirects and refresh stubs a crawl request's fetch follows (spec
 # #579, #762, ADR 0118).
@@ -744,6 +774,11 @@ prefix = "site_preferences.robots_txt_user_agent"
 number = 6
 kind = "setting"
 prefix = "site_preferences.respect_robots_txt"
+
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.mark_robots_txt_ignored"
 
 [[area]]
 number = 6

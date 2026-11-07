@@ -5,9 +5,11 @@ import type { AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, Comp
 /**
  * A `audit_kind`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `feature_switched_off`: A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records` or `fetch.block_classification`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.
+ * - `learning_switched_off`: A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.
  * - `politeness_weakened`: A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).
  */
-export type AuditKind = CollieAuditKind | "politeness_weakened";
+export type AuditKind = CollieAuditKind | "feature_switched_off" | "learning_switched_off" | "politeness_weakened";
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).
@@ -44,10 +46,14 @@ export type LimitScope = CollieLimitScope | "partitioned_crawl";
 /**
  * A `run_warning_code`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).
  *
+ * - `block_classification_off`: The crawl ran with `fetch.block_classification` off: no document was read for a Challenge or a captcha, so a page a site blocked may be among its successes.
+ * - `learning_off`: The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.
  * - `local_address_rotated_within_block`: A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.
+ * - `provenance_off`: The crawl ran with `provenance.log` off: its Run trace holds no Provenance log, while each Record still carries its own Provenance.
+ * - `records_off`: The crawl ran with `dataset.records` off: it kept no Record, so its Datasets are empty by the setting, not for want of pages.
  * - `trap_links_off`: The crawl ran with its trap-link detection off.
  */
-export type RunWarningCode = CollieRunWarningCode | "local_address_rotated_within_block" | "trap_links_off";
+export type RunWarningCode = CollieRunWarningCode | "block_classification_off" | "learning_off" | "local_address_rotated_within_block" | "provenance_off" | "records_off" | "trap_links_off";
 
 /**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).

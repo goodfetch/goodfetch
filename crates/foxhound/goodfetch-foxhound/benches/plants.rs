@@ -96,13 +96,12 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
                     .expect("invariant: the planted file takes a write");
             })
         }
+        // A read no longer reaches the writer (#1923): `RunState::read` runs
+        // on the file's readers, so nothing reads through the writer, and
+        // the row's counted seam is the count alone.
         "F2.writer_reads" => {
-            let (runtime, folder, state) = writer(counted);
-            Arc::new(move |_: &str| {
-                let _kept = &folder;
-                beside(runtime, state.read(|_| Ok(())))
-                    .expect("invariant: the planted file takes a read");
-            })
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::WriterReads))
         }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();
@@ -136,15 +135,18 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::EffectSyncs))
         }
-        // Callgrind counts the process's calls of SQLite's own function, on
-        // any connection.
-        "F2.prepares" => Arc::new(|_: &str| {
-            let connection = rusqlite::Connection::open_in_memory()
-                .expect("invariant: SQLite opens an in-memory database");
-            let _ = connection
-                .prepare("SELECT 1")
-                .expect("invariant: a literal statement");
-        }),
+        // Callgrind counts SQLite's own function beneath the writer's: one
+        // statement a write prepares again on each page.
+        "F2.prepares" => {
+            let (runtime, folder, state) = writer(counted);
+            Arc::new(move |_: &str| {
+                let _kept = &folder;
+                let prepare =
+                    |connection: &rusqlite::Connection| connection.prepare("SELECT 1").map(drop);
+                beside(runtime, state.write(prepare))
+                    .expect("invariant: the planted file takes a write");
+            })
+        }
         other => panic!("no plant for the row {other}"),
     }
 }

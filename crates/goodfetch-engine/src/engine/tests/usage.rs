@@ -7,7 +7,9 @@
 //! of a dead engine's Run reclaimed by the next engine that opens the Usage
 //! ledger, from what the Run journaled, open reservations at their worst
 //! case. A test's own operation, `test.charge`, starts a Run that charges
-//! `requests` one at a time, as a crawl does before each request; another,
+//! `requests` one at a time, as a crawl does before each request, first
+//! any it journals only in one write once they are all charged, as a
+//! crawl's claim does; another,
 //! `test.reserve`, one that reserves a paid solve's worst case and settles
 //! it, as area 8's solvers will.
 
@@ -30,11 +32,12 @@ use super::run::call;
 use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::ledger::Ledger;
-use crate::runs::{ChargeError, EndedBy, Start, Started};
+use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
 use crate::transport::{self, Network};
 
-/// Starts a Run of its own and charges `amount` requests, one at a time,
-/// until one is refused.
+/// Starts a Run of its own and charges `unjournaled` requests, one at a
+/// time, journaled in one write only once `amount` more are charged, each
+/// journaled as it is, until one is refused.
 const CHARGE: Operation = Operation {
     name: "test.charge",
     description: "Starts a Run that charges requests one at a time.",
@@ -112,6 +115,13 @@ pub(super) fn charging() -> Contribution {
                 let run = started(&params, &context).await?;
                 let mut charged = 0;
                 let mut refused = false;
+                let mut unjournaled = UnjournaledCharges::default();
+                for _ in 0..params["unjournaled"].as_u64().unwrap_or(0) {
+                    run.charge_unjournaled(&mut unjournaled, "requests", 1)
+                        .await
+                        .unwrap();
+                    charged += 1;
+                }
                 for _ in 0..params["amount"].as_u64().unwrap() {
                     if params["newer_limit_after"].as_u64() == Some(charged) {
                         Ledger::at(context.runs().home().usage_ledger(), None)
@@ -126,6 +136,9 @@ pub(super) fn charging() -> Contribution {
                         }
                         Err(error) => panic!("the charge failed: {error}"),
                     }
+                }
+                if !unjournaled.is_empty() {
+                    run.write_charged(unjournaled, |_| Ok(())).await.unwrap();
                 }
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
@@ -439,15 +452,29 @@ fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
     drop(runtime);
 }
 
+/// A write that journals charges as a claim does needs no sync of its
+/// own, so a power cut may take it: its file declares how much, and the
+/// reclaim charges that much more, at most the Slice of 10, as it cannot
+/// tell a process's death from a power cut (ADR 0138's note of #1926). A
+/// Limit is then over-charged, never under-charged.
+///
 /// Covers: story:3-72
-#[test]
-fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run_journaled() {
+#[rstest]
+#[case::each_charge_journaled(json!({ "run_id": "orphan", "amount": 4 }), 4)]
+#[case::charges_journaled_in_one_write(json!({ "run_id": "orphan", "unjournaled": 4, "amount": 0 }), 10)]
+// The write journals each Slice as it is when queued, so it never
+// overwrites a later charge's journal with an older figure.
+#[case::a_charge_journaled_before_that_write(json!({ "run_id": "orphan", "unjournaled": 2, "amount": 2 }), 10)]
+fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run_journaled(
+    #[case] charge: Value,
+    #[case] charged: u64,
+) {
     let env = TestEnv::new();
     killed_after(
         &env,
         &[
             ("usage.set", monthly_install_limit(1_000)),
-            ("test.charge", json!({ "run_id": "orphan", "amount": 4 })),
+            ("test.charge", charge),
         ],
     );
 
@@ -456,8 +483,48 @@ fn the_next_engine_to_open_the_ledger_charges_a_dead_engines_slices_what_its_run
     let install = &replies[0]["result"]["limits"][0];
     assert_eq!(
         (&install["charged"], &install["held"], &install["left"]),
-        (&json!(4), &json!(0), &json!(996))
+        (&json!(charged), &json!(0), &json!(1_000 - charged))
     );
+}
+
+/// A Run resumed after its engine died while it held a claim's charges in
+/// a write a power cut could take says, in its report, that its Limit may
+/// be over-charged by as much as the reclaim charged past its journal (ADR
+/// 0138's note of #1926); one whose every charge was synced says nothing.
+///
+/// Covers: story:3-72
+#[rstest]
+#[case::charged_in_a_claims_write(json!({ "run_id": "orphan", "unjournaled": 4, "amount": 0 }), json!(["limit_may_be_over_charged"]))]
+#[case::each_charge_synced(json!({ "run_id": "orphan", "amount": 4 }), json!([]))]
+fn a_run_resumed_after_an_unclean_end_says_its_limit_may_be_over_charged(
+    #[case] charge: Value,
+    #[case] codes: Value,
+) {
+    let env = TestEnv::new();
+    killed_after(
+        &env,
+        &[
+            ("usage.set", monthly_install_limit(1_000)),
+            ("test.charge", charge),
+        ],
+    );
+
+    let replies = replies(
+        &env,
+        Product::Collie,
+        &[
+            ("run.resume", json!({ "run_id": "orphan" })),
+            ("run.abort", json!({ "run_id": "orphan" })),
+        ],
+    );
+
+    let warned: Vec<&Value> = replies[1]["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|warning| &warning["code"])
+        .collect();
+    assert_eq!(json!(warned), codes, "{replies:?}");
 }
 
 /// A monthly install Limit of `amount` millionths of a dollar on paid

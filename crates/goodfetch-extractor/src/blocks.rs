@@ -1,4 +1,4 @@
-//! A document read as blocks of text: its body without its head, the main
+//! A document read as blocks of text, on its tree (ADR 0138): the main
 //! content's text a paragraph per block, and the main content "fit"
 //! (`Crawl4AI`'s meaning, spec #580): without its link-dense blocks, those
 //! with more than half their text in links, its image-only blocks and the
@@ -6,8 +6,11 @@
 //! resolved against the document's base URL. Lengths are counted in
 //! characters, white space aside.
 
-use dom_query::NodeRef;
+use dom_query::{Matcher, NodeRef};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use url::{Position, Url};
+
+use crate::extractor::Article;
 
 /// The elements that hold no text a person reads: `noscript`, and those
 /// the HTML Standard's rendering hides that can hold text.
@@ -89,36 +92,12 @@ const IMAGE: &str = "img, picture, svg, video";
 /// The lists a "repeated navigation list" is one of.
 const LIST: &str = "ul, ol, menu";
 
-/// The HTML of `html`'s body, without its head: the whole page a person
-/// reads.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-pub(crate) fn body(html: &str) -> String {
-    let document = dom_query::Document::from(html);
-    document.select("body").inner_html().to_string()
-}
-
-/// The text of `html`, each block's text a paragraph, its white space made
-/// one space, the paragraphs one blank line apart.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-pub(crate) fn text(html: &str) -> String {
-    let document = dom_query::Document::from(html);
+/// The text of `nodes`, in order, each block's text a paragraph, its white
+/// space made one space, the paragraphs one blank line apart.
+pub(crate) fn text<'a>(nodes: impl IntoIterator<Item = NodeRef<'a>>) -> String {
     let mut blocks = Blocks::default();
-    for node in document.select("html").nodes() {
-        blocks.read(node);
+    for node in nodes {
+        blocks.read(&node);
     }
     blocks.end();
     blocks.done.join("\n\n")
@@ -173,87 +152,106 @@ impl Blocks {
     }
 }
 
-/// `main`, the main content's HTML, without its link-dense blocks, its
-/// image-only blocks and the lists whose links another list of `document`
-/// (the whole page, whose base URL is `base_url`) repeats, in order.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
-    let base = Url::parse(base_url).ok();
-    let page = dom_query::Document::from(document);
-    let page_lists: Vec<Vec<String>> = page
-        .select(LIST)
-        .nodes()
-        .iter()
-        .map(|list| targets(list, base.as_ref()))
-        .filter(|targets| !targets.is_empty())
-        .collect();
-    let lists = PageLists {
-        base: base.as_ref(),
-        targets: &page_lists,
-    };
-    let content = dom_query::Document::from(main);
-    let root = content.select("body");
-    for node in root.nodes() {
-        prune(node, &lists);
-    }
-    root.inner_html().to_string()
+/// The lists of a page, each as its links' targets, and the base URL they
+/// were resolved against: what "fit" compares the main content's lists to,
+/// read from the page's tree before the main-content step consumes it.
+pub(crate) struct PageLists {
+    base: Option<Url>,
+    targets: Vec<Vec<String>>,
 }
 
-/// The page's lists, each as its links' targets, and the base URL they
-/// were resolved against.
-struct PageLists<'a> {
-    base: Option<&'a Url>,
-    targets: &'a [Vec<String>],
+/// The matchers "fit" reads with, compiled once for the engine.
+struct Matchers {
+    candidate: Matcher,
+    image: Matcher,
+    list: Matcher,
+    link: Matcher,
 }
 
-/// Takes out of `node`'s descendants, from the outermost, each candidate
-/// block "fit" leaves out.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn prune(node: &NodeRef<'_>, lists: &PageLists<'_>) {
-    for child in node.element_children() {
-        if child.is(CANDIDATE) && left_out(&child, lists) {
-            child.remove_from_parent();
-        } else {
-            prune(&child, lists);
+impl Matchers {
+    fn of(work: &CountedWork) -> Self {
+        let compiled = |selector| work.literal_selector(Row::PageSelectorCompilations, selector);
+        Self {
+            candidate: compiled(CANDIDATE),
+            image: compiled(IMAGE),
+            list: compiled(LIST),
+            link: compiled(LINK),
         }
     }
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn left_out(block: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
+/// A link with a target.
+const LINK: &str = "a[href]";
+
+impl PageLists {
+    /// The lists of `page`, the tree of the whole page, whose base URL is
+    /// `base_url`.
+    pub(crate) fn of(page: &ParsedHtml, base_url: &str, work: &CountedWork) -> Self {
+        let base = Url::parse(base_url).ok();
+        let matchers = Matchers::of(work);
+        let targets = page
+            .select_matcher(&matchers.list)
+            .nodes()
+            .iter()
+            .map(|list| targets(list, base.as_ref(), &matchers))
+            .filter(|targets| !targets.is_empty())
+            .collect();
+        Self { base, targets }
+    }
+}
+
+/// Takes out of `article`, the main content, its link-dense blocks, its
+/// image-only blocks and the lists whose links another list of the page,
+/// `lists`, repeats, in order; whether anything of it is left.
+pub(crate) fn fit(article: &Article, lists: &PageLists, work: &CountedWork) -> bool {
+    let matchers = Matchers::of(work);
+    let root = article.root();
+    if article.whole && root.is_match(&matchers.candidate) && left_out(&root, lists, &matchers) {
+        return false;
+    }
+    prune(&root, lists, &matchers);
+    true
+}
+
+/// Takes out of `node`'s descendants, from the outermost, each candidate
+/// block "fit" leaves out.
+fn prune(node: &NodeRef<'_>, lists: &PageLists, matchers: &Matchers) {
+    for child in node.element_children() {
+        if child.is_match(&matchers.candidate) && left_out(&child, lists, matchers) {
+            child.remove_from_parent();
+        } else {
+            prune(&child, lists, matchers);
+        }
+    }
+}
+
+fn left_out(block: &NodeRef<'_>, lists: &PageLists, matchers: &Matchers) -> bool {
     let all = length(&block.text());
     if all == 0 {
-        return block.descendants_it().any(|node| node.is(IMAGE));
+        return block
+            .descendants_it()
+            .any(|node| node.is_match(&matchers.image));
     }
     let linked: usize = block
         .descendants_it()
-        .filter(|node| node.is("a[href]"))
-        .filter(|link| !link.ancestors_it(None).any(|up| up.is("a[href]")))
+        .filter(|node| node.is_match(&matchers.link))
+        .filter(|link| {
+            !link
+                .ancestors_it(None)
+                .any(|up| up.is_match(&matchers.link))
+        })
         .map(|link| length(&link.text()))
         .sum();
     if linked * 2 > all {
         return true;
     }
-    block.is(LIST) && repeated(block, lists)
+    block.is_match(&matchers.list) && repeated(block, lists, matchers)
 }
 
 /// Whether the list `list`'s link targets, in order, are those of at least
 /// two lists of the page: itself, and another it repeats.
-fn repeated(list: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
-    let own = targets(list, lists.base);
+fn repeated(list: &NodeRef<'_>, lists: &PageLists, matchers: &Matchers) -> bool {
+    let own = targets(list, lists.base.as_ref(), matchers);
     !own.is_empty() && lists.targets.iter().filter(|other| **other == own).count() >= 2
 }
 
@@ -261,13 +259,9 @@ fn repeated(list: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
 /// its path, query and fragment, so that an absolute target and a relative
 /// one to the same page compare equal; a target that does not resolve is
 /// read as written.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn targets(list: &NodeRef<'_>, base: Option<&Url>) -> Vec<String> {
+fn targets(list: &NodeRef<'_>, base: Option<&Url>, matchers: &Matchers) -> Vec<String> {
     list.descendants_it()
-        .filter(|node| node.is("a[href]"))
+        .filter(|node| node.is_match(&matchers.link))
         .filter_map(|link| link.attr("href"))
         .map(|href| {
             base.and_then(|base| base.join(&href).ok()).map_or_else(

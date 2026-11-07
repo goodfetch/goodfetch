@@ -30,7 +30,7 @@ mod resume;
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
-pub use declaration::{Datasets, Refused, counted_validator};
+pub use declaration::{Datasets, Declarations, Refused, counted_validator};
 pub use encoding::{
     Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, ParquetCodec,
     WALL_FIELD, csv_delimiter, feed_field, json_indent, sheet_name, xml_name,

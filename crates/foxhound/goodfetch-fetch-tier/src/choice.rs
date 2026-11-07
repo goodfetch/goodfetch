@@ -253,6 +253,13 @@ impl LabelSettings {
         self.page_checks.get(label)
     }
 
+    /// Each declared Label that declares a Page check of its own, with it.
+    pub fn page_checks(&self) -> impl Iterator<Item = (&str, &PageCheck)> {
+        self.page_checks
+            .iter()
+            .map(|(name, check)| (name.as_str(), check))
+    }
+
     /// Each declared Label that forces a tier, with it.
     pub fn forced(&self) -> impl Iterator<Item = (&str, FetchTier)> {
         self.tiers.iter().filter_map(|(name, tier)| match tier {

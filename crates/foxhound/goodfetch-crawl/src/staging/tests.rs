@@ -149,7 +149,7 @@ fn a_staged_enqueue_is_answered_as_it_commits_and_keeps_its_id_through_the_commi
     staging.discard("1", 7);
     let writes = staging
         .take("1", 1)
-        .admit(&connection)
+        .admit(&connection, None)
         .unwrap()
         .writes
         .len();
@@ -388,7 +388,7 @@ fn separate_enqueues_of_one_attempt_run_one_admission_each() {
         places.insert(std::sync::Arc::as_ptr(&entry.staged) as usize);
     }
     let staged = admissions.swap(0, std::sync::atomic::Ordering::Relaxed);
-    staging.take("1", 1).admit(&connection).unwrap();
+    staging.take("1", 1).admit(&connection, None).unwrap();
     let committed = admissions.load(std::sync::atomic::Ordering::Relaxed);
 
     assert_eq!(
@@ -433,10 +433,14 @@ fn a_commit_names_each_staged_request_another_commit_added_first() {
 
     let second = staging
         .take("2", epoch)
-        .admit(&connection)
+        .admit(&connection, None)
         .unwrap()
         .not_added;
-    let first = staging.take("1", 1).admit(&connection).unwrap().not_added;
+    let first = staging
+        .take("1", 1)
+        .admit(&connection, None)
+        .unwrap()
+        .not_added;
 
     assert_eq!(
         (answers, second, first, work_items_of(&connection)),
@@ -485,7 +489,7 @@ fn an_admission_past_the_attempts_bound_fails_with_staging_full() {
         .unwrap()
         .unwrap()
         .unwrap_err();
-    staging.take("1", 1).admit(&connection).unwrap();
+    staging.take("1", 1).admit(&connection, None).unwrap();
 
     assert_eq!(
         (
@@ -565,7 +569,11 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
         .into_iter()
         .map(|step| answer(staging.admit(&staged_run, "1", 1, step)))
         .collect();
-    let not_added = staging.take("1", 1).admit(&staged_run).unwrap().not_added;
+    let not_added = staging
+        .take("1", 1)
+        .admit(&staged_run, None)
+        .unwrap()
+        .not_added;
     let direct: Vec<Enqueued> = dependent_steps()
         .into_iter()
         .map(|step| answer(step(&direct_run, &mut Positions::of(&direct_run).unwrap())))

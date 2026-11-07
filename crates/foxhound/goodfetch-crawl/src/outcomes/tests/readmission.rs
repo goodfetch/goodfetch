@@ -128,6 +128,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         ended_at: &ended_at,
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
+                        keeps_records: true,
                     },
                 )
             }

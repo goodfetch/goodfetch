@@ -1,9 +1,9 @@
 //! The 1,000-page HTTP crawl of the local Proving ground (ADRs 0071 and
 //! 0134): the Proving ground serving the site, started outside the process
 //! measured, and Foxhound's Attached engine driven through one code-free
-//! crawl of it on its `http` tier. The resident-memory check's `crawl`
-//! scenario and `just compare-spider`'s Foxhound trials run this same
-//! crawl.
+//! crawl of it on its `http` tier at the product's defaults: the
+//! resident-memory check's `crawl` scenario. `just compare` serves its
+//! trials' sites with the same Proving ground and drives its own crawls.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -33,18 +33,6 @@ pub(crate) const CONCURRENCY: u32 = 16;
 /// The Proving ground's seed.
 const SEED: u64 = 1574;
 
-/// The settings a crawl runs with, beside those every crawl here sets.
-#[derive(Clone, Copy)]
-pub(crate) enum Settings {
-    /// The product's defaults.
-    CodeFree,
-    /// Scenario 1 of ADR 0138's matrix, as far as this tip's settings reach:
-    /// `run_state.durability` `fast`, the fastest there is, and robots.txt not
-    /// obeyed. Its `off` and `frontier.learning: false` arrive with #1577,
-    /// whose pull request adds them here.
-    Raw,
-}
-
 /// Where one crawl goes: the Proving ground's address and the site's size.
 pub(crate) struct Site<'a> {
     /// `<ip>:<port>`.
@@ -60,14 +48,14 @@ impl Site<'_> {
             .map_or(self.address, |(_, port)| port)
     }
 
-    fn ip(&self) -> &str {
+    pub(crate) fn ip(&self) -> &str {
         self.address
             .rsplit_once(':')
             .map_or(self.address, |(ip, _)| ip)
     }
 
     /// The site's first page on its host.
-    fn start_url(&self) -> String {
+    pub(crate) fn start_url(&self) -> String {
         format!("http://{HOST}:{}/sites/{}/1", self.port(), self.pages)
     }
 }
@@ -164,12 +152,7 @@ impl Engine {
 
 /// Opens with `hello`, starts a code-free crawl of the site on the `http`
 /// tier, waits for its Run to finish complete, and ends the input.
-pub(crate) fn crawl(
-    stdin: ChildStdin,
-    stdout: ChildStdout,
-    site: &Site<'_>,
-    settings: Settings,
-) -> Result<()> {
+pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> Result<()> {
     let mut engine = Engine {
         stdin,
         stdout: BufReader::new(stdout),
@@ -188,7 +171,7 @@ pub(crate) fn crawl(
     })?;
     engine.call("hello", HELLO, &hello)?;
     let concurrency = site.concurrency;
-    let mut run_settings = json!({
+    let run_settings = json!({
         "network": { "resolve": { HOST: [site.ip()] } },
         "egress": { "private_ranges": [HOST] },
         "fetch": { "tier": "http" },
@@ -200,10 +183,6 @@ pub(crate) fn crawl(
         },
         "crawl": { "handler": { "concurrency": concurrency } },
     });
-    if matches!(settings, Settings::Raw) {
-        run_settings["run_state"] = json!({ "durability": "fast" });
-        run_settings["site_preferences"] = json!({ "respect_robots_txt": false });
-    }
     engine.call(
         "start",
         "crawl.start",

@@ -1034,45 +1034,57 @@ fn a_crawls_settings_shape_its_attempts() {
     );
 }
 
-/// An Operator policy's cap tightened while a crawl goes on reaches it at
-/// its next admission point: the retry the crawl's settings allowed is not
-/// made (ADR 0028).
+/// An Operator policy's cap tightened while a crawl goes on reaches the next
+/// crawl, not the one going: a Run resolves its settings once, as it opens
+/// (ADR 0138), so the crawl going makes the retries its settings allowed,
+/// and a crawl started after the change makes none.
 ///
 /// Covers: story:3-88, story:12-98, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
 #[test]
-fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
+fn an_operator_policy_cap_tightened_during_a_crawl_reaches_the_next_crawl() {
     let env = TestEnv::new();
     let policy = env.home().join("1").join("operator-policy.toml");
+    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
 
     crawl(
-        || dependencies(&env, RunStateOptions::default()),
+        || default_dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
-                .call(
-                    "crawl.start",
-                    json!({ "run_id": "capped", "seeds": seeds(1) }),
-                    &mut |_| Reply::Silent,
-                )
+                .call("crawl.start", started("going"), &mut |_| Reply::Silent)
                 .await;
-            let mut handler = |_: &Value| {
+            let mut tighten = |_: &Value| {
+                std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
                 std::fs::write(&policy, "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 0\n")
                     .unwrap();
                 Reply::Fails("retry_requested", true)
             };
             client
-                .call("run.finish", json!({ "run_id": "capped" }), &mut handler)
+                .call("run.finish", json!({ "run_id": "going" }), &mut tighten)
+                .await;
+            client
+                .call("crawl.start", started("after"), &mut |_| Reply::Silent)
+                .await;
+            let mut fails = |_: &Value| Reply::Fails("retry_requested", true);
+            client
+                .call("run.finish", json!({ "run_id": "after" }), &mut fails)
                 .await
         },
     );
 
-    assert_eq!(
-        work_items(&run_file(&env, "capped")),
+    let failed = |attempts| {
         vec![(
             "1".to_owned(),
             "failed".to_owned(),
-            1,
-            Some("retry_requested".to_owned())
+            attempts,
+            Some("retry_requested".to_owned()),
         )]
+    };
+    assert_eq!(
+        (
+            work_items(&run_file(&env, "going")),
+            work_items(&run_file(&env, "after"))
+        ),
+        (failed(3), failed(1))
     );
 }
 

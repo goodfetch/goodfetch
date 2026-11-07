@@ -3,22 +3,30 @@
 //! real SQLite through the crash VFS, leased with the default 70 s lease on
 //! the paused `Clock`, whose attempts commit, renew, release and end as the
 //! generated steps say while the clock advances, and which may crash or
-//! lose power. A reference model of the leases says whether each commit
-//! counts: only one made while its lease holds, unreleased, and while the
-//! run file still holds that lease of its work item; a late commit is
-//! refused with `lease_lost`. After every step the run file holds each
-//! counted commit's Records once and nothing of a refused one, and each
-//! work item's status is the model's; after a crash, the file the next
-//! process opens passes `PRAGMA integrity_check` (in `after_crash`) and
-//! still holds every counted commit. 16 cases in the Quick suite and 256 in
-//! the Pre-merge suite (`proptest_config`).
+//! lose power. Each commit is an attempt's outcome, its one job of the
+//! writer (ADR 0138): what its page taught the Frontier, the link its
+//! attempt left to it, keyed as it is added, and its Records. A reference
+//! model of the leases says whether each commit counts: only one made
+//! while its lease holds, unreleased, and while the run file still holds
+//! that lease of its work item; a late commit is refused with
+//! `lease_lost`. After every step the run file holds each counted
+//! commit's Records once, its link and its lesson, and nothing of a
+//! refused one, and each work item's status is the model's. A lease is
+//! taken as an attempt's claim is, in a write that needs no sync of its
+//! own (ADR 0138's note of #1926); after a crash, the file the next process
+//! opens passes `PRAGMA integrity_check` (in `after_crash`) and still holds
+//! every counted commit whole, no page half written, and each work item's
+//! status but that a lease whose claim a power cut took may read pending
+//! again: a lost claim costs a fetch, never an outcome that was told. 16 cases in the Quick suite and 256 in the Pre-merge suite
+//! (`proptest_config`).
 
 use std::time::Duration;
 
+use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::{RunState, RunStateOptions};
+use goodfetch_engine::run_state::{RunState, RunStateOptions, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
@@ -33,7 +41,9 @@ use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
 use super::DEFAULT_LEASE;
+use crate::attempt_outcome::{Ended, Ending, Learning, Outcome};
 use crate::lease::{CommitError, Leases, WorkItemLease};
+use crate::staging::Staging;
 use crate::work_items::{self, Failure, Unsuccessful};
 
 #[derive(Clone, Debug)]
@@ -102,6 +112,9 @@ struct Model {
     items: Vec<Item>,
     attempts: Vec<Attempt>,
     committed: Vec<Value>,
+    /// The work items whose page a counted commit taught the Frontier, by
+    /// position, in order.
+    learned: Vec<usize>,
     last_commit: Option<bool>,
     crashed: bool,
 }
@@ -127,6 +140,7 @@ impl ReferenceStateMachine for Model {
                 ],
                 attempts: Vec::new(),
                 committed: Vec::new(),
+                learned: Vec::new(),
                 last_commit: None,
                 crashed: false,
             })
@@ -214,6 +228,15 @@ impl ReferenceStateMachine for Model {
                         model
                             .committed
                             .extend((0..*count).map(|number| record(&attempt, number)));
+                        // Its link, added pending at the next position.
+                        model.items.push(Item {
+                            status: Status::Pending,
+                            epoch: 0,
+                        });
+                        if !model.learned.contains(&attempt.item) {
+                            model.learned.push(attempt.item);
+                            model.learned.sort_unstable();
+                        }
                     }
                     model.last_commit = Some(counts);
                 }
@@ -234,7 +257,8 @@ struct Subject {
     owner: TaskOwner,
     state: Option<RunState>,
     leases: Leases,
-    attempts: Vec<(String, WorkItemLease)>,
+    staging: Staging,
+    attempts: Vec<(work_items::Leased, WorkItemLease)>,
     finished: bool,
 }
 
@@ -245,7 +269,7 @@ impl Subject {
             .expect("invariant: the writer is open until the case ends")
     }
 
-    fn attempt(&self, index: Index) -> Option<(String, WorkItemLease)> {
+    fn attempt(&self, index: Index) -> Option<(work_items::Leased, WorkItemLease)> {
         (!self.attempts.is_empty()).then(|| self.attempts[index.index(self.attempts.len())].clone())
     }
 
@@ -255,6 +279,25 @@ impl Subject {
         self.attempts.clear();
         self.runtime.block_on(self.owner.wait());
     }
+}
+
+/// The work items, by position from 0, whose page the Frontier learned, in
+/// order, and whether every link a commit added is keyed.
+fn lessons(connection: &Connection) -> (Vec<usize>, bool) {
+    let mut learned: Vec<usize> = connection
+        .prepare("SELECT crawl_request FROM rules_pages")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|id| id.unwrap().parse::<usize>().unwrap() - 1)
+        .collect();
+    learned.sort_unstable();
+    let unkeyed: i64 = connection
+        .prepare("SELECT count(*) FROM work_items WHERE url LIKE '%/link/%' AND domain_key IS NOT 'shop.test'")
+        .unwrap()
+        .query_row([], |row| row.get(0))
+        .unwrap();
+    (learned, unkeyed == 0)
 }
 
 /// Each Record's data, and each work item's status, as the file holds them.
@@ -300,19 +343,17 @@ impl StateMachineTest for Subject {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let path = env.folder().join("run.sqlite");
         let seeds: Vec<Seed> = (1..=model.items.len())
-            .map(|page| {
-                Seed::Request(RequestSeed {
-                    url: format!("https://shop.test/{page}"),
-                    label: "page".to_owned(),
-                    payload: None,
-                    priority: 0,
-                    forefront: false,
-                    method: HttpMethod::get(),
-                    body: None,
-                    key: None,
-                })
-            })
+            .map(|page| page_seed(&format!("https://shop.test/{page}")))
             .collect();
+        let datasets = goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
+            name: "pages".to_owned(),
+            schema: None,
+            key: Vec::new(),
+        }])
+        .unwrap();
+        let declared = datasets.clone();
+        let staging = Staging::default();
+        let staged = staging.clone();
         let (state, leases) = runtime.block_on(async {
             let state = RunState::open(
                 path.clone(),
@@ -339,13 +380,7 @@ impl StateMachineTest for Subject {
             .unwrap();
             state
                 .write(move |connection| {
-                    goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
-                        name: "pages".to_owned(),
-                        schema: None,
-                        key: Vec::new(),
-                    }])
-                    .unwrap()
-                    .record(connection)?;
+                    datasets.record(connection)?;
                     work_items::admit_seeds(
                         connection,
                         &mut work_items::Positions::of(connection)?,
@@ -359,7 +394,10 @@ impl StateMachineTest for Subject {
                 .unwrap();
             (
                 state,
-                Leases::new(Clock::paused(env.start_time()), "model", 1),
+                Leases::new(Clock::paused(env.start_time()), "model", 1)
+                    .checking_against(declared)
+                    .staging_in(staged)
+                    .keyed_by(Keys::new(|_| "shop.test".to_owned())),
             )
         });
         Self {
@@ -370,6 +408,7 @@ impl StateMachineTest for Subject {
             owner,
             state: Some(state),
             leases,
+            staging,
             attempts: Vec::new(),
             finished: false,
         }
@@ -384,7 +423,7 @@ impl StateMachineTest for Subject {
                 let state = subject.state().clone();
                 let leased = subject
                     .runtime
-                    .block_on(state.write(|connection| {
+                    .block_on(state.write_with(Syncing::Deferred { charged: 0 }, |connection| {
                         let first: Vec<String> = connection
                             .prepare("SELECT id FROM work_items WHERE status = 'pending' ORDER BY position LIMIT 1")?
                             .query_map([], |row| row.get(0))?
@@ -399,7 +438,7 @@ impl StateMachineTest for Subject {
                         leased.lease_epoch,
                         DEFAULT_LEASE,
                     );
-                    subject.attempts.push((leased.crawl_request.id, lease));
+                    subject.attempts.push((leased, lease));
                 }
             }
             Transition::Advance(seconds) => subject
@@ -418,9 +457,10 @@ impl StateMachineTest for Subject {
                 }
             }
             Transition::Settle(index) => {
-                if let Some((id, lease)) = subject.attempt(index)
+                if let Some((leased, lease)) = subject.attempt(index)
                     && subject.runtime.block_on(async { lease.check() }).is_err()
                 {
+                    let id = leased.crawl_request.id;
                     let epoch = model.attempts[index.index(model.attempts.len())].epoch;
                     let state = subject.state().clone();
                     subject
@@ -438,27 +478,8 @@ impl StateMachineTest for Subject {
                 }
             }
             Transition::Commit(index, count) => {
-                if let Some((_, lease)) = subject.attempt(index) {
-                    let attempt = &model.attempts[index.index(model.attempts.len())];
-                    let records = (0..count)
-                        .map(|number| PushedRecord {
-                            dataset: "pages".to_owned(),
-                            data: record(attempt, number),
-                        })
-                        .collect();
-                    let (state, masks) = (subject.state().clone(), Masks::new());
-                    let committed =
-                        subject
-                            .runtime
-                            .block_on(lease.commit(&state, &masks, records, ended_at()));
-                    let counted = match committed {
-                        Ok(_) => true,
-                        Err(CommitError::LeaseLost) => false,
-                        Err(CommitError::RunState(error)) => panic!("the run file failed: {error}"),
-                        Err(CommitError::Refused(error)) => {
-                            panic!("a Record was refused: {error:?}")
-                        }
-                    };
+                if let Some(attempt) = subject.attempt(index) {
+                    let counted = commit(&subject, model, attempt, (index, count));
                     assert_eq!(
                         Some(counted),
                         model.last_commit,
@@ -470,8 +491,23 @@ impl StateMachineTest for Subject {
                 subject.vfs.crash(kind);
                 subject.close();
                 let connection = after_crash(&subject.vfs, &subject.path).unwrap();
-                let (records, _) = stored(&connection);
-                assert_eq!(sorted(records), sorted(model.committed.clone()));
+                let (records, statuses) = stored(&connection);
+                assert_eq!(
+                    (sorted(records), lessons(&connection)),
+                    (
+                        sorted(model.committed.clone()),
+                        (model.learned.clone(), true)
+                    )
+                );
+                assert_eq!(statuses.len(), model.items.len(), "{statuses:?}");
+                for (stored, item) in statuses.iter().zip(&model.items) {
+                    let lost_claim = item.status == Status::Leased && stored == "pending";
+                    assert!(
+                        stored == item.status.as_str() || lost_claim,
+                        "a work item reads {stored} where the model says {}: {statuses:?}",
+                        item.status.as_str()
+                    );
+                }
                 subject.finished = true;
             }
         }
@@ -495,8 +531,12 @@ impl StateMachineTest for Subject {
             .map(|item| item.status.as_str().to_owned())
             .collect();
         assert_eq!(
-            (sorted(records), statuses),
-            (sorted(model.committed.clone()), expected)
+            (sorted(records), statuses, lessons(&connection)),
+            (
+                sorted(model.committed.clone()),
+                expected,
+                (model.learned.clone(), true)
+            )
         );
     }
 
@@ -520,4 +560,99 @@ prop_state_machine! {
 /// When the model's attempts end: their outcomes are not its subject.
 fn ended_at() -> PointInTime {
     PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+}
+
+/// A seed of a page at `url`.
+fn page_seed(url: &str) -> Seed {
+    Seed::Request(RequestSeed {
+        url: url.to_owned(),
+        label: "page".to_owned(),
+        payload: None,
+        priority: 0,
+        forefront: false,
+        method: HttpMethod::get(),
+        body: None,
+        key: None,
+    })
+}
+
+/// Commits `count` Records of the attempt of `leased` under `lease`, the
+/// model's attempt at `index`, as an attempt's outcome: what its page
+/// taught, the link it left to its outcome and its Records, in one job.
+/// Answers whether the commit counted.
+fn commit(
+    subject: &Subject,
+    model: &Model,
+    (leased, lease): (work_items::Leased, WorkItemLease),
+    (index, count): (Index, u8),
+) -> bool {
+    let attempt = &model.attempts[index.index(model.attempts.len())];
+    let records = (0..count)
+        .map(|number| PushedRecord {
+            dataset: "pages".to_owned(),
+            data: record(attempt, number),
+        })
+        .collect();
+    let link = format!(
+        "https://shop.test/link/{}-{}",
+        attempt.item + 1,
+        attempt.epoch
+    );
+    // The attempt leaves its link to its outcome, as a
+    // code-free attempt does.
+    let _ = subject.staging.defer(
+        &leased.crawl_request.id,
+        leased.lease_epoch,
+        move |connection, positions| {
+            work_items::admit_seeds(
+                connection,
+                positions,
+                &goodfetch_frontier::Scope::default(),
+                &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
+                &[page_seed(&link)],
+            )?;
+            Ok(Vec::new())
+        },
+    );
+    let (state, masks) = (subject.state().clone(), Masks::new());
+    let committing = {
+        let _clock = subject.runtime.enter();
+        lease.committing(&state, &masks, records, ended_at())
+    };
+    match committing {
+        Err(CommitError::LeaseLost) => false,
+        Err(error) => panic!("the commit failed: {error:?}"),
+        Ok(commit) => {
+            let outcome = Outcome {
+                scored: goodfetch_session_pool::Changes::default(),
+                chosen: None,
+                learning: Some(Learning {
+                    url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
+                    signature: [u8::try_from(attempt.item).unwrap(); 32],
+                    canonical: None,
+                    ended_at: ended_at(),
+                    request: leased.crawl_request.clone(),
+                }),
+                ending: Ending::Commit {
+                    commit,
+                    refused: Box::new(|refused| panic!("a Record was refused: {refused:?}")),
+                },
+            };
+            let written = subject
+                .runtime
+                .block_on(state.write(move |connection| outcome.write(connection)));
+            match written {
+                Ok((Ended::Committed(committed), _)) => {
+                    let _clock = subject.runtime.enter();
+                    lease.committed(Ok(Some(Ok(committed)))).unwrap();
+                    true
+                }
+                Ok((Ended::LeaseLost, _)) => false,
+                Ok((ended, _)) => {
+                    panic!("the commit ended otherwise: {ended:?}")
+                }
+                Err(error) => panic!("the run file failed: {error}"),
+            }
+        }
+    }
 }

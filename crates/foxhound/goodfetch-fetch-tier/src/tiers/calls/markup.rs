@@ -36,17 +36,21 @@ const DRAWN: [&str; 13] = [
     "embed", "hr", "progress",
 ];
 
-/// What the markup `html` says of the element the CSS selector `selector`
-/// matches; `None` when it cannot tell: a selector the matcher does not
-/// parse, a document with a declarative shadow root, more than one match,
-/// whose wait the browser refuses as not strict, or an element whose
-/// visibility needs layout or a stylesheet's rules.
-pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Shown> {
+/// What the markup `html`, whose tree is `document`, says of the element
+/// the CSS selector `selector` matches; `None` when it cannot tell: a
+/// selector the matcher does not parse, a document with a declarative
+/// shadow root, more than one match, whose wait the browser refuses as not
+/// strict, or an element whose visibility needs layout or a stylesheet's
+/// rules.
+pub(crate) fn shown(
+    (document, html): (&ParsedHtml, &str),
+    selector: &str,
+    work: &CountedWork,
+) -> Option<Shown> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
     }
-    let matcher = work.compile_selector(Row::PageSelectorCompilations, selector)?;
-    let document = work.parse_html(Row::PageParses, html);
+    let matcher = work.selector(Row::PageSelectorCompilations, selector)?;
     let selection = document.select_matcher(&matcher);
     let nodes = selection.nodes();
     let element = match nodes {
@@ -88,7 +92,20 @@ pub(crate) fn shown(html: &str, selector: &str, work: &CountedWork) -> Option<Sh
         || std::iter::once(*element)
             .chain(element.descendants())
             .any(|node| DRAWN.contains(&name(&node).as_str()));
-    (draws && !in_closed_details && !styled(&document, work)).then_some(Shown::Visible)
+    (draws && !in_closed_details && !styled(document, work)).then_some(Shown::Visible)
+}
+
+/// The selectors [`shown`] matches beside its own, which
+/// [`compile_selectors`] keeps.
+const SELECTORS: [&str; 2] = ["style", "link[rel]"];
+
+/// Compiles into the engine's cache on `work` the selectors [`shown`]
+/// matches beside its own, so that a Run compiles them before its first
+/// page, not on it (ADRs 0138 and 0140).
+pub(crate) fn compile_selectors(work: &CountedWork) {
+    for selector in SELECTORS {
+        let _ = work.literal_selector(Row::PageSelectorCompilations, selector);
+    }
 }
 
 /// Whether `document` holds a stylesheet: a `<style>` element, or a

@@ -505,8 +505,9 @@ pub struct OperatorPolicyFile {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lock: Map<String, Value>,
-    /// The largest value a higher layer may give a count or a duration;
-    /// a run already going takes a tightened cap at its next admission.
+    /// The largest value a higher layer may give a count or a duration; a
+    /// Run takes the cap it opens under, so a tightened cap reaches the next
+    /// Run.
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub cap: Map<String, Value>,
@@ -920,7 +921,7 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
 /// `admission.max_requests_per_minute` (RT-02, ADR 0004).
 pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     name: "admission.max_requests_per_minute",
-    description: "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+    description: "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset.",
     kind: ValueKind::Count,
     default: null,
     clearable: true,

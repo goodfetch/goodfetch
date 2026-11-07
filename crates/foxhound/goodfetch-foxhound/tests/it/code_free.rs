@@ -79,7 +79,7 @@ fn crawl_read(
     more: &Value,
 ) -> (Value, Vec<Value>) {
     let mut more = more.clone();
-    more["politeness"] = json!({ "domain": { "delay": 0 } });
+    more["politeness"]["domain"]["delay"] = json!(0);
     let started = engine.call(
         "start",
         "crawl.start",
@@ -469,6 +469,57 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
     );
 }
 
+/// Each attempt's browser page carries that attempt's own lease, however
+/// many attempts run at once: of 16 seeds on the `browser` tier at a
+/// concurrency of 16, one page answers 3 s late and 15 at once, and each
+/// attempt keeps its page's commands going after the others ended and
+/// gave their leases back, so every page commits a Record from its first
+/// and only request (#2083: each page took the lease of the attempt that
+/// handed its Run's pages over last, and its commands were withheld once
+/// that attempt ended).
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[test]
+fn concurrent_browser_attempts_each_keep_their_own_lease() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let mut pages = vec!["/products/1?hold=3000".to_owned()];
+    pages.extend((2..=16).map(|number| format!("/products/{number}")));
+    let seeds: Vec<Value> = pages
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("tiers.test", path), "label": "page" }))
+        .collect();
+
+    let (started, records) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("concurrent", &seeds),
+        &json!({ "formats": { "markdown": true }, "follow": "none" }),
+        &json!({
+            "fetch": { "tier": "browser" },
+            "politeness": { "sharing": "run", "domain": { "concurrency": 16 } },
+            "crawl": { "handler": { "concurrency": 16 } },
+        }),
+    );
+    assert!(engine.finish());
+
+    let observations = proving_ground.observations().unwrap();
+    let mut received: Vec<String> = ReceivedRequests::of(&observations)
+        .every()
+        .filter_map(|request| request["target"].as_str())
+        .filter(|target| target.starts_with("/products/"))
+        .map(str::to_owned)
+        .collect();
+    received.sort();
+    pages.sort();
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!((paths(&records), received), (pages.clone(), pages));
+}
+
 /// An `XPath` field the engine does not read to nodes fails the start
 /// with `invalid_params` before its Run begins.
 ///
@@ -497,4 +548,146 @@ fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
         json!("invalid_params"),
         "{refused}"
     );
+}
+
+/// The maximum-throughput combination (ADR 0138, `docs/throughput.md`):
+/// a code-free crawl that asks for no format, with learning, the
+/// Provenance log, the Records and the Block classification switched off,
+/// still fetches the index and every page it links, once each, but keeps
+/// no Record, each outcome saying why, and writes no Provenance log; its
+/// report names each switch in its warnings and `weakened`, beside the
+/// Proving ground's private ranges and no delay, and the Audit log records
+/// each new switch once.
+///
+/// Covers: story:6-304, operation:crawl.start, setting:provenance.log, setting:dataset.records, setting:fetch.block_classification, setting:frontier.learning
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothing_else() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = Attached::start(&env);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let switched_off = json!({
+        "fetch": { "tier": "http", "block_classification": false },
+        "crawl": { "max_depth": 1 },
+        "frontier": { "learning": false },
+        "provenance": { "log": false },
+        "dataset": { "records": false },
+    });
+
+    let (started, records) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("throughput", &[json!({ "url": index, "label": "page" })]),
+        &json!({ "formats": {} }),
+        &switched_off,
+    );
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "throughput" }),
+        &mut |_| None,
+    );
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "throughput" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let observations = proving_ground.observations().unwrap();
+    let received: BTreeSet<String> = ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request["target"] != "/robots.txt")
+        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .collect();
+    let marks: BTreeSet<String> = outcomes["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {outcomes}"))
+        .iter()
+        .map(|outcome| outcome["nothing_committed"].to_string())
+        .collect();
+    let codes = |field: &str, key: &str| strings(&report["result"][field], key);
+    let log = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join("throughput")
+        .join("trace")
+        .join("provenance.jsonl");
+    assert_eq!(
+        (
+            started["result"]["run_id"].clone(),
+            records.len(),
+            received.len(),
+            marks,
+            codes("warnings", "code")
+                .into_iter()
+                .filter(|code| !crate::on_the_calendar(code))
+                .collect::<BTreeSet<_>>(),
+            codes("weakened", "key"),
+            switched_off_in_audit_log(&env),
+            log.exists(),
+        ),
+        (
+            json!("throughput"),
+            0,
+            MARKDOWN_PAGES + 1,
+            BTreeSet::from(["\"records_off\"".to_owned()]),
+            [
+                "block_classification_off",
+                "learning_off",
+                "provenance_off",
+                "records_off",
+            ]
+            .map(str::to_owned)
+            .into(),
+            [
+                "dataset.records",
+                "egress.private_ranges",
+                "fetch.block_classification",
+                "frontier.learning",
+                "politeness.domain.delay",
+                "provenance.log",
+            ]
+            .map(str::to_owned)
+            .into(),
+            BTreeSet::from([
+                "dataset.records".to_owned(),
+                "fetch.block_classification".to_owned(),
+                "provenance.log".to_owned(),
+            ]),
+            false,
+        ),
+        "{report}"
+    );
+}
+
+/// The `key` of each entry of the array `entries`.
+fn strings(entries: &Value, key: &str) -> BTreeSet<String> {
+    entries
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry[key].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The setting of each `feature_switched_off` entry of `env`'s Audit log.
+fn switched_off_in_audit_log(env: &TestEnv) -> BTreeSet<String> {
+    let exported = goodfetch_test_support::cli(env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["audit", "export"])
+        .run()
+        .unwrap();
+    exported
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["kind"] == "feature_switched_off")
+        .filter_map(|entry| entry["details"]["setting"].as_str().map(str::to_owned))
+        .collect()
 }

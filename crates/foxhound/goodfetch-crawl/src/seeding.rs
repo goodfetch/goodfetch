@@ -100,6 +100,7 @@ async fn add_seed(
         seeded,
         staging,
         intake,
+        ..
     }) = crawls.live(&params.run_id).await
     else {
         return Err(not_live(&params.run_id));

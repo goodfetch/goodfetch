@@ -3,11 +3,12 @@
 
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use goodfetch_counted_work::ParsedHtml;
 use goodfetch_protocol::page::{FormatsRequest, MainContent};
 use serde_json::json;
 
 use super::{URL, read};
-use crate::{BuiltIn, Context, Document, Extractor, Serialization, formats};
+use crate::{BuiltIn, Context, Document, Extractor, Found, Serialization, formats};
 
 /// Covers: story:6-1
 #[test]
@@ -64,9 +65,9 @@ impl Counted {
 }
 
 impl Extractor for Counted {
-    fn main_content(&self, html: &str, url: &str) -> Option<String> {
+    fn main_content(&self, document: ParsedHtml, url: &str) -> Option<Found> {
         self.runs.send(()).unwrap();
-        BuiltIn::default().extractor().main_content(html, url)
+        BuiltIn::default().extractor().main_content(document, url)
     }
 }
 

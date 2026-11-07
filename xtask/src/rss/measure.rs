@@ -18,7 +18,7 @@ use serde::Deserialize;
 use crate::output;
 
 use super::crawl::{self, Site};
-use super::peak;
+use super::peak::{self, Resident};
 use super::peaks::{self, Peak};
 use super::platform::Platform;
 use super::scenario::Scenario;
@@ -77,12 +77,17 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
     for run in 1..=runs {
         for &(scenario, product, executable) in &measured {
             let address = address.filter(|_| scenario.crawls());
-            let bytes = run_probe(&probe, scenario, product, executable, address)?;
+            let resident = run_probe(&probe, scenario, product, executable, address)?;
+            let bytes = resident.peak_bytes;
             output::line(&format!(
-                "{} {} {}, run {run} of {runs}: {bytes} bytes",
+                "{} {} {}, run {run} of {runs}: {bytes} bytes{}",
                 product.as_str(),
                 scenario.name(),
-                platform.name()
+                platform.name(),
+                resident
+                    .executable_bytes
+                    .map(|bytes| format!(", {bytes} of them the executable's own pages"))
+                    .unwrap_or_default()
             ));
             peaks::append(
                 out,
@@ -91,6 +96,7 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
                     platform,
                     scenario,
                     bytes,
+                    executable_bytes: resident.executable_bytes,
                 },
             )?;
         }
@@ -104,7 +110,7 @@ fn run_probe(
     product: Product,
     executable: &Path,
     address: Option<&str>,
-) -> Result<u64> {
+) -> Result<Resident> {
     let output = Command::new(probe)
         .args([
             "rss",
@@ -129,24 +135,34 @@ fn run_probe(
             product.name()
         );
     }
-    stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("peak-bytes="))
-        .context("xtask rss probe printed no peak")?
-        .parse()
-        .context("parsing the probe's peak")
+    let figure = |name: &str| {
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+            .map(|figure| {
+                figure
+                    .parse::<u64>()
+                    .with_context(|| format!("parsing the probe's {name}"))
+            })
+            .transpose()
+    };
+    Ok(Resident {
+        peak_bytes: figure("peak-bytes")?.context("xtask rss probe printed no peak")?,
+        executable_bytes: figure("executable-bytes")?,
+    })
 }
 
 /// Runs `command` as this process's only child, driven by the scenario if
 /// one is given, the crawl against the Proving ground at `address`, and
-/// returns its peak resident memory in bytes. A scenario's child runs
+/// returns its peak resident memory in bytes, with its executable's own
+/// pages. A scenario's child runs
 /// without `goodfetch_variables`, this process's Goodfetch variables.
 pub(crate) fn probe(
     scenario: Option<(Scenario, Product)>,
     address: Option<&str>,
     command: &[OsString],
     goodfetch_variables: &[OsString],
-) -> Result<u64> {
+) -> Result<Resident> {
     let (program, arguments) = command.split_first().context("the probe needs a command")?;
     let mut child = Command::new(program);
     child.args(arguments).stderr(Stdio::null());

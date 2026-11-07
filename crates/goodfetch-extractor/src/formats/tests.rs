@@ -3,6 +3,7 @@
 
 mod contacts;
 mod content_modes;
+mod demand_plan;
 mod envelope;
 mod extractors;
 mod live_document;
@@ -11,6 +12,7 @@ mod metadata;
 mod properties;
 mod references;
 mod tables;
+mod tree;
 mod unicode;
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};

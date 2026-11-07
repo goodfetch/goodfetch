@@ -352,12 +352,24 @@ pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
 /// `site_preferences.respect_robots_txt` (ADRs 0016 and 0086).
 pub const SITE_PREFERENCES_RESPECT_ROBOTS_TXT: Setting = Setting {
     name: "site_preferences.respect_robots_txt",
-    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `site_preferences.mark_robots_txt_ignored` (ADRs 0086 and 0138).
+pub const SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED: Setting = Setting {
+    name: "site_preferences.mark_robots_txt_ignored",
+    description: "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -372,6 +384,60 @@ pub const SITE_PREFERENCES_MAX_CRAWL_DELAY: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `provenance.log` (ADRs 0047 and 0138).
+pub const PROVENANCE_LOG: Setting = Setting {
+    name: "provenance.log",
+    description: "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `dataset.records` (ADRs 0103 and 0138).
+pub const DATASET_RECORDS: Setting = Setting {
+    name: "dataset.records",
+    description: "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.block_classification` (ADRs 0035 and 0138).
+pub const FETCH_BLOCK_CLASSIFICATION: Setting = Setting {
+    name: "fetch.block_classification",
+    description: "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Audit log kind of a Run that switched off a costly per-page feature
+/// that is on by default (ADR 0138), which Foxhound's composition records
+/// once per run per key.
+pub const FEATURE_SWITCHED_OFF: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "feature_switched_off",
+    description: "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records` or `fetch.block_classification`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
+    arrived_in: ARRIVED_IN,
+};
+
+/// The per-page features [`FEATURE_SWITCHED_OFF`] records switched off
+/// (ADR 0138).
+pub const SWITCHED_OFF_FEATURES: [&Setting; 3] = [
+    &PROVENANCE_LOG,
+    &DATASET_RECORDS,
+    &FETCH_BLOCK_CLASSIFICATION,
+];
 
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
@@ -400,8 +466,12 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_RETRY_AFTER_MAX,
         SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
         SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+        SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED,
         SITE_PREFERENCES_MAX_CRAWL_DELAY,
+        PROVENANCE_LOG,
+        DATASET_RECORDS,
+        FETCH_BLOCK_CLASSIFICATION,
     ],
     hook_stages: &[],
-    shared_type_values: &[POLITENESS_WEAKENED],
+    shared_type_values: &[POLITENESS_WEAKENED, FEATURE_SWITCHED_OFF],
 };

@@ -29,7 +29,7 @@ use proptest::prelude::*;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{AuditError, AuditLog, Origin};
+use super::{AuditError, AuditLog, NewEntry, Origin};
 use crate::home::Home;
 
 mod export;
@@ -258,6 +258,120 @@ fn two_engines_append_to_one_chain() {
             first_broken: None,
         })
     );
+}
+
+/// A log through `vfs`, in `env`'s home.
+fn log_through(env: &TestEnv, vfs: &str) -> AuditLog {
+    AuditLog::of(&Home::new(env.home().to_path_buf()), Some(vfs.to_owned()))
+}
+
+/// Three entries of `origin()`'s Run, each with its own details.
+fn three_new() -> Vec<NewEntry> {
+    (1..=3)
+        .map(|index| NewEntry {
+            origin: origin(),
+            kind: &SECRET_REFERENCE_USED,
+            details: json!({ "reference": format!("env:SECRET_{index}") }),
+            always_chained: false,
+        })
+        .collect()
+}
+
+/// Entries recorded together, as a Run's switched-off controls are as it
+/// starts, append in one synced commit, chained in their order after the
+/// entries before them; an entry recorded alone in a log that exists syncs
+/// once, its connection's close leaving the synced write-ahead log as it is
+/// (#2110).
+#[test]
+fn entries_recorded_together_commit_with_one_sync_chained_in_their_order() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let log = log_through(&env, vfs.name());
+    log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .unwrap();
+
+    let before = vfs.syncs();
+    log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .unwrap();
+    let alone = vfs.syncs() - before;
+    let before = vfs.syncs();
+    let recorded = log.record_together(three_new(), now()).unwrap();
+    let together = vfs.syncs() - before;
+
+    let sequences: Vec<u64> = recorded.iter().map(|entry| entry.sequence).collect();
+    let exported: Vec<Value> = log
+        .export()
+        .unwrap()
+        .into_iter()
+        .map(|exported| exported.entry.details)
+        .collect();
+    assert_eq!(
+        (
+            alone,
+            together,
+            sequences,
+            log.verify(),
+            exported[2..].to_vec()
+        ),
+        (
+            1,
+            1,
+            vec![3, 4, 5],
+            Ok(AuditVerified {
+                intact: true,
+                entries: 5,
+                first_broken: None,
+            }),
+            vec![
+                json!({ "reference": "env:SECRET_1" }),
+                json!({ "reference": "env:SECRET_2" }),
+                json!({ "reference": "env:SECRET_3" }),
+            ]
+        )
+    );
+}
+
+/// A new log's first entries sync its file's switch to WAL, its rollback
+/// journal once and the file once, and their own commit, which covers the
+/// tables its opening committed unsynced and the WAL's header (#2117).
+#[test]
+fn a_new_logs_first_entries_sync_its_switch_to_wal_and_their_commit() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let log = log_through(&env, vfs.name());
+
+    log.record_together(three_new(), now()).unwrap();
+
+    assert_eq!(vfs.syncs(), 3);
+}
+
+/// Entries recorded, alone or together, are in the log after a power cut
+/// once the call answered, though their connection's close no longer copies
+/// the write-ahead log into the file: each commit synced it (ADR 0016,
+/// #2110).
+#[test]
+fn recorded_entries_survive_a_power_cut_after_their_connection_closed() {
+    let env = TestEnv::new();
+    let vfs =
+        goodfetch_test_support::CrashVfs::register(&env.unique_name("audit-power-cut"), env.seed())
+            .unwrap();
+    let log = log_through(&env, vfs.name());
+    log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .unwrap();
+    log.record_together(three_new(), now()).unwrap();
+
+    vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
+    let connection =
+        goodfetch_test_support::after_crash(&vfs, &log.path().to_string_lossy()).unwrap();
+
+    let sequences: Vec<i64> = connection
+        .prepare("SELECT sequence FROM entries ORDER BY sequence")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(sequences, [1, 2, 3, 4]);
 }
 
 /// An engine that makes a home's Audit log while another engine writes the

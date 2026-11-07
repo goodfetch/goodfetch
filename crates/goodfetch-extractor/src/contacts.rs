@@ -1,5 +1,5 @@
-//! The contacts a document shows (spec #580, ticket #787), read from
-//! scraper's html5ever tree of the document as a person sees it: e-mail
+//! The contacts a document shows (spec #580, ticket #787), read from the
+//! page's tree as a person sees it (ADR 0138): e-mail
 //! addresses from `mailto:` links and from text matching the HTML
 //! Standard's valid e-mail address syntax; telephone numbers from `tel:`
 //! links and from text, with E.164 only when the number carries its
@@ -11,11 +11,11 @@
 
 use std::collections::HashSet;
 
-use ego_tree::iter::Edge;
+use dom_query::NodeRef;
+use goodfetch_counted_work::ParsedHtml;
 use goodfetch_protocol::page::{Contacts, Email, Phone, SocialProfile};
 use phonenumber::country::Id;
 use phonenumber::{Mode, PhoneNumber};
-use scraper::{ElementRef, Html, Node};
 use url::Url;
 
 use crate::social;
@@ -73,44 +73,36 @@ impl Default for Found {
 }
 
 /// The contacts of `tree`, whose base URL is `base_url`, in document order.
-pub(crate) fn contacts(tree: &Html, base_url: &str) -> Contacts {
+pub(crate) fn contacts(tree: &ParsedHtml, base_url: &str) -> Contacts {
     let base = Url::parse(base_url).ok();
-    let region = region(tree.root_element().value().attr("lang"));
+    let region = region(tree.html_root().attr("lang").as_deref());
     let mut found = Found::default();
-    // The element whose text is not read, while the walk is inside it.
-    let mut skipped = None;
-    for edge in tree.tree.root().traverse() {
-        let node = match edge {
-            Edge::Open(node) => node,
-            Edge::Close(node) => {
-                if skipped == Some(node.id()) {
-                    skipped = None;
-                }
-                continue;
-            }
-        };
-        if skipped.is_some() {
+    // Depth first, by hand: a page's tree can be deeper than a thread's
+    // stack allows a recursion. An element whose text is not read is not
+    // walked into.
+    let mut next: Vec<NodeRef<'_>> = tree.root().children_it(true).collect();
+    while let Some(node) = next.pop() {
+        if node.is_text() {
+            read_text(&node.text(), region, &mut found);
             continue;
         }
-        match node.value() {
-            Node::Text(text) => read_text(text, region, &mut found),
-            Node::Element(element) => {
-                if UNSHOWN.contains(&element.name()) {
-                    skipped = Some(node.id());
-                    continue;
-                }
-                let Some(link) = ElementRef::wrap(node) else {
-                    continue;
-                };
-                if matches!(element.name(), "a" | "area")
-                    && let Some(href) = element.attr("href")
-                    && read_link(link, href, base.as_ref(), region, &mut found)
-                {
-                    skipped = Some(node.id());
-                }
-            }
-            _ => {}
+        if !node.is_element() {
+            continue;
         }
+        let name = node
+            .node_name()
+            .map(|name| name.to_string())
+            .unwrap_or_default();
+        if UNSHOWN.contains(&name.as_str()) {
+            continue;
+        }
+        if matches!(name.as_str(), "a" | "area")
+            && let Some(href) = node.attr("href")
+            && read_link(&node, &href, base.as_ref(), region, &mut found)
+        {
+            continue;
+        }
+        next.extend(node.children_it(true));
     }
     found.contacts
 }
@@ -118,13 +110,13 @@ pub(crate) fn contacts(tree: &Html, base_url: &str) -> Contacts {
 /// Reads the link `link` to `href`; whether it was a `mailto:` or `tel:`
 /// link, whose text is then not read again.
 fn read_link(
-    link: ElementRef<'_>,
+    link: &NodeRef<'_>,
     href: &str,
     base: Option<&Url>,
     region: Option<Id>,
     found: &mut Found,
 ) -> bool {
-    let text = || collapsed(&link.text().collect::<String>());
+    let text = || collapsed(&link.text());
     let href = href.trim_matches(|character: char| character.is_ascii_whitespace());
     if let Some(addresses) = without_scheme(href, "mailto:") {
         let addresses = addresses.split('?').next().unwrap_or_default();
@@ -146,7 +138,7 @@ fn read_link(
         return true;
     }
     if let Some(url) = base.and_then(|base| base.join(href).ok()) {
-        let rel_me = link.value().attr("rel").is_some_and(|rel| {
+        let rel_me = link.attr("rel").is_some_and(|rel| {
             rel.split_ascii_whitespace()
                 .any(|token| token.eq_ignore_ascii_case("me"))
         });

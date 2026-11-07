@@ -334,31 +334,6 @@ impl Resolved {
             .collect()
     }
 
-    /// The same values held to `policy`'s caps, as a Run already going
-    /// takes them at its next admission point (ADR 0028): a value above a
-    /// tightened cap becomes the cap, set by the Operator policy.
-    #[must_use]
-    pub fn under_caps_of(&self, policy: &Policy) -> Self {
-        let mut capped = self.clone();
-        for (key, effective) in &mut capped.settings {
-            let Some(cap) = policy.cap.get(key) else {
-                effective.cap = None;
-                continue;
-            };
-            effective.cap = Some(cap.clone());
-            if let Some(bound) = cap.as_u64()
-                && above(&effective.value, bound)
-            {
-                effective.value = cap.clone();
-                effective.layer = SettingsLayer::OperatorPolicy;
-                effective.origin = None;
-                effective.for_model = false;
-            }
-        }
-        capped.policy_version.clone_from(&policy.version);
-        capped
-    }
-
     /// What `config explain` shows for the keys `prefixes` name (every key
     /// when empty), with the files read.
     pub fn explain(&self, prefixes: &[String], files: Vec<SettingsFile>) -> SettingsExplanation {

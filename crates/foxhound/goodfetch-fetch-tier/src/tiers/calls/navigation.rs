@@ -37,6 +37,7 @@ use super::{answered, leased, page_response, refused};
 use crate::chain::{Following, Gating, HopGate, Stop, follow};
 use crate::driver::{Fetched, Hop, fetch};
 use crate::gate::{Gate, HandOver};
+use crate::untouched::UntouchedReaders;
 
 /// Which navigation a call asks of a served page.
 #[derive(Clone, Debug)]
@@ -137,19 +138,18 @@ pub(super) async fn navigate(
         })
         .await
     {
-        tiers.navigated(page_id, blank(&run, &fetched.url, extractor), at);
+        tiers.navigated(
+            page_id,
+            blank(&run, &fetched.url, (extractor, &page.hand_over.untouched)),
+            at,
+        );
         return Err(refused(fetched.url.as_str(), &refusal));
     }
     // A handler's own navigation takes no `fetch.encoding` and no
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
-    // is never served. The document is read on the blocking pool.
-    let opened = {
-        let (reading, read) = (run.clone(), fetched.clone());
-        run.owner()
-            .blocking(move || Opened::of(&reading, read, (None, extractor)))
-            .await
-    };
+    // is never served. The document is read on the CPU pool.
+    let opened = opened_on(&run, &fetched, (extractor, &page.hand_over.untouched)).await;
     if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }
@@ -183,10 +183,28 @@ pub(super) async fn navigate(
     })
 }
 
+/// The document `fetched` answered a handler's own navigation of `run`,
+/// read on the CPU pool, its formats with `extractor`, by `readers`'
+/// readers of every document alone.
+async fn opened_on(
+    run: &Run,
+    fetched: &Fetched,
+    (extractor, readers): (Option<BuiltIn>, &Arc<UntouchedReaders>),
+) -> Opened {
+    let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
+    run.owner()
+        .analysis(move || Opened::of(&reading, &read, (None, extractor), (&readers, false)))
+        .await
+}
+
 /// The blank document a served page is left on at `url` once the gate
 /// refused the document a navigation reached there, as a browser page is
 /// left on one (ADR 0093), its formats read with `extractor`.
-fn blank(run: &Run, url: &Url, extractor: Option<BuiltIn>) -> Opened {
+fn blank(
+    run: &Run,
+    url: &Url,
+    (extractor, readers): (Option<BuiltIn>, &UntouchedReaders),
+) -> Opened {
     let empty = Fetched {
         url: url.clone(),
         status: 200,
@@ -198,7 +216,7 @@ fn blank(run: &Run, url: &Url, extractor: Option<BuiltIn>) -> Opened {
         unaccepted: None,
         certificate_exception: None,
     };
-    Opened::of(run, empty, (None, extractor))
+    Opened::of(run, &empty, (None, extractor), (readers, false))
 }
 
 /// The gate of a served page's navigation, the call `operation`: the

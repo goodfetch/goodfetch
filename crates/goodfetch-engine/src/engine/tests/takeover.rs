@@ -148,12 +148,12 @@ fn index_row(env: &TestEnv, run_id: &str) -> Value {
     serde_json::from_str(&row).unwrap()
 }
 
-/// The SHA-256 of the run file in `folder`.
+/// The SHA-256 of the run file in `folder` and of its WAL, which its
+/// writer leaves beside it (#2117).
 fn digest(folder: &Path) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(std::fs::read(folder.join("run.sqlite")).unwrap())
-    )
+    let mut bytes = std::fs::read(folder.join("run.sqlite")).unwrap();
+    bytes.extend(std::fs::read(folder.join("run.sqlite-wal")).unwrap_or_default());
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn lock_file(folder: &Path) -> File {

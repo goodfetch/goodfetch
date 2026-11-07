@@ -28,13 +28,17 @@
 //!   robots.txt cross-submitting one on a partner host (pitfall U20), on
 //!   host names of its own;
 //! - `tiers`: static and script-rendered listings on one host, apart by
-//!   their paths' first segment, from which a crawl learns its tiers.
+//!   their paths' first segment, from which a crawl learns its tiers;
+//! - `comparison`: `just compare`'s multi-domain site and script-rendered
+//!   site, the `scale` family's tree of pages on host names of their own
+//!   under `localhost`.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
 //! crawl do, which it records as findings in the observations, for the
 //! oracle.
 
+mod comparison;
 mod facets;
 mod fields;
 mod learning;
@@ -266,6 +270,7 @@ impl Families {
             sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
             tiers::FAMILY => tiers::respond(&visit, &self.tiers),
+            comparison::FAMILY => comparison::respond(&visit),
             _ => scale::respond(&visit),
         })
     }
@@ -273,6 +278,9 @@ impl Families {
 
 /// The family whose host name, or one of whose task host names, `host` is.
 fn family_of(host: &str) -> Option<&'static str> {
+    if comparison::serves(host) {
+        return Some(comparison::FAMILY);
+    }
     if scope::serves(host) {
         return Some(scope::FAMILY);
     }
@@ -302,6 +310,7 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
                 .iter()
                 .map(|host| ((*host).to_owned(), None)),
         )
+        .chain(comparison::hosts().map(|host| (host, None)))
         .chain(
             tasks(seed, None)
                 .into_iter()

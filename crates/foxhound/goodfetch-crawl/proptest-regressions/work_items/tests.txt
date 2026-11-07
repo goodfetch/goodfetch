@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 24489a061566ab2dd1b87ea35fb0ded8179f3ca13866a5a12fcd337fb8fda8de # shrinks to steps = [Comes { domain: 2, priority: 0, forefront: true }, Comes { domain: 2, priority: 1, forefront: false }, Comes { domain: 2, priority: 1, forefront: false }], crash = Process
+cc 01e7c5d60aa84253e9806e187eeac22ed8d1371d1ccf59bb1d6fb9c15c81e477 # shrinks to steps = [Lease(0)], crash = PowerCut

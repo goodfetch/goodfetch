@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use url::Url;
 
 /// A document's refresh directive.
@@ -59,30 +59,61 @@ pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refre
 
 /// The first `<meta http-equiv="refresh">` outside `<noscript>` of the
 /// HTML document `body` at `url` that parses: a whole parse of the
-/// document, which blocks.
+/// document, which blocks, for a hop no untouched tree reads (a sitemap's,
+/// or a body whose type sniffs as no document).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a hop no untouched tree reads, a sitemap's or a body that sniffs as no document, parsed for its refresh alone"
+)]
 pub(crate) fn in_markup(url: &Url, body: &[u8], work: &CountedWork) -> Option<Refresh> {
     let document = work.parse_html(Row::PageParses, String::from_utf8_lossy(body).as_ref());
-    document
-        .select_matcher(
-            &work.literal_selector(Row::PageSelectorCompilations, "meta[http-equiv][content]"),
-        )
-        .nodes()
-        .iter()
-        .filter(|meta| {
-            meta.attr("http-equiv")
-                .is_some_and(|equiv| equiv.trim().eq_ignore_ascii_case("refresh"))
+    in_tree(
+        url,
+        &document,
+        &work.literal_selector(Row::PageSelectorCompilations, META),
+    )
+}
+
+/// What names a document's refresh `<meta>` elements, among others.
+pub(crate) const META: &str = "meta[http-equiv][content]";
+
+/// The first `<meta http-equiv="refresh">` outside `<noscript>` of
+/// `document`, the untouched tree of the HTML document at `url`, that
+/// parses, `meta` being [`META`]'s matcher.
+pub(crate) fn in_tree(
+    url: &Url,
+    document: &ParsedHtml,
+    meta: &dom_query::Matcher,
+) -> Option<Refresh> {
+    let metas = document.select_matcher(meta);
+    let metas = metas.nodes().iter().filter(|meta| {
+        !meta.ancestors(None).iter().any(|ancestor| {
+            ancestor
+                .node_name()
+                .is_some_and(|name| &*name == "noscript")
         })
-        .filter(|meta| {
-            !meta.ancestors(None).iter().any(|ancestor| {
-                ancestor
-                    .node_name()
-                    .is_some_and(|name| &*name == "noscript")
-            })
+    });
+    first_of(
+        url,
+        metas.map(|meta| (meta.attr("http-equiv"), meta.attr("content"))),
+    )
+}
+
+/// The first refresh directive that parses among `metas`, each
+/// `<meta>`'s `http-equiv` and `content`, in document order, of the HTML
+/// document at `url`.
+pub(crate) fn first_of<T: AsRef<str>>(
+    url: &Url,
+    metas: impl IntoIterator<Item = (Option<T>, Option<T>)>,
+) -> Option<Refresh> {
+    metas
+        .into_iter()
+        .filter(|(equiv, _)| {
+            equiv
+                .as_ref()
+                .is_some_and(|equiv| equiv.as_ref().trim().eq_ignore_ascii_case("refresh"))
         })
-        .find_map(|meta| {
-            meta.attr("content")
-                .and_then(|content| parse(&content, url))
-        })
+        .find_map(|(_, content)| content.and_then(|content| parse(content.as_ref(), url)))
 }
 
 /// HTML's ASCII whitespace.

@@ -407,3 +407,24 @@ fn an_effect_the_site_carries_out_is_recorded_for_its_task() {
         json!([{ "task": "catalog/3", "kind": "order", "product": "P-0042" }])
     );
 }
+
+/// `GET /request-count` counts every request an observed host received,
+/// for a harness that polls during a crawl without reading the whole
+/// record; the Proving ground's own address is not counted.
+#[test]
+fn the_request_count_counts_each_request_to_an_observed_host() {
+    let proving_ground = ProvingGround::start(SEED);
+    for _ in 0..3 {
+        clients::raw(
+            proving_ground.address(),
+            b"GET /catalog/1 HTTP/1.1\r\nHost: catalog.test\r\nConnection: close\r\n\r\n",
+        );
+    }
+
+    let answer = proving_ground.control("/request-count");
+
+    assert_eq!(
+        (answer.status, answer.json()),
+        (200, json!({ "requests": 3 }))
+    );
+}

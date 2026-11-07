@@ -4,12 +4,28 @@
 //! through the crash VFS, each followed by reopening the file. Each case
 //! draws its layout, a run file of its own or one inside the install
 //! database, which then opens through the crash VFS itself, and its
-//! durability, `full` or `fast`. After every step the writer's view, and
+//! Durability level, each of the four (ADR 0138). Its checkpointer copies the WAL past a
+//! threshold of two pages, so it runs beside nearly every commit, and a
+//! group may run a `PASSIVE` checkpoint of its own connection while the
+//! writer holds the group's transaction: the checkpoint is never refused as
+//! busy, and the writer commits every write of the group (ADR 0138). A
+//! write may be deferred, as an attempt's claim is (ADR 0138's note of
+//! #1926): at `full` its commit syncs only with a later write that needs a
+//! sync, so a power cut may take it until then, and never a write that
+//! needed one. At `periodic` a power cut may take what was committed since
+//! the interval last passed, which a step lets pass, and the idle writer's
+//! timer then syncs it. After every step the writer's view, and
 //! after every crash the reopened file, holds nothing that was never
 //! written, nothing twice, and every acknowledged commit, except those a
-//! power cut may take in `fast` mode; and the run file, and the install
-//! database in its layout, pass `PRAGMA integrity_check`. 16 cases in the
-//! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
+//! power cut may take in `fast` mode, the deferred ones no synced
+//! commit covered yet at `full` and those of the last interval at
+//! `periodic`; and the run file, and the install database in its layout,
+//! pass `PRAGMA integrity_check`, the run file only below `off`. At `off`,
+//! every crash leaves the file's "unclean" mark, or a file a power cut
+//! damaged, so the file is discarded and the Run starts again from
+//! nothing, in a new run folder; below it, no file holds the mark. 16
+//! cases in the Quick suite and 256 in the Pre-merge suite
+//! (`proptest_config`).
 
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -20,7 +36,7 @@ use tokio::runtime::Runtime;
 
 use super::{ITEMS, insert, items};
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
-use crate::run_state::{Durability, RunState, RunStateOptions};
+use crate::run_state::{Durability, RunState, RunStateOptions, Syncing, unclean};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// What the reference model knows: each value acknowledged, and each one
@@ -31,6 +47,10 @@ struct Reference {
     durability: Durability,
     next: i64,
     acknowledged: Vec<i64>,
+    /// The acknowledged values no synced commit covers yet, which a power
+    /// cut may take: the deferred writes' at `full`, every one since the
+    /// interval last passed at `periodic`.
+    unsynced: Vec<i64>,
     uncertain: Vec<i64>,
 }
 
@@ -45,16 +65,25 @@ enum Layout {
 
 #[derive(Clone, Debug)]
 enum Transition {
-    /// `count` writes queued together, the one at `failing` failing.
+    /// `count` writes queued together, the one at `failing` failing, the
+    /// first running a checkpoint on a connection of its own when
+    /// `checkpoint`, each deferred whose bit `deferred` sets.
     Commit {
         count: usize,
         failing: Option<usize>,
+        checkpoint: bool,
+        deferred: u8,
     },
     /// One write queued, then a crash before the writer commits it.
     CrashDuringCommit(CrashKind),
     /// A crash between commits, then the file opens again.
     Crash(CrashKind),
+    /// More than `periodic`'s interval passes with the writer idle.
+    Elapse,
 }
+
+/// `periodic`'s interval in the model.
+const INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn crash_kind() -> impl Strategy<Value = CrashKind> {
     prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)]
@@ -67,13 +96,19 @@ impl ReferenceStateMachine for Reference {
     fn init_state() -> BoxedStrategy<Self> {
         (
             prop_oneof![Just(Layout::PerRun), Just(Layout::PerInstall)],
-            prop_oneof![Just(Durability::Full), Just(Durability::Fast)],
+            prop_oneof![
+                Just(Durability::Full),
+                Just(Durability::Fast),
+                Just(Durability::Periodic { interval: INTERVAL }),
+                Just(Durability::Off),
+            ],
         )
             .prop_map(|(layout, durability)| Self {
                 layout,
                 durability,
                 next: 0,
                 acknowledged: Vec::new(),
+                unsynced: Vec::new(),
                 uncertain: Vec::new(),
             })
             .boxed()
@@ -81,25 +116,52 @@ impl ReferenceStateMachine for Reference {
 
     fn transitions(_: &Self) -> BoxedStrategy<Transition> {
         prop_oneof![
-            4 => (1_usize..5, proptest::option::of(0_usize..5)).prop_map(|(count, failing)| {
-                Transition::Commit {
+            4 => (
+                1_usize..5,
+                proptest::option::of(0_usize..5),
+                any::<bool>(),
+                any::<u8>()
+            )
+                .prop_map(|(count, failing, checkpoint, deferred)| Transition::Commit {
                     count,
                     failing: failing.filter(|failing| *failing < count),
-                }
-            }),
+                    checkpoint,
+                    deferred,
+                }),
             1 => crash_kind().prop_map(Transition::CrashDuringCommit),
             1 => crash_kind().prop_map(Transition::Crash),
+            1 => Just(Transition::Elapse),
         ]
         .boxed()
     }
 
     fn apply(mut state: Self, transition: &Transition) -> Self {
         match transition {
-            Transition::Commit { count, failing } => {
+            Transition::Commit {
+                count,
+                failing,
+                deferred,
+                ..
+            } => {
+                // The writer takes the writes in order, in one group or
+                // more: a deferred write queued before one that needs a
+                // sync commits in its group or an earlier one, which that
+                // sync covers; one queued after the last such write may
+                // commit unsynced.
+                let synced = (0..*count)
+                    .rev()
+                    .find(|index| !is_deferred(*deferred, *index))
+                    .filter(|_| state.durability == Durability::Full);
+                if synced.is_some() {
+                    state.unsynced.clear();
+                }
                 for index in 0..*count {
                     let value = state.next + i64::try_from(index).unwrap();
                     if Some(index) != *failing {
                         state.acknowledged.push(value);
+                        if synced.is_none_or(|synced| index > synced) {
+                            state.unsynced.push(value);
+                        }
                     }
                 }
                 state.next += i64::try_from(*count).unwrap();
@@ -110,17 +172,44 @@ impl ReferenceStateMachine for Reference {
                 state.crash(*kind);
             }
             Transition::Crash(kind) => state.crash(*kind),
+            // The idle writer's timer syncs what it committed.
+            Transition::Elapse => {
+                if matches!(state.durability, Durability::Periodic { .. }) {
+                    state.unsynced.clear();
+                }
+            }
         }
         state
     }
 }
 
+/// Whether the write at `index` of a group is deferred.
+fn is_deferred(deferred: u8, index: usize) -> bool {
+    deferred & (1 << index) != 0
+}
+
 impl Reference {
-    /// A power cut in `fast` mode may take acknowledged commits.
+    /// A power cut in `fast` mode may take acknowledged commits, at `full`
+    /// the deferred ones no synced commit covered and at `periodic` those
+    /// since the interval last passed; at `off` any crash discards the file,
+    /// so the Run starts again from nothing.
     fn crash(&mut self, kind: CrashKind) {
-        if kind == CrashKind::PowerCut && self.durability == Durability::Fast {
-            self.uncertain.append(&mut self.acknowledged);
+        if self.durability == Durability::Off {
+            self.acknowledged.clear();
+            self.uncertain.clear();
+        } else if kind == CrashKind::PowerCut {
+            match self.durability {
+                Durability::Fast | Durability::Off => {
+                    self.uncertain.append(&mut self.acknowledged);
+                }
+                Durability::Full | Durability::Periodic { .. } => {
+                    let unsynced = std::mem::take(&mut self.unsynced);
+                    self.acknowledged.retain(|value| !unsynced.contains(value));
+                    self.uncertain.extend(unsynced);
+                }
+            }
         }
+        self.unsynced.clear();
     }
 }
 
@@ -133,6 +222,9 @@ struct Subject {
     layout: Layout,
     durability: Durability,
     path: String,
+    /// How many times a crash at `off` discarded the run file: the Run
+    /// starts again in a run folder of that number.
+    discarded: usize,
     install: Option<InstallDatabase>,
     owner: TaskOwner,
     state: Option<RunState>,
@@ -164,6 +256,7 @@ impl Subject {
         let options = RunStateOptions {
             vfs: Some(self.run_file_vfs()),
             durability: self.durability,
+            wal_checkpoint_after: CHECKPOINT_AFTER,
             ..RunStateOptions::default()
         };
         let state = self
@@ -176,17 +269,42 @@ impl Subject {
                 &self.owner,
             ))
             .unwrap();
+        // The Run's row, as a Run's start commits it, synced. Each group's
+        // commit moves the row's journal position, so a group with no write
+        // of its own, the idle timer's at `periodic`, still writes and
+        // syncs what came before it; with no row it wrote nothing, and
+        // SQLite synced nothing.
+        self.runtime
+            .block_on(state.write(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at)
+                         VALUES ('model', 'crawl', 'foxhound', 'os_user', 1, '{}', 'running', 't')
+                         ON CONFLICT DO NOTHING",
+                        [],
+                    )
+                    .map(drop)
+            }))
+            .unwrap();
         self.state = Some(state);
     }
 
     /// Stops the crashed writer, checks the file as the next process finds
-    /// it, then opens it again.
+    /// it, then opens it again: at `off`, a new one, in place of the one
+    /// the crash left, which is discarded.
     fn reopen(&mut self, reference: &Reference) {
         drop(self.state.take());
         self.runtime.block_on(self.owner.wait());
         self.owner = TaskOwner::root(BlockingPolicy::Inline);
-        let connection = match self.install.take() {
-            None => after_crash(&self.vfs, &self.path).unwrap(),
+        let off = self.durability == Durability::Off;
+        let (found, marked) = match self.install.take() {
+            None => {
+                let found = after_crash(&self.vfs, &self.path).map_err(|error| error.to_string());
+                (
+                    found,
+                    unclean(self.path.as_ref(), Some(self.vfs.name()), self.durability),
+                )
+            }
             Some(crashed) => {
                 drop(crashed);
                 let database = self.install_path().to_string_lossy().into_owned();
@@ -200,19 +318,35 @@ impl Subject {
                     },
                 )
                 .unwrap();
-                let connection = checked(&self.path, install.vfs());
+                let found = checked(&self.path, install.vfs());
+                let marked = unclean(self.path.as_ref(), Some(install.vfs()), self.durability);
                 drop(install);
-                connection
+                (found, marked)
             }
         };
-        // A power cut in `fast` mode may take even the commit that made the
-        // table.
-        let present = items(&connection).unwrap_or_else(|error| {
-            assert!(error.to_string().contains("no such table"), "{error}");
-            Vec::new()
-        });
-        check(&present, reference);
-        drop::<Connection>(connection);
+        // Only at `off` may a power cut damage the run file.
+        assert_eq!(
+            marked.as_ref().ok(),
+            Some(&off),
+            "the run file's mark after a crash at {:?}: {marked:?}, the file {:?}",
+            self.durability,
+            found.as_ref().map(drop),
+        );
+        if off {
+            drop(found);
+            self.discarded += 1;
+            self.path = run_file(&self.env, self.discarded);
+        } else {
+            let connection = found.unwrap();
+            // A power cut in `fast` mode may take even the commit that made
+            // the table.
+            let present = items(&connection).unwrap_or_else(|error| {
+                assert!(error.to_string().contains("no such table"), "{error}");
+                Vec::new()
+            });
+            check(&present, reference);
+            drop::<Connection>(connection);
+        }
         self.open();
     }
 
@@ -225,20 +359,53 @@ impl Subject {
     }
 }
 
-/// Opens the run file at `path` through `vfs` as the next process would,
-/// and checks it with `PRAGMA integrity_check`.
-fn checked(path: &str, vfs: &str) -> Connection {
+/// The checkpointer's threshold in the model: two pages of WAL.
+const CHECKPOINT_AFTER: u64 = 2 * 4096;
+
+/// Runs a `PASSIVE` checkpoint of the run file at `path` on a connection of
+/// its own through `vfs`, as the checkpointer does, and answers whether it
+/// was refused as busy (1) or not (0).
+fn passive_checkpoint(path: &str, vfs: &str) -> i64 {
     let connection = Connection::open_with_flags_and_vfs(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         vfs,
     )
     .unwrap();
+    connection
+        .query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// Opens the run file at `path` through `vfs` as the next process would,
+/// and checks it with `PRAGMA integrity_check`: the connection, or what
+/// the check found.
+fn checked(path: &str, vfs: &str) -> Result<Connection, String> {
+    let connection = Connection::open_with_flags_and_vfs(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        vfs,
+    )
+    .map_err(|error| error.to_string())?;
     let integrity: String = connection
         .pragma_query_value(None, "integrity_check", |row| row.get(0))
-        .unwrap();
-    assert_eq!(integrity, "ok");
-    connection
+        .map_err(|error| error.to_string())?;
+    if integrity == "ok" {
+        Ok(connection)
+    } else {
+        Err(integrity)
+    }
+}
+
+/// The run file of the Run in the test's folder, in the run folder of the
+/// `discarded`-th start.
+fn run_file(env: &TestEnv, discarded: usize) -> String {
+    env.folder()
+        .join("runs")
+        .join(format!("r{discarded}"))
+        .join("run.sqlite")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Every acknowledged value is there once, and nothing else but values a
@@ -285,13 +452,7 @@ impl StateMachineTest for Subject {
             folder.replace(' ', "-")
         );
         let vfs = CrashVfs::register(&name, env.seed()).unwrap();
-        let path = env
-            .folder()
-            .join("runs")
-            .join("r")
-            .join("run.sqlite")
-            .to_string_lossy()
-            .into_owned();
+        let path = run_file(&env, 0);
         let mut subject = Self {
             runtime: goodfetch_test_support::runtime(),
             env,
@@ -299,6 +460,7 @@ impl StateMachineTest for Subject {
             layout: reference.layout,
             durability: reference.durability,
             path,
+            discarded: 0,
             install: None,
             owner: TaskOwner::root(BlockingPolicy::Inline),
             state: None,
@@ -309,22 +471,40 @@ impl StateMachineTest for Subject {
 
     fn apply(mut subject: Self, reference: &Reference, transition: Transition) -> Self {
         match transition {
-            Transition::Commit { count, failing } => {
+            Transition::Commit {
+                count,
+                failing,
+                checkpoint,
+                deferred,
+            } => {
                 let first = reference.next - i64::try_from(count).unwrap();
                 let state = subject.state().clone();
+                let (path, vfs) = (subject.path.clone(), subject.run_file_vfs());
                 let answers = subject.runtime.block_on(async {
                     let writes = (0..count).map(|index| {
                         let state = state.clone();
                         let value = first + i64::try_from(index).unwrap();
                         let fails = Some(index) == failing;
+                        let checkpoints = checkpoint && index == 0;
+                        let syncing = if is_deferred(deferred, index) {
+                            Syncing::Deferred { charged: 0 }
+                        } else {
+                            Syncing::Required
+                        };
+                        let (path, vfs) = (path.clone(), vfs.clone());
                         async move {
                             state
-                                .write(move |connection| {
+                                .write_with(syncing, move |connection| {
                                     insert(value)(connection)?;
+                                    let busy = if checkpoints {
+                                        passive_checkpoint(&path, &vfs)
+                                    } else {
+                                        0
+                                    };
                                     if fails {
                                         return Err(rusqlite::Error::InvalidQuery);
                                     }
-                                    Ok(())
+                                    Ok(busy)
                                 })
                                 .await
                         }
@@ -334,6 +514,12 @@ impl StateMachineTest for Subject {
                 for (index, answer) in answers.iter().enumerate() {
                     assert_eq!(answer.is_ok(), Some(index) != failing, "{answers:?}");
                 }
+                assert!(
+                    answers
+                        .iter()
+                        .all(|answer| answer.as_ref().map_or(true, |busy| *busy == 0)),
+                    "a checkpoint beside the writer's transaction was refused as busy: {answers:?}"
+                );
             }
             Transition::CrashDuringCommit(kind) => {
                 let value = reference.next - 1;
@@ -354,6 +540,11 @@ impl StateMachineTest for Subject {
             Transition::Crash(kind) => {
                 subject.vfs.crash(kind);
                 subject.reopen(reference);
+            }
+            Transition::Elapse => {
+                subject
+                    .runtime
+                    .block_on(async { tokio::time::sleep(INTERVAL.saturating_mul(2)).await });
             }
         }
         subject

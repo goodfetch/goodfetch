@@ -901,6 +901,8 @@ class NothingCommitted(StrEnum):
     Every Record it pushed was dropped or rejected, as its `records`
     count.
     """
+    records_off = "records_off"
+    """`dataset.records` is off, so the crawl keeps no Record (ADR 0138)."""
 
 
 class Now(StrEnum):
@@ -1169,7 +1171,8 @@ class RobotsTxtMark(StrEnum):
     ignored = "ignored"
     """
     It disallowed the page's URL, and the fetch ignored it, since
-    `site_preferences.respect_robots_txt` was off.
+    `site_preferences.respect_robots_txt` was off; marked only while
+    `site_preferences.mark_robots_txt_ignored` is on.
     """
 
 
@@ -2484,7 +2487,8 @@ class RecordProvenance(BaseModel):
     robots_txt: RobotsTxtMark | None = None
     """
     `ignored` when its page was fetched while
-    `site_preferences.respect_robots_txt` was off, from a URL its
+    `site_preferences.respect_robots_txt` was off and
+    `site_preferences.mark_robots_txt_ignored` on, from a URL its
     origin's robots.txt disallows, so a result taken against a site's
     stated preferences can be found and removed; none otherwise.
     """

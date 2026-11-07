@@ -46,6 +46,10 @@
 //! robots.txt cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
 //! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! While it is off, robots.txt is read only while
+//! `site_preferences.mark_robots_txt_ignored` marks the Records taken
+//! against it or the AI-use signals are honoured; otherwise it is neither
+//! fetched, read nor stored (ADR 0138).
 //! The Crawl-delay the robots.txt asks for is recorded for the request's
 //! domain key, where every sharing run's admission folds it into the
 //! delay between starts; after a robots.txt fetched here the document
@@ -73,10 +77,11 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_fetch_tier::{
-    AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles, Stop,
-    TierChoice, infer_plan, tier_serves,
+    AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
+    Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
+    Stop, TierChoice, UntouchedReaders, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -117,9 +122,11 @@ mod site_preferences;
 mod sitemap_fetch;
 
 use learning::learn;
+pub(super) use learning::{Taught, learns};
 use site_preferences::{
-    escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
-    share_robots_txt, use_signals_declared, use_signals_refusal,
+    escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
+    robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
+    use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -265,6 +272,12 @@ pub(super) struct Gating {
     /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
     /// file and RSL licenses, each once for all its requests.
     pub(super) signal_files: SignalFiles,
+    /// The attempt's HTTP admission, given back once its document is
+    /// fetched, else once it ends.
+    pub(super) fetch_admission: FetchAdmission,
+    /// The readers of the untouched page of its request's Label, built
+    /// once per Run.
+    pub(super) untouched: Arc<UntouchedReaders>,
 }
 
 impl Gating {
@@ -278,40 +291,43 @@ impl Gating {
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
     ) -> Arc<HandOver> {
-        let politeness = share_robots_txt(run).await;
-        let settings = run.settings().map(|settings| settings.resolved().clone());
+        let settings = run.settings().map(RunSettings::resolved);
+        // A crawl whose Politeness paces nothing records no start, send or
+        // latency in it (ADR 0138).
+        let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
+            share_robots_txt(run).await
+        } else {
+            None
+        };
         let domain_delay = settings
-            .as_ref()
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();
         Arc::new(HandOver {
             run: run.clone(),
             domain_key: leased.waiting.key.clone(),
-            keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
+            keys: settings.map(DomainKeys::of).unwrap_or_default(),
             second_copies: self.second_copies.clone(),
             politeness,
             robots: self.robots.clone(),
-            operator_token: settings.as_ref().and_then(|settings| {
+            operator_token: settings.and_then(|settings| {
                 settings
                     .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
                     .as_str()
                     .map(str::to_owned)
             }),
             domain_delay,
-            adaptive_delay: settings.as_ref().is_some_and(|settings| {
+            adaptive_delay: settings.is_some_and(|settings| {
                 settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
             }),
             pace: settings
-                .as_ref()
                 .map(goodfetch_frontier::Pace::of)
                 .unwrap_or_default(),
-            respect_robots_txt: settings.as_ref().is_none_or(|settings| {
+            respect_robots_txt: settings.is_none_or(|settings| {
                 settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
             }),
             max_crawl_delay: settings
-                .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
-            use_signals: settings.as_ref().and_then(honoured_purpose),
+            use_signals: settings.and_then(honoured_purpose),
             signal_files: self.signal_files.clone(),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
@@ -319,6 +335,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            fetch_admission: self.fetch_admission.clone(),
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
@@ -326,6 +343,7 @@ impl Gating {
             encoding: self.encoding,
             content_types: self.content_types.clone(),
             capture: None,
+            untouched: Arc::clone(&self.untouched),
         })
     }
 }
@@ -394,10 +412,8 @@ pub(super) struct Attempt {
     pub(super) session: ServingSession,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
-    /// The pending requests a rule its page taught merged, which it ended
-    /// `skipped` with `duplicate`, by ID with their domain key: they leave
-    /// their queues.
-    pub(super) merged: Vec<(String, String)>,
+    /// What its page taught the Frontier, or teaches it with its outcome.
+    pub(super) taught: Taught,
     /// The sample it was, with how its two runs weighed, once both
     /// answered.
     pub(super) sampled: Option<(Sampled, Weighed)>,
@@ -453,7 +469,7 @@ pub(super) async fn attempt(
         gating: &gating,
         in_flight: &in_flight,
     };
-    let mut merged = Vec::new();
+    let mut merged = Taught::default();
     let mut sampled = None;
     let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
@@ -529,7 +545,7 @@ pub(super) async fn attempt(
         session,
         lease,
         answer,
-        merged,
+        taught: merged,
         sampled,
         raced,
     }
@@ -690,7 +706,7 @@ impl On<'_> {
         http: &HttpTier,
         choice: &TierChoice,
         plan: Option<&ReplayPlan>,
-    ) -> (Answer, Vec<(String, String)>) {
+    ) -> (Answer, Taught) {
         let (run, merged) = match self
             .on_http(tiering, http, (choice, plan), Chosen::AsChosen)
             .await
@@ -734,7 +750,7 @@ impl On<'_> {
         &self,
         tiering: &Tiering,
         http: &HttpTier,
-    ) -> (Answer, Vec<(String, String)>, Option<Weighed>) {
+    ) -> (Answer, Taught, Option<Weighed>) {
         let (run, merged) = match self
             .on_http(tiering, http, (&SAMPLED, None), Chosen::Sample(None))
             .await
@@ -884,7 +900,7 @@ impl On<'_> {
         http: &HttpTier,
         (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
-    ) -> Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)> {
+    ) -> Result<(HttpRun, Taught), (Answer, Taught)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self
@@ -905,7 +921,7 @@ impl On<'_> {
         let page_id = self
             .document(tiering, http, choice, &hand_over)
             .await
-            .map_err(|answer| (answer, Vec::new()))?
+            .map_err(|answer| (answer, Taught::default()))?
             .keep();
         *self.document.lock().await = tiers.response(&page_id);
         // A `discovered_api` page replays its Label's calls (ADR 0020).
@@ -922,7 +938,7 @@ impl On<'_> {
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((
                 escalated_unhandled(ATTEMPT_ENDED.name, message, call),
-                Vec::new(),
+                Taught::default(),
             ));
         }
         if let Some(challenged) = self.challenged(tiers, &page_id, choice, how).await {
@@ -944,7 +960,7 @@ impl On<'_> {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
                 tiers.close(&page_id);
-                return Err((failed(&error), Vec::new()));
+                return Err((failed(&error), Taught::default()));
             }
             Some(Judged::Escalated) => {
                 tiers.close(&page_id);
@@ -953,7 +969,7 @@ impl On<'_> {
                 let message = "The page failed its expected page on a tier short of the browser.";
                 return Ok((
                     escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    Vec::new(),
+                    Taught::default(),
                 ));
             }
         }
@@ -999,16 +1015,18 @@ impl On<'_> {
     /// teaches: a sample's runs on a cheaper tier are discarded for the
     /// browser's, whatever they find, so they teach nothing (ADR 0020's
     /// #768 note).
-    async fn taught(
-        &self,
-        tiers: &FetchTiers,
-        page_id: &PageId,
-        how: Chosen,
-    ) -> Vec<(String, String)> {
+    async fn taught(&self, tiers: &FetchTiers, page_id: &PageId, how: Chosen) -> Taught {
         if matches!(how, Chosen::Sample(_)) {
-            return Vec::new();
+            return Taught::default();
         }
-        learn(self.run, tiers, page_id, self.leased).await
+        learn(
+            self.run,
+            tiers,
+            page_id,
+            self.leased,
+            self.gating.code_free.is_some(),
+        )
+        .await
     }
 
     /// How the run on `choice`, its page `page_id` served, ends when the
@@ -1023,7 +1041,7 @@ impl On<'_> {
         page_id: &PageId,
         choice: &TierChoice,
         how: Chosen,
-    ) -> Option<Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)>> {
+    ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (block, error) = tiers
             .block(page_id)
             .await
@@ -1037,9 +1055,9 @@ impl On<'_> {
                     "A Challenge met on a tier short of the browser moved the request there.",
                     BLOCKED,
                 ),
-                Vec::new(),
+                Taught::default(),
             )),
-            Action::Blocked => Err((failed(&error), Vec::new())),
+            Action::Blocked => Err((failed(&error), Taught::default())),
         })
     }
 
@@ -1075,7 +1093,11 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
+                let read = if reads_robots_txt(run) {
+                    read_robots_txt(run, http, leased, &*hand_over.lease).await
+                } else {
+                    None
+                };
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }
@@ -1222,10 +1244,10 @@ impl On<'_> {
         {
             owned.capture = Some(capture.clone());
         }
-        let handed_over = self.gating.tiers.hand_over(hand_over);
+        let handed_over = self.gating.tiers.hand_over(Arc::clone(&hand_over));
         let opened = tokio::select! {
             biased;
-            opened = tiers.browser(run.id(), self.in_browser, &leased.crawl_request.url, self.context) => {
+            opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request.url, self.context) => {
                 opened.map_err(|error| failed(&error))
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),
@@ -1392,7 +1414,7 @@ async fn judged(run: &Run, tiering: &Tiering, page_id: &PageId) -> Option<Judged
 
 /// The Run's own `session.page_check`, which judges the pages of a Label
 /// that declares none (ADR 0093).
-fn run_page_check(run: &Run) -> Option<PageCheck> {
+pub(super) fn run_page_check(run: &Run) -> Option<PageCheck> {
     let settings = run.settings()?;
     let value = settings
         .resolved()
@@ -1502,7 +1524,7 @@ async fn handled(
     if let Some(code_free) = code_free {
         return tokio::select! {
             biased;
-            handled = code_free.handled(params, context, run.point_in_time()) => match handled {
+            handled = code_free.handled(params, run.point_in_time()) => match handled {
                 Ok((handled, fields)) => {
                     lease.fields_read(fields);
                     Answer::Handled(handled)
@@ -1566,11 +1588,17 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
         biased;
         () = run.cancellation().cancelled() => {}
         answer = sent.answer() => {
-            if let Ok(handled) = answer
-                && let Err(CommitError::LeaseLost) =
-                    lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await
-            {
-                run.record_outcome(LEASE_LOST.name);
+            if let Ok(handled) = answer {
+                match lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await {
+                    Err(CommitError::LeaseLost) => run.record_outcome(LEASE_LOST.name),
+                    Err(CommitError::Refused(refused)) => {
+                        tracing::debug!(code = refused.code(), run_id = %run.id(), "a late answer's Records were refused");
+                    }
+                    Err(CommitError::RunState(error)) => {
+                        tracing::debug!(%error, run_id = %run.id(), "a late answer was not written");
+                    }
+                    Ok(_) => {}
+                }
             }
         }
     }

@@ -708,7 +708,7 @@ pub const CRAWL_CONTENT_TYPES: Setting = Setting {
 /// `crawl.retry.max` (ADR 0093).
 pub const CRAWL_RETRY_MAX: Setting = Setting {
     name: "crawl.retry.max",
-    description: "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+    description: "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
     kind: ValueKind::Count,
     default: two,
     clearable: false,
@@ -748,7 +748,7 @@ pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
 /// `crawl.handler.concurrency` (ADR 0093).
 pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     name: "crawl.handler.concurrency",
-    description: "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+    description: "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
     kind: ValueKind::Count,
     default: sixteen,
     clearable: false,

@@ -333,6 +333,124 @@ fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go() {
     assert!(a_first_backoff(handled[2].1), "{handled:?}");
 }
 
+/// A crawl's Politeness switched off: no delay, no per-domain limit, no
+/// rate, and robots.txt not obeyed, so no Crawl-delay paces it (ADR 0138),
+/// beside `more`.
+fn politeness_off(more: &Value) -> Value {
+    let mut settings = json!({
+        "politeness": { "domain": { "delay": 0, "concurrency": null } },
+        "site_preferences": { "respect_robots_txt": false },
+    });
+    if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
+        for (key, value) in more {
+            match (settings.get_mut(key), value) {
+                (Some(Value::Object(into)), Value::Object(value)) => {
+                    into.extend(value.clone());
+                }
+                _ => {
+                    settings.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+    settings
+}
+
+/// A crawl whose Politeness is switched off consults no Politeness store:
+/// the per-user Politeness file is never opened, so never made, and every
+/// request goes at once (ADR 0138).
+#[test]
+fn a_crawl_with_politeness_off_never_opens_the_politeness_file() {
+    let env = TestEnv::new();
+    let seeds = json!([
+        seed("https://heavy.test/1"),
+        seed("https://heavy.test/2"),
+        seed("https://a.test/1"),
+    ]);
+
+    let handled = handled(
+        &env,
+        &seeds,
+        &politeness_off(&json!({ "crawl": { "handler": { "concurrency": 1 } } })),
+    );
+
+    assert_eq!(
+        (
+            urls(&handled).len(),
+            env.home().join("politeness.sqlite").exists()
+        ),
+        (3, false)
+    );
+}
+
+/// The handler requests sent to `heavy.test` after its first, which met
+/// the site's 429, by a crawl one request at a time under `settings`, each
+/// with the paused clock's time since the first request.
+fn after_a_429(env: &TestEnv, run_id: &str, settings: &Value) -> Vec<(String, Duration)> {
+    let seeds = json!([
+        seed("https://heavy.test/1"),
+        seed("https://heavy.test/2"),
+        seed("https://a.test/1"),
+    ]);
+    let mut settings = settings.clone();
+    settings["crawl"] = json!({ "handler": { "concurrency": 1 } });
+    let sent = crawl(
+        || dependencies(env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                if page_of(params) == "https://heavy.test/1" {
+                    return Reply::Blocked("rate_limit");
+                }
+                Reply::Records(vec![json!({ "page": page_of(params) })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": run_id }), &mut handler)
+                .await;
+            sent(client)
+        },
+    );
+    sent.into_iter()
+        .filter(|(url, _)| url == "https://heavy.test/2")
+        .collect()
+}
+
+/// With Politeness switched off, the backoff stays its own feature: a 429 a
+/// handler met still backs its domain off, its first wait drawn between
+/// `politeness.backoff.initial` and three times it, and with
+/// `politeness.backoff.enabled` off the domain's next request goes at once
+/// (ADRs 0118 and 0138).
+#[rstest::rstest]
+/// Covers: story:3-80, setting:politeness.backoff.initial
+#[case::backoff_on(
+    json!({ "politeness": { "backoff": { "initial": 10_000, "max": 60_000 } } }),
+    Duration::from_secs(10)..=Duration::from_secs(30),
+)]
+/// Covers: setting:politeness.backoff.enabled
+#[case::backoff_off(
+    json!({ "politeness": { "backoff": { "enabled": false } } }),
+    Duration::ZERO..=Duration::ZERO,
+)]
+fn with_politeness_off_a_429_backs_its_domain_off_as_the_backoff_says(
+    #[case] backoff: Value,
+    #[case] waited: std::ops::RangeInclusive<Duration>,
+) {
+    let env = TestEnv::new();
+
+    let sent = after_a_429(&env, "off", &politeness_off(&backoff));
+
+    assert!(
+        sent.len() == 1 && waited.contains(&sent[0].1),
+        "{sent:?} not within {waited:?}"
+    );
+}
+
 /// Crawls `seeds` one request at a time under `settings`, the handler
 /// failing `heavy.test/1` once as `failure` says after `took` of the
 /// paused clock, then finishes the crawl; answers the requests sent, the
@@ -417,6 +535,40 @@ fn a_retry_after_a_handler_met_holds_its_domain_until_the_time_the_site_asked(
     );
     assert!(
         sent.contains(&("https://a.test/1".to_owned(), Duration::ZERO)),
+        "{sent:?}"
+    );
+}
+
+/// With Politeness switched off, a site's `Retry-After` a handler met with
+/// its 429 still holds the domain until the time the site asked, 30 s,
+/// while the other domains go (ADRs 0118 and 0138).
+///
+/// Covers: story:3-159
+#[test]
+fn with_politeness_off_a_retry_after_still_holds_its_domain_until_the_time_the_site_asked() {
+    let env = TestEnv::new();
+
+    let (sent, _, _) = crawled_with(
+        &env,
+        "asked-off",
+        (&politeness_off(&json!({})), Duration::ZERO),
+        &(
+            "blocked",
+            false,
+            json!({ "cause": "rate_limit", "retry_after": "2026-01-05T09:00:30Z" }),
+        ),
+    );
+
+    let to_heavy: Vec<Duration> = sent
+        .iter()
+        .filter(|(url, _)| url.starts_with("https://heavy.test/"))
+        .map(|(_, at)| *at)
+        .collect();
+    assert!(
+        to_heavy.len() == 2
+            && to_heavy[0] == Duration::ZERO
+            && to_heavy[1] >= Duration::from_secs(30)
+            && sent.contains(&("https://a.test/1".to_owned(), Duration::ZERO)),
         "{sent:?}"
     );
 }

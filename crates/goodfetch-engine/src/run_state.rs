@@ -14,14 +14,33 @@
 //! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
 //! acknowledged commit moves a counter on, which a reader of the file's
-//! committed state waits on for more, never holding the writer back. The
-//! writer stops once every handle on it is gone, or once its last write
+//! committed state waits on for more, never holding the writer back; its
+//! reads run beside the writer, on a bounded group of read-only
+//! connections it keeps ([`readers`], ADR 0138). The writer stops once every handle on it is gone, or once its last write
 //! commits, as a Run's end writes its record: whatever any handle queues
 //! after that is refused (#1763).
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
 //! as a crawl's work items.
+//!
+//! Its settings keep a page's writes small (ADR 0138): savepoint journals in
+//! memory (`temp_store=MEMORY`), `journal_position` written once per group
+//! commit, and no checkpoint on the writer: its connection runs none of its
+//! own, and a checkpointer, an actor of the same owner on a connection of its
+//! own, runs a `PASSIVE` checkpoint once the WAL passes
+//! [`WAL_CHECKPOINT_AFTER_BYTES`], which never takes the writer's lock. No
+//! connection of the writer's copies the WAL into the file as it closes: a
+//! clean stop's last write syncs the WAL, which stays beside the file
+//! (#2117).
+//!
+//! Its own syncs fold into the commits it acknowledges (#2117): a new
+//! file's opening commits its tables unsynced below `off`, and the first
+//! synced commit covers them; that commit also declares the bound of the
+//! charges its deferred commits may hold ([`DEFERRED_CHARGES`]).
+//!
+//! Size: one concern, the run file's writer on its one connection: how it
+//! opens, queues jobs and commits each group, which read side by side.
 
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -29,13 +48,21 @@ use std::path::{Path, PathBuf};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_STATE};
-use goodfetch_protocol::run::DURABILITY_FAST;
+use goodfetch_protocol::run::{
+    DURABILITY_FAST, DURABILITY_FULL, DURABILITY_OFF, DURABILITY_PERIODIC,
+};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::clock::Clock;
 use crate::tasks::TaskOwner;
+use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 pub mod install;
+mod readers;
+mod wal_checkpointer;
+
+pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
@@ -43,6 +70,14 @@ const MAILBOX: usize = 1024;
 /// How long the writer's switch of a new file to WAL waits while another
 /// connection holds the file.
 const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The statements the writer's connection keeps prepared: more than every
+/// statement a crawl runs on its run file, the engine's and each
+/// contribution's (about 200 in all: the Frontier's admission and
+/// `rules::learn`, the Lease, the outcome, the charge), so its cache never
+/// evicts one a later page runs again (ADR 0138). rusqlite's default, 16,
+/// holds fewer than one enqueue with a parent and `learn` run.
+const STATEMENTS: usize = 256;
 
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
@@ -68,9 +103,14 @@ const SCHEMA: &[&str] = &[
         uncapped INTEGER NOT NULL DEFAULT 0,
         progress_message TEXT,
         nothing_done TEXT,
-        report TEXT
+        report TEXT,
+        deferred_charges INTEGER NOT NULL DEFAULT 0
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
+    // The "unclean" mark of a run file at `off` (ADR 0138): set in a synced
+    // commit as its writer opens it, cleared by its clean stop, so a file
+    // that still holds it after a crash is discarded rather than read.
+    "CREATE TABLE IF NOT EXISTS unclean (id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1)) STRICT",
     // What the Run used of each Slice of the Usage ledger, by run epoch (ADR
     // 0041), which an engine reclaiming its Slices charges.
     "CREATE TABLE IF NOT EXISTS usage (
@@ -126,8 +166,26 @@ pub struct RunStateTables {
 /// (SQLite's default of 2,000 KiB alone is 20).
 pub const PAGE_CACHE_KIB: u32 = 512;
 
+/// The page cache, in KiB, of the writer's second connection at `full`,
+/// which commits the groups that need no sync (ADR 0138's note of #1926):
+/// small, as a claim reads few pages, so both caches together keep under
+/// ADR 0134's 8 heap bytes per URL at 100,000 URLs.
+pub const DEFERRING_PAGE_CACHE_KIB: u32 = 128;
+
+/// The most of one Slice of the Usage ledger (ADR 0041) that the writes a
+/// Run committed without a sync since its last synced commit may charge,
+/// at `full` (ADR 0138's note of #1926): a power cut can take them, so a
+/// reclaim after an unclean end charges this much more than the journal
+/// holds. The first deferred write that charges declares it in a synced
+/// commit, and a group that would pass it syncs.
+pub const DEFERRED_CHARGES: u64 = 64;
+
+/// How many bytes of WAL the writer lets grow before it asks its
+/// checkpointer for a `PASSIVE` checkpoint (ADR 0138).
+pub const WAL_CHECKPOINT_AFTER_BYTES: u64 = 16 * 1024 * 1024;
+
 /// How a run file opens.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct RunStateOptions {
     /// The name of the SQLite VFS it opens through: none in production, the
     /// crash VFS in tests (ADR 0060), and the install database's in the
@@ -137,40 +195,119 @@ pub struct RunStateOptions {
     pub durability: Durability,
     /// Where it counts its transactions and its writer's reads (ADR 0140).
     pub work: CountedWork,
+    /// How many bytes of WAL its writer lets grow before its checkpointer
+    /// runs a `PASSIVE` checkpoint: [`WAL_CHECKPOINT_AFTER_BYTES`], lower in
+    /// tests.
+    pub wal_checkpoint_after: u64,
+    /// Where its writer reads the time at `periodic`, at each group and for
+    /// the timer of an idle writer (ADR 0059).
+    pub clock: Clock,
 }
 
-/// How a run file's commits reach the disk (`run_state.durability`, ADR
-/// 0002).
+impl Default for RunStateOptions {
+    fn default() -> Self {
+        Self {
+            vfs: None,
+            durability: Durability::default(),
+            work: CountedWork::default(),
+            wal_checkpoint_after: WAL_CHECKPOINT_AFTER_BYTES,
+            clock: Clock::system(),
+        }
+    }
+}
+
+/// How a run file's commits reach the disk, its Durability level
+/// (`run_state.durability`, ADRs 0002 and 0138).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Durability {
     /// An acknowledged commit survives a power cut: `synchronous=FULL`,
-    /// with `fullfsync` on macOS.
+    /// with `fullfsync` on macOS, for every group with a write that needs
+    /// it.
     #[default]
     Full,
     /// An acknowledged commit survives a process crash only:
     /// `synchronous=NORMAL`, whose commits in WAL mode an OS crash or a
     /// power cut may roll back, without damaging the file.
     Fast,
+    /// As `fast`, with one synced group once `interval` passed since the
+    /// last one, and one for an idle writer's commits once it passed: a
+    /// power cut takes at most `interval` of acknowledged commits.
+    Periodic {
+        /// `run_state.commit_interval`.
+        interval: std::time::Duration,
+    },
+    /// Nothing synced (`synchronous=OFF`) but the file's "unclean" mark,
+    /// set as its writer opens it and cleared by its clean stop: a crash
+    /// leaves the mark, so [`unclean`] says the file is to be discarded.
+    Off,
 }
 
 impl Durability {
-    /// The durability `run_state.durability`'s value names; `full` for any
-    /// other, which the settings resolver never lets through.
-    pub fn named(value: &serde_json::Value) -> Self {
-        if value.as_str() == Some(DURABILITY_FAST) {
-            Self::Fast
-        } else {
-            Self::Full
+    /// The Durability level `run_state.durability`'s value `level` names,
+    /// `periodic` at `commit_interval`; `None` for a value that names none,
+    /// which the settings resolver never lets through.
+    pub fn named(level: &serde_json::Value, commit_interval: std::time::Duration) -> Option<Self> {
+        match level.as_str()? {
+            DURABILITY_FULL => Some(Self::Full),
+            DURABILITY_FAST => Some(Self::Fast),
+            DURABILITY_PERIODIC => Some(Self::Periodic {
+                interval: commit_interval,
+            }),
+            DURABILITY_OFF => Some(Self::Off),
+            _ => None,
         }
     }
 
-    /// Its `synchronous` pragma.
+    /// The `synchronous` pragma of the writer's connection, which commits
+    /// the groups that sync at `full` and `periodic`.
     fn synchronous(self) -> &'static str {
         match self {
-            Self::Full => "FULL",
+            Self::Full | Self::Periodic { .. } => "FULL",
             Self::Fast => "NORMAL",
+            Self::Off => "OFF",
         }
     }
+
+    /// The `synchronous` pragma of its checkpointer's connection: synced
+    /// below `full` too, so a checkpoint's pages reach the disk before the
+    /// WAL frames they came from are written over. A clean stop runs no
+    /// checkpoint (#2117): the file reads whole with the `-wal` beside it.
+    fn checkpoint_synchronous(self) -> &'static str {
+        match self {
+            Self::Full => "FULL",
+            Self::Fast | Self::Periodic { .. } | Self::Off => "NORMAL",
+        }
+    }
+
+    /// Whether the writer keeps a second connection at
+    /// `synchronous=NORMAL` for the groups that do not sync.
+    fn defers(self) -> bool {
+        matches!(self, Self::Full | Self::Periodic { .. })
+    }
+}
+
+/// Whether a write's commit must reach the disk before it is answered
+/// (ADR 0138's note of #1926). The writer syncs a group at `full` when any
+/// of its writes needs it, so a write that does not becomes durable with
+/// the next group that syncs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Syncing {
+    /// Synced before it is answered at `full`, as every write ADR 0002
+    /// acknowledges: the default.
+    #[default]
+    Required,
+    /// As `Required`, its group also declaring [`DEFERRED_CHARGES`] at
+    /// `full` when the file does not yet: the start of a Run whose claims
+    /// defer their charges, so that no claim's group syncs to declare it
+    /// (#2117).
+    Declaring,
+    /// Committed without a sync of its own at `full`: a power cut before
+    /// the next synced commit may take it, as it may an attempt's claim.
+    Deferred {
+        /// The most it charges of any one Slice of the Usage ledger, which
+        /// counts against [`DEFERRED_CHARGES`].
+        charged: u64,
+    },
 }
 
 /// Why a run file did not open, or a write did not commit.
@@ -244,10 +381,34 @@ type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 type QueuedWrite =
     Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
 
-/// A write in the writer's queue, and whether it is the writer's last.
+/// What a job in the writer's queue is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Job {
+    /// A write.
+    Write,
+    /// The writer's last write.
+    Last,
+    /// The idle writer's timer at `periodic`: a group that syncs what the
+    /// writer committed unsynced, if anything. It writes nothing itself.
+    Tick,
+}
+
+/// A job in the writer's queue, and what it is.
 struct Queued {
     write: QueuedWrite,
-    last: bool,
+    job: Job,
+    syncing: Syncing,
+}
+
+impl Queued {
+    /// A tick of the idle writer's timer.
+    fn tick() -> Self {
+        Self {
+            write: Box::new(|_| (Box::new(|_| {}), None)),
+            job: Job::Tick,
+            syncing: Syncing::Deferred { charged: 0 },
+        }
+    }
 }
 
 /// `work` as a write the writer's actor runs in its next commit, and the
@@ -305,8 +466,25 @@ impl ReservedWrite {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
+        self.write_with(Syncing::Required, work)
+    }
+
+    /// As [`ReservedWrite::write`], its commit synced as `syncing` says.
+    pub fn write_with<T, F>(
+        self,
+        syncing: Syncing,
+        work: F,
+    ) -> impl Future<Output = Result<T, RunStateError>> + Send + 'static
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
         let (write, answered) = queued(work);
-        let mailbox = self.0.send(Queued { write, last: false });
+        let mailbox = self.0.send(Queued {
+            write,
+            job: Job::Write,
+            syncing,
+        });
         async move {
             // A write the writer ran answers before its mailbox goes; one
             // sent once it went waits in no mailbox.
@@ -327,7 +505,7 @@ pub struct RunState {
     path: PathBuf,
     epoch: u64,
     watched: std::sync::Arc<Watched>,
-    work: CountedWork,
+    readers: std::sync::Arc<RunStateReaders>,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -362,27 +540,83 @@ impl RunState {
     ) -> Result<Self, RunStateError> {
         let opened = options.clone();
         let opened_path = path.clone();
-        let connection = owner
-            .blocking(move || open_file(&opened_path, &opened, &tables))
+        let (connection, deferring, declared, checkpointing) = owner
+            .blocking(move || open_connections(&opened_path, &opened, &tables))
             .await?;
+        let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
+            .map_err(|error| sqlite_error(&path, &error))?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
-        let mut connection = connection;
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
-        let work = options.work.clone();
-        let counted = work.clone();
+        let counted = options.work.clone();
+        let readers = std::sync::Arc::new(RunStateReaders::new(
+            path.clone(),
+            options.vfs.clone(),
+            owner.blocking_threads(),
+        ));
+        let mut deferral = Deferral {
+            deferring: options.durability == Durability::Full,
+            declared,
+            uncovered: 0,
+        };
+        let mut interval = Interval::of(options);
+        let marked = options.durability == Durability::Off;
+        let durability = options.durability;
+        let connection = WriterConnection {
+            connection,
+            deferring,
+            readers: std::sync::Arc::clone(&readers),
+        };
+        // The idle writer's timer at `periodic`, which ends with the writer.
+        let writer_gone = idle_timer(owner, options, &mailbox);
         owner
             .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
+                let _held_until_the_writer_ends = &writer_gone;
                 let signals = Signals {
                     commits: &committed,
                     failures: &failed,
                     work: &counted,
                 };
-                let last = group.iter().position(|queued| queued.last);
+                let ticked = without_ticks(&mut group);
+                let last = group.iter().position(|queued| queued.job == Job::Last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
-                let group = group.into_iter().map(|queued| queued.write).collect();
-                commit_group(&mut connection, &actor_path, epoch, group, &signals);
+                let planned = match &interval {
+                    Some(interval) => interval.plan(ticked, last.is_some()),
+                    None => deferral.plan(&group),
+                };
+                // A tick with nothing committed unsynced commits nothing.
+                let idle =
+                    group.is_empty() && !interval.as_ref().is_some_and(|interval| interval.owed);
+                // A clean stop commits synced at every level, `fast`'s and
+                // `off`'s included, and `off`'s clears the mark: its sync
+                // covers the WAL, which no checkpoint copies then (#2117).
+                let synced_stop = last.is_some()
+                    && matches!(durability, Durability::Fast | Durability::Off)
+                    && connection
+                        .connection
+                        .pragma_update(None, "synchronous", "FULL")
+                        .is_ok();
+                let clean = marked && synced_stop;
+                let group: Vec<QueuedWrite> =
+                    group.into_iter().map(|queued| queued.write).collect();
+                let committed = if idle {
+                    None
+                } else {
+                    let on = connection.for_group(planned.synced);
+                    let marks = Marks {
+                        declare: planned.declare,
+                        clean,
+                    };
+                    commit_group(on, &actor_path, (epoch, marks), group, &signals)
+                };
+                if let Some(declared) = committed {
+                    deferral.committed(planned, declared);
+                    if let Some(interval) = &mut interval {
+                        interval.committed(planned.synced);
+                    }
+                    checkpointer.committed(last.is_some());
+                }
                 for queued in refused {
                     (queued.write)(None).0(Err(RunStateError::Closed));
                 }
@@ -398,7 +632,7 @@ impl RunState {
             path,
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
-            work,
+            readers,
         })
     }
 
@@ -444,7 +678,46 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.queue(work, false).await
+        self.queue(work, Job::Write, Syncing::Required).await
+    }
+
+    /// Runs `work` as [`RunState::write`] does, its commit synced as
+    /// `syncing` says: a deferred write is answered once its commit is in
+    /// the file, before a sync, at `full` too.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s.
+    pub async fn write_with<T, F>(&self, syncing: Syncing, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.queue(work, Job::Write, syncing).await
+    }
+
+    /// Runs `work` as [`RunState::write_with`] does, its commit deferred
+    /// and charging nothing of the Usage ledger: for a write whose answer
+    /// promises nothing outside, which the next synced commit covers.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s.
+    pub async fn write_deferred<T, F>(&self, work: F) -> Result<T, RunStateError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.write_with(Syncing::Deferred { charged: 0 }, work)
+            .await
     }
 
     /// Runs `work` as [`RunState::write`] does, as the writer's last write:
@@ -467,19 +740,23 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.queue(work, true).await
+        self.queue(work, Job::Last, Syncing::Required).await
     }
 
-    /// Queues `work`, the writer's last write when `last`, and answers what
-    /// it returned once its commit is acknowledged.
-    async fn queue<T, F>(&self, work: F, last: bool) -> Result<T, RunStateError>
+    /// Queues `work` as `job`, and answers what it returned once its commit
+    /// is acknowledged.
+    async fn queue<T, F>(&self, work: F, job: Job, syncing: Syncing) -> Result<T, RunStateError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
         let (write, answered) = queued(work);
         self.mailbox
-            .send(Queued { write, last })
+            .send(Queued {
+                write,
+                job,
+                syncing,
+            })
             .await
             .map_err(|_| RunStateError::Closed)?;
         answered.await.map_err(|_| RunStateError::Closed)?
@@ -505,12 +782,14 @@ impl RunState {
             .map_err(|_| RunStateError::Closed)
     }
 
-    /// Runs `work` on the writer's connection, in order with its writes, so
-    /// it sees every acknowledged one.
+    /// Runs `work` in one read transaction of the file's committed state,
+    /// on one of its readers' connections, beside the writer: it never
+    /// waits for a commit, and sees every write acknowledged before it
+    /// began, as a write is answered once its commit is in the file.
     ///
     /// # Errors
     ///
-    /// As [`RunState::write`].
+    /// `Sqlite` when `work` failed or the file could not be read.
     ///
     /// # Cancel safety
     ///
@@ -520,8 +799,257 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.work.count(Row::WriterReads);
-        self.write(work).await
+        self.readers
+            .read(move |connection| readers::in_one_transaction(connection, work))
+            .await
+            .map_err(|error| sqlite_error(&self.path, &error))
+    }
+
+    /// Its readers, which read the file as [`RunState::read`] does, for a
+    /// reader of the Run that must not hold its writer open.
+    pub(crate) fn readers(&self) -> std::sync::Arc<RunStateReaders> {
+        std::sync::Arc::clone(&self.readers)
+    }
+}
+
+/// The writer's connections, which close their readers' first, and leave
+/// the WAL beside the file as they close (#2117). At `full` it has two (ADR 0138's note of #1926): `connection`
+/// commits with `synchronous=FULL`, and `deferring` with `NORMAL` commits
+/// the groups that need no sync, as SQLite sets a connection's sync level
+/// only as it prepares `PRAGMA synchronous`, which a group's switch would
+/// then prepare again each time.
+struct WriterConnection {
+    connection: Connection,
+    deferring: Option<Connection>,
+    readers: std::sync::Arc<RunStateReaders>,
+}
+
+impl WriterConnection {
+    /// The connection a group commits on: the synced one when it syncs.
+    fn for_group(&self, synced: bool) -> &Connection {
+        match &self.deferring {
+            Some(deferring) if !synced => deferring,
+            _ => &self.connection,
+        }
+    }
+}
+
+/// What the writer knows of the charges its unsynced commits hold, against
+/// [`DEFERRED_CHARGES`].
+struct Deferral {
+    /// Whether it defers at all: at `full` only, as `fast` syncs no group.
+    deferring: bool,
+    /// Whether the file declares [`DEFERRED_CHARGES`] in a synced commit.
+    declared: bool,
+    /// What its commits since the last synced one charged.
+    uncovered: u64,
+}
+
+/// How the writer commits one group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Planned {
+    /// On the synced connection.
+    synced: bool,
+    /// Declaring [`DEFERRED_CHARGES`] in the file as it commits.
+    declare: bool,
+    /// What its deferred writes charge.
+    charged: u64,
+}
+
+impl Deferral {
+    /// How `group` commits: synced when any of its writes needs it, and
+    /// declaring the bound when one of them asks to; synced too when it
+    /// charges before the file declares the bound, which it then declares,
+    /// or when it would pass the bound; else on the deferring connection.
+    fn plan(&self, group: &[Queued]) -> Planned {
+        let mut required = false;
+        let mut declaring = false;
+        let mut charged = 0_u64;
+        for queued in group {
+            match queued.syncing {
+                Syncing::Required => required = true,
+                Syncing::Declaring => {
+                    required = true;
+                    declaring = true;
+                }
+                Syncing::Deferred { charged: more } => charged = charged.saturating_add(more),
+            }
+        }
+        let synced = |declare| Planned {
+            synced: true,
+            declare,
+            charged,
+        };
+        if !self.deferring {
+            synced(false)
+        } else if required {
+            synced(declaring && !self.declared)
+        } else if charged == 0 {
+            Planned {
+                synced: false,
+                declare: false,
+                charged,
+            }
+        } else if !self.declared {
+            synced(true)
+        } else if self.uncovered.saturating_add(charged) > DEFERRED_CHARGES {
+            synced(false)
+        } else {
+            Planned {
+                synced: false,
+                declare: false,
+                charged,
+            }
+        }
+    }
+
+    /// Notes that a group planned as `planned` committed, the bound
+    /// `declared` in its commit or not.
+    fn committed(&mut self, planned: Planned, declared: bool) {
+        self.declared |= declared;
+        self.uncovered = if planned.synced {
+            0
+        } else {
+            self.uncovered.saturating_add(planned.charged)
+        };
+    }
+}
+
+/// When the writer syncs a group at `periodic` (ADR 0138): once `every`
+/// passed since its last synced commit, read on its Clock at each group,
+/// and at a tick of its idle timer while a commit is unsynced.
+struct Interval {
+    every: std::time::Duration,
+    clock: Clock,
+    /// When it last committed synced.
+    synced_at: tokio::time::Instant,
+    /// Whether a commit since then is unsynced.
+    owed: bool,
+}
+
+impl Interval {
+    /// The writer's interval at `options`' Durability level: `periodic`'s
+    /// only.
+    fn of(options: &RunStateOptions) -> Option<Self> {
+        match options.durability {
+            Durability::Periodic { interval } => Some(Self {
+                every: interval,
+                clock: options.clock,
+                synced_at: options.clock.now(),
+                owed: false,
+            }),
+            Durability::Full | Durability::Fast | Durability::Off => None,
+        }
+    }
+
+    /// How a group commits: synced once the interval passed, at a tick
+    /// that finds a commit unsynced, and for the writer's `last` write,
+    /// else on the deferring connection.
+    fn plan(&self, ticked: bool, last: bool) -> Planned {
+        let due = self.clock.now() >= self.synced_at + self.every;
+        Planned {
+            synced: due || last || (ticked && self.owed),
+            declare: false,
+            charged: 0,
+        }
+    }
+
+    /// Notes that a group committed, `synced` or not.
+    fn committed(&mut self, synced: bool) {
+        if synced {
+            self.synced_at = self.clock.now();
+            self.owed = false;
+        } else {
+            self.owed = true;
+        }
+    }
+}
+
+/// Starts the idle writer's timer at `options`' Durability level when it
+/// is `periodic`, one of `owner`'s tasks: every interval on its Clock, it
+/// queues a tick into `mailbox`, so a commit no later group syncs is synced
+/// within the interval (ADR 0138). It holds no handle on the writer, and
+/// ends once the answered sender is dropped, the writer having ended, or
+/// once `owner` is cancelled.
+fn idle_timer(
+    owner: &TaskOwner,
+    options: &RunStateOptions,
+    mailbox: &mpsc::Sender<Queued>,
+) -> oneshot::Sender<()> {
+    let (writer_gone, mut timer_stops) = oneshot::channel::<()>();
+    let Durability::Periodic { interval } = options.durability else {
+        return writer_gone;
+    };
+    if interval.is_zero() {
+        return writer_gone;
+    }
+    let (clock, mailbox) = (options.clock, mailbox.downgrade());
+    let cancelled = owner.token().clone();
+    owner.spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut timer_stops => break,
+                () = cancelled.cancelled() => break,
+                () = clock.sleep(interval) => {}
+            }
+            let Some(mailbox) = mailbox.upgrade() else {
+                break;
+            };
+            // A full mailbox holds a group already, which plans its sync.
+            let _ = mailbox.try_send(Queued::tick());
+        }
+    });
+    writer_gone
+}
+
+/// Opens the writer's connections on the run file at `path`: its own, the
+/// deferring one at the levels that defer, whether the file declares
+/// [`DEFERRED_CHARGES`], and its checkpointer's. It blocks.
+fn open_connections(
+    path: &Path,
+    options: &RunStateOptions,
+    tables: &[RunStateTables],
+) -> Result<(Connection, Option<Connection>, bool, Connection), RunStateError> {
+    let connection = open_file(path, options, tables)?;
+    // It replaces SQLite's automatic checkpoint, which this connection then
+    // never runs (ADR 0138).
+    connection.wal_hook(Some(note_wal_pages));
+    let deferring = options
+        .durability
+        .defers()
+        .then(|| open_deferring(path, options))
+        .transpose()?;
+    let declared = declared_deferral(&connection).map_err(|error| sqlite_error(path, &error))?;
+    // Opened beside the writer's, before any write: once the writer closed,
+    // an open would meet its last close.
+    let checkpointing = open_wal_checkpointer(path, options.vfs.as_deref(), options.durability)
+        .map_err(|error| sqlite_error(path, &error))?;
+    Ok((connection, deferring, declared, checkpointing))
+}
+
+/// Takes the idle timer's ticks out of `group`: whether it held one.
+fn without_ticks(group: &mut Vec<Queued>) -> bool {
+    let before = group.len();
+    group.retain(|queued| queued.job != Job::Tick);
+    group.len() != before
+}
+
+/// Whether the file at `connection` declares [`DEFERRED_CHARGES`]: a Run's
+/// earlier run epoch may have.
+fn declared_deferral(connection: &Connection) -> rusqlite::Result<bool> {
+    match connection.query_row("SELECT deferred_charges FROM run", [], |row| {
+        row.get::<_, i64>(0)
+    }) {
+        Ok(declared) => Ok(declared > 0),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+impl Drop for WriterConnection {
+    fn drop(&mut self) {
+        self.readers.close();
     }
 }
 
@@ -632,29 +1160,24 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    // Beneath every owner, so a commit beside the writer's jobs counts too
-    // (ADR 0140).
-    let work = options.work.clone();
-    connection
-        .commit_hook(Some(move || {
-            work.count(Row::RunTransactions);
-            false
-        }))
-        .map_err(failed)?;
     crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
-    connection
-        .pragma_update(None, "synchronous", options.durability.synchronous())
-        .map_err(failed)?;
-    // A negative size counts KiB rather than pages.
-    connection
-        .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
-        .map_err(failed)?;
-    if cfg!(target_os = "macos") {
+    let marked = options.durability == Durability::Off;
+    // At `off`, the commit that sets the "unclean" mark syncs, before any
+    // that does not.
+    let opening = if marked {
+        Durability::Full
+    } else {
+        options.durability
+    };
+    configure(&connection, options, opening.synchronous(), PAGE_CACHE_KIB).map_err(failed)?;
+    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
+    // Below `off` the opening's commit, the file's tables and its format,
+    // syncs nothing: no one is told of it, and the next synced commit, a
+    // Run's start or a new run epoch, covers it, with the WAL's header
+    // (#2117). At `off` the commit that sets the mark syncs.
+    if !marked {
         connection
-            .pragma_update(None, "fullfsync", "ON")
-            .map_err(failed)?;
-        connection
-            .pragma_update(None, "checkpoint_fullfsync", "ON")
+            .pragma_update(None, "synchronous", Durability::Off.synchronous())
             .map_err(failed)?;
     }
     let transaction = connection
@@ -681,8 +1204,117 @@ fn open_file(
         )
         .map_err(failed)?;
     check_format(&RUN_STATE, &found)?;
+    if marked {
+        transaction
+            .execute(
+                "INSERT INTO unclean (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+                [],
+            )
+            .map_err(failed)?;
+    }
     transaction.commit().map_err(failed)?;
+    connection
+        .pragma_update(None, "synchronous", options.durability.synchronous())
+        .map_err(failed)?;
     Ok(connection)
+}
+
+/// Whether the run file at `path`, opened through the VFS `vfs`, is one a
+/// crash left at `off` (ADR 0138): it holds the "unclean" mark, or it is
+/// damaged and the Run's Durability level is `durability`, `off`, at which
+/// a power cut may damage it. A file that is not there, or never held the
+/// mark, is not. Its Run is then discarded, never read. It blocks: run it
+/// under a blocking policy.
+///
+/// # Errors
+///
+/// `Sqlite` when the file cannot be read, damaged below `off` included.
+pub(crate) fn unclean(
+    path: &Path,
+    vfs: Option<&str>,
+    durability: Durability,
+) -> Result<bool, RunStateError> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let opened = match vfs {
+        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
+        None => Connection::open_with_flags(path, flags),
+    };
+    // Reading the mark copies no WAL into the file as it closes (#2117):
+    // the file stays as its writer left it.
+    let marked = opened.and_then(|connection| {
+        crate::sqlite_wal::no_checkpoint_on_close(&connection)?;
+        connection
+            .query_row("SELECT count(*) FROM unclean", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|marks| marks > 0)
+    });
+    match marked {
+        Ok(marked) => Ok(marked),
+        Err(error) => match error.sqlite_error_code() {
+            Some(rusqlite::ErrorCode::CannotOpen) => Ok(false),
+            Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)
+                if durability == Durability::Off =>
+            {
+                Ok(true)
+            }
+            // A file of no table yet, or of a Run that never ran at `off`.
+            _ if error.to_string().starts_with("no such table") => Ok(false),
+            _ => Err(sqlite_error(path, &error)),
+        },
+    }
+}
+
+/// Opens the writer's deferring connection on the file at `path`, already
+/// in WAL mode, which commits with `synchronous=NORMAL`.
+fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, RunStateError> {
+    let failed = |error: rusqlite::Error| sqlite_error(path, &error);
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let connection = match options.vfs.as_deref() {
+        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
+        None => Connection::open_with_flags(path, flags),
+    }
+    .map_err(failed)?;
+    configure(
+        &connection,
+        options,
+        Durability::Fast.synchronous(),
+        DEFERRING_PAGE_CACHE_KIB,
+    )
+    .map_err(failed)?;
+    crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(failed)?;
+    connection.wal_hook(Some(note_wal_pages));
+    Ok(connection)
+}
+
+/// Sets up a writer's connection: its statement cache, its count of
+/// transactions, its sync level `synchronous` and a page cache of
+/// `cache_kib`.
+fn configure(
+    connection: &Connection,
+    options: &RunStateOptions,
+    synchronous: &str,
+    cache_kib: u32,
+) -> rusqlite::Result<()> {
+    connection.set_prepared_statement_cache_capacity(STATEMENTS);
+    // Beneath every owner, so a commit beside the writer's jobs counts too
+    // (ADR 0140).
+    let work = options.work.clone();
+    connection.commit_hook(Some(move || {
+        work.count(Row::RunTransactions);
+        false
+    }))?;
+    connection.pragma_update(None, "synchronous", synchronous)?;
+    // Savepoints' statement journals stay in memory, never in `$TMPDIR`
+    // (ADR 0138).
+    connection.pragma_update(None, "temp_store", "MEMORY")?;
+    // A negative size counts KiB rather than pages.
+    connection.pragma_update(None, "cache_size", -i64::from(cache_kib))?;
+    if cfg!(target_os = "macos") {
+        connection.pragma_update(None, "fullfsync", "ON")?;
+        connection.pragma_update(None, "checkpoint_fullfsync", "ON")?;
+    }
+    Ok(())
 }
 
 /// Refuses a file of `format` at the version `found` that this engine cannot
@@ -717,19 +1349,21 @@ struct Failed {
 /// disk or an I/O error can end the whole transaction in SQLite, closing
 /// its savepoints (ADR 0122); the savepoint is then never rolled back to,
 /// since a statement run after it would commit on its own.
-fn run_in_savepoint<T>(
-    connection: &Connection,
-    work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
-) -> Result<T, Failed> {
+fn run_in_savepoint<T, F>(connection: &Connection, work: F) -> Result<T, Failed>
+where
+    F: FnOnce(&Connection) -> rusqlite::Result<T>,
+{
     let ended = |error| Failed { error, ended: true };
-    connection.execute_batch("SAVEPOINT write").map_err(ended)?;
+    run_cached(connection, "SAVEPOINT write").map_err(ended)?;
     match work(connection) {
         Ok(answer) => {
-            connection.execute_batch("RELEASE write").map_err(ended)?;
+            run_cached(connection, "RELEASE write").map_err(ended)?;
             Ok(answer)
         }
         Err(error) if is_storage(&error) || connection.is_autocommit() => Err(ended(error)),
-        Err(error) => match connection.execute_batch("ROLLBACK TO write; RELEASE write") {
+        Err(error) => match run_cached(connection, "ROLLBACK TO write")
+            .and_then(|()| run_cached(connection, "RELEASE write"))
+        {
             Ok(()) => Err(Failed {
                 error,
                 ended: false,
@@ -747,22 +1381,36 @@ struct Signals<'a> {
     work: &'a CountedWork,
 }
 
-/// Commits `group` in one transaction under `epoch`, counts the commit in
+/// What a group's commit also writes in the run file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Marks {
+    /// [`DEFERRED_CHARGES`], declared.
+    declare: bool,
+    /// The "unclean" mark, cleared: `off`'s clean stop.
+    clean: bool,
+}
+
+/// Commits `group` in one transaction under `epoch`, declaring
+/// [`DEFERRED_CHARGES`] in the file when `marks` say so and clearing its
+/// "unclean" mark when they say so, counts the commit in
 /// `commits`, then answers each write: all of them with the failure when
 /// the transaction fails or the file holds another epoch, and a full disk or
 /// an I/O error also goes to `failures`. The commit hook counts the commit,
 /// and each other job of its group counts here: a transaction is one job,
-/// whatever group it commits in (ADR 0138's note).
+/// whatever group it commits in (ADR 0138's note). Answers, once it
+/// committed, whether it declared the bound.
 fn commit_group(
-    connection: &mut Connection,
+    connection: &Connection,
     path: &Path,
-    epoch: u64,
+    (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
     signals: &Signals<'_>,
-) {
+) -> Option<bool> {
     let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
-    let (completions, committed) = match commit_writes(connection, path, epoch, group) {
-        Ok(completions) => {
+    let mut declared = None;
+    let (completions, committed) = match commit_writes(connection, path, (epoch, marks), group) {
+        Ok((completions, declaring)) => {
+            declared = Some(declaring);
             signals.work.count_many(Row::RunTransactions, grouped);
             signals.commits.send_modify(|count| *count += 1);
             (completions, Ok(()))
@@ -770,13 +1418,7 @@ fn commit_group(
         Err((completions, error)) => {
             if let RunStateError::Storage { message, .. } = &error {
                 tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
-                signals.failures.send_if_modified(|failure| {
-                    let first = failure.is_none();
-                    if first {
-                        *failure = Some(message.clone());
-                    }
-                    first
-                });
+                signals.storage_failed(message);
             }
             (completions, Err(error))
         }
@@ -784,32 +1426,51 @@ fn commit_group(
     for completion in completions {
         completion(committed.clone());
     }
+    declared
+}
+
+impl Signals<'_> {
+    /// Signals a storage failure, `message`, unless one came first.
+    fn storage_failed(&self, message: &str) {
+        self.failures.send_if_modified(|failure| {
+            let first = failure.is_none();
+            if first {
+                *failure = Some(message.to_owned());
+            }
+            first
+        });
+    }
 }
 
 fn commit_writes(
-    connection: &mut Connection,
+    connection: &Connection,
     path: &Path,
-    epoch: u64,
+    (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
-) -> Result<Vec<Completion>, (Vec<Completion>, RunStateError)> {
+) -> Result<(Vec<Completion>, bool), (Vec<Completion>, RunStateError)> {
     let refuse = |group: Vec<QueuedWrite>, error: RunStateError| {
         let completions = group.into_iter().map(|job| job(None).0).collect();
         (completions, error)
     };
-    let transaction = match connection.transaction_with_behavior(TransactionBehavior::Immediate) {
-        Ok(transaction) => transaction,
-        Err(error) => return Err(refuse(group, commit_error(path, &error))),
-    };
+    if let Err(error) = run_cached(connection, "BEGIN IMMEDIATE") {
+        return Err(refuse(group, commit_error(path, &error)));
+    }
+    let transaction = connection;
     let found = transaction
-        .query_row("SELECT epoch FROM run", [], |row| row.get::<_, i64>(0))
+        .prepare_cached("SELECT epoch FROM run")
+        .and_then(|mut epoch| epoch.query_row([], |row| row.get::<_, i64>(0)))
         .map(Some)
         .or_else(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             error => Err(error),
         });
     match found {
-        Err(error) => return Err(refuse(group, commit_error(path, &error))),
+        Err(error) => {
+            let _ = run_cached(transaction, "ROLLBACK");
+            return Err(refuse(group, commit_error(path, &error)));
+        }
         Ok(Some(found)) if i64::try_from(epoch).ok() != Some(found) => {
+            let _ = run_cached(transaction, "ROLLBACK");
             let found = u64::try_from(found).unwrap_or_default();
             return Err(refuse(group, RunStateError::Fenced { held: epoch, found }));
         }
@@ -819,13 +1480,21 @@ fn commit_writes(
     let mut jobs = group.into_iter();
     let mut ended = None;
     for job in jobs.by_ref() {
-        let (completion, ends_group) = job(Some((&transaction, path)));
+        let (completion, ends_group) = job(Some((transaction, path)));
         completions.push(completion);
         if ends_group.is_some() {
             ended = ends_group;
             break;
         }
     }
+    let mut declared = false;
+    let ended = ended.or_else(|| {
+        marks
+            .clean
+            .then(|| run_cached(transaction, "DELETE FROM unclean").err())
+            .flatten()
+            .map(|error| commit_error(path, &error))
+    });
     let failed = match ended {
         // The rest of the group never runs: in a transaction SQLite ended,
         // each of its statements would commit on its own.
@@ -833,23 +1502,47 @@ fn commit_writes(
             completions.extend(jobs.map(|job| job(None).0));
             Some(error)
         }
-        None => transaction
-            .execute("UPDATE run SET journal_position = journal_position + 1", [])
+        None if marks.declare => transaction
+            .prepare_cached(
+                "UPDATE run SET journal_position = journal_position + 1, deferred_charges = ?1",
+            )
+            .and_then(|mut statement| {
+                statement.execute([i64::try_from(DEFERRED_CHARGES).unwrap_or(i64::MAX)])
+            })
+            .map(|changed| declared = changed == 1)
             .err()
             .map(|error| commit_error(path, &error)),
+        None => run_cached(
+            transaction,
+            "UPDATE run SET journal_position = journal_position + 1",
+        )
+        .err()
+        .map(|error| commit_error(path, &error)),
     };
     if let Some(error) = failed {
         // SQLite may have rolled the transaction back already after a full
         // disk or an I/O error; `ROLLBACK` makes the state the same either
         // way (ADR 0122).
-        let _ = transaction.rollback();
+        let _ = run_cached(transaction, "ROLLBACK");
         return Err((completions, error));
     }
-    // A commit that fails is rolled back as its transaction drops.
-    match transaction.commit() {
-        Ok(()) => Ok(completions),
-        Err(error) => Err((completions, commit_error(path, &error))),
+    match run_cached(transaction, "COMMIT") {
+        Ok(()) => Ok((completions, declared)),
+        Err(error) => {
+            // A commit that fails leaves the transaction open: it is rolled
+            // back, as SQLite advises (ADR 0122).
+            let _ = run_cached(transaction, "ROLLBACK");
+            Err((completions, commit_error(path, &error)))
+        }
     }
+}
+
+/// Runs `statement`, which binds nothing, through `connection`'s statement
+/// cache: the writer's transactions and savepoints prepare once per
+/// connection, not once per group or job, as rusqlite's own transactions
+/// do (ADR 0138).
+pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
+    connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
 #[cfg(test)]

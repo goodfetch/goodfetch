@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_counted_work::CountedWork;
+use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_engine::CallError;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::{
@@ -24,7 +24,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 
-use crate::document::matched;
+use crate::document::{CONTROLS, matched_in};
 
 /// How a document fared against a Page check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,11 +39,60 @@ pub(crate) enum Verdict {
     Unjudged,
 }
 
-/// The verdict of `check` on the document `html` reached at `url`: its
-/// login page first, then its expected page.
-pub(crate) fn judge(check: &PageCheck, url: &str, html: &str, work: &CountedWork) -> Verdict {
-    let found = |matcher: &PageMatch| found(matcher, url, html, work);
-    match check.login_page.as_ref().map(found) {
+/// The verdict of `check` on the document `html` reached at `url`, answered
+/// with `headers`: its login page first, then its expected page, and, for a
+/// page that is not the expected page, whether it is marked `noindex` (ADR
+/// 0035). `html` is parsed once for this call alone, at its first need, as a
+/// handler's page's check is: the check's CSS selectors and the robots
+/// `meta` elements read one tree. A crawl request's own document is judged
+/// once, by [`judge_with`] on its untouched tree.
+pub(crate) fn judge(
+    check: &PageCheck,
+    url: &str,
+    html: &str,
+    headers: &BTreeMap<String, String>,
+    work: &CountedWork,
+) -> (Verdict, bool) {
+    let mut parsed = None;
+    let verdict = judge_with(check, url, |selector| {
+        let matcher = crate::document::matcher(selector, work).ok()?;
+        let controls = work.literal_selector(Row::PageSelectorCompilations, CONTROLS);
+        let document = parsed_once(&mut parsed, html, work);
+        Some(!matched_in(document, &matcher, &controls).is_empty())
+    });
+    let noindex = verdict == Verdict::NotExpected
+        && (goodfetch_page::noindex::marked(headers, &[]) || {
+            let named = work.literal_selector(Row::PageSelectorCompilations, ROBOTS);
+            let robots = robots_in(parsed_once(&mut parsed, html, work), &named);
+            goodfetch_page::noindex::marked(headers, &robots)
+        });
+    (verdict, noindex)
+}
+
+/// The tree of `html` that `parsed` keeps, parsed at the first call.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a served page its untouched readers did not judge, parsed once for this call alone, for its check and its `noindex` mark"
+)]
+fn parsed_once<'tree>(
+    parsed: &'tree mut Option<ParsedHtml>,
+    html: &str,
+    work: &CountedWork,
+) -> &'tree ParsedHtml {
+    parsed.get_or_insert_with(|| work.parse_html(Row::PageParses, html))
+}
+
+/// The verdict of `check` on the document reached at `url`, its login page
+/// first, then its expected page, whose markup `css` reads: whether the
+/// CSS selector it is given finds an element, `None` for one the engine
+/// does not read.
+pub(crate) fn judge_with(
+    check: &PageCheck,
+    url: &str,
+    mut css: impl FnMut(&str) -> Option<bool>,
+) -> Verdict {
+    let mut found = |matcher: &PageMatch| found(matcher, url, &mut css);
+    match check.login_page.as_ref().map(&mut found) {
         Some(None) => return Verdict::Unjudged,
         Some(Some(true)) => return Verdict::LoginPage,
         Some(Some(false)) | None => {}
@@ -55,40 +104,45 @@ pub(crate) fn judge(check: &PageCheck, url: &str, html: &str, work: &CountedWork
     }
 }
 
-/// Whether `matcher` finds the document `html` reached at `url`; `None`
-/// when its markup cannot decide.
-fn found(matcher: &PageMatch, url: &str, html: &str, work: &CountedWork) -> Option<bool> {
+/// Each CSS selector `check` names, in its order: what its markup reads.
+pub(crate) fn selectors(check: &PageCheck) -> impl Iterator<Item = &str> {
+    [check.login_page.as_ref(), check.expected_page.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|matcher| match matcher {
+            PageMatch::Css { selector } => Some(selector.as_str()),
+            PageMatch::Glob { .. }
+            | PageMatch::Regex { .. }
+            | PageMatch::Xpath { .. }
+            | PageMatch::Text { .. } => None,
+        })
+}
+
+/// Whether `matcher` finds the document reached at `url`, whose markup
+/// `css` reads; `None` when its markup cannot decide.
+fn found(
+    matcher: &PageMatch,
+    url: &str,
+    css: &mut impl FnMut(&str) -> Option<bool>,
+) -> Option<bool> {
     match matcher {
         PageMatch::Glob { pattern } => UrlPattern::glob(pattern).ok().map(|glob| glob.matches(url)),
         PageMatch::Regex { pattern } => UrlPattern::regex(pattern)
             .ok()
             .map(|regex| regex.matches(url)),
-        PageMatch::Css { selector } => matched(html, selector, work)
-            .ok()
-            .map(|elements| !elements.is_empty()),
+        PageMatch::Css { selector } => css(selector),
         PageMatch::Xpath { .. } | PageMatch::Text { .. } => None,
     }
 }
 
-/// Whether the document `html`, answered with `headers`, is marked
-/// `noindex` (ADR 0035).
-pub(crate) fn noindex(headers: &BTreeMap<String, String>, html: &str) -> bool {
-    goodfetch_page::noindex::marked(headers, &robots(html))
-}
+/// What names a document's robots `meta` elements, among others.
+pub(crate) const ROBOTS: &str = "meta[name]";
 
-/// The `content` of each robots `meta` element of `html`.
-#[expect(
-    clippy::disallowed_types,
-    reason = "ADR 0140: a raw parse no benchmark reaches yet; the Shared paths audit moves it onto `CountedWork::parse_html`"
-)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-fn robots(html: &str) -> Vec<String> {
-    let document = dom_query::Document::from(html);
+/// The `content` of each robots `meta` element of `document`, `named`
+/// being [`ROBOTS`]' matcher.
+pub(crate) fn robots_in(document: &ParsedHtml, named: &dom_query::Matcher) -> Vec<String> {
     document
-        .select("meta[name]")
+        .select_matcher(named)
         .nodes()
         .iter()
         .filter(|meta| {

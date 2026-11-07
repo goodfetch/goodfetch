@@ -19,7 +19,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::{INSTALL_FILE, InstallDatabase};
 use crate::run_state::tests::{ITEMS, insert, items};
-use crate::run_state::{RunState, RunStateOptions, open_reader};
+use crate::run_state::{Durability, RunState, RunStateOptions, Syncing, open_reader};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// An install database in the test's folder, whose run folders are under
@@ -268,4 +268,71 @@ fn erasing_a_runs_files_searches_their_names_and_leaves_every_other_run() {
         (true, vec!["a_b".to_owned(), "b".to_owned()], true),
         "{plans:?}"
     );
+}
+
+/// The install database syncs per group as each Run's own durability says
+/// (ADR 0138's note of #1926): a group that needs no sync, or one of a Run
+/// at `fast`, syncs the database not at all, and one of a Run at `full`
+/// that needs a sync syncs it once, whatever the other Runs sharing it
+/// wrote in between, so one Run's commit is never weakened by another's.
+///
+/// Covers: story:3-29, setting:run_state.layout, setting:run_state.durability
+#[test]
+fn the_install_database_syncs_once_per_synced_group_of_each_run_whatever_the_others_write() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let runs = env.folder().join("runs");
+    let database = InstallDatabase::open(
+        &env.folder().join(INSTALL_FILE),
+        &runs,
+        &RunStateOptions {
+            vfs: Some(vfs.name().to_owned()),
+            ..RunStateOptions::default()
+        },
+    )
+    .unwrap();
+    let options = |durability| RunStateOptions {
+        vfs: Some(database.vfs().to_owned()),
+        durability,
+        ..RunStateOptions::default()
+    };
+    let deferred = Syncing::Deferred { charged: 0 };
+
+    let added = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let open = async |run_id: &str, durability| {
+            let options = options(durability);
+            RunState::open(
+                runs.join(run_id).join("run.sqlite"),
+                &options,
+                vec![ITEMS],
+                1,
+                &owner,
+            )
+            .await
+        };
+        let full = open("full", Durability::Full).await.unwrap();
+        let other = open("other", Durability::Full).await.unwrap();
+        let fast = open("fast", Durability::Fast).await.unwrap();
+        for state in [&full, &other, &fast] {
+            state.write(insert(0)).await.unwrap();
+        }
+        let mut added = Vec::new();
+        let mut step = async |write: &RunState, syncing, value| {
+            let before = vfs.syncs();
+            write.write_with(syncing, insert(value)).await.unwrap();
+            added.push(vfs.syncs() - before);
+        };
+        step(&other, deferred, 1).await;
+        step(&fast, Syncing::Required, 2).await;
+        step(&full, Syncing::Required, 3).await;
+        step(&other, deferred, 4).await;
+        step(&full, deferred, 5).await;
+        step(&full, Syncing::Required, 6).await;
+        drop((full, other, fast));
+        owner.wait().await;
+        added
+    });
+
+    assert_eq!(added, vec![0, 0, 1, 0, 0, 1]);
 }

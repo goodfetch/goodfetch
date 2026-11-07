@@ -148,6 +148,8 @@ pub enum NothingCommitted {
     /// Every Record it pushed was dropped or rejected, as its `records`
     /// count.
     NoneKept,
+    /// `dataset.records` is off, so the crawl keeps no Record (ADR 0138).
+    RecordsOff,
 }
 
 /// A request an attempt's enqueue, `enqueueLinks` call or seed answered

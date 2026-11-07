@@ -84,7 +84,15 @@ case "$part" in
     # archive's and the `ci` profile's builds of it read: without it they fail
     # to compile. It builds from the packages `just fetch` installed.
     just console-build
-    cargo nextest archive --workspace --locked --target "$target" \
+    # A musl cell builds with the static musl toolchain (ADR 0024's note of
+    # 2026-11-06): nextest runs its Cargo, ci/musl/cargo, through `CARGO`,
+    # which `cargo nextest` would reset to Cargo itself; `test-tools` picks
+    # it for the target.
+    nextest=(cargo nextest)
+    if [[ "$target" == *-linux-musl ]]; then
+      nextest=(env CARGO="$root/ci/musl/cargo" cargo-nextest nextest)
+    fi
+    "${nextest[@]}" archive --workspace --locked --target "$target" \
       --profile ci --cargo-profile ci-test --archive-file "$archive"
     # `test-tools` builds the `ci` executables itself, in one invocation of
     # their own (ADR 0094's note), so no `cargo build --workspace` of that

@@ -52,6 +52,7 @@ Comparable services cap spend in different ways:
   - The scope-level Notifications and "Needs you" items below.
 
   The Console reads it beside the Run index.
+  > Note (agent decision, pending owner review), 2026-11-05, [#2110](https://github.com/goodfetch/goodfetch/issues/2110): a read of the Limits (a run's start, each charge, its end) leaves a ledger no engine created uncreated and finds no Limit in it, so a run that no Limit holds writes and syncs none of the ledger; the next read tries again, so a Limit set meanwhile holds the next charge. A run that a Limit holds syncs the ledger once per Slice it takes, in that Slice's transaction as above, and once as it gives them back. A connection no longer copies the write-ahead log into the file as it closes (`SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`), which synced both again: each commit at `synchronous=FULL` already synced the log, so a Slice taken or given back survives a power cut once its call answered, as before.
 - **Outside the majors.** It lives in a per-user folder outside the per-major folders, like ADR 0036's active-major marker, so running an older major's binary never escapes a cap. A person on a shared Daemon and a named token exist only on the Daemon, or the Daemon group, of one major (ADRs 0031 and 0055), so their Limits apply there.
 - **Its format** (changes ADR 0030). The ledger is a contract format, added to ADR 0030's list. Its major stays frozen across product majors, so every supported major opens it.
   - **New versions.** A new version adds rows, tables and columns.

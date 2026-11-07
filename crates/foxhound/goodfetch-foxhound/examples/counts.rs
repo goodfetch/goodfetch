@@ -25,12 +25,18 @@
 //!
 //! The run file's work no wrapper sees is read from outside it too: syncs
 //! through a counting VFS under the run file, and `F2.prepares` from
-//! Callgrind's call count of `sqlite3_prepare_v3` over a whole cell, for
-//! which each cell runs this example again as `--callgrind <cell>`, on pages
-//! of about 1 kB, as Callgrind takes minutes on a crawl with no large page and
-//! far longer on the whole site. A page's size moves no statement. Without
-//! Valgrind `F2.prepares` goes unprinted, which `xtask counts` fails as a row
-//! not counted.
+//! Callgrind's call count of `sqlite3_prepare_v3` beneath the `run_state`
+//! writer's functions, for which each cell runs this example again as
+//! `--callgrind <cell>`, on pages of about 1 kB, as Callgrind takes minutes
+//! on a crawl with no large page and far longer on the whole site. A page's
+//! size moves no statement. What each page more prepares is the row: each
+//! cell runs a second time as `--callgrind <cell> --shorter`, on a site
+//! linking [`SHORTER`] of its pages, and the row is the difference between
+//! the two runs over the pages the whole site adds, so what a Run prepares
+//! once (its file's tables, each statement's first preparation, its end)
+//! counts for no page, and a statement its cache let go counts again
+//! (ADR 0138). Without Valgrind `F2.prepares` goes unprinted, which `xtask
+//! counts` fails as a row not counted.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
@@ -89,7 +95,7 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::CountingVfs;
-use goodfetch_test_support::callgrind::{self, Calls};
+use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
     Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries, page_analysis_plant,
@@ -202,6 +208,15 @@ const CALLERS: u32 = 32;
 const OFF_WORK: &str = "E6.off_work";
 const OFF_CELL: &str = "politeness_and_robots_txt_off";
 
+/// The rows a cell with robots.txt off, and so pacing nothing under the
+/// fixture's delay of 0, counts fewer of: no robots.txt read or parsed
+/// (#1919), and no Politeness store consulted (#1920).
+const OFF_REMOVES: &[Row] = &[
+    Row::PolitenessTransactions,
+    Row::RobotsParses,
+    Row::RobotsReads,
+];
+
 /// The Politeness permit's rows a counter counts, whose sum in [`OFF_CELL`]
 /// is its work.
 const POLITENESS_ROWS: [Row; 5] = [
@@ -214,6 +229,17 @@ const POLITENESS_ROWS: [Row; 5] = [
 
 /// The origins the fixture's robots.txt is read for: the site's one.
 const ORIGINS: u64 = 1;
+
+/// The owner of the run file's statements: each preparation `F2.prepares`
+/// counts has one of its functions among its [`CALLERS`] nearest callers.
+const RUN_STATE: &str = "goodfetch_engine::run_state::";
+
+/// How many of [`PAGES`] a `--shorter` run's site links: half of them.
+const SHORTER: usize = PAGES.len() / 2;
+
+/// The pages the whole site serves beyond a `--shorter` run's: the unit
+/// `F2.prepares` divides by.
+const ADDED_PAGES: u64 = (PAGES.len() - SHORTER) as u64;
 
 /// The row the counting VFS reads.
 const SYNCS: &str = "F2.syncs";
@@ -309,8 +335,80 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-fn cells() -> [Cell; 10] {
+/// The cell with no format asked and `frontier.learning` off: the crawl
+/// runs neither the clean-up nor the main-content step (ADR 0138), and no
+/// reader of its untouched page needs a tree, so each page is read in one
+/// streaming pass and parsed none (#1911). It compiles no selector a page,
+/// as no page of the default cell does since the engine keeps its
+/// compilations (#1912).
+fn learning_off() -> Cell {
+    Cell {
+        name: "learning_off",
+        settings: scoped(json!({ "frontier": { "learning": false } })),
+        frontier: FRONTIER,
+        removes: &[Row::PageParses, Row::PageReadabilityRuns],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The cells of the per-page features ADR 0138's inventory switches off,
+/// each against the default cell: the Provenance log, whose Run trace then
+/// holds no entry; the Records, none of which is then validated, serialized
+/// or committed, nor its fields read; and the Block classification, which
+/// then reads no document (#1921).
+fn switched_off() -> [Cell; 3] {
     [
+        Cell {
+            name: "provenance_off",
+            settings: scoped(json!({ "provenance": { "log": false } })),
+            frontier: FRONTIER,
+            removes: &[Row::RunTraceSpawns, Row::RunTraceFileOpens],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: RECORDS_OFF_CELL,
+            settings: scoped(json!({ "dataset": { "records": false } })),
+            frontier: FRONTIER,
+            removes: &[
+                Row::RecordValidations,
+                Row::RecordSerializations,
+                Row::RecordConstantLookups,
+            ],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: "block_classification_off",
+            // The fixture's `fetch` with the switch beside it: a cell's
+            // settings replace each of the fixture's top-level keys.
+            settings: scoped(json!({
+                "fetch": { "tier": "http", "block_classification": false },
+            })),
+            frontier: FRONTIER,
+            removes: &[Row::PageBlockClassifications],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+    ]
+}
+
+/// The cell that keeps no Record, whose crawl's checks of its Records it
+/// skips.
+const RECORDS_OFF_CELL: &str = "records_off";
+
+/// Whether the cell's Run trace holds a Provenance log.
+fn logs_provenance(cell: &Cell) -> bool {
+    cell.settings["provenance"]["log"] != json!(false)
+}
+
+fn cells() -> Vec<Cell> {
+    let mut cells = vec![
         Cell {
             name: "default",
             settings: scoped(json!({})),
@@ -326,11 +424,14 @@ fn cells() -> [Cell; 10] {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } })),
             frontier: FRONTIER,
-            removes: &[Row::PageParses, Row::PageSelectorCompilations],
+            // The crawl asks for no format, so it runs no clean-up with the
+            // Filter lists on either (ADR 0138's demand plan).
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,
         },
+        learning_off(),
         Cell {
             name: "document_tier_handler",
             settings: json!({}),
@@ -390,14 +491,15 @@ fn cells() -> [Cell; 10] {
             handler: false,
             limit: false,
         },
-        // robots.txt off and Politeness off take none of E6's work away yet:
-        // ADR 0138's "cost nothing" is the Shared paths spec's, and X19 waives
-        // it meanwhile, so neither cell removes a row.
+        // robots.txt off reads and parses no robots.txt (#1919), and with
+        // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
+        // paces its domains: admission consults no Politeness store and
+        // takes no Permit (#1920).
         Cell {
             name: "robots_txt_off",
             settings: json!({ "site_preferences": { "respect_robots_txt": false } }),
             frontier: None,
-            removes: &[],
+            removes: OFF_REMOVES,
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -409,12 +511,25 @@ fn cells() -> [Cell; 10] {
                 "site_preferences": { "respect_robots_txt": false },
             }),
             frontier: None,
-            removes: &[],
+            removes: OFF_REMOVES,
             removes_syncs: false,
             handler: false,
             limit: false,
         },
-    ]
+    ];
+    cells.extend(switched_off());
+    cells
+}
+
+/// What a cell's runs under Callgrind prepared.
+#[derive(Clone, Copy)]
+struct Prepared {
+    /// Beneath the Politeness file's functions, its opening's left out, on
+    /// the whole site: `E6.opens`' part.
+    politeness: u64,
+    /// Beneath the `run_state` writer's, on the whole site less on
+    /// [`SHORTER`] of its pages: `F2.prepares`, over [`ADDED_PAGES`].
+    per_added_pages: u64,
 }
 
 /// What one cell counted.
@@ -441,9 +556,9 @@ struct Counted {
     /// own, on files of `vfs_files`: no row's work.
     setup_syncs: u64,
     removes_syncs: bool,
-    /// `F2.prepares`, and those of its preparations beneath the Politeness
-    /// file's functions, when Valgrind ran.
-    prepare_calls: Option<Calls>,
+    /// `F2.prepares`, and the preparations beneath the Politeness file's
+    /// functions, when Valgrind ran.
+    prepare_calls: Option<Prepared>,
     /// Whether it met the Frontier's outcomes beyond a links batch.
     frontier: bool,
     /// Whether a handler served its pages, following no links.
@@ -476,12 +591,13 @@ struct Crawl {
 
 /// The pages a crawl serves: whole, each without its paragraphs (a
 /// `--small-cell` run), or none past [`CALLGRIND_PAGE`]'s (a `--callgrind`
-/// run).
+/// run), on the whole site or on [`SHORTER`] of its pages (`--shorter`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pages {
     Whole,
     Small,
     Callgrind,
+    CallgrindShorter,
 }
 
 /// The crawl of `cell`, on an engine and in a home of its own, with the row
@@ -526,7 +642,9 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             frontier: cell.frontier,
             small_pages: pages == Pages::Small,
             run_state_vfs: Some(vfs.name().to_owned()),
-            largest_page: (pages == Pages::Callgrind).then_some(CALLGRIND_PAGE),
+            largest_page: matches!(pages, Pages::Callgrind | Pages::CallgrindShorter)
+                .then_some(CALLGRIND_PAGE),
+            linked_pages: (pages == Pages::CallgrindShorter).then_some(SHORTER),
             limit: cell.limit.then_some(LIMIT),
             robots_txt: true,
             setup_vfs: Some(setup.name().to_owned()),
@@ -543,6 +661,13 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
         setup_syncs: setup.syncs(),
         entries: entries(home.path()),
     }
+}
+
+/// The pages a crawl of `cell` on a site linking `linked` of [`PAGES`]
+/// serves: the index and its pages, and with the Frontier's outcomes the
+/// redirect's target, the sitemap's entry and the seed with a Payload.
+fn pages_of(cell: &Cell, linked: usize) -> usize {
+    linked + if cell.frontier.is_some() { 4 } else { 1 }
 }
 
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row
@@ -562,7 +687,10 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             setup_syncs,
             entries,
         } = crawl(cell, planted, bypassed, Pages::Whole);
-        assert!(entries > 0, "the crawl wrote no Run-trace entry");
+        assert!(
+            entries > 0 || !logs_provenance(cell),
+            "the crawl wrote no Run-trace entry"
+        );
         assert!(
             !cell.limit
                 || (work.read(Row::ChargeStatements) > 0 && work.read(Row::ChargeOpens) > 0),
@@ -573,10 +701,10 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             body_bytes(),
             "the site sends each body once"
         );
-        // The index and its pages, and with the Frontier's outcomes the
-        // redirect's target, the sitemap's entry and the seed with a Payload.
-        let pages = PAGES.len() + if cell.frontier.is_some() { 4 } else { 1 };
-        if cell.handler {
+        let pages = pages_of(cell, PAGES.len());
+        if cell.name == RECORDS_OFF_CELL {
+            assert!(crawled.records.is_empty(), "the crawl kept a Record");
+        } else if cell.handler {
             assert_eq!(
                 crawled.handled,
                 u64::try_from(pages).expect("invariant: a dozen pages"),
@@ -649,7 +777,7 @@ fn prepare_calls<T>(
     planted: Option<&str>,
     counted: bool,
     beside: impl FnOnce() -> T,
-) -> (Option<Calls>, T) {
+) -> (Option<Prepared>, T) {
     std::thread::scope(|scope| {
         let calls = scope.spawn(|| {
             if !counted
@@ -658,20 +786,35 @@ fn prepare_calls<T>(
                 return None;
             }
             let executable = std::env::current_exe().expect("invariant: this process has a path");
-            let mut arguments = vec!["--callgrind", cell];
-            if let Some(row) = planted {
-                arguments.extend(["--plant", row]);
-            }
-            let calls = callgrind::calls_beneath(
-                PREPARE,
-                CALLERS,
-                POLITENESS,
-                &OPENING,
-                &executable,
-                &arguments,
-            );
-            match calls {
-                Ok(calls) => Some(calls),
+            let owners: [(&str, &[&str]); 2] = [(POLITENESS, &OPENING), (RUN_STATE, &[])];
+            let run = |shorter: bool| {
+                let mut arguments = vec!["--callgrind", cell];
+                if shorter {
+                    arguments.push("--shorter");
+                }
+                if let Some(row) = planted {
+                    arguments.extend(["--plant", row]);
+                }
+                callgrind::calls_beneath_each(PREPARE, CALLERS, &owners, &executable, &arguments)
+            };
+            let (whole, shorter) = std::thread::scope(|scope| {
+                let shorter = scope.spawn(|| run(true));
+                let whole = run(false);
+                (
+                    whole,
+                    shorter
+                        .join()
+                        .expect("invariant: the shorter run under Callgrind ended"),
+                )
+            });
+            match whole.and_then(|whole| shorter.map(|shorter| (whole, shorter))) {
+                Ok((whole, shorter)) => Some(Prepared {
+                    politeness: whole[0].beneath,
+                    per_added_pages: whole[1]
+                        .beneath
+                        .checked_sub(shorter[1].beneath)
+                        .expect("invariant: the whole site prepares at least what half of it does"),
+                }),
                 Err(error) => {
                     eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
                     None
@@ -818,10 +961,37 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
         ["--callgrind", cell, "--plant", row] => {
             (Pages::Callgrind, Some(*cell), Some(*row), Watched::Counted)
         }
+        ["--callgrind", cell, "--shorter"] => {
+            (Pages::CallgrindShorter, Some(*cell), None, Watched::Counted)
+        }
+        ["--callgrind", cell, "--shorter", "--plant", row] => (
+            Pages::CallgrindShorter,
+            Some(*cell),
+            Some(*row),
+            Watched::Counted,
+        ),
         other => panic!(
-            "usage: counts [--small-cell <cell> | --callgrind <cell>] [--plant <row>] | --strace [--bypass <work>], not {other:?}"
+            "usage: counts [--small-cell <cell> | --callgrind <cell> [--shorter]] [--plant <row>] | --strace [--bypass <work>], not {other:?}"
         ),
     }
+}
+
+/// The shorter site's crawl of `cell`, `ran`, served [`ADDED_PAGES`] pages
+/// fewer than the whole site's, as its Records or its handler count them; a
+/// cell that keeps no Record has none to count.
+fn assert_shorter(cell: &Cell, ran: &Crawl) {
+    let served = if cell.handler {
+        usize::try_from(ran.crawled.handled).unwrap_or(usize::MAX)
+    } else if cell.name == RECORDS_OFF_CELL {
+        return;
+    } else {
+        ran.crawled.records.len()
+    };
+    assert_eq!(
+        served,
+        pages_of(cell, SHORTER),
+        "the shorter site serves {ADDED_PAGES} pages fewer"
+    );
 }
 
 #[expect(
@@ -838,7 +1008,10 @@ fn main() {
             .into_iter()
             .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        let _ = crawl(&cell, planted, None, pages);
+        let ran = crawl(&cell, planted, None, pages);
+        if pages == Pages::CallgrindShorter {
+            assert_shorter(&cell, &ran);
+        }
         return;
     }
     // Side by side, each on its own paused runtime: no cell waits on another,
@@ -884,8 +1057,8 @@ fn main() {
         counts.insert(SYNCS.to_owned(), json!(cell.syncs));
         match cell.prepare_calls {
             Some(calls) => {
-                counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.all));
-                let opens = cell.count(Row::PolitenessOpens) + calls.beneath;
+                counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.per_added_pages));
+                let opens = cell.count(Row::PolitenessOpens) + calls.politeness;
                 counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
             }
             None => {
@@ -897,7 +1070,8 @@ fn main() {
         counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
         let units = json!({
             "pages": cell.pages,
-            "records": cell.pages,
+            "added_pages": ADDED_PAGES,
+            "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,
             "sitemaps": cell.sitemaps,

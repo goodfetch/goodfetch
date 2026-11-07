@@ -47,83 +47,117 @@ fmt:
     pnpm exec oxfmt .
     uv run ruff format .
 
-# Checks formatting only (the pre-commit hook).
+# Checks formatting only (the pre-commit hook). Each check runs even after
+# one failed, and the run ends with the list of those that failed, each with
+# its log under target/steps/ (ci/keep-going.sh), as in `lint-documents`
+# and `lint`.
 fmt-check:
-    cargo fmt --all --check
-    cd kennel && cargo fmt --check
-    pnpm exec oxfmt --check .
-    uv run ruff format --check .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin fmt-check
+    step cargo-fmt 'cargo fmt --all --check'
+    step kennel-fmt 'cd kennel && cargo fmt --check'
+    step oxfmt 'pnpm exec oxfmt --check .'
+    step ruff-format 'uv run ruff format --check .'
+    steps_end
 
 # The checks of `just lint` that read documents: formatting, typos, the
 # Quality register, the Feature and Journey checks, the wording and the
 # repository's policy files. The docs gate runs them alone for a change of
-# documents (`xtask affected`'s `gate=docs`, ADR 0135).
-lint-documents: fmt-check
-    ci/tool.sh typos typos
-    cargo run --quiet --bin xtask -- register check
-    cargo run --quiet --bin xtask -- features check
-    cargo run --quiet --bin xtask -- wording
-    cargo run --quiet --bin xtask -- journeys check
-    ci/repository-files.sh
+# documents (`xtask affected`'s `gate=docs`, ADR 0135). Every check runs
+# even after one failed; the `xtask` checks come after xtask's build, and are
+# skipped, named so, when it fails.
+lint-documents:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint-documents
+    step fmt-check '{{ just_executable() }} fmt-check'
+    step typos 'ci/tool.sh typos typos'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after xtask xtask-register 'cargo run --quiet --bin xtask -- register check'
+    step --after xtask xtask-features 'cargo run --quiet --bin xtask -- features check'
+    step --after xtask xtask-wording 'cargo run --quiet --bin xtask -- wording'
+    step --after xtask xtask-journeys 'cargo run --quiet --bin xtask -- journeys check'
+    step repository-files 'ci/repository-files.sh'
+    steps_end
 
 # Formatting checks and the checks that read documents, then every linter and
-# the repository's own static checks.
-lint: lint-documents
-    ci/ignored-sources.sh
-    cargo metadata --locked --format-version 1 > /dev/null
-    cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null
-    ci/fuzz-check.sh locked
-    pnpm install --lockfile-only --frozen-lockfile
-    uv lock --check
-    {{ just_executable() }} console-build
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
-    pnpm exec tsc -p tsconfig.json
-    pnpm -r --if-present run typecheck
-    ci/console-messages.sh
-    pnpm exec oxlint
-    uv run ruff check .
-    uv run pyright
-    uv run mypy .
-    ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions
-    ci/tool.sh actionlint actionlint
-    ci/tool.sh gitleaks ci/canary-rule.sh
-    ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push
-    ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
-    ci/tool.sh cargo-deny ci/deny/products.sh
-    # Spider's side of `just compare-spider`, no workspace member, which no
-    # gate builds: its lock's licenses, read without a build (ADR 0134).
-    ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
+# the repository's own static checks. Every check runs even after one failed,
+# and the run ends with the list of those that failed, each with its log
+# under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
+# one's output comes after it and is skipped, named so, when it failed:
+# Clippy after the lockfile check, the TypeScript checks after the Console's
+# build, the `xtask` checks after xtask's build.
+lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint
+    step lint-documents '{{ just_executable() }} lint-documents'
+    step ignored-sources 'ci/ignored-sources.sh'
+    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
+    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
+    step fuzz-lock 'ci/fuzz-check.sh locked'
+    step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
+    step uv-lock 'uv lock --check'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after xtask console-build '{{ just_executable() }} console-build'
+    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    step --after console-build tsc 'pnpm exec tsc -p tsconfig.json'
+    step --after console-build pnpm-typecheck 'pnpm -r --if-present run typecheck'
+    step console-messages 'ci/console-messages.sh'
+    step oxlint 'pnpm exec oxlint'
+    step ruff 'uv run ruff check .'
+    step pyright 'uv run pyright'
+    step mypy 'uv run mypy .'
+    step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
+    step actionlint 'ci/tool.sh actionlint actionlint'
+    step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
+    step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
+    # Spider's side of `just compare`, no workspace member, which no
+    # gate builds: its lock's licenses, its `chrome` feature's included,
+    # read without a build (ADR 0134).
+    step cargo-deny-spider 'ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # Crawlee's and Scrapy's sides, no workspace member either: their locks'
+    # licenses against the same allowlist, read from what their frozen
+    # installs leave beside them, with each side's own exceptions (ADR 0138).
+    step compare-crawlee-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee'
+    step compare-scrapy-install 'uv sync --frozen --quiet --directory xtask/compare-scrapy'
+    step --after xtask --after compare-crawlee-install --after compare-scrapy-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy'
     # The Kennel's workspace (ADR 0141), read without a build: its lock's
     # licenses against the root allowlist, its bans and sources with its own
     # deny.toml.
-    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses
-    ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources
-    ci/tool.sh cargo-shear cargo shear
+    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     # The workspace-hack is current and every member takes it (ADR 0094).
-    ci/tool.sh cargo-hakari ci/workspace-hack.sh check
-    cargo run --quiet --bin xtask -- self-hosted check
-    cargo run --quiet --bin xtask -- egress check
-    cargo run --quiet --bin xtask -- os-services workflows
-    cargo run --quiet --bin xtask -- fixture-size
-    cargo run --quiet --bin xtask -- image-pins
-    cargo run --quiet --bin xtask -- output-scans
-    cargo run --quiet --bin xtask -- screenshots check
-    cargo run --quiet --bin xtask -- dependency-direction
-    cargo run --quiet --bin xtask -- package-dependencies
-    cargo run --quiet --bin xtask -- mocking-lockfile
-    cargo run --quiet --bin xtask -- telemetry
-    cargo run --quiet --bin xtask -- no-retry
-    cargo run --quiet --bin xtask -- received-requests
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
-      cargo run --quiet --bin xtask -- axe-exceptions check
-    cargo run --quiet --bin xtask -- modules
-    cargo run --quiet --bin xtask -- codegen --check
-    cargo run --quiet --bin xtask -- clients check
-    cargo run --quiet --bin xtask -- compat check
-    cargo run --quiet --bin xtask -- containment
-    ci/tool-versions.sh
+    step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'
+    step --after xtask xtask-self-hosted 'cargo run --quiet --bin xtask -- self-hosted check'
+    step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
+    step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
+    step --after xtask xtask-fixture-size 'cargo run --quiet --bin xtask -- fixture-size'
+    step --after xtask xtask-image-pins 'cargo run --quiet --bin xtask -- image-pins'
+    step --after xtask xtask-output-scans 'cargo run --quiet --bin xtask -- output-scans'
+    step --after xtask xtask-screenshots 'cargo run --quiet --bin xtask -- screenshots check'
+    step --after xtask xtask-dependency-direction 'cargo run --quiet --bin xtask -- dependency-direction'
+    step --after xtask xtask-package-dependencies 'cargo run --quiet --bin xtask -- package-dependencies'
+    step --after xtask xtask-mocking-lockfile 'cargo run --quiet --bin xtask -- mocking-lockfile'
+    step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
+    step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
+    step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
+    step --after xtask xtask-axe-exceptions 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- axe-exceptions check'
+    step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
+    step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
+    step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
+    step tool-versions 'ci/tool-versions.sh'
+    steps_end
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
 # Schema bundle and catalog, each Product's projection, the names only
@@ -339,6 +373,8 @@ mutants base="":
 fetch:
     cargo fetch --locked
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
+    pnpm install --frozen-lockfile --dir xtask/compare-crawlee
+    uv sync --frozen --directory xtask/compare-scrapy
     cd kennel && cargo fetch --locked
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
@@ -852,16 +888,18 @@ quick-steps:
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
+    echo "# Every step runs even after one failed; the run ends with the list of those that failed (ci/keep-going.sh)."
     echo "# First, always:"
+    echo "just compiler-cache"
     echo "just floor-guard"
     echo "just commit-leaks"
     echo "# The change's gate, its gate= line:"
     echo "cargo run --quiet --locked --bin xtask -- affected --local"
-    echo "# gate=docs: just lint-documents (fmt-check, then its own lines), and nothing after it."
-    echo "# Any other gate: just lint (fmt-check, lint-documents, then its own lines), then the Quick suite."
+    echo "# gate=docs: just lint-documents, and nothing after it."
+    echo "# Any other gate: just lint, then the Quick suite, which runs after a red lint too."
     for recipe in fmt-check lint-documents lint; do
       echo "# just $recipe:"
-      "$just" --show "$recipe" | sed -n 's/^    //p'
+      GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
     echo "# The Quick suite over what changed:"
     echo "just test-affected quick --local"
@@ -957,8 +995,9 @@ release-ci cells="all" commit="":
     exit "$status"
 
 # The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
-# executables with the `ci` profile the Release suite's cells build, runs the
-# scenario (every scenario when none is named: idle-attached-engine,
+# executables with the `ci` profile the Release suite's cells build, for the
+# Rust target they ship for here (the static musl one on Linux, ADR 0024),
+# runs the scenario (every scenario when none is named: idle-attached-engine,
 # idle-daemon and crawl, the last on Foxhound against a Proving ground it
 # serves) on each executable it runs on, then holds each peak to its ceiling in
 # ci/rss-ceilings.toml and shows it against its Performance target. With no
@@ -966,41 +1005,68 @@ release-ci cells="all" commit="":
 # the results store keeps go to target/junit/.
 # Runs the resident-memory check: `just rss [scenario…]`.
 rss *scenarios:
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
+    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/peaks.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
     cargo run --quiet --bin xtask -- rss check --peaks target/rss/peaks.jsonl
 
 # Proposes the resident-memory ceilings of this platform from 20 runs of each
-# scenario on each executable it runs on: 1.5 times the highest peak, rounded
-# up to a whole MiB, as ci/rss-ceilings.toml writes them. Only the owner
+# scenario on each executable it runs on, built as `just rss` builds them:
+# 1.5 times the highest peak, rounded up to a whole MiB, as
+# ci/rss-ceilings.toml writes them. Only the owner
 # commits a ceiling (ADR 0071), measured on the build after M1's optimization
 # pass (ADR 0134).
 # Proposes this platform's resident-memory ceilings from 20 runs.
 rss-propose *scenarios:
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --out "$PWD/target/rss/test-tools.json"
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
+    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/propose.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet --bin xtask -- rss propose --peaks target/rss/propose.jsonl
 
-# Spider's comparison (ADR 0134), a one-off on the owner's machine: Foxhound's
-# and Spider 2.53.9's crawls (its HTTP mode, xtask/compare-spider) of the
-# Proving ground's 1,000-page site, both built with the release profile
-# (`profile` changes it for a quicker try), 10 trials of each in random
-# order, each tool in a fresh process against a fresh Proving ground at 16
-# requests at once. Once every trial fetched the same pages and was served
-# the same bytes, it writes each tool's median pages per second and peak RSS
-# to target/compare-spider/report.md and report.json, `local-controlled` and
-# never published (ADR 0076); otherwise it fails naming the trial. Its Callgrind
-# cell runs each tool 3 times under Callgrind, Foxhound on ADR 0138's scenario
-# 1, and reports `foxhound.spider_instruction_ratio` under the same check; a
-# host without Valgrind reports it as not run (ADR 0140). It gates nothing and
-# is no Live check. Spider's crate is downloaded once, free.
-# Compares Foxhound's crawl with Spider's on this machine.
-compare-spider profile="release":
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
+# The comparison matrix (ADRs 0134 and 0138; the owner's comments of
+# 2026-10-30 on #1577), on one machine with nothing else running: each
+# scenario sets every tool to its closest equivalent configuration and the
+# report writes that mapping, a cell saying so where a tool cannot do the
+# scenario and marking pending each Foxhound value that does not exist yet.
+# Five scenarios: 1, raw; 2, durable (killed once half the site is served,
+# then resumed); 3, polite, on the Proving ground's 50-domain site; 4,
+# extraction of each page's title and main text to the tool's dataset; 5,
+# headless browser, on its script-rendered site. Foxhound against Spider
+# 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
+# `chrome` feature's executable for scenario 5), both built with the
+# release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
+# on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
+# `PlaywrightCrawler` for scenario 5) and Scrapy 2.19.0 on CPython
+# (xtask/compare-scrapy, with scrapy-playwright for scenario 5), each side
+# installed from its own lock, outside the Products'. Scenario 5's tools
+# all run the Chrome for Testing build Foxhound pins, as Playwright
+# installed it (`pnpm exec playwright install chromium`). A cell a tool
+# cannot run says why: 10 trials of each measured cell in random order,
+# each tool in a fresh process against a fresh Proving ground at 16
+# requests at once over the scenario's 1,000-page site.
+# Every metric is measured from outside the tools (the OS's accounting of
+# the waited-for children, /proc samples of the process tree, the Proving
+# ground's observations, the data folder left), then each cell's system
+# calls and syncs are counted under strace, and scenario 1's instructions
+# per page under Callgrind (`foxhound.spider_instruction_ratio`, ADR
+# 0140); `--growth` adds the 100,000-page crawls whose resident memory is
+# read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
+# the same-work check, it writes each cell's median and spread of every
+# metric to target/compare/report.md and report.json, `local-controlled`
+# and never published (ADR 0076); otherwise it fails naming the trial. A
+# host without strace or Valgrind reports that cell as not run. It gates
+# nothing and is no Live check; run it when the 1-minute load is under 4.
+# Spider's crate and the sides' packages are downloaded once, free.
+# Runs the comparison matrix on this machine.
+compare profile="release" *args:
+    cargo run --quiet --bin xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
-    cargo run --quiet --bin xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
+    pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
+    uv sync --frozen --quiet --directory xtask/compare-scrapy
+    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider --spider-chrome target/compare-spider/spider-chrome/{{ profile }}/goodfetch-compare-spider {{ args }}
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
@@ -1041,18 +1107,30 @@ kennel-release folder="kennel/target/release-files":
     kennel/scripts/release.sh sign "$folder"
     kennel/scripts/release.sh package "$folder" "file://$folder"
 
+# The static musl build's toolchain (ADR 0024's note of 2026-11-06): Zig and
+# cargo-zigbuild at ci/musl/toolchain.sh's versions, Zig checked against its
+# SHA-256, installed once outside the checkout (ci/musl/install.sh). Linux
+# only; `just targets`, `just rss` and the Release suite's musl cells build
+# through it (ci/musl/cargo).
+# Installs the pinned static musl toolchain.
+musl-toolchain:
+    ci/musl/install.sh
+
 # The Performance targets report (ADR 0134), on the owner's machine before
-# each owner test: each Product's release build, its startup to `hello`
+# each owner test: each Product's release build for the Rust target it ships
+# for here (the static musl one on Linux, ADR 0024), its startup to `hello`
 # with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
 # engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
-# of 5 runs each), with the pages per second of the latest
-# `just compare-spider` report. Writes target/targets/report.md: each
+# of 5 runs each; on Linux, beside each, how much is the executable's own
+# file-backed pages), with the pages per second of the latest
+# `just compare` report's scenario 1. Writes target/targets/report.md: each
 # target, its figure, met or missed with its gap and the optimization
 # pass's write-up from ci/performance-target-gaps.toml. Labelled
 # `local-controlled`, never published (ADR 0076); it fails on no miss.
 # Writes the Performance targets report on this machine.
 targets:
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile release --out "$PWD/target/targets/test-tools.json"
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
+    cargo run --quiet --bin xtask -- test-tools --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
     cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
@@ -1267,9 +1345,10 @@ zap phase="scan":
 notices *arguments:
     cargo run --quiet --bin xtask -- notices {{ arguments }}
 
-# The security advisories of the Cargo, pnpm and uv lockfiles (the Cargo
-# ones the workspace's and Spider's side's, xtask/compare-spider), against the
-# advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
+# The security advisories of the Cargo, pnpm and uv lockfiles (the
+# workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
+# Crawlee's xtask/compare-crawlee and Scrapy's xtask/compare-scrapy), against
+# the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
 # downloads the snapshot into target/advisories/; a fail is always the
@@ -1277,6 +1356,8 @@ notices *arguments:
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
+    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
+    ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
     ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm
     ci/tool.sh osv-scanner ci/audit.sh python

@@ -6689,6 +6689,11 @@
           "const": "none_kept",
           "description": "Every Record it pushed was dropped or rejected, as its `records`\ncount.",
           "type": "string"
+        },
+        {
+          "const": "records_off",
+          "description": "`dataset.records` is off, so the crawl keeps no Record (ADR 0138).",
+          "type": "string"
         }
       ]
     },
@@ -8307,7 +8312,7 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "`ignored` when its page was fetched while\n`site_preferences.respect_robots_txt` was off, from a URL its\norigin's robots.txt disallows, so a result taken against a site's\nstated preferences can be found and removed; none otherwise."
+          "description": "`ignored` when its page was fetched while\n`site_preferences.respect_robots_txt` was off and\n`site_preferences.mark_robots_txt_ignored` on, from a URL its\norigin's robots.txt disallows, so a result taken against a site's\nstated preferences can be found and removed; none otherwise."
         },
         "tier": {
           "anyOf": [
@@ -8910,7 +8915,7 @@
       "oneOf": [
         {
           "const": "ignored",
-          "description": "It disallowed the page's URL, and the fetch ignored it, since\n`site_preferences.respect_robots_txt` was off.",
+          "description": "It disallowed the page's URL, and the fetch ignored it, since\n`site_preferences.respect_robots_txt` was off; marked only while\n`site_preferences.mark_robots_txt_ignored` is on.",
           "type": "string"
         }
       ]
@@ -15622,6 +15627,9 @@
             "locale_form_builds",
             "plugin_serializations",
             "plugin_answer_parses",
+            "tree_copies",
+            "share_readability_runs",
+            "block_classifications",
             "transactions",
             "writer_reads",
             "configuration_reads",
@@ -15663,6 +15671,7 @@
             "commands",
             "world_creations",
             "document_worlds",
+            "serialization_commands",
             "meminfo_opens",
             "static_opens",
             "cpu_stat_opens",
@@ -16049,7 +16058,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: offered only in the Console and the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
       "name": "config.policy_write",
@@ -18101,7 +18110,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission.",
+      "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset.",
       "name": "admission.max_requests_per_minute",
       "product": "collie",
       "products": [
@@ -18614,7 +18623,7 @@
       "authority": "every",
       "clearable": false,
       "default": 16,
-      "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+      "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
       "name": "crawl.handler.concurrency",
       "product": "foxhound",
       "products": [
@@ -18833,7 +18842,7 @@
       "authority": "every",
       "clearable": false,
       "default": 2,
-      "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+      "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
       "name": "crawl.retry.max",
       "product": "foxhound",
       "products": [
@@ -19009,6 +19018,22 @@
         "type": "integer"
       },
       "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+      "name": "dataset.records",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
     },
     {
       "arrived_in": "0.1",
@@ -19429,6 +19454,42 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "estimate",
+      "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+      "name": "extraction.removal_share",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "estimate",
+          "exact"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+      "name": "fetch.block_classification",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": true,
       "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
       "name": "fetch.coalesce",
@@ -19756,6 +19817,22 @@
         "type": "boolean"
       },
       "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
+      "name": "frontier.learning",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
     },
     {
       "arrived_in": "0.1",
@@ -20633,6 +20710,22 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+      "name": "provenance.log",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
@@ -20909,8 +21002,27 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 5000,
+      "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+      "name": "run_state.commit_interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": "full",
-      "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+      "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -20920,7 +21032,9 @@
       "value": {
         "enum": [
           "full",
-          "fast"
+          "fast",
+          "periodic",
+          "off"
         ]
       },
       "weakens": true
@@ -22005,6 +22119,22 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": false,
+      "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+      "name": "site_preferences.mark_robots_txt_ignored",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 30000,
       "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
       "name": "site_preferences.max_crawl_delay",
@@ -22046,7 +22176,7 @@
       "authority": "every",
       "clearable": false,
       "default": true,
-      "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+      "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
       "name": "site_preferences.respect_robots_txt",
       "product": "foxhound",
       "products": [
@@ -22500,6 +22630,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The crawl ran with `fetch.block_classification` off: no document was read for a Challenge or a captcha, so a page a site blocked may be among its successes.",
+      "name": "block_classification_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Session's `browser.block_resources` blocks loads a site can see missing, which few people block.",
       "name": "block_resources_visible",
       "product": "collie",
@@ -22738,6 +22875,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records` or `fetch.block_classification`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
+      "name": "feature_switched_off",
+      "product": "foxhound",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.",
       "name": "file_write_failed",
       "product": "collie",
@@ -22798,6 +22942,20 @@
       "name": "ip_block",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.",
+      "name": "learning_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A run switched `frontier.learning` off, once per run, with the key, its value, its built-in default and the layer that set it (ADR 0138): its Frontier learns no URL rule from its pages.",
+      "name": "learning_switched_off",
+      "product": "foxhound",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",
@@ -22948,6 +23106,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The crawl ran with `provenance.log` off: its Run trace holds no Provenance log, while each Record still carries its own Provenance.",
+      "name": "provenance_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Bytes a run sent and received through a proxy, per proxy kind.",
       "name": "proxy_bytes",
       "product": "collie",
@@ -22973,6 +23138,13 @@
       "name": "raw_cdp_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl ran with `dataset.records` off: it kept no Record, so its Datasets are empty by the setting, not for want of pages.",
+      "name": "records_off",
+      "product": "foxhound",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

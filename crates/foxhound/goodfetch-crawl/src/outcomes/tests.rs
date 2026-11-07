@@ -12,6 +12,8 @@
 
 mod readmission;
 
+use std::time::Duration;
+
 use goodfetch_engine::Dependencies;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
@@ -236,8 +238,14 @@ fn a_reader_from_now_on_reads_only_the_endings_committed_after_its_call() {
                 .call(
                     "run.outcomes",
                     json!({ "run_id": "live", "after": "now" }),
+                    // `b`'s handler takes a moment of the paused clock,
+                    // which passes once the engine is idle: the call has
+                    // taken its "now" by then, however fast its commit is.
                     &mut |params: &Value| match params["crawl_request"]["id"].as_str() {
-                        Some("2") => Reply::Records(vec![json!({ "page": "b" })]),
+                        Some("2") => Reply::After(
+                            Duration::from_millis(100),
+                            Box::new(Reply::Records(vec![json!({ "page": "b" })])),
+                        ),
                         _ => Reply::Silent,
                     },
                 )

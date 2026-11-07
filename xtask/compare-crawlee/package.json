@@ -1,0 +1,15 @@
+{
+  "name": "goodfetch-compare-crawlee",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@crawlee/cheerio": "3.18.2",
+    "@crawlee/playwright": "3.18.2",
+    "playwright": "1.64.1"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@12.9.1"
+}

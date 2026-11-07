@@ -76,6 +76,7 @@ use identity::{Refused, identity, refuse};
 
 pub use command_line::printed_command_line;
 
+mod allocator;
 mod audit;
 mod audit_events;
 mod browsers;
@@ -381,6 +382,7 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
+    allocator::purge_at_once();
     let (binary, parsed, colour) = match parse(start) {
         Ok(parsed) => parsed,
         Err(exit) => return exit,

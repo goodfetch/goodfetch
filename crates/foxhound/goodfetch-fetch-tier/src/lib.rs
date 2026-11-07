@@ -45,6 +45,7 @@ mod sniffing;
 mod sniffing_tests;
 mod tiers;
 mod transports;
+mod untouched;
 mod use_signals;
 mod xpath;
 
@@ -54,11 +55,20 @@ pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
+/// Compiles into the engine's cache on `work` the selectors a handler's
+/// served calls on a document tier match beside its own, so that a Run
+/// compiles them as its crawl starts, not on a page (ADRs 0138 and 0140).
+pub fn compile_served_call_selectors(work: &goodfetch_counted_work::CountedWork) {
+    tiers::calls::markup::compile_selectors(work);
+}
+
 pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check_xpath};
 pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
-pub use gate::{HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing};
+pub use gate::{
+    FetchAdmission, HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing,
+};
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
@@ -77,6 +87,7 @@ pub use tiers::{
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
 };
+pub use untouched::{UntouchedDemand, UntouchedReaders};
 pub use use_signals::{
     Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
     tdmrep_file_refusing,

@@ -10,7 +10,12 @@
 //! A pushed Record names a declared Dataset, else `dataset_unknown`; it is
 //! a JSON object that fits its Dataset's schema and, for a Dataset with a
 //! key and no schema, holds every field of the key, else `record_invalid`
-//! names each issue by its path, a JSON Pointer into the Record.
+//! names each issue by its path, a JSON Pointer into the Record. Each
+//! schema's validator is built once, with the Datasets, as the crawl starts
+//! or resumes, and a Record's check builds none (ADR 0138); a reader of its
+//! Records takes the declarations alone, building none.
+
+use std::sync::Arc;
 
 use data_encoding::HEXLOWER;
 use goodfetch_counted_work::{CountedWork, Row};
@@ -40,9 +45,61 @@ pub struct Refused {
     pub rejected: Checked,
 }
 
-/// The Datasets a crawl declares, in the order declared, each checked.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Datasets(Vec<DatasetDeclaration>);
+/// The Datasets a crawl declares, in the order declared, each checked, with
+/// the validator of each schema, built once with them, and whether the
+/// crawl keeps Records in them, its `dataset.records` (ADR 0138). A clone
+/// shares them.
+#[derive(Clone, Debug, Default)]
+pub struct Datasets(Arc<Declared>, Keeping);
+
+/// Whether a crawl keeps the Records its attempts give.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Keeping {
+    /// Each is checked against its Dataset and committed.
+    #[default]
+    Records,
+    /// None is checked or committed: `dataset.records` is off.
+    Nothing,
+}
+
+/// The declarations, and the validator of each one's schema, at the same
+/// position: none for a Dataset with no schema, or for one whose schema the
+/// run file holds but no longer builds, under which a Record holds as it is.
+#[derive(Debug, Default)]
+struct Declared {
+    declarations: Vec<DatasetDeclaration>,
+    validators: Vec<Option<jsonschema::Validator>>,
+}
+
+impl Declared {
+    /// `declarations`, with the validator of each schema `built` gives.
+    fn of(
+        declarations: Vec<DatasetDeclaration>,
+        built: impl Fn(&DatasetDeclaration, &Value) -> Option<jsonschema::Validator>,
+    ) -> Self {
+        let validators = declarations
+            .iter()
+            .map(|declaration| {
+                let schema = declaration.schema.as_ref()?;
+                built(declaration, schema)
+            })
+            .collect();
+        Self {
+            declarations,
+            validators,
+        }
+    }
+}
+
+/// Two Datasets are equal when they declare the same, their validators
+/// following from their schemas.
+impl PartialEq for Datasets {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.declarations == other.0.declarations
+    }
+}
+
+impl Eq for Datasets {}
 
 impl Datasets {
     /// The Datasets `declarations` declare.
@@ -54,6 +111,7 @@ impl Datasets {
     /// its schema requires; `invalid_params` for a schema that is no JSON
     /// Schema.
     pub fn declare(declarations: &[DatasetDeclaration]) -> Result<Self, CallError> {
+        let mut validators = Vec::with_capacity(declarations.len());
         for (position, declaration) in declarations.iter().enumerate() {
             let name = &declaration.name;
             if declarations[..position]
@@ -71,20 +129,16 @@ impl Datasets {
                 ));
             }
             let Some(schema) = &declaration.schema else {
+                validators.push(None);
                 continue;
             };
-            // Once per Dataset as the crawl starts, on no Record: no row's work.
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the declaration's one check of its schema, per Run and on no Record (ADR 0140)"
-            )]
-            let built = jsonschema::validator_for(schema);
-            if let Err(error) = built {
-                return Err(CallError::protocol(
+            let validator = built(schema).map_err(|error| {
+                CallError::protocol(
                     ProtocolFailure::InvalidParams,
                     format!("The Dataset `{name}`'s schema is no JSON Schema: {error}"),
-                ));
-            }
+                )
+            })?;
+            validators.push(Some(validator));
             let required = required(schema);
             if let Some(field) = declaration
                 .key
@@ -105,7 +159,13 @@ impl Datasets {
                 ));
             }
         }
-        Ok(Self(declarations.to_vec()))
+        Ok(Self(
+            Arc::new(Declared {
+                declarations: declarations.to_vec(),
+                validators,
+            }),
+            Keeping::Records,
+        ))
     }
 
     /// Records the declarations in the run file `connection` holds, as the
@@ -115,13 +175,13 @@ impl Datasets {
     ///
     /// The run file's, when a row cannot be written.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
-        let mut insert = connection.prepare(
+        let mut insert = connection.prepare_cached(
             "INSERT INTO datasets (name, position, schema, schema_hash, key)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (name) DO UPDATE SET position = excluded.position,
                  schema = excluded.schema, schema_hash = excluded.schema_hash, key = excluded.key",
         )?;
-        for (position, declaration) in self.0.iter().enumerate() {
+        for (position, declaration) in self.0.declarations.iter().enumerate() {
             insert.execute((
                 &declaration.name,
                 i64::try_from(position).unwrap_or(i64::MAX),
@@ -133,11 +193,175 @@ impl Datasets {
         Ok(())
     }
 
-    /// The declarations, in the order declared.
-    pub fn declarations(&self) -> &[DatasetDeclaration] {
-        &self.0
+    /// The same Datasets, keeping the Records the crawl's attempts give
+    /// when `keeps`, its `dataset.records`, and else none: a Record is then
+    /// neither validated, encoded nor committed, though one named for a
+    /// Dataset the crawl does not declare is still refused (ADR 0138).
+    #[must_use]
+    pub fn keeping_records(self, keeps: bool) -> Self {
+        let keeping = if keeps {
+            Keeping::Records
+        } else {
+            Keeping::Nothing
+        };
+        Self(self.0, keeping)
     }
 
+    /// Whether the crawl keeps the Records its attempts give.
+    pub fn keeps_records(&self) -> bool {
+        self.1 == Keeping::Records
+    }
+
+    /// The declarations, in the order declared.
+    pub fn declarations(&self) -> &[DatasetDeclaration] {
+        &self.0.declarations
+    }
+
+    /// The declarations the run file `connection` holds, each schema's
+    /// validator built, as a resuming crawl takes them; a row that no longer
+    /// reads is left out, and a schema that no longer builds checks nothing.
+    ///
+    /// # Errors
+    ///
+    /// The run file's, when the rows cannot be read.
+    pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
+        let Declarations(declarations) = Declarations::read(connection)?;
+        Ok(Self(
+            Arc::new(Declared::of(declarations, |declaration, schema| {
+                built(schema)
+                .inspect_err(|error| {
+                    tracing::warn!(dataset = %declaration.name, %error, "a declared Dataset's schema in the run file no longer builds; its Records are not checked against it");
+                })
+                .ok()
+            })),
+            Keeping::Records,
+        ))
+    }
+
+    /// `records`, once each holds for the Dataset it names.
+    ///
+    /// # Errors
+    ///
+    /// The first failing Record's: `dataset_unknown` when the crawl does not
+    /// declare its Dataset; `record_invalid`, naming each issue's path, when
+    /// it is no JSON object, does not fit its Dataset's schema, or lacks a
+    /// field of the key of a Dataset with no schema.
+    pub fn check(
+        &self,
+        records: Vec<PushedRecord>,
+        work: &CountedWork,
+    ) -> Result<Checked, CallError> {
+        if !self.keeps_records() {
+            for record in &records {
+                self.declared(&record.dataset)?;
+            }
+            return Ok(Checked::default());
+        }
+        for record in &records {
+            self.check_one(record, work)?;
+        }
+        Ok(Checked::new(records))
+    }
+
+    /// `record`, once it holds for the Dataset it names, as
+    /// `crawl_request.push` stages it.
+    ///
+    /// # Errors
+    ///
+    /// [`check`](Self::check)'s, with the rejection to stage in its place
+    /// when the crawl declares its Dataset: the Record, the error's
+    /// message as the reason, and each issue (ADR 0103).
+    pub fn check_pushed(
+        &self,
+        record: PushedRecord,
+        work: &CountedWork,
+    ) -> Result<Checked, Refused> {
+        if !self.keeps_records() {
+            return match self.declared(&record.dataset) {
+                Ok(_) => Ok(Checked::default()),
+                Err(error) => Err(Refused {
+                    error,
+                    rejected: Checked::default(),
+                }),
+            };
+        }
+        let issues = match self.issues(&record, work) {
+            Ok(issues) if issues.is_empty() => return Ok(Checked::new(vec![record])),
+            Ok(issues) => issues,
+            Err(error) => {
+                return Err(Refused {
+                    error,
+                    rejected: Checked::default(),
+                });
+            }
+        };
+        let error = invalid(&record.dataset, issues.clone());
+        let reason = error.message().to_owned();
+        Err(Refused {
+            error,
+            rejected: Checked::rejected(Rejection {
+                why: Why {
+                    reason,
+                    issues,
+                    hook: None,
+                },
+                dataset: record.dataset,
+                data: record.data,
+            }),
+        })
+    }
+
+    /// The declaration of the Dataset `name`, and its schema's validator.
+    fn declared(
+        &self,
+        name: &str,
+    ) -> Result<(&DatasetDeclaration, Option<&jsonschema::Validator>), CallError> {
+        let Declared {
+            declarations,
+            validators,
+        } = &*self.0;
+        declarations
+            .iter()
+            .zip(validators)
+            .find(|(declared, _)| declared.name == name)
+            .map(|(declared, validator)| (declared, validator.as_ref()))
+            .ok_or_else(|| {
+                unknown(
+                    declarations,
+                    name,
+                    format!(
+                        "The crawl declares no Dataset `{name}`, so the Record was not staged: push it into one the crawl declares."
+                    ),
+                )
+            })
+    }
+
+    fn check_one(&self, record: &PushedRecord, work: &CountedWork) -> Result<(), CallError> {
+        let issues = self.issues(record, work)?;
+        if issues.is_empty() {
+            return Ok(());
+        }
+        Err(invalid(&record.dataset, issues))
+    }
+
+    /// Each way `record` does not hold for the Dataset it names, checked
+    /// once.
+    fn issues(
+        &self,
+        record: &PushedRecord,
+        work: &CountedWork,
+    ) -> Result<Vec<RecordIssue>, CallError> {
+        let (declaration, validator) = self.declared(&record.dataset)?;
+        Ok(issues(declaration, validator, &record.data, work))
+    }
+}
+
+/// The Datasets a crawl declares, as a reader of its Records takes them:
+/// their declarations alone, in the order declared, with no validator built.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Declarations(Vec<DatasetDeclaration>);
+
+impl Declarations {
     /// The declarations the run file `connection` holds; a row that no
     /// longer reads is left out.
     ///
@@ -145,8 +369,8 @@ impl Datasets {
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        let mut select =
-            connection.prepare("SELECT name, schema, key FROM datasets ORDER BY position")?;
+        let mut select = connection
+            .prepare_cached("SELECT name, schema, key FROM datasets ORDER BY position")?;
         let rows = select.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -170,80 +394,9 @@ impl Datasets {
         Ok(Self(declared))
     }
 
-    /// [`read`](Self::read), as a Record's check does, counted on
-    /// `F4.declaration_reads`. A reader of a Dataset reads with [`read`](Self::read):
-    /// its unit is no Record.
-    ///
-    /// # Errors
-    ///
-    /// [`read`](Self::read)'s.
-    pub fn read_for_records(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
-        work.count(Row::RecordDeclarationReads);
-        Self::read(connection)
-    }
-
-    /// `records`, once each holds for the Dataset it names.
-    ///
-    /// # Errors
-    ///
-    /// The first failing Record's: `dataset_unknown` when the crawl does not
-    /// declare its Dataset; `record_invalid`, naming each issue's path, when
-    /// it is no JSON object, does not fit its Dataset's schema, or lacks a
-    /// field of the key of a Dataset with no schema.
-    pub fn check(
-        &self,
-        records: Vec<PushedRecord>,
-        work: &CountedWork,
-    ) -> Result<Checked, CallError> {
-        for record in &records {
-            self.check_one(record, work)?;
-        }
-        Ok(Checked::new(records))
-    }
-
-    /// `record`, once it holds for the Dataset it names, as
-    /// `crawl_request.push` stages it.
-    ///
-    /// # Errors
-    ///
-    /// [`check`](Self::check)'s, with the rejection to stage in its place
-    /// when the crawl declares its Dataset: the Record, the error's
-    /// message as the reason, and each issue (ADR 0103).
-    pub fn check_pushed(
-        &self,
-        record: PushedRecord,
-        work: &CountedWork,
-    ) -> Result<Checked, Refused> {
-        let Err(error) = self.check_one(&record, work) else {
-            return Ok(Checked::new(vec![record]));
-        };
-        let rejected = match self.declared(&record.dataset) {
-            Ok(declaration) => Checked::rejected(Rejection {
-                why: Why {
-                    reason: error.message().to_owned(),
-                    issues: issues(declaration, &record.data, work),
-                    hook: None,
-                },
-                dataset: record.dataset,
-                data: record.data,
-            }),
-            Err(_) => Checked::default(),
-        };
-        Err(Refused { error, rejected })
-    }
-
-    fn declared(&self, name: &str) -> Result<&DatasetDeclaration, CallError> {
-        self.0
-            .iter()
-            .find(|declared| declared.name == name)
-            .ok_or_else(|| {
-                self.unknown(
-                    name,
-                    format!(
-                        "The crawl declares no Dataset `{name}`, so the Record was not staged: push it into one the crawl declares."
-                    ),
-                )
-            })
+    /// The declarations, in the order declared.
+    pub fn declarations(&self) -> &[DatasetDeclaration] {
+        &self.0
     }
 
     /// Answers whether the crawl declares the Dataset `name`, for a reader
@@ -257,49 +410,44 @@ impl Datasets {
         if self.0.iter().any(|declared| declared.name == name) {
             return Ok(());
         }
-        Err(self.unknown(
+        Err(unknown(
+            &self.0,
             name,
             format!(
                 "The crawl declares no Dataset `{name}`, so no Record was read: read one the crawl declares."
             ),
         ))
     }
+}
 
-    /// `dataset_unknown` for `name`, saying `message`.
-    fn unknown(&self, name: &str, message: String) -> CallError {
-        CallError::new(
-            &DATASET_UNKNOWN,
-            message,
-            &DatasetUnknownDetails {
-                dataset: name.to_owned(),
-                declared: self
-                    .0
-                    .iter()
-                    .map(|declared| declared.name.clone())
-                    .collect(),
-            },
-        )
-    }
+/// `dataset_unknown` for `name` among `declarations`, saying `message`.
+fn unknown(declarations: &[DatasetDeclaration], name: &str, message: String) -> CallError {
+    CallError::new(
+        &DATASET_UNKNOWN,
+        message,
+        &DatasetUnknownDetails {
+            dataset: name.to_owned(),
+            declared: declarations
+                .iter()
+                .map(|declared| declared.name.clone())
+                .collect(),
+        },
+    )
+}
 
-    fn check_one(&self, record: &PushedRecord, work: &CountedWork) -> Result<(), CallError> {
-        let name = &record.dataset;
-        let declaration = self.declared(name)?;
-        let issues = issues(declaration, &record.data, work);
-        if issues.is_empty() {
-            return Ok(());
-        }
-        Err(CallError::new(
-            &RECORD_INVALID,
-            format!(
-                "A Record of the Dataset `{name}` does not hold, so it was not staged: {}",
-                described(&issues)
-            ),
-            &RecordInvalidDetails {
-                dataset: name.clone(),
-                issues,
-            },
-        ))
-    }
+/// `record_invalid` for a Record of the Dataset `name` with `issues`.
+fn invalid(name: &str, issues: Vec<RecordIssue>) -> CallError {
+    CallError::new(
+        &RECORD_INVALID,
+        format!(
+            "A Record of the Dataset `{name}` does not hold, so it was not staged: {}",
+            described(&issues)
+        ),
+        &RecordInvalidDetails {
+            dataset: name.to_owned(),
+            issues,
+        },
+    )
 }
 
 /// The top-level fields `schema` requires.
@@ -311,8 +459,14 @@ fn required(schema: &Value) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-/// Each way `data` does not hold for `declaration`.
-fn issues(declaration: &DatasetDeclaration, data: &Value, work: &CountedWork) -> Vec<RecordIssue> {
+/// Each way `data` does not hold for `declaration`, under its schema's
+/// `validator`.
+fn issues(
+    declaration: &DatasetDeclaration,
+    validator: Option<&jsonschema::Validator>,
+    data: &Value,
+    work: &CountedWork,
+) -> Vec<RecordIssue> {
     let Some(object) = data.as_object() else {
         return vec![RecordIssue {
             path: String::new(),
@@ -320,8 +474,8 @@ fn issues(declaration: &DatasetDeclaration, data: &Value, work: &CountedWork) ->
         }];
     };
     match &declaration.schema {
-        Some(schema) => {
-            let Ok(validator) = counted_validator(work, schema) else {
+        Some(_) => {
+            let Some(validator) = validator else {
                 return Vec::new();
             };
             work.count(Row::RecordValidations);
@@ -364,8 +518,20 @@ fn hash(schema: &Value) -> String {
     HEXLOWER.encode(&Sha256::digest(schema.to_string().as_bytes()))
 }
 
+/// The validator of `schema`, built once per Dataset as the crawl starts or
+/// resumes, on no Record: no row's work (ADR 0138).
+fn built(schema: &Value) -> Result<jsonschema::Validator, jsonschema::ValidationError<'_>> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "each schema's one validator build, per Run and on no Record (ADR 0138)"
+    )]
+    jsonschema::validator_for(schema)
+}
+
 /// The validator of `schema`, counted on `F4.validator_builds`: the one
-/// function a Record's check builds a validator through (ADR 0140).
+/// function a validator built per Record would go through, which a
+/// Record's check, using the validators built with the Datasets, never
+/// calls; the counts' plants build through it (ADR 0140).
 ///
 /// # Errors
 ///

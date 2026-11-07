@@ -13,6 +13,7 @@
 //! takes it too. The labels of [`Row`] are `goodfetch-protocol`'s metric
 //! declaration's values, which the engine's metric tests compare.
 
+mod compiled;
 mod sync;
 
 use std::fs::{File, OpenOptions};
@@ -20,6 +21,8 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+use compiled::Compiled;
+pub use compiled::{CAPACITY, PATTERN_CAPACITY};
 use sync::Count;
 
 /// A tree of an HTML document, parsed by [`CountedWork::parse_html`]: its
@@ -51,6 +54,15 @@ pub enum Row {
     PagePluginSerializations,
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
     PagePluginAnswerParses,
+    /// `F1.tree_copies`: a copy of a fetched page's tree, made for a reader
+    /// after a step that consumes it.
+    PageTreeCopies,
+    /// `F1.share_readability_runs`: a run of the main-content step on a
+    /// fetched page as served, for ADR 0047's exact share.
+    PageShareReadabilityRuns,
+    /// `F1.block_classifications`: a fetched page's document read by the
+    /// Block classification rules.
+    PageBlockClassifications,
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies,
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
@@ -234,6 +246,11 @@ pub enum Row {
     /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
     /// sends, held per document and frame read.
     PageReadDocumentWorlds,
+    /// `C2.serialization_commands`: a CDP command a page's serialization
+    /// for its formats sends (`DOM.getDocument`, `DOM.getOuterHTML`), held
+    /// per serialization: its own outcome, as no engine read in a frame
+    /// makes it.
+    PageSerializationCommands,
     /// `E4.configuration_reads`: a settings file read for a governor sample.
     GovernorConfigurationReads,
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
@@ -271,7 +288,7 @@ pub enum Row {
 
 impl Row {
     /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 97] = [
+    pub const ALL: [Self; 101] = [
         Self::PageParses,
         Self::PageSelectorCompilations,
         Self::PageReadabilityRuns,
@@ -279,6 +296,9 @@ impl Row {
         Self::PageLocaleFormBuilds,
         Self::PagePluginSerializations,
         Self::PagePluginAnswerParses,
+        Self::PageTreeCopies,
+        Self::PageShareReadabilityRuns,
+        Self::PageBlockClassifications,
         Self::MessageDeepCopies,
         Self::MessageEncodes,
         Self::HookMessagesNoHook,
@@ -356,6 +376,7 @@ impl Row {
         Self::PageReadCommands,
         Self::PageReadWorldCreations,
         Self::PageReadDocumentWorlds,
+        Self::PageSerializationCommands,
         Self::GovernorConfigurationReads,
         Self::GovernorMeminfoOpens,
         Self::GovernorStaticOpens,
@@ -383,7 +404,10 @@ impl Row {
             | Self::PageFileOpens
             | Self::PageLocaleFormBuilds
             | Self::PagePluginSerializations
-            | Self::PagePluginAnswerParses => "page_analysis",
+            | Self::PagePluginAnswerParses
+            | Self::PageTreeCopies
+            | Self::PageShareReadabilityRuns
+            | Self::PageBlockClassifications => "page_analysis",
             Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
             Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
             Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
@@ -452,7 +476,8 @@ impl Row {
             | Self::RobotsReads => "politeness_permit",
             Self::PageReadCommands
             | Self::PageReadWorldCreations
-            | Self::PageReadDocumentWorlds => "page_read",
+            | Self::PageReadDocumentWorlds
+            | Self::PageSerializationCommands => "page_read",
             Self::GovernorConfigurationReads
             | Self::GovernorMeminfoOpens
             | Self::GovernorStaticOpens
@@ -484,6 +509,9 @@ impl Row {
             Self::PageLocaleFormBuilds => "locale_form_builds",
             Self::PagePluginSerializations => "plugin_serializations",
             Self::PagePluginAnswerParses => "plugin_answer_parses",
+            Self::PageTreeCopies => "tree_copies",
+            Self::PageShareReadabilityRuns => "share_readability_runs",
+            Self::PageBlockClassifications => "block_classifications",
             Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
             Self::CdpSends => "sends",
             Self::CdpLogSendsOff => "log_sends_off",
@@ -554,6 +582,7 @@ impl Row {
             Self::PageReadCommands => "commands",
             Self::PageReadWorldCreations => "world_creations",
             Self::PageReadDocumentWorlds => "document_worlds",
+            Self::PageSerializationCommands => "serialization_commands",
             Self::GovernorMeminfoOpens => "meminfo_opens",
             Self::GovernorStaticOpens => "static_opens",
             Self::GovernorCpuStatOpens => "cpu_stat_opens",
@@ -566,6 +595,10 @@ impl Row {
     /// for a hop's, a sitemap's or a Payload's own count of a row that has
     /// several outcomes, the row with its outcome (`F3.compilations.hop`).
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm a row, each the Quality register's name of it: a list read at a glance"
+    )]
     pub const fn name(self) -> &'static str {
         match self {
             Self::PageParses => "F1.parses",
@@ -575,6 +608,9 @@ impl Row {
             Self::PageLocaleFormBuilds => "F1.locale_form_builds",
             Self::PagePluginSerializations => "F1.plugin_serializations",
             Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
+            Self::PageTreeCopies => "F1.tree_copies",
+            Self::PageShareReadabilityRuns => "F1.share_readability_runs",
+            Self::PageBlockClassifications => "F1.block_classifications",
             Self::MessageDeepCopies => "E1.deep_copies",
             Self::MessageEncodes => "E1.encodes",
             Self::HookMessagesNoHook => "F5.messages_no_hook",
@@ -652,6 +688,7 @@ impl Row {
             Self::PageReadCommands => "C2.commands",
             Self::PageReadWorldCreations => "C2.world_creations",
             Self::PageReadDocumentWorlds => "C2.document_worlds",
+            Self::PageSerializationCommands => "C2.serialization_commands",
             Self::GovernorConfigurationReads => "E4.configuration_reads",
             Self::GovernorMeminfoOpens => "E4.meminfo_opens",
             Self::GovernorStaticOpens => "E4.static_opens",
@@ -674,9 +711,21 @@ impl Row {
 }
 
 /// The counts of one engine's Counted work, shared by every clone. A thread
-/// may count while another reads: a read sees some count that was true.
+/// may count while another reads: a read sees some count that was true. It
+/// holds the engine's bounded cache of compilations too ([`Self::selector`]),
+/// which every owner it is given to compiles through, so a text compiles once
+/// for the engine and its compilation counts once.
 #[derive(Clone, Debug, Default)]
-pub struct CountedWork(Arc<Counts>);
+pub struct CountedWork(Arc<Shared>);
+
+/// What every clone of a [`CountedWork`] shares, behind its one `Arc`: a
+/// clone costs one reference count and its handle stays a pointer wide, as
+/// each dispatched message's handler future holds one (E1.instructions).
+#[derive(Debug, Default)]
+struct Shared {
+    counts: Counts,
+    compiled: Compiled,
+}
 
 #[derive(Debug)]
 struct Counts([Count; Row::ALL.len()]);
@@ -691,18 +740,18 @@ impl Default for Counts {
 impl CountedWork {
     /// Counts one unit of `row`'s work.
     pub fn count(&self, row: Row) {
-        self.0.0[row.index()].add_one();
+        self.0.counts.0[row.index()].add_one();
     }
 
     /// Counts `units` units of `row`'s work.
     pub fn count_many(&self, row: Row, units: u64) {
-        self.0.0[row.index()].add(units);
+        self.0.counts.0[row.index()].add(units);
     }
 
     /// The units of `row`'s work counted so far.
     #[must_use]
     pub fn read(&self, row: Row) -> u64 {
-        self.0.0[row.index()].read()
+        self.0.counts.0[row.index()].read()
     }
 
     /// `html` parsed into a tree, counted on `row`: the one function an HTML
@@ -715,6 +764,14 @@ impl CountedWork {
     pub fn parse_html(&self, row: Row, html: &str) -> ParsedHtml {
         self.count(row);
         dom_query::Document::from(html)
+    }
+
+    /// A copy of the tree `tree`, counted on `row`: the one function a parsed
+    /// tree is copied through (ADR 0138), never a parse.
+    #[must_use]
+    pub fn copy_tree(&self, row: Row, tree: &ParsedHtml) -> ParsedHtml {
+        self.count(row);
+        tree.clone()
     }
 
     /// `selector` compiled, counted on `row`, none when it is no selector: the
@@ -730,15 +787,82 @@ impl CountedWork {
         dom_query::Matcher::new(selector).ok()
     }
 
-    /// [`Self::compile_selector`] of a selector written in the code.
+    /// `selector` parsed for lol-html's streaming pass, counted on `row`,
+    /// none when lol-html reads no such selector: the one function a
+    /// streaming pass's selector is parsed through (ADR 0140), parsed once
+    /// and lent to each pass (ADR 0138).
+    #[must_use]
+    pub fn compile_stream_selector(&self, row: Row, selector: &str) -> Option<lol_html::Selector> {
+        self.count(row);
+        selector.parse().ok()
+    }
+
+    /// The selector `selector`, from the engine's cache, compiled through
+    /// [`Self::compile_selector`] and counted on `row` only when the cache
+    /// does not keep it: what a tree reader matches with, never a
+    /// `select("…")` that compiles on each call (ADR 0138).
+    #[must_use]
+    pub fn selector(&self, row: Row, selector: &str) -> Option<dom_query::Matcher> {
+        self.0
+            .compiled
+            .selector(None, selector, || self.compile_selector(row, selector))
+    }
+
+    /// [`Self::selector`] of a selector of the Clean-up rules of the version
+    /// whose digest is `rules`, kept apart from another version's.
+    #[must_use]
+    pub fn rules_selector(
+        &self,
+        row: Row,
+        rules: &str,
+        selector: &str,
+    ) -> Option<dom_query::Matcher> {
+        self.0.compiled.selector(Some(rules), selector, || {
+            self.compile_selector(row, selector)
+        })
+    }
+
+    /// [`Self::selector`] of a selector written in the code.
     ///
     /// # Panics
     ///
     /// When `selector` is no selector, which a test of its code shows.
     #[must_use]
     pub fn literal_selector(&self, row: Row, selector: &'static str) -> dom_query::Matcher {
-        self.compile_selector(row, selector)
+        self.selector(row, selector)
             .expect("invariant: a selector written in the code is CSS")
+    }
+
+    /// The regular expression `pattern`, from the engine's cache, compiled
+    /// through [`Self::compile_regex`] and counted on `row` only when the
+    /// cache does not keep it.
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no regular expression.
+    pub fn regex(&self, row: Row, pattern: &str) -> Result<regex::Regex, regex::Error> {
+        self.0
+            .compiled
+            .regex(pattern, || self.compile_regex(row, pattern))
+    }
+
+    /// The glob `pattern`, from the engine's cache, compiled through
+    /// [`Self::compile_glob`] and counted on `row` only when the cache does
+    /// not keep it.
+    ///
+    /// # Errors
+    ///
+    /// When `pattern` is no glob.
+    pub fn glob(&self, row: Row, pattern: &str) -> Result<glob::Pattern, Arc<glob::PatternError>> {
+        self.0
+            .compiled
+            .glob(pattern, || self.compile_glob(row, pattern))
+    }
+
+    /// How many selectors the engine's cache keeps, at most [`CAPACITY`].
+    #[must_use]
+    pub fn kept(&self) -> u64 {
+        self.0.compiled.selectors()
     }
 
     /// `pattern` compiled, counted on `row`: the one function a regular

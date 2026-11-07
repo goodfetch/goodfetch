@@ -415,7 +415,7 @@ where
     observe.reached(&head.target.authority());
     let opened = match head.target {
         Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => site.write_all(&head.forwarded(false, None)).await,
+        Target::Absolute { .. } => site.write_all(&head.as_sent(false, None)).await,
     };
     if opened.is_err() {
         return Served::Failed;
@@ -446,13 +446,13 @@ where
     if let Target::Absolute { .. } = head.target {
         observe.upstream(&head.target.authority(), Met::Reached);
         if proxy
-            .write_all(&head.forwarded(true, authorization))
+            .write_all(&head.as_sent(true, authorization))
             .await
             .is_err()
         {
             return Served::Failed;
         }
-        return pass(browser, proxy, &rest).await;
+        return answered_once(browser, proxy, &rest).await;
     }
     let authority = head.target.authority();
     let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
@@ -531,7 +531,7 @@ where
     observe.upstream(&head.target.authority(), Met::Reached);
     let opened = match head.target {
         Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
+        Target::Absolute { .. } => proxy.write_all(&head.as_sent(false, None)).await,
     };
     if opened.is_err() {
         return Served::Failed;
@@ -653,7 +653,7 @@ where
         .filter(|terminating| terminating.terminates(host));
     let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
         if let Target::Absolute { .. } = head.target {
-            return pass(browser, site, &rest).await;
+            return answered_once(browser, site, &rest).await;
         }
         let authority = head.target.authority();
         let noted = |hello| observe.client_hello(&authority, hello);
@@ -665,6 +665,44 @@ where
         Terminated::Relayed { up, down } => Served::Relayed { up, down },
         Terminated::Stopped => Served::Refused,
         Terminated::Failed => Served::Failed,
+    }
+}
+
+/// Passes a plain request's bytes both ways, as [`pass`] does, with the
+/// site's answer head marked `Connection: close` on its way to the
+/// browser ([`head::closing`]), so the browser's connection carries that
+/// one request. The browser's bytes go on to the site while the relay
+/// reads that head, so a request body longer than the first read, or one
+/// sent after an interim answer, reaches the site before it answers. An
+/// answer head the relay cannot read fails the request, as a site that
+/// never answered does.
+async fn answered_once<B, S>(browser: B, site: S, rest: &[u8]) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut from_browser, mut to_browser) = tokio::io::split(browser);
+    let (mut from_site, mut to_site) = tokio::io::split(site);
+    let up = async {
+        to_site.write_all(rest).await?;
+        let up = tokio::io::copy(&mut from_browser, &mut to_site).await?;
+        to_site.shutdown().await?;
+        Ok::<_, io::Error>(up.saturating_add(u64::try_from(rest.len()).unwrap_or(u64::MAX)))
+    };
+    let down = async {
+        let (answer, after) = head::closing(&mut from_site)
+            .await
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        to_browser.write_all(&answer).await?;
+        to_browser.write_all(&after).await?;
+        let down = tokio::io::copy(&mut from_site, &mut to_browser).await?;
+        to_browser.shutdown().await?;
+        let early = answer.len().saturating_add(after.len());
+        Ok(down.saturating_add(u64::try_from(early).unwrap_or(u64::MAX)))
+    };
+    match tokio::try_join!(up, down) {
+        Ok((up, down)) => Served::Relayed { up, down },
+        Err(_) => Served::Failed,
     }
 }
 

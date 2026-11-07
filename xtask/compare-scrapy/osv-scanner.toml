@@ -1,0 +1,14 @@
+# OSV-Scanner's advisory exceptions for Scrapy's side of `just compare`,
+# which `just audit` reads through ci/audit.sh beside this side's `uv.lock`,
+# so none reaches the workspace's: the same arrangement as Spider's side's
+# `deny.toml` and `.cargo/audit.toml` (ADR 0134's #1574 note). Agent
+# decision, pending owner review.
+
+[[IgnoredVulns]]
+# CVE-2017-14158 (GHSA-h7wm-ph43-c39p): a server that sends large files can
+# exhaust Scrapy's memory. OSV lists every Scrapy from 0.7 with no fixed
+# release, and Scrapy bounds a download with `DOWNLOAD_MAXSIZE` instead. The
+# side crawls only the Proving ground's 1,000-page site on the loopback
+# address, and never ships. Removed when OSV records a fixed release.
+id = "PYSEC-2017-83"
+reason = "a large-download memory exhaustion with no fixed Scrapy release; the side crawls only the local Proving ground and never ships"

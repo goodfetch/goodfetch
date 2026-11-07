@@ -81,7 +81,8 @@ use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Mutex, OnceCell};
 
-use self::life::{Ending, PageLife, SessionLife, page_closed, session_closed};
+pub(crate) use self::life::page_closed;
+use self::life::{Ending, PageLife, SessionLife, session_closed};
 pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
@@ -1532,7 +1533,7 @@ async fn mark_egress(open: &Session, session: &SessionId) {
                     "gap": "dns_rebinding",
                 }),
             };
-            trace::provenance(&open.run, &entry).await;
+            trace::provenance(&open.run, entry).await;
         })
         .await;
 }

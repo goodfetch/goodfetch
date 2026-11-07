@@ -126,7 +126,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
               }
             },
             "type": "object"
@@ -228,7 +228,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "concurrency": {
-                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -315,7 +315,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "max": {
-                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -762,6 +762,17 @@
             },
             "type": "object"
           },
+          "run_state": {
+            "additionalProperties": false,
+            "properties": {
+              "commit_interval": {
+                "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "sample": {
             "additionalProperties": false,
             "properties": {
@@ -926,7 +937,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
               }
             },
             "type": "object"
@@ -1191,7 +1202,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "concurrency": {
-                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -1313,7 +1324,7 @@
                     "type": "boolean"
                   },
                   "max": {
-                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -1395,6 +1406,10 @@
                   }
                 },
                 "type": "object"
+              },
+              "records": {
+                "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -1601,9 +1616,26 @@
             },
             "type": "object"
           },
+          "extraction": {
+            "additionalProperties": false,
+            "properties": {
+              "removal_share": {
+                "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+                "enum": [
+                  "estimate",
+                  "exact"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "fetch": {
             "additionalProperties": false,
             "properties": {
+              "block_classification": {
+                "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+                "type": "boolean"
+              },
               "coalesce": {
                 "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                 "type": "boolean"
@@ -1759,6 +1791,16 @@
               },
               "trackers": {
                 "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "frontier": {
+            "additionalProperties": false,
+            "properties": {
+              "learning": {
+                "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
                 "type": "boolean"
               }
             },
@@ -2221,6 +2263,16 @@
             },
             "type": "object"
           },
+          "provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "log": {
+                "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "proxy": {
             "additionalProperties": false,
             "properties": {
@@ -2421,11 +2473,18 @@
           "run_state": {
             "additionalProperties": false,
             "properties": {
+              "commit_interval": {
+                "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "durability": {
-                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+                "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
                 "enum": [
                   "full",
-                  "fast"
+                  "fast",
+                  "periodic",
+                  "off"
                 ]
               },
               "key_reference": {
@@ -3297,6 +3356,10 @@
           "site_preferences": {
             "additionalProperties": false,
             "properties": {
+              "mark_robots_txt_ignored": {
+                "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+                "type": "boolean"
+              },
               "max_crawl_delay": {
                 "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
                 "minimum": 0,
@@ -3312,7 +3375,7 @@
                 ]
               },
               "respect_robots_txt": {
-                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                 "type": "boolean"
               },
               "respect_use_signals": {
@@ -3559,7 +3622,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+                "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset."
               }
             },
             "type": "object"
@@ -3824,7 +3887,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "concurrency": {
-                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
+                    "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -3946,7 +4009,7 @@
                     "type": "boolean"
                   },
                   "max": {
-                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`. A run already going takes a tightened Operator policy cap before its next retry.",
+                    "description": "How many times a work item whose attempt failed retryably is tried again: 2, Scrapy's `RETRY_TIMES`.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -4028,6 +4091,10 @@
                   }
                 },
                 "type": "object"
+              },
+              "records": {
+                "description": "Whether the crawl keeps Records (ADR 0103): each Record a handler answers or pushes, or a code-free crawl reads from a page, checked against its Dataset's schema and committed with its attempt. On by default. Off, for a crawl that only fetches and follows, no Record is validated, encoded or committed, and a code-free crawl reads no format or field for one; a Record named for a Dataset the crawl does not declare is still refused with `dataset_unknown`. Each succeeded request's outcome says `records_off`, `run.records` reads none, and the Run report's warning `records_off` says why; it is recorded in the Audit log and listed in the run's result.",
+                "type": "boolean"
               }
             },
             "type": "object"
@@ -4234,9 +4301,26 @@
             },
             "type": "object"
           },
+          "extraction": {
+            "additionalProperties": false,
+            "properties": {
+              "removal_share": {
+                "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+                "enum": [
+                  "estimate",
+                  "exact"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "fetch": {
             "additionalProperties": false,
             "properties": {
+              "block_classification": {
+                "description": "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+                "type": "boolean"
+              },
               "coalesce": {
                 "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                 "type": "boolean"
@@ -4392,6 +4476,16 @@
               },
               "trackers": {
                 "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "frontier": {
+            "additionalProperties": false,
+            "properties": {
+              "learning": {
+                "description": "Whether the Frontier learns URL rules from the crawl's pages (ADR 0005): each fetched page's Page signature and `rel=canonical`, read with one run of the main-content step, teach it the query parameters with no effect, the equivalent forms, the traps and the pagination that merge or refuse the URLs they show to be one page. On by default. Off, no page is signed and no rule is learned, so the Run report's `learned_rules` is empty and its warning `learning_off` says why, while the fixed URL rules and the check for an exact duplicate stay; it is recorded in the Audit log and listed in the run's result.",
                 "type": "boolean"
               }
             },
@@ -4854,6 +4948,16 @@
             },
             "type": "object"
           },
+          "provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "log": {
+                "description": "Whether the Run writes its Provenance log, `trace/provenance.jsonl` in its Run trace (ADR 0047): an entry for each step of a page or a request that its Records' own Provenance does not hold, such as the tier that fetched it, what the Clean-up rules removed from a page read, a hedge sent or a response shared. On by default. Off, no entry is masked, encoded or written, so the Run trace holds no Provenance log, while each Record still carries its own Provenance; it is recorded in the Audit log, listed in the run's result, and the Run report's warning `provenance_off` says so.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
           "proxy": {
             "additionalProperties": false,
             "properties": {
@@ -5054,11 +5158,18 @@
           "run_state": {
             "additionalProperties": false,
             "properties": {
+              "commit_interval": {
+                "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "durability": {
-                "description": "How a Run's commits reach the disk: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state. A Run in `fast` names it in its run report's `weakened`.",
+                "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
                 "enum": [
                   "full",
-                  "fast"
+                  "fast",
+                  "periodic",
+                  "off"
                 ]
               },
               "key_reference": {
@@ -5930,6 +6041,10 @@
           "site_preferences": {
             "additionalProperties": false,
             "properties": {
+              "mark_robots_txt_ignored": {
+                "description": "Whether, while `site_preferences.respect_robots_txt` is off, each Record of a crawl request its origin's robots.txt disallows carries `robots_txt: \"ignored\"` in its Provenance, so that what was taken against a site's stated preferences can be found. Off by default, robots.txt is then not read for it. On, each origin's robots.txt is read once from the copy the user's runs share, and each request costs one match against it.",
+                "type": "boolean"
+              },
               "max_crawl_delay": {
                 "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
                 "minimum": 0,
@@ -5945,7 +6060,7 @@
                 ]
               },
               "respect_robots_txt": {
-                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+                "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.",
                 "type": "boolean"
               },
               "respect_use_signals": {

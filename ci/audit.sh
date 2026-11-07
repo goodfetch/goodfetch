@@ -47,7 +47,9 @@ fetch() {
 # OSV-Scanner over one lockfile, offline, with OSV's pinned database of
 # `ecosystem`, laid out where OSV-Scanner 2.7 reads its offline databases
 # (`<cache folder>/osv-scalibr/<ecosystem>/all.zip`). It exits non-zero on
-# any advisory, and on a database it cannot find.
+# any advisory, and on a database it cannot find. It reads an
+# `osv-scanner.toml` beside the lockfile, where a side of `just compare`
+# (xtask/compare-scrapy) keeps its own advisory exceptions.
 osv() {
   local ecosystem=$1 lockfile=$2
   local cache="$advisories/osv-scanner"

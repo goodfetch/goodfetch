@@ -16,8 +16,9 @@
 //! outside the process: `E3.prepares` is Callgrind's call count of
 //! `sqlite3_prepare_v3` inside the charges that took a Slice, run again under
 //! Valgrind by this same executable (`--window`), so this needs Valgrind; the
-//! covered charges' count must equal the statements the ledger counted, so a
-//! statement added beside the counted read fails here.
+//! covered charges' count must be 0, as their one statement, the Limit read
+//! the ledger counts, stays prepared, so an uncached statement added beside
+//! it fails here.
 //! `E3.slice_transactions` is the larger of the commit hook's transactions
 //! and the crash VFS's syncs, which the row holds to one limit.
 //!
@@ -290,15 +291,19 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     );
     let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let charged = charges(folder.path(), cell.limited, charge_plant, None);
-    // With no Limit, the first charge is a covered one and opens the ledger:
-    // its set-up is no statement a charge reads with, so only a cell whose
-    // first charge takes a Slice compares the two.
+    // A covered charge's one statement, the Limit read the ledger counts,
+    // runs kept prepared on the connection a Slice opened (#1907), so a
+    // covered charge prepares nothing: an uncached statement added beside
+    // the read prepares in the window and fails here. With no Limit, the
+    // first charge is a covered one and opens the ledger, its set-up prepared
+    // with it, so only a cell whose first charge takes a Slice checks.
     let slice_prepares = if cell.limited {
         if charge_plant.is_none() {
             assert_eq!(
                 callgrind(cell.name, "covered", None),
-                charged.statements,
-                "the cell {}'s covered charges prepared what the ledger did not count",
+                0,
+                "the cell {}'s covered charges prepared a statement beside the Limit read \
+                 the ledger keeps prepared",
                 cell.name
             );
         }

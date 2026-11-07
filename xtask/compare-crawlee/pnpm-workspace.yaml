@@ -1,0 +1,14 @@
+# Crawlee's side of `just compare` (ADR 0138's matrix): a pnpm workspace of
+# its own, like `rnd/lab`'s, so Crawlee's dependencies stay out of the
+# Products' `pnpm-lock.yaml`. Its own lock pins them; `just fetch` installs
+# them with `--frozen-lockfile`, and `just audit` and `just lint` read them.
+packages: []
+
+overrides:
+  # Crawlee's core takes minimatch 9, whose pattern preprocessing can grow
+  # without bound (GHSA-g3hv-75wg-m249), fixed in 11.0.1; Crawlee 3.18.2 has
+  # no release that takes 11. It calls only `minimatch()` and `new
+  # Minimatch` (its glob matching of enqueued links and sitemaps), which 11
+  # keeps, as the workspace's same override says. Remove once Crawlee's range
+  # resolves to 11.0.1 or later.
+  "minimatch@<11.0.1": 11.0.3

@@ -20,6 +20,10 @@
 //! is of the Usage ledger's family: its major never changes and a newer
 //! minor only adds. Its calls block: callers run them under their owner's
 //! blocking policy.
+//!
+//! Size: one concern, the one store's hash chain, written by the append and
+//! the prune and read by the verify and the export, so the chain's rules
+//! read side by side.
 
 #![expect(
     clippy::disallowed_types,
@@ -120,6 +124,23 @@ pub struct Origin {
     pub layer: Option<SettingsLayer>,
     /// The Run it happened in, if any.
     pub run_id: Option<RunId>,
+}
+
+/// An entry to append with others in one commit
+/// ([`AuditLog::record_together`]): its event's origin, its kind, a value of
+/// the shared type `audit_kind`, and its details.
+#[derive(Clone)]
+pub struct NewEntry {
+    /// Where its event came from.
+    pub origin: Origin,
+    /// Its kind.
+    pub kind: &'static SharedTypeValue,
+    /// What it holds.
+    pub details: Value,
+    /// Whether it is chained whatever its Run, as the record of a switch
+    /// that unchains a Run is (ADR 0016); otherwise it is unchained when its
+    /// Run is (see [`AuditLog::unchain`]).
+    pub always_chained: bool,
 }
 
 /// Where the engine also sends each entry it appends, its hash with it,
@@ -284,6 +305,33 @@ impl AuditLog {
         self.record_as(origin, kind, details, now, true)
     }
 
+    /// Appends `entries` in their order, in one transaction with one sync,
+    /// each chained as [`AuditLog::record`] chains it unless it is
+    /// `always_chained`, then writes the head file once after the last;
+    /// answers them. Under an `audit.retention`, it first prunes what it
+    /// prunes at `now`, once. A Run's switched-off controls are recorded so
+    /// as it starts (#2110): together, rather than a commit, a sync and a
+    /// connection's close each.
+    ///
+    /// # Errors
+    ///
+    /// As [`AuditLog::record`]: none of them is appended then.
+    pub fn record_together(
+        &self,
+        entries: Vec<NewEntry>,
+        now: Timestamp,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        let entries = entries
+            .into_iter()
+            .map(|entry| {
+                let chained =
+                    entry.always_chained || !self.is_unchained(entry.origin.run_id.as_ref());
+                (entry.origin, entry.kind, entry.details, chained)
+            })
+            .collect();
+        self.commit_entries(entries, now)
+    }
+
     fn record_as(
         &self,
         origin: &Origin,
@@ -292,7 +340,24 @@ impl AuditLog {
         now: Timestamp,
         chained: bool,
     ) -> Result<AuditEntry, AuditError> {
-        debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
+        let mut recorded =
+            self.commit_entries(vec![(origin.clone(), kind, details, chained)], now)?;
+        recorded
+            .pop()
+            .ok_or_else(|| self.failed(&"the append answered no entry"))
+    }
+
+    /// Appends each of `entries`, an origin, a kind, details and whether it
+    /// is chained, in one transaction, then writes the head file after the
+    /// last and sends each to the events.
+    fn commit_entries(
+        &self,
+        entries: Vec<(Origin, &SharedTypeValue, Value, bool)>,
+        now: Timestamp,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
         if let Some((retention, layer)) = self.retention() {
             self.prune(retention, Some(layer), now)?;
         }
@@ -301,21 +366,31 @@ impl AuditLog {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| failed(&error))?;
-        let (sequence, previous) = self.after_last(&transaction)?;
-        let entry = AuditEntry {
-            sequence,
-            time: PointInTime::from_rfc3339(now.to_string()),
-            kind: kind.name.to_owned(),
-            actor: origin.actor.clone(),
-            surface: origin.surface,
-            layer: origin.layer,
-            run_id: origin.run_id.clone(),
-            details,
-            chained,
-        };
-        let hash = self.append(&transaction, &previous, &entry)?;
+        let (mut sequence, mut previous) = self.after_last(&transaction)?;
+        let time = PointInTime::from_rfc3339(now.to_string());
+        let mut appended = Vec::with_capacity(entries.len());
+        for (origin, kind, details, chained) in entries {
+            debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
+            let entry = AuditEntry {
+                sequence,
+                time: time.clone(),
+                kind: kind.name.to_owned(),
+                actor: origin.actor,
+                surface: origin.surface,
+                layer: origin.layer,
+                run_id: origin.run_id,
+                details,
+                chained,
+            };
+            let hash = self.append(&transaction, &previous, &entry)?;
+            if chained {
+                previous = decode(&hash).ok_or_else(|| failed(&"an entry's hash is no SHA-256"))?;
+            }
+            sequence += 1;
+            appended.push((entry, hash));
+        }
         transaction.commit().map_err(|error| failed(&error))?;
-        self.appended(entry, hash)
+        self.appended(appended)
     }
 
     /// Prunes the entries older than `retention` at `now`, which `layer`
@@ -390,7 +465,7 @@ impl AuditLog {
         };
         let hash = self.append(&transaction, &previous, &pruned)?;
         transaction.commit().map_err(|error| failed(&error))?;
-        self.appended(pruned, hash).map(Some)
+        Ok(self.appended(vec![(pruned, hash)])?.pop())
     }
 
     /// The `audit.retention` the machine's layers set now, with the layer
@@ -418,21 +493,26 @@ impl AuditLog {
         ))
     }
 
-    /// Writes the head file after `entry`, committed with `hash`, sends it
-    /// to the events, and answers it.
-    fn appended(&self, entry: AuditEntry, hash: String) -> Result<AuditEntry, AuditError> {
-        self.write_head(&Head {
-            sequence: entry.sequence,
-            hash: hash.clone(),
-        })?;
-        match &self.events {
-            Some(events) => {
-                let exported = ExportedAuditEntry { entry, hash };
-                (events.0)(&exported);
-                Ok(exported.entry)
-            }
-            None => Ok(entry),
+    /// Writes the head file after the last of `appended`, each entry
+    /// committed with its hash, sends each to the events, and answers them.
+    fn appended(&self, appended: Vec<(AuditEntry, String)>) -> Result<Vec<AuditEntry>, AuditError> {
+        if let Some((last, hash)) = appended.last() {
+            self.write_head(&Head {
+                sequence: last.sequence,
+                hash: hash.clone(),
+            })?;
         }
+        Ok(appended
+            .into_iter()
+            .map(|(entry, hash)| match &self.events {
+                Some(events) => {
+                    let exported = ExportedAuditEntry { entry, hash };
+                    (events.0)(&exported);
+                    exported.entry
+                }
+                None => entry,
+            })
+            .collect())
     }
 
     /// The sequence the next entry takes and the hash a chained one chains
@@ -658,11 +738,18 @@ impl AuditLog {
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;
+        crate::sqlite_wal::no_checkpoint_on_close(&connection).map_err(|error| failed(&error))?;
         if cfg!(target_os = "macos") {
             connection
                 .pragma_update(None, "fullfsync", "ON")
                 .map_err(|error| failed(&error))?;
         }
+        // A new log's tables, and its WAL's header, commit unsynced: no entry
+        // is in them yet, and the commit of its first entry syncs them too
+        // (#2117). An existing log's commit here writes nothing.
+        connection
+            .pragma_update(None, "synchronous", "OFF")
+            .map_err(|error| failed(&error))?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| failed(&error))?;
@@ -685,6 +772,9 @@ impl AuditLog {
             )
             .map_err(|error| failed(&error))?;
         transaction.commit().map_err(|error| failed(&error))?;
+        connection
+            .pragma_update(None, "synchronous", "FULL")
+            .map_err(|error| failed(&error))?;
         check_format(&found)?;
         Ok(connection)
     }

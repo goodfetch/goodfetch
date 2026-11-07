@@ -491,6 +491,10 @@ id = "hidden-text-is-absent-from-extracted-output-in-shadow-roots-too-and-a-larg
 covers = ["story:5-98", "operation:page.formats"]
 
 [[capability.case]]
+id = "the-share-a-removal-took-is-an-estimate-by-default-and-exact-when-set-and-provenance-names-each"
+covers = ["story:5-98", "operation:page.formats", "setting:extraction.removal_share"]
+
+[[capability.case]]
 id = "the-hiding-sheet-hides-in-every-frame-and-is-absent-from-document-style-sheets"
 covers = ["story:5-98", "setting:live_view.hiding"]
 

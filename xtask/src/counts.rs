@@ -181,7 +181,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 91] = [
+const ROWS: [Row; 95] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -232,6 +232,27 @@ const ROWS: [Row; 91] = [
         valgrind: None,
     },
     Row {
+        name: "F1.tree_copies",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F1.share_readability_runs",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F1.block_classifications",
+        family: "B1",
+        unit: "pages",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
         name: "F2.transactions",
         family: "B1",
         unit: "attempts",
@@ -245,10 +266,12 @@ const ROWS: [Row; 91] = [
         happens: true,
         valgrind: None,
     },
+    // What each page more prepares: the whole site's run less a run on half
+    // its pages, over the pages it adds (ADR 0138).
     Row {
         name: "F2.prepares",
         family: "B1",
-        unit: "pages",
+        unit: "added_pages",
         happens: false,
         valgrind: None,
     },
@@ -605,6 +628,13 @@ const ROWS: [Row; 91] = [
         name: "C2.document_worlds",
         family: "B2",
         unit: "documents",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C2.serialization_commands",
+        family: "B2",
+        unit: "serializations",
         happens: true,
         valgrind: None,
     },
@@ -1408,6 +1438,7 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
+        "added_pages" => "page added",
         unit => unit.trim_end_matches('s'),
     }
 }

@@ -87,9 +87,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
-use goodfetch_clean_up_rules::removal::Selectors;
 use goodfetch_clean_up_rules::rules::FilterLists;
-use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
@@ -161,10 +159,6 @@ struct Shared {
     /// The domains each live Run learned blocking off for, while any of its
     /// pages holds them.
     learned: Mutex<BTreeMap<RunId, Weak<Learned>>>,
-    /// The cosmetic rules' selectors each live Run's documents were read
-    /// with, parsed, while any of its pages or its served documents' rules
-    /// hold them: a Run parses each selector once, not once a page (#1765).
-    selectors: Mutex<BTreeMap<RunId, Weak<Selectors>>>,
     /// The cosmetic rules each live Run's served documents are read with,
     /// held until the Run ends: a Run whose pages a fetch tier serves may
     /// hold no Session that keeps its Filter lists loaded, and without
@@ -189,19 +183,6 @@ impl Shared {
         learned.retain(|_, held| held.strong_count() > 0);
         let held = Arc::new(Learned::default());
         learned.insert(run.clone(), Arc::downgrade(&held));
-        held
-    }
-
-    /// The selectors `run`'s documents are read with, which its pages and
-    /// its served documents share.
-    fn selectors(&self, run: &RunId, work: &CountedWork) -> Arc<Selectors> {
-        let mut selectors = lock(&self.selectors);
-        if let Some(held) = selectors.get(run).and_then(Weak::upgrade) {
-            return held;
-        }
-        selectors.retain(|_, held| held.strong_count() > 0);
-        let held = Arc::new(Selectors::counting(work.clone()));
-        selectors.insert(run.clone(), Arc::downgrade(&held));
         held
     }
 }
@@ -386,23 +367,17 @@ impl EngineRequests {
 pub(crate) struct Cosmetic {
     /// The Filter lists of the version the page's Run holds to.
     pub(crate) lists: Arc<FilterLists>,
-    /// That version's digest.
+    /// That version's digest, which keys their selectors in the engine's
+    /// cache of compilations.
     pub(crate) version: String,
     /// What the Session's settings choose of them.
     pub(crate) choices: Choices,
-    /// Their selectors as the page's Run parsed them.
-    pub(crate) selectors: Arc<Selectors>,
 }
 
 impl Cosmetic {
     /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
-    /// version `version`, when any list is on, their selectors parsed
-    /// through `selectors`.
-    fn of(
-        blocking: &steps::Blocking,
-        version: Option<String>,
-        selectors: impl FnOnce() -> Arc<Selectors>,
-    ) -> Option<Self> {
+    /// version `version`, when any list is on.
+    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
         blocking
             .lists
             .as_ref()
@@ -411,7 +386,6 @@ impl Cosmetic {
                 lists: Arc::clone(lists),
                 version,
                 choices: blocking.choices.clone(),
-                selectors: selectors(),
             })
     }
 }
@@ -536,10 +510,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version, || {
-                self.shared
-                    .selectors(run.id(), run.metrics().counted_work())
-            }),
+            cosmetic: Cosmetic::of(&blocking, version),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -886,10 +857,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version, || {
-                self.shared
-                    .selectors(run.id(), run.metrics().counted_work())
-            })
+            Cosmetic::of(&blocking, version)
         })
         .await
         .clone()

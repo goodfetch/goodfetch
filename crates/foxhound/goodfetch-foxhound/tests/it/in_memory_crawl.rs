@@ -3,6 +3,10 @@
 //! test seam fetches each page of the site once, and the body bytes the
 //! site sent are those `benches/pages.source.toml` records, which `xtask
 //! perf` divides the crawl's total bytes by.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0138: a test's own parse, on no page's path"
+)]
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -93,6 +97,9 @@ fn counted(row: Row, options: Options) -> u64 {
 #[case::locale_form_builds(Row::PageLocaleFormBuilds)]
 #[case::plugin_serializations(Row::PagePluginSerializations)]
 #[case::plugin_answer_parses(Row::PagePluginAnswerParses)]
+#[case::tree_copies(Row::PageTreeCopies)]
+#[case::share_readability_runs(Row::PageShareReadabilityRuns)]
+#[case::block_classifications(Row::PageBlockClassifications)]
 fn a_planted_unit_of_a_page_analysis_row_adds_one_a_page(#[case] row: Row) {
     let default = counted(row, Options::default());
     let metrics = Metrics::none();
@@ -132,12 +139,13 @@ fn a_planted_unit_of_a_run_trace_row_adds_one_a_page(#[case] row: Row) {
     assert_eq!(planted - default, u64::try_from(PAGES.len() + 1).unwrap());
 }
 
-/// The crawl writes Run-trace entries, and each costs what the Run-trace rows
-/// count (Exception X2): a folder created and a file opened, the page's opens
-/// too, and a task spawned for its write. No kind of entry the crawl writes can
-/// be switched off, so none is formatted while off.
+/// The crawl writes Run-trace entries, all Provenance's, and each costs what
+/// the Run-trace rows count: a task spawned for its write (Exception X2). The
+/// Run holds the Provenance log's file, so its folder is created and its file
+/// opened once a Run, and no page opens any. No kind of entry the crawl writes
+/// can be switched off, so none is formatted while off.
 #[test]
-fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawns_its_write() {
+fn each_run_trace_entry_of_the_crawl_spawns_its_write_and_its_run_opens_the_file_once() {
     let env = TestEnv::new();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -161,14 +169,14 @@ fn each_run_trace_entry_of_the_crawl_creates_its_folder_opens_its_file_and_spawn
             work.read(Row::RunTraceFormattingOff),
             work.read(Row::PageFileOpens),
         ),
-        (2 * entries, entries, 0, 2 * entries)
+        (2, entries, 0, 0)
     );
 }
 
 /// The fixture does what the Page analysis rows count: a crawl runs readability,
-/// compiles selectors, and opens its trace's files, the Filter lists' selectors
-/// go with the Filter lists, and a field's Value transform builds its forms once,
-/// however many pages it reads.
+/// compiles selectors, and opens its trace's files, the Filter lists compile no
+/// selector of their own in a crawl that asks for no format, and a field's Value
+/// transform builds its forms once, however many pages it reads.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -208,11 +216,15 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
     });
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // The Clean-up rules compile their 613 selectors once a Run, kept in
-    // their cache, and a page's own 10 compile on every page; with the Filter
-    // lists off only the page's own are left. Each of the crawl's 27
-    // Run-trace entries opens its folder and its file. #1577 lowers these,
-    // and writes its figures here.
+    // The crawl asks for no format, so the demand plan runs no Clean-up and
+    // its rules compile none of their 613 selectors, with the Filter lists on
+    // or off (ADR 0138's demand plan, #1909). The untouched page's readers
+    // compile their 9 once a Run (#1910; `base[href]`, which two of them
+    // read, once), and the main-content step's 5 and a handler's markup
+    // waits' 2 with them, into the engine's cache, which every page then
+    // reads: no page compiles any (#1912). The streaming pass of the AI-use
+    // signals' markup compiles its 4 once a Run (#1917). The Run holds its
+    // Provenance log's file, so no page opens one.
     assert_eq!(
         (
             default.read(Row::PageReadabilityRuns),
@@ -222,12 +234,14 @@ fn the_crawl_does_the_work_its_page_analysis_rows_count() {
             default.read(Row::PageLocaleFormBuilds),
             forms.read(Row::PageLocaleFormBuilds),
         ),
-        (pages, 613 + 10 * pages, 10 * pages, 2 * 27, 0, 1)
+        (pages, 20, 20, 0, 0, 1)
     );
 }
 
 /// A handler on a document tier waits on each page, which the tier answers from
-/// the page's own document: each wait counts its parse and its selector.
+/// the page's kept tree: the page is parsed once for its attempt, its Page
+/// signature reads a copy, and the wait's selector comes from the engine's
+/// cache, compiled once for the crawl.
 #[test]
 fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     let env = TestEnv::new();
@@ -246,15 +260,33 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    // Two parses and four compilations of a page's seven and eleven are its
-    // waits': #1577 lowers the rest, and writes its figures here.
+    // One parse a page, which its waits read on the kept tree (#1918), and
+    // one copy a page, which its Page signature reads. The
+    // untouched page's readers compile 7 once a Run (#1910; `base[href]`,
+    // which two of them read, once), and the main-content step's and the
+    // markup waits' 7 with them. The handler's own `h1` compiles once, at its
+    // first wait, into the engine's cache, which every later wait reads
+    // (#1912). The streaming pass of the AI-use signals' markup parses its 4
+    // once a Run (#1917).
     assert_eq!(
         (
             crawled.handled,
             work.read(Row::PageParses),
+            work.read(Row::PageTreeCopies),
             work.read(Row::PageSelectorCompilations),
         ),
-        (pages, 7 * pages, 11 * pages)
+        (pages, pages, pages, 19)
+    );
+}
+
+/// A crawl that needs no tree, asking for no format with learning off,
+/// reads each page's links and fields in one streaming pass: it parses no
+/// page (#1911).
+#[test]
+fn a_crawl_that_needs_no_tree_parses_no_page() {
+    assert_eq!(
+        parses(&json!({ "frontier": { "learning": false } }), false),
+        0
     );
 }
 
@@ -322,14 +354,15 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
 
 /// B1's counts cell (ADR 0140): the crawl's parses are counted from the
 /// parse, a planted one per page adds exactly its pages' worth, and turning
-/// the Filter lists off takes the clean-up's parse away. `xtask counts` holds
+/// the Filter lists off changes nothing in a crawl that asks for no format,
+/// which runs no clean-up either way (ADR 0138's demand plan). `xtask counts` holds
 /// the figure to the register, and `--prove` runs the plant through it.
 #[test]
 #[expect(
     clippy::disallowed_methods,
     reason = "three crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
 )]
-fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes_its_own() {
+fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_the_filter_lists_off_change_nothing() {
     let lists_off = json!({ "filter_lists": {
         "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
     } });
@@ -347,8 +380,8 @@ fn the_crawl_counts_its_parses_a_plant_adds_one_a_page_and_a_feature_off_removes
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
     assert!(default > 0, "the crawl counted no parse");
     assert_eq!(planted - default, pages);
-    assert!(
-        off < default,
+    assert_eq!(
+        off, default,
         "{off} parses with the lists off, {default} on"
     );
 }
@@ -400,8 +433,9 @@ fn record_counts(planted: bool) -> ([u64; 7], u64) {
 
 /// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
 /// Dataset's schema, is validated and serialized once and commits in its
-/// attempt's transaction; what its check and its commit repeat per Record is
-/// counted (the Exceptions X7 and X8), and one planted unit per page adds
+/// attempt's transaction, reading no declaration and building no validator,
+/// both done when the crawl starts (ADR 0138); what its commit repeats per
+/// Record is counted (the Exception X8), and one planted unit per page adds
 /// exactly its Records' worth to every row. `xtask counts` holds the figures
 /// to the register, and `--prove` runs each plant through it.
 #[test]
@@ -427,12 +461,12 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
     ] = default;
     assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
     assert_eq!(
-        (validations, serializations, transactions),
-        (records, records, 0)
+        (reads, builds, validations, serializations, transactions),
+        (0, 0, records, records, 0)
     );
     assert!(
-        reads > 0 && builds > 0 && copies > 0 && lookups > 0,
-        "reads {reads}, builds {builds}, copies {copies}, lookups {lookups}"
+        copies > 0 && lookups > 0,
+        "copies {copies}, lookups {lookups}"
     );
     assert_eq!(
         std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),
@@ -642,9 +676,12 @@ fn a_planted_unit_per_page_moves_its_run_state_row_by_a_page_each(#[case] row: &
 }
 
 /// The crawl does the writer's work the rows count at concurrency 1 and 16,
-/// and durability changes how a transaction reaches the disk and not how many
-/// there are: `fast` keeps its transactions and takes syncs away. That a count
-/// does not depend on how its jobs group is `run_state`'s own test.
+/// reading the machine's settings once as the Run opens, however many
+/// admissions and settlings follow (ADR 0138), beside the engine's own read
+/// as it starts, for its managed Limits (ADR 0041); and durability changes how a
+/// transaction reaches the disk and not how many there are: `fast` keeps its
+/// transactions and takes syncs away. That a count does not depend on how its
+/// jobs group is `run_state`'s own test.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -667,7 +704,8 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
     });
 
     for counts in [&one, &sixteen, &full] {
-        assert!(counts.transactions > 0 && counts.syncs > 0 && counts.configuration_reads > 0);
+        assert!(counts.transactions > 0 && counts.syncs > 0);
+        assert_eq!(counts.configuration_reads, 2);
     }
     assert_eq!(full.transactions, fast.transactions);
     assert!(

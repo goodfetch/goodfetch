@@ -12,7 +12,7 @@
 //!   scheme, such as `javascript:` or `data:`, is the document, unfollowed,
 //!   as the browser keeps it. A handler's own navigation follows none
 //!   ([`Following::refresh`]), its tier giving the stub (ADR 0118). Its
-//!   markup is read on the blocking pool, never on an async worker.
+//!   markup is read on the CPU pool, never on an async worker.
 //! - **At most `fetch.redirect.max` hops** after the first: one more fails
 //!   with `too_many_redirects`, so a loop costs a site `fetch.redirect.max`
 //!   + 1 requests.
@@ -36,6 +36,7 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::CountedWork;
@@ -53,10 +54,11 @@ use goodfetch_protocol::foxhound::fetch::{FETCH_REDIRECT_MAX, FETCH_REFRESH_MAX_
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::{RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails};
 use serde_json::json;
+use url::Url;
 
 use crate::driver::{Fetched, Hop};
 use crate::redirects::{self, Next};
-use crate::refresh;
+use crate::refresh::{self, Refresh};
 
 /// What a crawl request's chain follows under: its crawl's settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,7 +157,7 @@ pub trait HopGate: Send + Sync {
 /// Follows the chain from `first` under `following`, each hop fetched with
 /// `fetch` and each after the first admitted by `gate`, on `clock`, each
 /// told to `gate` as it is sent and once its answer arrived, a document's
-/// markup read on `owner`'s blocking pool; answers the document the chain
+/// markup read on `owner`'s CPU pool; answers the document the chain
 /// ends on.
 ///
 /// # Errors
@@ -174,11 +176,78 @@ pub async fn follow<F, Fut>(
     following: &Following,
     gate: &dyn HopGate,
     (clock, owner, work): (&Clock, &TaskOwner, &CountedWork),
-    mut fetch: F,
+    fetch: F,
 ) -> Result<Fetched, Stop>
 where
     F: FnMut(Hop) -> Fut,
     Fut: Future<Output = Result<Fetched, CallError>>,
+{
+    let reading = Arc::new(MarkupRefresh(work.clone()));
+    follow_reading(first, following, gate, (clock, owner, &reading), fetch)
+        .await
+        .map(|(fetched, _)| fetched)
+}
+
+/// What a hop's document is read into on the CPU pool, when the chain reads
+/// its markup for a refresh directive: its refresh directive first, then,
+/// on the document the chain ends on, whatever else its reader reads of
+/// it, on the same tree (ADR 0138).
+pub(crate) trait Reading: Send + Sync + 'static {
+    /// What it reads of the document the chain ends on.
+    type Read: Send + 'static;
+
+    /// Reads `fetched`'s document, an HTML one by its type: its refresh
+    /// directive, which ends the read when `follows` follows it.
+    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
+}
+
+/// What a [`Reading`] read of a hop's document.
+pub(crate) enum HopRead<T> {
+    /// A refresh directive the chain follows.
+    Refresh(Refresh),
+    /// The document the chain ends on, read.
+    Document(T),
+}
+
+/// The [`Reading`] that reads a hop's refresh directive alone, parsing its
+/// body for it.
+struct MarkupRefresh(CountedWork);
+
+impl Reading for MarkupRefresh {
+    type Read = ();
+
+    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
+        match refresh::in_markup(&fetched.url, &fetched.body, &self.0) {
+            Some(refresh) if follows(&refresh) => HopRead::Refresh(refresh),
+            Some(_) | None => HopRead::Document(()),
+        }
+    }
+}
+
+/// [`follow`], each HTML hop's markup read by `reading` on `owner`'s CPU
+/// pool: answers the document the chain ends on, with what `reading` read
+/// of it when it read its markup, `None` when the chain ended on it
+/// unread (a redirect's status it does not follow, a type that is no
+/// HTML, a `Refresh` header, or a chain that follows no refresh stub).
+///
+/// # Errors
+///
+/// Those of [`follow`].
+///
+/// # Cancel safety
+///
+/// Those of [`follow`].
+pub(crate) async fn follow_reading<F, Fut, R>(
+    first: Hop,
+    following: &Following,
+    gate: &dyn HopGate,
+    (clock, owner, reading): (&Clock, &TaskOwner, &Arc<R>),
+    mut fetch: F,
+) -> Result<(Fetched, Option<R::Read>), Stop>
+where
+    F: FnMut(Hop) -> Fut,
+    Fut: Future<Output = Result<Fetched, CallError>>,
+    R: Reading,
 {
     let first_url = first.url.to_string();
     let mut hops: Vec<String> = Vec::new();
@@ -208,11 +277,14 @@ where
         gate.answered(&hop, clock.now().duration_since(sent)).await;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
-        let Some(next) = next_hop(&hop, &fetched, following, (owner, work)).await? else {
-            if !hops.is_empty() {
-                gate.reached(&hop).await?;
+        let next = match next_hop(&hop, &fetched, following, (owner, reading)).await? {
+            Step::Next(next) => next,
+            Step::End(read) => {
+                if !hops.is_empty() {
+                    gate.reached(&hop).await?;
+                }
+                return Ok((fetched, read));
             }
-            return Ok(fetched);
         };
         if hops.len() >= usize::try_from(following.max).unwrap_or(usize::MAX) {
             return Err(Stop::Failed(too_many_redirects(
@@ -230,28 +302,37 @@ where
     }
 }
 
+/// Where a chain goes after a hop's answer.
+enum Step<T> {
+    /// To this hop.
+    Next(Hop),
+    /// Nowhere: the answer is its document, with what its markup's reader
+    /// read of it, if it read it.
+    End(Option<T>),
+}
+
 /// The hop `fetched`, the answer of `hop`, leads to: a redirect's, or,
 /// while `following` follows refresh stubs, an HTTP(S) refresh stub's
-/// within `fetch.refresh.max_delay`, its markup read on `owner`'s blocking
-/// pool; `None` when it is the chain's document.
-async fn next_hop(
+/// within `fetch.refresh.max_delay`, its markup read by `reading` on
+/// `owner`'s blocking pool; [`Step::End`] when it is the chain's document.
+async fn next_hop<R: Reading>(
     hop: &Hop,
     fetched: &Fetched,
     following: &Following,
-    (owner, work): (&TaskOwner, &CountedWork),
-) -> Result<Option<Hop>, Stop> {
+    (owner, reading): (&TaskOwner, &Arc<R>),
+) -> Result<Step<R::Read>, Stop> {
     // A response its Label does not take is the chain's end, unread.
     if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {
-        return Ok(None);
+        return Ok(Step::End(None));
     }
     let location = header(&fetched.headers, "location");
     match redirects::next(hop, fetched.status, location) {
-        Next::Follow(next) => return Ok(Some(next)),
+        Next::Follow(next) => return Ok(Step::Next(next)),
         Next::NotOk(reason) => return Err(Stop::Failed(not_ok(fetched, &reason))),
         Next::Answer => {}
     }
     if !following.refresh {
-        return Ok(None);
+        return Ok(Step::End(None));
     }
     let html = header(&fetched.headers, "content-type").is_none_or(|content_type| {
         let essence = content_type
@@ -262,34 +343,43 @@ async fn next_hop(
             .to_ascii_lowercase();
         essence == "text/html" || essence == "application/xhtml+xml"
     });
+    let max_delay = following.refresh_max_delay;
     let refresh = match refresh::in_header(&fetched.url, &fetched.headers) {
-        Some(refresh) => Some(refresh),
+        Some(refresh) => refresh,
         None if html => {
-            let (url, body) = (fetched.url.clone(), fetched.body.clone());
-            let work = work.clone();
-            owner
-                .blocking(move || refresh::in_markup(&url, &body, &work))
-                .await
+            let (reading, read) = (Arc::clone(reading), fetched.clone());
+            let read = owner
+                .analysis(move || {
+                    let at = read.url.clone();
+                    reading.read(&read, &|refresh| follows(refresh, max_delay, &at))
+                })
+                .await;
+            match read {
+                HopRead::Refresh(refresh) => refresh,
+                HopRead::Document(read) => return Ok(Step::End(Some(read))),
+            }
         }
-        None => None,
+        None => return Ok(Step::End(None)),
     };
-    let Some(refresh) = refresh else {
-        return Ok(None);
-    };
-    let within = following
-        .refresh_max_delay
-        .is_none_or(|max| refresh.delay <= max);
-    // The browser refreshes only to an HTTP(S) URL: to `javascript:`,
-    // `data:` or another scheme, it keeps the stub as the document.
-    let fetchable = matches!(refresh.url.scheme(), "http" | "https");
-    if !within || !fetchable || refresh.reloads(&fetched.url) {
-        return Ok(None);
+    if !follows(&refresh, max_delay, &fetched.url) {
+        return Ok(Step::End(None));
     }
     let from = Hop {
         url: fetched.url.clone(),
         ..hop.clone()
     };
-    Ok(Some(redirects::hop_to(&from, refresh.url, true)))
+    Ok(Step::Next(redirects::hop_to(&from, refresh.url, true)))
+}
+
+/// Whether a chain follows `refresh`, the directive of the document at
+/// `url`: one within `max_delay` (`fetch.refresh.max_delay`) to an HTTP(S)
+/// URL other than the document's own. The browser refreshes only to an
+/// HTTP(S) URL: to `javascript:`, `data:` or another scheme, it keeps the
+/// stub as the document.
+fn follows(refresh: &Refresh, max_delay: Option<Duration>, url: &Url) -> bool {
+    let within = max_delay.is_none_or(|max| refresh.delay <= max);
+    let fetchable = matches!(refresh.url.scheme(), "http" | "https");
+    within && fetchable && !refresh.reloads(url)
 }
 
 /// The value of the header `name` (lower-cased) among `headers`, if any.

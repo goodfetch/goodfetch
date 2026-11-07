@@ -46,6 +46,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use goodfetch_counted_work::ParsedHtml;
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
@@ -1497,23 +1498,34 @@ impl Pages {
                 (&Values::default(), served.extractor),
                 &Values::default(),
             );
+            let measure =
+                clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
             let cosmetic = self.interception.served_cosmetic(&served.run).await;
             let work = served.run.metrics().counted_work().clone();
-            let (formats, read) = served
-                .run
-                .owner()
-                .blocking(move || {
-                    clean_up::read(
-                        &document,
-                        Serialization::Served,
-                        request,
-                        extractor.extractor(),
-                        (cosmetic.as_ref(), &[]),
-                        &work,
-                    )
-                })
-                .await;
-            trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
+            let read = move |kept: Option<&ParsedHtml>| {
+                clean_up::read(
+                    (&document, kept),
+                    Serialization::Served,
+                    request,
+                    (extractor.extractor(), measure),
+                    (cosmetic.as_ref(), &[]),
+                    &work,
+                )
+            };
+            // A page whose handler's reads keep its untouched tree reads a
+            // copy of it, on its owner (ADR 0138); any other parses it.
+            let (formats, read) = match &served.tree {
+                // Its tree is gone only as its Run stops, or after a read
+                // of it panicked.
+                Some(tree) => tree
+                    .read(move |kept| read(Some(kept)))
+                    .await
+                    .ok_or_else(|| sessions::page_closed(&params.page_id))?,
+                None => served.run.owner().analysis(move || read(None)).await,
+            };
+            if let Some(read) = read {
+                trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
+            }
             return Ok(formats);
         }
         let page = self.open(&params.page_id).await?;
@@ -1529,24 +1541,27 @@ impl Pages {
             (&session, page.driver.value().extractor()),
             &page.settings,
         );
+        let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
         let work = page.run.metrics().counted_work().clone();
         let (formats, read) = page
             .run
             .owner()
-            .blocking(move || {
+            .analysis(move || {
                 clean_up::read(
-                    &document,
+                    (&document, None),
                     Serialization::Dom,
                     request,
-                    extractor.extractor(),
+                    (extractor.extractor(), measure),
                     (cosmetic.as_ref(), &hidden),
                     &work,
                 )
             })
             .await;
-        trace::provenance(&page.run, &read.entry(&params.page_id, Some(&page.session))).await;
+        if let Some(read) = read {
+            trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
+        }
         Ok(formats)
     }
 }

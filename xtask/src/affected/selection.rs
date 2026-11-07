@@ -8,7 +8,8 @@ use std::path::Path;
 
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
 use super::{ChangedParts, RepoPath};
-use crate::{counts, foxhound_side, perf, screenshots, tlc};
+use crate::register::document as register;
+use crate::{foxhound_side, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -504,9 +505,9 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
     // `xtask counts`, in the perf job, holds the counted rows to the
     // register's limits, so a changed register is counted at once; a
     // change to another part of its file is not one to the register.
-    let register_moved = paths.iter().any(|path| {
-        path.as_str() == counts::REGISTER_FILE && parts.reaches(path, counts::REGISTER_SECTION)
-    });
+    let register_moved = paths
+        .iter()
+        .any(|path| path.as_str() == register::FILE && parts.reaches(path, register::SECTION));
     if !bench_targets.is_empty() || register_moved {
         jobs.insert(Job::Perf);
     }

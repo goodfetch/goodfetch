@@ -45,6 +45,7 @@ mod junit;
 mod junit_summary;
 mod lazyfs;
 mod license_allowlist;
+mod markdown;
 mod metadata;
 mod mocking_lockfile;
 mod modules;

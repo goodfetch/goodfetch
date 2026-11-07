@@ -22,8 +22,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow};
 
 use crate::check::{self, Finding};
-
-const REGISTER_FILE: &str = "TESTING.md";
+use crate::register::document::FILE as REGISTER_FILE;
 
 /// Runs `git <args>` in `root` and answers its standard output, a byte that
 /// is no UTF-8 replaced: a diff may show a file of any encoding.

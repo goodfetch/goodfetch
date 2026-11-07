@@ -73,7 +73,7 @@ impl Row {
 }
 
 fn row(line: &str) -> Option<Row> {
-    let mut cells = line.trim().trim_matches('|').split('|').map(str::trim);
+    let mut cells = crate::markdown::cells(line)?.into_iter();
     let suite = cells.next()?.to_owned();
     let place = cells.next()?.to_owned();
     let budgets = cells.next()?.split(", ").filter_map(budget).collect();

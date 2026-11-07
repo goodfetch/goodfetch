@@ -291,39 +291,32 @@ async fn options(
     let mut options = ExportOptions::of_run(params.run_id.as_str(), &params.dataset);
     match params.format {
         ExportFormat::Csv => {
-            options.csv_bom = resolved.boolean(EXPORT_CSV_BOM.name).unwrap_or(false);
-            if let Some(text) = resolved.value(EXPORT_CSV_DELIMITER.name).as_str() {
-                options.csv_delimiter =
-                    checked(resolved, &EXPORT_CSV_DELIMITER, csv_delimiter(text))?;
-            }
-            if resolved.value(EXPORT_CSV_NESTED.name).as_str() == Some("flatten") {
-                options.csv_nested = Nested::Flatten;
-            }
+            options.csv_bom = resolved.get(&EXPORT_CSV_BOM);
+            let delimiter = csv_delimiter(resolved.get(&EXPORT_CSV_DELIMITER));
+            options.csv_delimiter = checked(resolved, &EXPORT_CSV_DELIMITER, delimiter)?;
+            options.csv_nested = Nested::of(resolved.get(&EXPORT_CSV_NESTED))
+                .expect("invariant: the resolver lets only `export.csv.nested`'s choices through");
         }
         ExportFormat::Xlsx => {
-            if let Some(text) = resolved.value(EXPORT_XLSX_SHEET.name).as_str() {
+            if let Some(text) = resolved.get::<Option<&str>>(&EXPORT_XLSX_SHEET) {
                 options.xlsx_sheet = checked(resolved, &EXPORT_XLSX_SHEET, sheet_name(text))?;
             }
         }
         ExportFormat::Json => {
-            if let Some(count) = resolved.value(EXPORT_JSON_INDENT.name).as_u64() {
-                options.json_indent = checked(resolved, &EXPORT_JSON_INDENT, json_indent(count))?;
-            }
+            let indent = json_indent(resolved.get(&EXPORT_JSON_INDENT));
+            options.json_indent = checked(resolved, &EXPORT_JSON_INDENT, indent)?;
         }
         ExportFormat::Xml => {
-            if let Some(text) = resolved.value(EXPORT_XML_ROOT.name).as_str() {
-                options.xml_root = checked(resolved, &EXPORT_XML_ROOT, xml_name(text))?;
-            }
-            if let Some(text) = resolved.value(EXPORT_XML_RECORD.name).as_str() {
-                options.xml_record = checked(resolved, &EXPORT_XML_RECORD, xml_name(text))?;
-            }
+            let root = xml_name(resolved.get(&EXPORT_XML_ROOT));
+            options.xml_root = checked(resolved, &EXPORT_XML_ROOT, root)?;
+            let record = xml_name(resolved.get(&EXPORT_XML_RECORD));
+            options.xml_record = checked(resolved, &EXPORT_XML_RECORD, record)?;
         }
         ExportFormat::Parquet => {
-            options.parquet_codec = match resolved.value(EXPORT_PARQUET_COMPRESSION.name).as_str() {
-                Some("snappy") => ParquetCodec::Snappy,
-                Some("none") => ParquetCodec::None,
-                _ => ParquetCodec::Zstd,
-            };
+            options.parquet_codec = ParquetCodec::of(resolved.get(&EXPORT_PARQUET_COMPRESSION))
+                .expect(
+                    "invariant: the resolver lets only `export.parquet.compression`'s choices through",
+                );
         }
         ExportFormat::Rss | ExportFormat::Atom => {
             for (setting, field) in [
@@ -332,9 +325,7 @@ async fn options(
                 (&EXPORT_FEED_PUBLISHED, &mut options.feed.published),
                 (&EXPORT_FEED_SUMMARY, &mut options.feed.summary),
             ] {
-                if let Some(text) = resolved.value(setting.name).as_str() {
-                    *field = checked(resolved, setting, feed_field(text))?;
-                }
+                *field = checked(resolved, setting, feed_field(resolved.get(setting)))?;
             }
         }
         ExportFormat::Jsonl
@@ -351,12 +342,12 @@ async fn options(
 fn checked<T>(
     resolved: &Resolved,
     setting: &Setting,
-    value: Result<T, &str>,
+    value: Result<T, impl std::fmt::Display>,
 ) -> Result<T, CallError> {
     value.map_err(|reason| {
-        let given = resolved.value(setting.name);
+        let given = resolved.value(setting);
         let layer = resolved
-            .get(setting.name)
+            .effective(setting)
             .map_or(SettingsLayer::Run, |effective| effective.layer);
         CallError::new(
             &SETTING_INVALID,

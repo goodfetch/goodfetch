@@ -43,7 +43,7 @@ use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, trusted_cas,
 };
@@ -55,6 +55,7 @@ use goodfetch_page::page_value::{
     ProgramPages, Reader, ServedDocument,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator,
@@ -600,7 +601,7 @@ pub struct Signed {
 /// `fetch.light_browser` while it is off, else this platform, for which
 /// Lightpanda builds nothing (ADRs 0020 and 0093).
 /// The `proxy.*` keys that send a Run's Sessions through a proxy.
-const PROXY_KEYS: [&str; 3] = [PROXY_SERVER.name, PROXY_PROVIDER.name, PROXY_KIND.name];
+const PROXY_KEYS: [&Setting; 3] = [&PROXY_SERVER, &PROXY_PROVIDER, &PROXY_KIND];
 
 /// Refuses a Run that allows the light-browser tier beside a proxy: the
 /// light-browser bridge connects to sites directly, so Lightpanda's
@@ -612,16 +613,16 @@ const PROXY_KEYS: [&str; 3] = [PROXY_SERVER.name, PROXY_PROVIDER.name, PROXY_KIN
 /// `capability_unavailable` naming `fetch.light_browser`.
 fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     let Some(allowed) = settings
-        .get(FETCH_LIGHT_BROWSER.name)
+        .effective(&FETCH_LIGHT_BROWSER)
         .filter(|effective| effective.value == serde_json::Value::Bool(true))
     else {
         return Ok(());
     };
-    let Some((key, proxied)) = PROXY_KEYS.iter().find_map(|key| {
+    let Some((key, proxied)) = PROXY_KEYS.iter().find_map(|setting| {
         settings
-            .get(key)
+            .effective(setting)
             .filter(|effective| !effective.value.is_null())
-            .map(|effective| (*key, effective))
+            .map(|effective| (setting.name, effective))
     }) else {
         return Ok(());
     };
@@ -646,7 +647,7 @@ fn light_unavailable(settings: &Resolved, layer: SettingsLayer, label: Option<&s
         || layer.as_str().to_owned(),
         |label| format!("the Label `{label}`"),
     );
-    let switched_on = settings.boolean(FETCH_LIGHT_BROWSER.name) == Some(true);
+    let switched_on: bool = settings.get(&FETCH_LIGHT_BROWSER);
     let (key, fix, message) = if switched_on {
         (
             FETCH_TIER.name,
@@ -748,10 +749,10 @@ impl FetchTiers {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
         refuse_light_beside_a_proxy(settings)?;
-        if let Some(effective) = settings.get(FETCH_ENCODING.name) {
+        if let Some(effective) = settings.effective(&FETCH_ENCODING) {
             crate::choice::encoding("the Run", &effective.value)?;
         }
-        if let Some(effective) = settings.get(CRAWL_CONTENT_TYPES.name) {
+        if let Some(effective) = settings.effective(&CRAWL_CONTENT_TYPES) {
             ContentTypes::of(&effective.value).map_err(|reason| {
                 CallError::new(
                     &SETTING_INVALID,
@@ -811,7 +812,7 @@ impl FetchTiers {
         if let Some((tier, _)) = forced(settings) {
             return SetTier::Forced(tier);
         }
-        match settings.get(FETCH_TIER.name) {
+        match settings.effective(&FETCH_TIER) {
             Some(effective) if effective.layer != SettingsLayer::Default => SetTier::Auto,
             _ => SetTier::Unset,
         }
@@ -839,12 +840,12 @@ impl FetchTiers {
         local: Option<LocalSource>,
     ) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
-        let trust = trusted_cas(settings.value(TLS_TRUSTED_CAS.name), run.owner()).await;
+        let trust = trusted_cas(settings.value(&TLS_TRUSTED_CAS), run.owner()).await;
         let client_certificates = ClientCertificates::listed(
-            settings.value(TLS_CLIENT_CERTIFICATES.name),
+            settings.value(&TLS_CLIENT_CERTIFICATES),
             run.secrets().clone(),
             settings
-                .get(TLS_CLIENT_CERTIFICATES.name)
+                .effective(&TLS_CLIENT_CERTIFICATES)
                 .map(|effective| effective.layer),
             Some(run.id().clone()),
         )
@@ -854,7 +855,7 @@ impl FetchTiers {
             exceptions: exceptions_of(run, settings),
             client_certificates: Some(client_certificates),
             proxy: None,
-            resolve: settings.hosts(NETWORK_RESOLVE.name),
+            resolve: settings.hosts(&NETWORK_RESOLVE),
             egress: egress.clone(),
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
@@ -875,10 +876,7 @@ impl FetchTiers {
             following: Following::of(settings),
             sessions: Arc::new(SessionTransports::new(
                 config,
-                settings
-                    .count(SESSION_POOL_MAX_SIZE.name)
-                    .and_then(|size| usize::try_from(size).ok())
-                    .unwrap_or(usize::MAX),
+                usize::try_from(settings.get::<u64>(&SESSION_POOL_MAX_SIZE)).unwrap_or(usize::MAX),
             )),
         })
     }
@@ -1202,8 +1200,7 @@ impl FetchTiers {
     /// `light_browser` tier: `fetch.light_browser` is on, and this platform
     /// has a pinned Lightpanda build (ADR 0020).
     pub fn light_allowed(settings: &Resolved) -> bool {
-        settings.boolean(FETCH_LIGHT_BROWSER.name) == Some(true)
-            && crate::light_browser::pinned_here().is_some()
+        settings.get::<bool>(&FETCH_LIGHT_BROWSER) && crate::light_browser::pinned_here().is_some()
     }
 
     /// The AI-use signals the response of the served page `page_id`
@@ -2384,7 +2381,7 @@ pub async fn record_race(run: &Run, race: &Race<'_>) {
 /// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as
 /// the browser follows (ADR 0118), with `setting_invalid`.
 fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
-    let Some(effective) = settings.get(FETCH_REDIRECT_MAX.name) else {
+    let Some(effective) = settings.effective(&FETCH_REDIRECT_MAX) else {
         return Ok(());
     };
     let max = effective.value.as_u64().unwrap_or_default();
@@ -2408,7 +2405,7 @@ fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
 /// The tier `fetch.tier` forces and the layer that set it; `None` under
 /// `auto`.
 fn forced(settings: &Resolved) -> Option<(FetchTier, SettingsLayer)> {
-    let effective = settings.get(FETCH_TIER.name)?;
+    let effective = settings.effective(&FETCH_TIER)?;
     let tier = FetchTier::named(effective.value.as_str()?)?;
     Some((tier, effective.layer))
 }
@@ -2470,7 +2467,7 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
         clock: run.clock(),
     };
     CertificateExceptions::listed(
-        settings.value(TLS_ACCEPT_INVALID_CERTS.name),
+        settings.value(&TLS_ACCEPT_INVALID_CERTS),
         book,
         run.secrets().exception_hosts(),
     )
@@ -2486,9 +2483,10 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
 /// Whether the Run `run` reads its documents for a Block cause, its
 /// `fetch.block_classification` (ADR 0138).
 fn classifies_blocks(run: &Run) -> bool {
-    run.settings()
-        .and_then(|settings| settings.resolved().boolean(FETCH_BLOCK_CLASSIFICATION.name))
-        != Some(false)
+    get_or_default(
+        run.settings().map(RunSettings::resolved),
+        &FETCH_BLOCK_CLASSIFICATION,
+    )
 }
 
 fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTime) -> CallError {
@@ -2532,7 +2530,7 @@ fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
     label
         .or_else(|| {
             run.settings()
-                .map(|settings| settings.resolved().value(CONTENT_EXTRACTOR.name))
+                .map(|settings| settings.resolved().value(&CONTENT_EXTRACTOR))
                 .and_then(serde_json::Value::as_str)
                 .and_then(BuiltIn::named)
         })

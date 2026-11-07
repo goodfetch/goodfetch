@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::governor::{
     CRITICAL, Concurrency, CpuReading, GovernorLevel, HOST_MEMORY, KindConcurrency,
     LAST_RESORT_AFTER, MEMORY_ALLOWANCE, MemoryReading, PRESSURE, SAMPLE_INTERVAL, SystemInfo,
@@ -39,7 +40,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::clock::Clock;
-use crate::settings::{Layers, Resolved, Settings, resolve};
+use crate::settings::{Layers, Resolved, Settings, catalog_default, resolve};
 use crate::tasks::TaskOwner;
 
 mod browsers;
@@ -148,9 +149,8 @@ impl Governor {
     /// A governor that never samples: each kind stays at its default
     /// ceiling.
     pub fn unsampled() -> Self {
-        let ceilings = WorkKind::ALL.map(|kind| {
-            u32::try_from((kind.ceiling().default)().as_u64().unwrap_or(1)).unwrap_or(u32::MAX)
-        });
+        let ceilings = WorkKind::ALL
+            .map(|kind| u32::try_from(catalog_default::<u64>(kind.ceiling())).unwrap_or(u32::MAX));
         Self {
             shares: Shares::new(ceilings),
             info: watch::channel(None).1,
@@ -267,18 +267,17 @@ impl Default for HostGovernor {
 
 impl Limits {
     fn of(settings: &Resolved) -> Self {
-        let count = |key: &str, default: u64| settings.count(key).unwrap_or(default);
+        let count =
+            |setting: &Setting| u32::try_from(settings.get::<u64>(setting)).unwrap_or(u32::MAX);
         let bounds = WorkKind::ALL.map(|kind| Bounds {
-            floor: u32::try_from(count(kind.floor().name, 1)).unwrap_or(u32::MAX),
-            ceiling: u32::try_from(count(kind.ceiling().name, 1)).unwrap_or(u32::MAX),
+            floor: count(kind.floor()),
+            ceiling: count(kind.ceiling()),
         });
         Self {
             bounds,
-            pressure: count(PRESSURE.name, 85),
-            critical: count(CRITICAL.name, 95),
-            last_resort_after: settings
-                .duration(LAST_RESORT_AFTER.name)
-                .unwrap_or(Duration::from_secs(60)),
+            pressure: settings.get(&PRESSURE),
+            critical: settings.get(&CRITICAL),
+            last_resort_after: settings.get(&LAST_RESORT_AFTER),
         }
     }
 }
@@ -331,10 +330,10 @@ impl Sampler {
             levels = self.sample_storage(&settings, &levels).await;
             let limits = Limits::of(&settings);
             let inputs = Inputs {
-                memory_allowance: settings.count(MEMORY_ALLOWANCE.name),
+                memory_allowance: settings.get(&MEMORY_ALLOWANCE),
                 pressure: limits.pressure,
                 critical: limits.critical,
-                host_memory: settings.boolean(HOST_MEMORY.name).unwrap_or(true),
+                host_memory: settings.get(&HOST_MEMORY),
             };
             let system = self.system.clone();
             let processes = self.shares.browsers().processes();
@@ -413,8 +412,7 @@ impl Sampler {
                 self.shares.in_use(),
             )));
             let interval = settings
-                .duration(SAMPLE_INTERVAL.name)
-                .unwrap_or(Duration::from_secs(1))
+                .get::<Duration>(&SAMPLE_INTERVAL)
                 .max(Duration::from_millis(1));
             self.clock.sleep(interval).await;
         }
@@ -472,17 +470,7 @@ impl Sampler {
         for _ in 0..files {
             self.work.count(Row::GovernorConfigurationReads);
         }
-        let read = machine.and_then(|machine| {
-            resolve(
-                &Layers {
-                    operator_policy: machine.operator_policy,
-                    user_configuration: machine.user_configuration,
-                    ..Layers::default()
-                },
-                product,
-                product,
-            )
-        });
+        let read = machine.and_then(|machine| machine.resolve(product));
         match read {
             Ok(settings) => settings,
             Err(error) => {

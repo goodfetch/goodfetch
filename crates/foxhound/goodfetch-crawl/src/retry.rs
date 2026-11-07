@@ -114,7 +114,7 @@ async fn reopened(
             run_id: run_id.clone(),
             checkpoint: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: true,
         })

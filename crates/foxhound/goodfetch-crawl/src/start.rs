@@ -245,7 +245,7 @@ async fn start(
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
         })
         .await

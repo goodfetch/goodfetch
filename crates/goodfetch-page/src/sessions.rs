@@ -62,7 +62,7 @@ use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, run_row};
 use goodfetch_engine::runs::{Run, RunError};
-use goodfetch_engine::settings::{RunSettings, SettingsError, Values};
+use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
@@ -1248,7 +1248,7 @@ fn not_locked(
     context: &CallContext,
 ) -> Result<Values, CallError> {
     let locked = values.keys().find_map(|key| {
-        let effective = run.settings()?.resolved().get(key)?;
+        let effective = run.settings()?.resolved().effective(setting(key)?)?;
         effective.locked_by.map(|layer| SettingLimit {
             key: key.to_owned(),
             value: effective.value.clone(),
@@ -1341,7 +1341,7 @@ async fn open_proxy(
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).
-    let currencies = if resolved.value(PROXY_PROVIDER.name).is_null() {
+    let currencies = if resolved.value(&PROXY_PROVIDER).is_null() {
         Vec::new()
     } else {
         run.usage()
@@ -1421,7 +1421,7 @@ fn opening_source(
         Some(own) => own.map(|source| (source, SettingsLayer::Run, opener_for_model)),
         None => run
             .settings()
-            .and_then(|settings| settings.resolved().get(SESSION_SOURCE.name))
+            .and_then(|settings| settings.resolved().effective(&SESSION_SOURCE))
             .and_then(|effective| {
                 serde_json::from_value::<SessionSource>(effective.value.clone())
                     .ok()
@@ -1683,10 +1683,7 @@ fn local_address_refused(run: &Run, failure: LocalAddressFailure) -> CallError {
 /// `run`'s `egress.local_addresses` as its value writes it, when it sets
 /// one: an interface or a prefix as it is, a list as JSON.
 fn local_addresses_of(run: &Run) -> Option<String> {
-    let value = run
-        .settings()?
-        .resolved()
-        .value(EGRESS_LOCAL_ADDRESSES.name);
+    let value = run.settings()?.resolved().value(&EGRESS_LOCAL_ADDRESSES);
     match value {
         Value::Null => None,
         Value::String(text) => Some(text.clone()),

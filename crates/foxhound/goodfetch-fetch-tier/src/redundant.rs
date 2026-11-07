@@ -131,17 +131,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Redundant {
     /// A Run's, under its settings.
     pub(crate) fn of(settings: &Resolved) -> Self {
-        let hedges = (settings.boolean(FETCH_HEDGE_ENABLED.name) == Some(true)).then(|| Hedges {
+        let hedges = settings.get::<bool>(&FETCH_HEDGE_ENABLED).then(|| Hedges {
             latencies: Mutex::new(Latencies::default()),
-            budget: Mutex::new(Budget::new(
-                settings
-                    .count(FETCH_HEDGE_MAX_PERCENT.name)
-                    .unwrap_or_default(),
-            )),
+            budget: Mutex::new(Budget::new(settings.get(&FETCH_HEDGE_MAX_PERCENT))),
         });
         Self {
             hedges,
-            coalesces: settings.boolean(FETCH_COALESCE.name) != Some(false),
+            coalesces: settings.get(&FETCH_COALESCE),
             in_flight: Mutex::new(BTreeMap::new()),
         }
     }

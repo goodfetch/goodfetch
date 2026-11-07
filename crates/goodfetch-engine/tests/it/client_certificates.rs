@@ -191,7 +191,7 @@ impl Fixture {
             .unwrap(),
             cookies: Vec::new(),
             clock: Clock::system(),
-            delays: Delays::BUILT_IN,
+            delays: Delays::default(),
         }
     }
 

@@ -168,7 +168,7 @@ impl Fixture {
                 })
                 .collect(),
             clock: Clock::system(),
-            delays: Delays::BUILT_IN,
+            delays: Delays::default(),
         }
     }
 

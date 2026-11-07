@@ -120,7 +120,7 @@ impl ProxyRule {
     /// Why `politeness.proxy.concurrency` is refused: `0` admits no
     /// request, so every navigation through the proxy would wait forever.
     pub(crate) fn of(settings: &Resolved) -> Result<Self, String> {
-        let concurrency = settings.count(POLITENESS_PROXY_CONCURRENCY.name);
+        let concurrency = settings.get(&POLITENESS_PROXY_CONCURRENCY);
         if concurrency == Some(0) {
             return Err(
                 "it is 0, which admits no request through the proxy: it is at least 1, or unset for no cap"
@@ -130,7 +130,7 @@ impl ProxyRule {
         Ok(Self {
             concurrency,
             interval: settings
-                .count(POLITENESS_PROXY_RATE.name)
+                .get::<Option<u64>>(&POLITENESS_PROXY_RATE)
                 .filter(|rate| *rate > 0)
                 .map(|rate| Duration::from_secs(1) / u32::try_from(rate).unwrap_or(u32::MAX)),
         })

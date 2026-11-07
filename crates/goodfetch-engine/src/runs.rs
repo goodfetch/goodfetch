@@ -145,7 +145,7 @@ use crate::run_trace;
 use crate::secrets::{
     Carried, Keychain, ProviderFactory, Purpose, RunSecrets, SecretError, Secrets, is_engine_key,
 };
-use crate::settings::{Resolved, RunSettings, Settings};
+use crate::settings::{Resolved, RunSettings, Settings, get_or_default};
 use crate::staging::AttemptWrites;
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
@@ -1775,7 +1775,7 @@ impl Run {
         &self,
         settings: &Resolved,
     ) -> Result<(Politeness, Holder), PolitenessError> {
-        let own = settings.value(POLITENESS_SHARING.name).as_str() == Some("run");
+        let own = settings.get::<&str>(&POLITENESS_SHARING) == "run";
         let politeness = self
             .shared
             .politeness
@@ -2569,11 +2569,9 @@ impl Run {
 }
 
 /// The `timeout.secret` of a Run whose settings resolved as `settings`,
-/// its default when none did.
+/// its catalog default when none did.
 fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
-    settings
-        .and_then(|settings| settings.resolved().duration(TIMEOUT_SECRET.name))
-        .unwrap_or(Duration::from_secs(30))
+    get_or_default(settings.map(RunSettings::resolved), &TIMEOUT_SECRET)
 }
 
 /// What a Run whose settings resolved as `settings` resolves its Secret
@@ -2589,11 +2587,13 @@ fn run_secrets(secrets: &Secrets, settings: Option<&RunSettings>) -> RunSecrets 
 }
 
 /// Whether a Run whose settings resolved as `settings` masks its values in
-/// its kept outputs: its `security.redaction`, on when none resolved.
+/// its kept outputs: its `security.redaction`, the catalog default, on,
+/// when none resolved.
 fn redaction(settings: Option<&RunSettings>) -> Redaction {
-    match settings.and_then(|settings| settings.resolved().boolean(SECURITY_REDACTION.name)) {
-        Some(false) => Redaction::Off,
-        Some(true) | None => Redaction::On,
+    if get_or_default(settings.map(RunSettings::resolved), &SECURITY_REDACTION) {
+        Redaction::On
+    } else {
+        Redaction::Off
     }
 }
 
@@ -2898,10 +2898,10 @@ impl Runs {
         // own, made when run state first wraps a data key with it (#617).
         if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
             let resolved = settings.resolved();
-            let layer = resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer;
+            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
             (layer != SettingsLayer::Default).then_some(())?;
             Some((
-                resolved.secret_reference(RUN_STATE_KEY_REFERENCE.name)?,
+                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
                 layer,
             ))
         }) {
@@ -3311,8 +3311,8 @@ impl Runs {
         if let Some((reference, layer)) = settings.and_then(|settings| {
             let resolved = settings.resolved();
             Some((
-                resolved.secret_reference(RUN_STATE_KEY_REFERENCE.name)?,
-                resolved.get(RUN_STATE_KEY_REFERENCE.name)?.layer,
+                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
+                resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer,
             ))
         }) {
             return (reference, layer);
@@ -5402,16 +5402,11 @@ impl Registry {
     ) -> Run {
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
-        let share = settings
-            .as_ref()
-            .and_then(|settings| settings.resolved().count(RUN_SHARE.name))
-            .unwrap_or(100);
+        let resolved = settings.as_ref().map(RunSettings::resolved);
+        let share = get_or_default(resolved, &RUN_SHARE);
         // `provenance.log`, Foxhound's (ADR 0138): a Run whose Product holds
-        // no such key logs its Provenance.
-        let logs_provenance = settings
-            .as_ref()
-            .and_then(|settings| settings.resolved().boolean(PROVENANCE_LOG.name))
-            != Some(false);
+        // no such key logs its Provenance, the key's catalog default.
+        let logs_provenance = get_or_default(resolved, &PROVENANCE_LOG);
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -6673,10 +6668,8 @@ impl SharedPoliteness {
 fn durability_of(settings: Option<&RunSettings>) -> Durability {
     settings.map_or(Durability::Full, |settings| {
         let resolved = settings.resolved();
-        let interval = resolved
-            .duration(RUN_STATE_COMMIT_INTERVAL.name)
-            .unwrap_or_default();
-        Durability::named(resolved.value(RUN_STATE_DURABILITY.name), interval).expect(
+        let interval = resolved.get(&RUN_STATE_COMMIT_INTERVAL);
+        Durability::named(resolved.value(&RUN_STATE_DURABILITY), interval).expect(
             "invariant: the settings resolver lets only `run_state.durability`'s choices through",
         )
     })

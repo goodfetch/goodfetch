@@ -53,7 +53,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::durable;
 use crate::home::Home;
-use crate::settings::{Layers, SettingsFiles, resolve};
+use crate::settings::SettingsFiles;
 use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous,
     Wait, WalOnClose,
@@ -493,17 +493,9 @@ impl AuditLog {
                 tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
             })
             .ok()?;
-        let layers = Layers {
-            operator_policy: machine.operator_policy,
-            user_configuration: machine.user_configuration,
-            ..Layers::default()
-        };
-        let resolved = resolve(&layers, *product, *product).ok()?;
-        let retention = resolved.get(AUDIT_RETENTION.name)?;
-        Some((
-            Duration::from_millis(retention.value.as_u64()?),
-            retention.layer,
-        ))
+        let resolved = machine.resolve(*product).ok()?;
+        let retention = resolved.get::<Option<Duration>>(&AUDIT_RETENTION)?;
+        Some((retention, resolved.effective(&AUDIT_RETENTION)?.layer))
     }
 
     /// Writes the head file after the last of `appended`, each entry

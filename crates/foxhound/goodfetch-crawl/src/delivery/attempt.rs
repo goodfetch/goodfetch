@@ -77,7 +77,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
     ReplayPlan, Requester, RunHandOver, SignalFiles, Stop, TierChoice, infer_plan, tier_serves,
@@ -269,24 +269,20 @@ pub(super) async fn run_hand_over(
         robots: http.map(HttpTier::robots_txt_fetch),
         operator_token: settings.and_then(|settings| {
             settings
-                .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+                .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
                 .as_str()
                 .map(str::to_owned)
         }),
         domain_delay: settings
-            .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
+            .and_then(|settings| settings.get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY))
             .unwrap_or_default(),
-        adaptive_delay: settings.is_some_and(|settings| {
-            settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
-        }),
+        adaptive_delay: get_or_default(settings, &POLITENESS_DOMAIN_ADAPTIVE_DELAY),
         pace: settings
             .map(goodfetch_frontier::Pace::of)
             .unwrap_or_default(),
-        respect_robots_txt: settings.is_none_or(|settings| {
-            settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
-        }),
+        respect_robots_txt: get_or_default(settings, &SITE_PREFERENCES_RESPECT_ROBOTS_TXT),
         max_crawl_delay: settings
-            .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
+            .map(|settings| settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
         use_signals: settings.and_then(honoured_purpose),
         signal_files: SignalFiles::default(),
         egress: Arc::clone(egress),
@@ -1377,7 +1373,7 @@ pub(super) fn run_page_check(run: &Run) -> Option<PageCheck> {
     let settings = run.settings()?;
     let value = settings
         .resolved()
-        .get(SESSION_PAGE_CHECK.name)?
+        .effective(&SESSION_PAGE_CHECK)?
         .value
         .clone();
     // The setting's shape was checked where it was set.

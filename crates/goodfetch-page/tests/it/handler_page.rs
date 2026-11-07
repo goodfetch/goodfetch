@@ -25,8 +25,10 @@ use goodfetch_page::blocks::NoBlocks;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{HELLO, Surface};
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_REQUESTS};
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
@@ -388,8 +390,10 @@ pub(crate) fn with_handler_page(
             };
             program
                 .call(
-                    "hello",
-                    &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+                    HELLO,
+                    &Hello::needing(Product::Collie)
+                        .surface(Surface::Rust)
+                        .params(),
                 )
                 .await;
             let resolve: Map<String, Value> = program
@@ -427,7 +431,11 @@ pub(crate) fn with_handler_page(
             // A failed test still closes its Connection, so the engine
             // stops its Run and its browser before the panic goes on.
             let tested = Unwinding(Box::pin(test(&mut program))).await;
-            program.writer.shutdown().await.expect("invariant: in memory");
+            program
+                .writer
+                .shutdown()
+                .await
+                .expect("invariant: in memory");
             drop(program);
             tested
         };

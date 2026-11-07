@@ -74,7 +74,7 @@ impl std::fmt::Debug for BrowserReader {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("BrowserReader")
-            .field("run", self.hand_over.run.id())
+            .field("run", self.hand_over.run().id())
             .field("handled", &self.handled)
             .finish_non_exhaustive()
     }
@@ -124,7 +124,7 @@ impl DocumentReader for BrowserReader {
                 content_type: essence,
                 request_id: document.request_id.to_owned(),
                 body: Bytes::copy_from_slice(body),
-                run: self.hand_over.run.clone(),
+                run: self.hand_over.run().clone(),
             };
             self.learn(document, |read| read.not_document = Some(not_document));
             return Reading::Stop;

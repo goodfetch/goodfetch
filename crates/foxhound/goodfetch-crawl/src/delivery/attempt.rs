@@ -79,9 +79,8 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_fetch_tier::{
-    AddressCheck, Capture, Chosen, ContentTypes, FetchAdmission, FetchTiers, HandOver, HttpTier,
-    Judged, PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles,
-    Stop, TierChoice, UntouchedReaders, infer_plan, tier_serves,
+    Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
+    ReplayPlan, Requester, RunHandOver, SignalFiles, Stop, TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -244,104 +243,67 @@ const BROWSER: TierChoice = TierChoice {
     forced: None,
 };
 
-/// What an attempt's handler pages are gated with (the fetch tiers'
-/// `gate`): the tiers that hand them over, room beside the Run's own
-/// requests and how robots.txt is fetched; and the Page check of its
-/// request's Label, which judges them in place of their Session's.
-pub(super) struct Gating {
-    pub(super) tiers: FetchTiers,
-    pub(super) second_copies: SecondCopies,
-    pub(super) robots: Option<RobotsTxtFetch>,
-    /// The Run's domain policy.
-    pub(super) egress: Arc<Policy>,
-    /// The address check of the Run's HTTP tier, if it has one.
-    pub(super) addresses: Option<AddressCheck>,
-    pub(super) page_check: Option<PageCheck>,
-    /// The main-content step the request's Label chooses with
-    /// `content.extractor`, over the Run's.
-    pub(super) extractor: Option<goodfetch_fetch_tier::BuiltIn>,
-    /// The encoding `fetch.encoding` forces on the request's own
-    /// document: its Label's, else the Run's (ADR 0119).
-    pub(super) encoding: Option<&'static encoding_rs::Encoding>,
-    /// The types `crawl.content_types` lets the request's own document
-    /// be: its Label's, else the Run's (ADR 0119).
-    pub(super) content_types: ContentTypes,
-    /// What a code-free crawl handles its requests with, in place of the
-    /// program's handler; none when the program handles them.
-    pub(super) code_free: Option<Arc<CodeFree>>,
-    /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
-    /// file and RSL licenses, each once for all its requests.
-    pub(super) signal_files: SignalFiles,
-    /// The attempt's HTTP admission, given back once its document is
-    /// fetched, else once it ends.
-    pub(super) fetch_admission: FetchAdmission,
-    /// The readers of the untouched page of its request's Label, built
-    /// once per Run.
-    pub(super) untouched: Arc<UntouchedReaders>,
+/// What every attempt of `run` hands over alike with its pages, built once
+/// as its delivery opens, never per attempt (ADR 0138): its settings as
+/// the navigation gate reads them, the Politeness it shares, robots.txt
+/// and the AI-use signal files fetched on `http`, the Run's HTTP tier,
+/// whose address check judges each redirect hop, and `egress`, its domain
+/// policy.
+pub(super) async fn run_hand_over(
+    run: &Run,
+    http: Option<&HttpTier>,
+    egress: &Arc<Policy>,
+) -> Arc<RunHandOver> {
+    let settings = run.settings().map(RunSettings::resolved);
+    // A crawl whose Politeness paces nothing records no start, send or
+    // latency in it (ADR 0138).
+    let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
+        share_robots_txt(run).await
+    } else {
+        None
+    };
+    Arc::new(RunHandOver {
+        run: run.clone(),
+        keys: settings.map(DomainKeys::of).unwrap_or_default(),
+        politeness,
+        robots: http.map(HttpTier::robots_txt_fetch),
+        operator_token: settings.and_then(|settings| {
+            settings
+                .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
+                .as_str()
+                .map(str::to_owned)
+        }),
+        domain_delay: settings
+            .and_then(|settings| settings.get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY))
+            .unwrap_or_default(),
+        adaptive_delay: get_or_default(settings, &POLITENESS_DOMAIN_ADAPTIVE_DELAY),
+        pace: settings
+            .map(goodfetch_frontier::Pace::of)
+            .unwrap_or_default(),
+        respect_robots_txt: get_or_default(settings, &SITE_PREFERENCES_RESPECT_ROBOTS_TXT),
+        max_crawl_delay: settings
+            .map(|settings| settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
+        use_signals: settings.and_then(honoured_purpose),
+        signal_files: SignalFiles::default(),
+        egress: Arc::clone(egress),
+        addresses: http.map(HttpTier::address_check),
+    })
 }
 
-impl Gating {
-    /// What the attempt of `leased` holding `lease` gates its document's
-    /// redirect hops with, then hands its Run's pages over with while its
-    /// handler runs; `in_flight` names its waits.
-    async fn hand_over(
-        &self,
-        run: &Run,
-        leased: &Leased,
-        lease: &WorkItemLease,
-        in_flight: &SharedInFlight,
-    ) -> Arc<HandOver> {
-        let settings = run.settings().map(RunSettings::resolved);
-        // A crawl whose Politeness paces nothing records no start, send or
-        // latency in it (ADR 0138).
-        let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
-            share_robots_txt(run).await
-        } else {
-            None
-        };
-        let domain_delay = settings
-            .and_then(|settings| settings.get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY))
-            .unwrap_or_default();
-        Arc::new(HandOver {
-            run: run.clone(),
-            domain_key: leased.waiting.key.clone(),
-            keys: settings.map(DomainKeys::of).unwrap_or_default(),
-            second_copies: self.second_copies.clone(),
-            politeness,
-            robots: self.robots.clone(),
-            operator_token: settings.and_then(|settings| {
-                settings
-                    .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-                    .as_str()
-                    .map(str::to_owned)
-            }),
-            domain_delay,
-            adaptive_delay: get_or_default(settings, &POLITENESS_DOMAIN_ADAPTIVE_DELAY),
-            pace: settings
-                .map(goodfetch_frontier::Pace::of)
-                .unwrap_or_default(),
-            respect_robots_txt: get_or_default(settings, &SITE_PREFERENCES_RESPECT_ROBOTS_TXT),
-            max_crawl_delay: settings
-                .map(|settings| settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
-            use_signals: settings.and_then(honoured_purpose),
-            signal_files: self.signal_files.clone(),
-            lease: Arc::new(HandlerLease {
-                lease: lease.clone(),
-                run: run.clone(),
-                request_id: leased.crawl_request.id.clone(),
-                in_flight: Arc::clone(in_flight),
-            }),
-            fetch_admission: self.fetch_admission.clone(),
-            egress: Arc::clone(&self.egress),
-            addresses: self.addresses.clone(),
-            page_check: self.page_check.clone(),
-            extractor: self.extractor,
-            encoding: self.encoding,
-            content_types: self.content_types.clone(),
-            capture: None,
-            untouched: Arc::clone(&self.untouched),
-        })
-    }
+/// The lease check of the handler pages of the attempt of `leased`,
+/// holding `lease` ([`HandlerLease`]); `in_flight` names its waits.
+pub(super) fn handler_lease(
+    run: &Run,
+    leased: &Leased,
+    lease: &WorkItemLease,
+    in_flight: &SharedInFlight,
+) -> Arc<dyn LeaseCheck> {
+    Arc::new(HandlerLease {
+        lease: lease.clone(),
+        run: run.clone(),
+        request_id: leased.crawl_request.id.clone(),
+        in_flight: Arc::clone(in_flight),
+    })
 }
 
 /// The lease check of an attempt's handler pages: the attempt's lease,
@@ -445,7 +407,7 @@ pub(super) async fn attempt(
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
     lease: WorkItemLease,
-    (tiering, gating): (Tiering, Gating),
+    (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     in_flight: SharedInFlight,
 ) -> Attempt {
     let document = Mutex::new(None);
@@ -462,7 +424,8 @@ pub(super) async fn attempt(
         in_browser: &in_browser,
         http: tiering.http.as_ref(),
         lease: &lease,
-        gating: &gating,
+        hand_over: &hand_over,
+        code_free: code_free.as_deref(),
         in_flight: &in_flight,
     };
     let mut merged = Taught::default();
@@ -479,12 +442,11 @@ pub(super) async fn attempt(
         },
         (AttemptPlan::Alone, _) => {
             let params = on.params(None, None, None);
-            let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
-            let handed_over = gating.tiers.hand_over(hand_over);
+            let handed_over = tiering.tiers.hand_over(Arc::clone(&hand_over));
             let answer = handled(
                 &run,
                 &context,
-                gating.code_free.as_deref(),
+                code_free.as_deref(),
                 (&params, &sent_at),
                 &lease,
             )
@@ -614,7 +576,12 @@ struct On<'a> {
     /// judges the request's URL before a browser tier opens it.
     http: Option<&'a HttpTier>,
     lease: &'a WorkItemLease,
-    gating: &'a Gating,
+    /// What the attempt hands over with its Run's pages, built once as it
+    /// was leased: each of its runs on a tier takes it whole.
+    hand_over: &'a Arc<HandOver>,
+    /// What a code-free crawl handles its requests with, in place of the
+    /// program's handler; none when the program handles them.
+    code_free: Option<&'a CodeFree>,
     in_flight: &'a SharedInFlight,
     /// The site's answer to the request's own document, as the last run
     /// that fetched it met it, which its domain's Politeness reads (the
@@ -899,23 +866,20 @@ impl On<'_> {
     ) -> Result<(HttpRun, Taught), (Answer, Taught)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
-        let hand_over = self
-            .gating
-            .hand_over(run, leased, lease, self.in_flight)
-            .await;
+        let hand_over = self.hand_over;
         // A Session that may move to the browser, under `auto`, sends its
         // HTTP from inside its browser, so its fingerprint and cookies stay
         // the Session's on both tiers (ADR 0020; pitfall H20), and so does
         // one forced onto `browser_fetch`.
         let in_browser;
         let http = if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            in_browser = tiers.in_browser(http, run, self.in_browser, &hand_over, self.context);
+            in_browser = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
             &in_browser
         } else {
             http
         };
         let page_id = self
-            .document(tiering, http, choice, &hand_over)
+            .document(tiering, http, choice, hand_over)
             .await
             .map_err(|answer| (answer, Taught::default()))?
             .keep();
@@ -981,11 +945,11 @@ impl On<'_> {
             Some(page_id.clone()),
             tiers.response(&page_id),
         );
-        let handed_over = self.gating.tiers.hand_over(hand_over);
+        let handed_over = tiers.hand_over(Arc::clone(hand_over));
         let answer = handled(
             run,
             self.context,
-            self.gating.code_free.as_deref(),
+            self.code_free,
             (&params, self.sent_at),
             lease,
         )
@@ -1020,7 +984,7 @@ impl On<'_> {
             tiers,
             page_id,
             self.leased,
-            self.gating.code_free.is_some(),
+            self.code_free.is_some(),
         )
         .await
     }
@@ -1105,7 +1069,7 @@ impl On<'_> {
                     http,
                     leased,
                     read.as_deref(),
-                    &self.gating.signal_files,
+                    &hand_over.of_run.signal_files,
                 )
                 .await
                 {
@@ -1151,7 +1115,7 @@ impl On<'_> {
             run,
             (tiers, http),
             served.page_id(),
-            &self.gating.signal_files,
+            &hand_over.of_run.signal_files,
         )
         .await
         {
@@ -1178,7 +1142,7 @@ impl On<'_> {
         handled(
             self.run,
             self.context,
-            self.gating.code_free.as_deref(),
+            self.code_free,
             (&params, self.sent_at),
             self.lease,
         )
@@ -1231,16 +1195,11 @@ impl On<'_> {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
-        let mut hand_over = self
-            .gating
-            .hand_over(run, leased, lease, self.in_flight)
-            .await;
-        if let Some(capture) = capture
-            && let Some(owned) = Arc::get_mut(&mut hand_over)
-        {
-            owned.capture = Some(capture.clone());
-        }
-        let handed_over = self.gating.tiers.hand_over(Arc::clone(&hand_over));
+        let hand_over = match capture {
+            Some(capture) => Arc::new(self.hand_over.capturing(capture.clone())),
+            None => Arc::clone(self.hand_over),
+        };
+        let handed_over = tiers.hand_over(Arc::clone(&hand_over));
         let opened = tokio::select! {
             biased;
             opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request.url, self.context) => {
@@ -1289,7 +1248,7 @@ impl On<'_> {
         let answer = handled(
             run,
             self.context,
-            self.gating.code_free.as_deref(),
+            self.code_free,
             (&params, self.sent_at),
             lease,
         )

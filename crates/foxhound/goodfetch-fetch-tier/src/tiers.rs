@@ -709,7 +709,7 @@ impl FetchTiers {
     /// until the answer drops: each takes the attempt's navigation gate and
     /// lease check (the `gate` module).
     pub fn hand_over(&self, hand_over: Arc<HandOver>) -> HandedOver {
-        let run = hand_over.run.id().clone();
+        let run = hand_over.run().id().clone();
         let mut handed = lock(&self.served.handed);
         handed.last += 1;
         let number = handed.last;
@@ -1727,7 +1727,7 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        let run_id = hand_over.run.id();
+        let run_id = hand_over.run().id();
         OPENING
             .scope(
                 Arc::clone(hand_over),
@@ -1847,7 +1847,7 @@ impl FetchTiers {
     /// handed `run`'s pages over last.
     fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
         if let Ok(opening) = OPENING.try_with(Arc::clone)
-            && opening.run.id() == run
+            && opening.run().id() == run
         {
             return Some(opening);
         }
@@ -1965,7 +1965,7 @@ impl HandlerPages for FetchTiers {
             return ProgramPages.reader(run, session);
         };
         let handled = hand_over
-            .run
+            .run()
             .settings()
             .map(|settings| Following::of(settings.resolved()).handled)
             .unwrap_or_default();

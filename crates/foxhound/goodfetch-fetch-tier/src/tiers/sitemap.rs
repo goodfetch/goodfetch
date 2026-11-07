@@ -35,7 +35,7 @@ impl HttpTier {
     ///
     /// Dropping the future closes the fetch's connection.
     pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, CallError> {
-        let clock = hand_over.run.clock();
+        let clock = hand_over.run().clock();
         let gate = SitemapHops(hand_over);
         let fetched = follow(
             Hop::get(url.clone()),
@@ -43,8 +43,8 @@ impl HttpTier {
             &gate,
             (
                 &clock,
-                hand_over.run.owner(),
-                hand_over.run.metrics().counted_work(),
+                hand_over.run().owner(),
+                hand_over.run().metrics().counted_work(),
             ),
             |hop| async move { fetch(self.transport.as_ref(), &hop, &self.bounds, &clock).await },
         )
@@ -97,7 +97,7 @@ impl HopGate for SitemapHops<'_> {
 
     fn wait_until<'a>(&'a self, _hop: &'a Hop, until: std::time::SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
-            let clock = self.0.run.clock();
+            let clock = self.0.run().clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }
@@ -109,7 +109,7 @@ impl HopGate for SitemapHops<'_> {
     }
 
     fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
-        Box::pin(self.0.answered(hop, latency))
+        Box::pin(self.0.of_run.answered(hop, latency))
     }
 
     fn reached<'a>(&'a self, _hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {

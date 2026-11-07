@@ -452,3 +452,29 @@ fn the_driver_asks_the_keychain_nothing_until_a_reference_needs_it() {
         (0, true)
     );
 }
+
+/// A host the Run reached through an exception is found whatever the
+/// spelling a later caller gives it, so no client certificate or Secret
+/// goes to it: its IDNA form, its case and its trailing dot, as TLS keys
+/// it when it records the host.
+#[rstest]
+#[case::as_recorded("xn--bcher-kva.test")]
+#[case::unicode("bücher.test")]
+#[case::upper_case_fully_qualified("BÜCHER.Test.")]
+fn a_host_reached_through_an_exception_is_found_whatever_its_spelling(#[case] asked: &str) {
+    let reached = super::ExceptionHosts::default();
+    let key = crate::known_certificates::KeyHash::of_public_key(b"key");
+
+    let found = goodfetch_test_support::runtime().block_on(async {
+        reached
+            .add(
+                "xn--bcher-kva.test",
+                key,
+                crate::known_certificates::ExceptionKind::TrustOnFirstUse,
+            )
+            .await;
+        reached.reached(asked).await
+    });
+
+    assert_eq!(found, Some(key));
+}

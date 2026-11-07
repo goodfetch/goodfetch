@@ -89,3 +89,40 @@ fn every_caller_of_the_http_client_is_a_pinned_download_or_a_configured_kind(
 ) {
     assert_eq!(callers_of_no_allowed_kind(modules), refused);
 }
+
+/// The addresses [`super::lookup`] gives `host` under a mapping of
+/// `staging.proving.test` and of the address `127.0.0.1`.
+fn looked_up(host: &str) -> Option<Vec<std::net::SocketAddr>> {
+    let mapping = super::Resolve::new()
+        .with("staging.proving.test", vec!["192.0.2.7".parse().unwrap()])
+        .with("127.0.0.1", vec!["192.0.2.8".parse().unwrap()]);
+    goodfetch_test_support::runtime()
+        .block_on(super::lookup(host, 443, &mapping))
+        .ok()
+}
+
+/// A mapped name answers whatever its case, IDNA spelling and trailing dot,
+/// as the engine's resolver (`dns::Dns`) answers it, so a host matched there
+/// is never missed here.
+/// Covers: setting:network.resolve
+#[rstest]
+#[case::as_listed("staging.proving.test")]
+#[case::fully_qualified("staging.proving.test.")]
+#[case::upper_case("Staging.Proving.TEST.")]
+fn a_mapped_name_answers_whatever_its_case_and_trailing_dot(#[case] host: &str) {
+    assert_eq!(
+        looked_up(host),
+        Some(vec!["192.0.2.7:443".parse().unwrap()])
+    );
+}
+
+/// An address is its own answer, whatever the mapping lists for it, as the
+/// engine's resolver has it: a mapping holds host names (ADR 0059).
+/// Covers: setting:network.resolve
+#[test]
+fn an_address_answers_itself_whatever_the_mapping_lists() {
+    assert_eq!(
+        looked_up("127.0.0.1"),
+        Some(vec!["127.0.0.1:443".parse().unwrap()])
+    );
+}

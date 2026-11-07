@@ -2869,13 +2869,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "goodfetch-sink"
-version = "0.0.0"
-dependencies = [
- "goodfetch-workspace-hack",
-]
-
-[[package]]
 name = "goodfetch-sql-tab"
 version = "0.0.0"
 dependencies = [

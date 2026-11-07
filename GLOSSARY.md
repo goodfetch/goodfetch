@@ -418,6 +418,10 @@ _Avoid_: login, profile, context
 One browser tab of a Session, which a program, an Agent or a crawl handler drives: it navigates, is read and receives gestures, and belongs to its Session for its whole life.
 _Avoid_: tab, target (for a page)
 
+**Spare page**:
+A Page its Session keeps open between two of a crawl's requests, which the Session's next request navigates instead of opening a new Page.
+_Avoid_: idle tab, pooled page
+
 **URL pattern**:
 A glob or a regular expression that a wait, a route or a kept response matches URLs against, in the engine, so that it matches the same URLs from every SDK; a predicate is no URL pattern, since it runs in the program.
 _Avoid_: URL filter, URL match

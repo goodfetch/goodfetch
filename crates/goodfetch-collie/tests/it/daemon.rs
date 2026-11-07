@@ -566,6 +566,35 @@ fn a_connection_dropped_mid_command_fails_the_command() {
     );
 }
 
+/// A Daemon that cannot read a `daemon` command's `hello` answers it with
+/// an error whose id is null and answers nothing more: the command ends
+/// refused with that error, as a generated command does, rather than
+/// waiting for an answer that never comes.
+///
+/// Covers: story:3-11, command:daemon.status
+#[test]
+fn a_daemon_command_whose_hello_meets_an_error_without_id_ends_refused() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-daemon-hello-unreadable.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["daemon", "status", "--json"])
+        .run()
+        .unwrap();
+    let played = scripted.child().wait().unwrap();
+    let failed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            failed["error"]["code"].clone(),
+            played.success(),
+        ),
+        (Some(1), json!("message_too_large"), true),
+        "{output}"
+    );
+}
+
 /// The protocol's Compatibility corpus, recorded against an Attached
 /// engine.
 const CLIENT_TRANSCRIPT: &str = include_str!("../../../../compat/protocol/head/client.jsonl");

@@ -5,7 +5,7 @@
 
 use std::process::ExitCode;
 
-use goodfetch_cli::output::{self, Human};
+use super::output::{self, Human};
 use goodfetch_engine::CallError;
 use goodfetch_engine::Identity;
 use goodfetch_engine::home::Home;

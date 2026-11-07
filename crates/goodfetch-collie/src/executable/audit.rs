@@ -13,17 +13,15 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use super::engine_choice::{Daemons, EngineChoice, EngineFlags};
+use super::exit_codes;
+use super::generated::{Joined, Joining};
+use super::operation::run_operation;
+use super::output::{self, Human};
 use clap::Subcommand;
-use goodfetch_cli::engine_choice::{
-    self, Answer, CommandCall, Daemons, EngineChoice, EngineFlags, Lifetime,
-};
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::generated::{Joined, Joining};
-use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::audit::verify_exported;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::audit::{AUDIT_EXPORT, AUDIT_VERIFY, AuditVerified};
-use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::cli::AUDIT_LOG_NOT_INTACT;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
 use serde_json::{Map, Value, json};
@@ -93,7 +91,7 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = reach(daemons, flags, &warn);
+            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
             export(engine, dependencies, &reach, json, human)
         }
         AuditCommand::Own(OwnAuditCommand::Verify {
@@ -102,8 +100,16 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = reach(daemons, flags, &warn);
-            match call(engine, dependencies, &reach, &AUDIT_VERIFY, json, human) {
+            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
+            match run_operation(
+                engine,
+                dependencies,
+                &reach,
+                &AUDIT_VERIFY,
+                json!({}),
+                json,
+                human,
+            ) {
                 Ok(verified) => print(&verified, json, human),
                 Err(exit) => exit,
             }
@@ -116,22 +122,6 @@ pub(super) fn run(
     }
 }
 
-/// The engine a command's call runs on: as its `flags` choose, a command
-/// whose value does not outlive it, so the Daemon when one runs or
-/// `--daemon` is given, else an Attached engine ([`engine_choice`]).
-fn reach<'a>(
-    daemons: &'a dyn Daemons,
-    flags: EngineFlags,
-    warn: &'a dyn Fn(&str),
-) -> EngineChoice<'a> {
-    EngineChoice {
-        choice: flags.choice(),
-        lifetime: Lifetime::Passing,
-        daemons,
-        warn,
-    }
-}
-
 /// Writes every entry `audit.export` answers on the engine `reach`
 /// chooses, one JSON line each.
 fn export(
@@ -141,7 +131,15 @@ fn export(
     json: bool,
     human: &Human,
 ) -> ExitCode {
-    let exported = match call(engine, dependencies, reach, &AUDIT_EXPORT, json, human) {
+    let exported = match run_operation(
+        engine,
+        dependencies,
+        reach,
+        &AUDIT_EXPORT,
+        json!({}),
+        json,
+        human,
+    ) {
         Ok(exported) => exported,
         Err(exit) => return exit,
     };
@@ -204,41 +202,5 @@ fn print(verified: &Value, json: bool, human: &Human) -> ExitCode {
             json,
             human,
         ),
-    }
-}
-
-/// `operation`'s result on the engine `reach` chooses, the Daemon or an
-/// Attached engine in this process, `engine` on `dependencies`, or the exit
-/// code of its failure, which it printed.
-fn call(
-    engine: &Engine,
-    dependencies: Dependencies,
-    reach: &EngineChoice<'_>,
-    operation: &'static Operation,
-    json: bool,
-    human: &Human,
-) -> Result<Value, ExitCode> {
-    let call = CommandCall {
-        method: operation.name,
-        params: json!({}),
-        cancellable: operation.cancellable,
-        follower: None,
-        pager: None,
-        stopper: None,
-        input: None,
-    };
-    let product = engine.identity().product;
-    match engine_choice::call(engine, dependencies, product, reach, call) {
-        Answer::Result(value) => Ok(value),
-        Answer::Error(error) => Err(output::fail(error, Some(operation.name), json, human)),
-        Answer::Refused(error) => Err(output::fail_exiting(
-            error,
-            Some(operation.name),
-            exit_codes::DAEMON_REFUSED,
-            json,
-            human,
-        )),
-        Answer::Unanswered(error) => Err(output::fail(error, None, json, human)),
-        Answer::Interrupted(interrupt) => Err(ExitCode::from(interrupt.exit_code())),
     }
 }

@@ -82,6 +82,27 @@ pub fn json(value: &impl Serialize) {
     print_stdout(&bytes);
 }
 
+/// A value as human output shows it: text as it is, anything else as JSON.
+pub fn text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        value => value.to_string(),
+    }
+}
+
+/// Writes a call's result `value` as human output shows it: each field of
+/// an object as `name: value` on stdout, any other value on a line.
+pub fn fields(value: &serde_json::Value, human: &Human) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (name, value) in fields {
+                human.field(name, &text(value));
+            }
+        }
+        value => line(&text(value)),
+    }
+}
+
 /// Writes `text` and a newline on stderr: a warning, a hint or a failure,
 /// which never reaches stdout.
 pub fn note(text: &str) {

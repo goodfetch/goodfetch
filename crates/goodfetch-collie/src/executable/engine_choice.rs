@@ -44,7 +44,7 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::ErrorGroup;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::{Operation, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
     PROTOCOL_VERSION_UNSUPPORTED, Surface,
@@ -198,6 +198,20 @@ pub struct EngineChoice<'a> {
     pub warn: &'a dyn Fn(&str),
 }
 
+impl<'a> EngineChoice<'a> {
+    /// The engine of a command whose value does not outlive it, as
+    /// `choice` chooses: the Daemon when one runs or `--daemon` is given,
+    /// else an Attached engine; refusals warned of through `warn`.
+    pub fn passing(choice: Choice, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> Self {
+        Self {
+            choice,
+            lifetime: Lifetime::Passing,
+            daemons,
+            warn,
+        }
+    }
+}
+
 /// Receives each notification a followed call sends, by its method and
 /// params, and answers how many credits printing it used; `None` once the
 /// command can print nothing more, as when stdout takes no more bytes: the
@@ -343,6 +357,21 @@ pub struct CommandCall<'a> {
     pub stopper: Option<Stopper<'a>>,
 }
 
+impl<'a> CommandCall<'a> {
+    /// The one call of `operation` with `params`, which nothing follows.
+    pub fn of(operation: &'a Operation, params: Value) -> Self {
+        Self {
+            method: operation.name,
+            params,
+            cancellable: operation.cancellable,
+            follower: None,
+            pager: None,
+            input: None,
+            stopper: None,
+        }
+    }
+}
+
 /// How a call ended.
 pub enum Answer {
     /// Its result.
@@ -361,6 +390,32 @@ pub enum Answer {
     Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`, and its call
     /// cancelled when it could be.
+    Interrupted(Interrupt),
+}
+
+impl Answer {
+    /// Its result, or how the call failed.
+    pub fn into_result(self) -> Result<Value, Failed> {
+        match self {
+            Self::Result(value) => Ok(value),
+            Self::Error(error) => Err(Failed::Error(error)),
+            Self::Refused(error) => Err(Failed::Refused(error)),
+            Self::Unanswered(error) => Err(Failed::Unanswered(error)),
+            Self::Interrupted(interrupt) => Err(Failed::Interrupted(interrupt)),
+        }
+    }
+}
+
+/// How a call that answered no result failed, as [`Answer`] says it.
+pub enum Failed {
+    /// The engine's error, or its refusal of `hello`.
+    Error(ErrorObject),
+    /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
+    /// protocol version.
+    Refused(ErrorObject),
+    /// No call was made, for the reason its Error code says.
+    Unanswered(ErrorObject),
+    /// The command was interrupted, or sent `SIGTERM`.
     Interrupted(Interrupt),
 }
 

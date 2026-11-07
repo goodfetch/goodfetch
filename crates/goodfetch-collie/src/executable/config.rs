@@ -35,8 +35,9 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Map, Value};
 
-use super::engine_choice::{self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime};
+use super::engine_choice::{Choice, Daemons, EngineChoice};
 use super::exit_codes;
+use super::operation::run_operation;
 use super::output::{self, Human};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::run::local_settings_error;
@@ -96,46 +97,36 @@ pub(super) fn explain_through(
         Ok(params) => params,
         Err(error) => return refused(&error, identity, request.json, human),
     };
-    let call = CommandCall {
-        method: CONFIG_EXPLAIN.name,
-        params: serde_json::to_value(params).expect("invariant: the params serialize"),
-        cancellable: CONFIG_EXPLAIN.cancellable,
-        follower: None,
-        pager: None,
-        stopper: None,
-        input: None,
-    };
+    let params = serde_json::to_value(params).expect("invariant: the params serialize");
     let warn = |text: &str| human.warning(text);
-    let reach = EngineChoice {
-        choice: Choice::Daemon,
-        lifetime: Lifetime::Passing,
-        daemons,
-        warn: &warn,
-    };
-    let operation = Some(CONFIG_EXPLAIN.name);
+    let reach = EngineChoice::passing(Choice::Daemon, daemons, &warn);
     let json = request.json;
-    match engine_choice::call(engine, dependencies, identity.product, &reach, call) {
-        Answer::Result(value) => match serde_json::from_value::<SettingsExplanation>(value) {
-            Ok(explanation) => {
-                print(&explanation, json);
-                ExitCode::SUCCESS
-            }
-            Err(problem) => output::fail(
-                exit_codes::internal(format!(
-                    "The Daemon answered `{}` with no explanation: {problem}.",
-                    CONFIG_EXPLAIN.name
-                )),
-                operation,
-                json,
-                human,
-            ),
-        },
-        Answer::Error(error) => output::fail(error, operation, json, human),
-        Answer::Refused(error) => {
-            output::fail_exiting(error, operation, exit_codes::DAEMON_REFUSED, json, human)
+    let explained = match run_operation(
+        engine,
+        dependencies,
+        &reach,
+        &CONFIG_EXPLAIN,
+        params,
+        json,
+        human,
+    ) {
+        Ok(explained) => explained,
+        Err(exit) => return exit,
+    };
+    match serde_json::from_value::<SettingsExplanation>(explained) {
+        Ok(explanation) => {
+            print(&explanation, json);
+            ExitCode::SUCCESS
         }
-        Answer::Unanswered(error) => output::fail(error, None, json, human),
-        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+        Err(problem) => output::fail(
+            exit_codes::internal(format!(
+                "The Daemon answered `{}` with no explanation: {problem}.",
+                CONFIG_EXPLAIN.name
+            )),
+            Some(CONFIG_EXPLAIN.name),
+            json,
+            human,
+        ),
     }
 }
 

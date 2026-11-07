@@ -64,9 +64,11 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
 use super::engine_choice::{
-    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Input, Lifetime, Next,
-    Pager, ReadValues, Values,
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Failed, Follower, Input, Lifetime,
+    Next, Pager, ReadValues, Values,
 };
+use super::operation::failed;
+use super::output::text;
 use super::output::{ColourFlag, Human};
 use super::settings_flags::{self, SettingsFlags};
 use super::{exit_codes, output};
@@ -1160,8 +1162,8 @@ impl Call {
     /// stdout's array of Records was `opened`.
     fn answered(&self, answer: Answer, opened: bool, failing: &str, human: &Human) -> ExitCode {
         let (json, offered) = (self.json, offer(self.operation));
-        match answer {
-            Answer::Result(result) => {
+        match answer.into_result() {
+            Ok(result) => {
                 match offered {
                     _ if self.follow => {}
                     // What a crawl committed is what such a command
@@ -1173,15 +1175,13 @@ impl Call {
                 }
                 ExitCode::from(self.exit_of(result))
             }
-            Answer::Error(error) if opened => {
+            Err(Failed::Error(error)) if opened => {
                 let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
                 output::failed_after(&output::command_failed(error, Some(failing)), json, human);
                 ExitCode::from(exit)
             }
-            Answer::Error(error) => output::fail(error, Some(failing), json, human),
-            Answer::Refused(error) => self.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-            Answer::Unanswered(error) => output::fail(error, None, json, human),
-            Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+            Err(Failed::Error(error)) => output::fail(error, Some(failing), json, human),
+            Err(failure) => failed(failure, self.operation.name, json, human),
         }
     }
 
@@ -1223,7 +1223,7 @@ impl Call {
                         Value::String(text) if times.contains(name) => human.time(text),
                         _ => None,
                     };
-                    human.field(name, &shown.unwrap_or_else(|| self::text(value)));
+                    human.field(name, &shown.unwrap_or_else(|| text(value)));
                 }
             }
             value => output::line(&text(value)),
@@ -1236,9 +1236,10 @@ impl Call {
         output::fail(error, Some(self.operation.name), self.json, human)
     }
 
-    /// Prints the failure `error` and answers `exit`.
-    pub fn fail_exiting(&self, error: ErrorObject, exit: u8, human: &Human) -> ExitCode {
-        output::fail_exiting(error, Some(self.operation.name), exit, self.json, human)
+    /// Prints `failure`, how its call failed, and answers its exit code
+    /// ([`failed`]).
+    pub fn failed(&self, failure: Failed, human: &Human) -> ExitCode {
+        failed(failure, self.operation.name, self.json, human)
     }
 }
 
@@ -1432,14 +1433,6 @@ fn fields(item: &Value) -> String {
             .collect::<Vec<_>>()
             .join(" "),
         value => text(value),
-    }
-}
-
-/// A value as human output shows it: text as it is, anything else as JSON.
-fn text(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        value => value.to_string(),
     }
 }
 

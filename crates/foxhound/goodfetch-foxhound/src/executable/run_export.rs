@@ -240,18 +240,15 @@ fn run(
             return ExitCode::from(exit_codes::SUCCESS);
         }
     }
-    match answer {
-        Answer::Result(_) => finished(
+    match answer.into_result() {
+        Ok(_) => finished(
             call,
             &flags.out,
             (failed, destination),
             export.as_ref(),
             human,
         ),
-        Answer::Error(error) => call.fail(error, human),
-        Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        Answer::Unanswered(error) => output::fail(error, None, call.json(), human),
-        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+        Err(failure) => call.failed(failure, human),
     }
 }
 

@@ -10,14 +10,14 @@
 
 use std::process::ExitCode;
 
-use super::engine_choice::{self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime};
+use super::engine_choice::{Choice, Daemons, EngineChoice};
 use super::exit_codes;
+use super::operation::run_operation;
 use super::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
 use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
-use serde_json::Value;
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
 /// raises it when they answer yes: on the engine `choice` and the
@@ -48,46 +48,25 @@ pub(super) fn raise(
         output::line("The Limit was not raised.");
         return ExitCode::from(exit_codes::SUCCESS);
     }
-    let call = CommandCall {
-        method: USAGE_RAISE.name,
-        params: serde_json::to_value(params).expect("invariant: the params serialize"),
-        cancellable: USAGE_RAISE.cancellable,
-        follower: None,
-        pager: None,
-        stopper: None,
-        input: None,
-    };
-    let product = engine.identity().product;
     let warn = |text: &str| human.warning(text);
-    let reach = EngineChoice {
-        choice,
-        lifetime: Lifetime::Passing,
-        daemons,
-        warn: &warn,
-    };
-    match engine_choice::call(engine, dependencies, product, &reach, call) {
-        Answer::Result(Value::Object(fields)) => {
-            for (name, value) in fields {
-                human.field(&name, &text(&value));
-            }
+    let reach = EngineChoice::passing(choice, daemons, &warn);
+    let params = serde_json::to_value(params).expect("invariant: the params serialize");
+    // A person-only command takes no `--json`: its failure prints on
+    // stderr, as every command's does.
+    match run_operation(
+        engine,
+        dependencies,
+        &reach,
+        &USAGE_RAISE,
+        params,
+        false,
+        human,
+    ) {
+        Ok(result) => {
+            output::fields(&result, human);
             ExitCode::from(exit_codes::SUCCESS)
         }
-        Answer::Result(value) => {
-            output::line(&text(&value));
-            ExitCode::from(exit_codes::SUCCESS)
-        }
-        // A person-only command takes no `--json`: its failure prints on
-        // stderr, as every command's does.
-        Answer::Error(error) => output::fail(error, Some(USAGE_RAISE.name), false, human),
-        Answer::Refused(error) => output::fail_exiting(
-            error,
-            Some(USAGE_RAISE.name),
-            exit_codes::DAEMON_REFUSED,
-            false,
-            human,
-        ),
-        Answer::Unanswered(error) => output::fail(error, None, false, human),
-        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+        Err(exit) => exit,
     }
 }
 
@@ -122,12 +101,4 @@ fn question(params: &UsageRaiseParams) -> String {
 /// `{"every":"month","time_zone":"UTC"}`.
 pub(super) fn period(text: &str) -> Result<Period, String> {
     serde_json::from_str(text).map_err(|error| format!("no period: {error}"))
-}
-
-/// A value as human output shows it: text as it is, anything else as JSON.
-fn text(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        value => value.to_string(),
-    }
 }

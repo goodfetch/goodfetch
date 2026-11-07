@@ -37,7 +37,7 @@ use std::process::ExitCode;
 use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use goodfetch_collie::executable::engine_choice::{
-    self, Answer, CommandCall, Daemons, Input, Next, Values,
+    self, CommandCall, Daemons, Failed, Input, Next, Values,
 };
 use goodfetch_collie::executable::exit_codes;
 use goodfetch_collie::executable::generated::{
@@ -507,18 +507,15 @@ fn run(
         Phase::Following => Some(RUN_PROGRESS_READ.name),
         Phase::Reporting => Some(RUN_REPORT.name),
     };
-    match (answer, failing) {
-        (Answer::Result(_), _) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
-        (Answer::Result(report), _) => ended(report, flags.require_verified, json, human),
-        (Answer::Error(error), None) => call.fail(error, human),
-        (Answer::Error(error), Some(operation)) => {
+    match (answer.into_result(), failing) {
+        (Ok(_), _) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
+        (Ok(report), _) => ended(report, flags.require_verified, json, human),
+        (Err(Failed::Error(error)), Some(operation)) => {
             let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
             output::failed_after(&output::command_failed(error, Some(operation)), json, human);
             ExitCode::from(exit)
         }
-        (Answer::Refused(error), _) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        (Answer::Unanswered(error), _) => output::fail(error, None, json, human),
-        (Answer::Interrupted(interrupt), _) => ExitCode::from(interrupt.exit_code()),
+        (Err(failure), _) => call.failed(failure, human),
     }
 }
 

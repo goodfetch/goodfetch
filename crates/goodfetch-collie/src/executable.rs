@@ -94,6 +94,7 @@ mod identity;
 mod log_file;
 mod logs;
 mod metrics;
+pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;

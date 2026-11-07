@@ -23,9 +23,9 @@ use crate::audit::Origin;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::engine_context::CALLER;
+use crate::host_name;
 use crate::known_certificates::{Found, KeyHash, KnownCertificatesError};
 use crate::run::format_refusal;
-use crate::tls::host_key;
 
 /// The `certs.*` handlers.
 pub(crate) fn handlers() -> [Handler; 3] {
@@ -138,7 +138,7 @@ async fn forget(
 
 /// `host` as the store keys it: as the URL parser leaves a host.
 fn host_of(host: &str) -> Result<String, CallError> {
-    host_key(host).ok_or_else(|| {
+    host_name::key(host).ok_or_else(|| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
             format!("`{host}` names no host"),

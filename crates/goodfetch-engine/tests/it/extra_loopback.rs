@@ -14,7 +14,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
     AnsweredBy, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
 };
-use goodfetch_engine::http_client::{LocalBinding, Resolve};
+use goodfetch_engine::http_client::LocalBinding;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::Value;
@@ -81,7 +81,7 @@ async fn a_bindings_lookup_and_connection_leave_from_the_sessions_address() {
     );
 
     let found = binding
-        .lookup("3.catalog.test", target.port(), &Resolve::new())
+        .lookup("3.catalog.test", target.port(), &HostMapping::default())
         .await
         .unwrap();
     let connected = binding.connect(found[0]).await.map(|_| ());

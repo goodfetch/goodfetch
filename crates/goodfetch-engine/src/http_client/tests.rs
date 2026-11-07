@@ -93,7 +93,7 @@ fn every_caller_of_the_http_client_is_a_pinned_download_or_a_configured_kind(
 /// The addresses [`super::lookup`] gives `host` under a mapping of
 /// `staging.proving.test` and of the address `127.0.0.1`.
 fn looked_up(host: &str) -> Option<Vec<std::net::SocketAddr>> {
-    let mapping = super::Resolve::new()
+    let mapping = crate::dns::HostMapping::default()
         .with("staging.proving.test", vec!["192.0.2.7".parse().unwrap()])
         .with("127.0.0.1", vec!["192.0.2.8".parse().unwrap()]);
     goodfetch_test_support::runtime()

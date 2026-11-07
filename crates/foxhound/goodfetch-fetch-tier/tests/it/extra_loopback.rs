@@ -15,7 +15,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_fetch_tier::{
     Hop, HttpProfile, LocalSource, Reqwest, Reuse, Transport, TransportConfig, TransportFailure,
@@ -59,7 +59,7 @@ fn bound(
                 .unwrap()
                 .with_private_ranges(&["127.0.0.0/8".to_owned()])
                 .unwrap(),
-            resolve,
+            resolve: HostMapping::new(resolve),
             resolver: ResolverConfiguration::name_servers([fixture]),
             local: Some(local),
             ..crate::config(proving_ground, None, &[])

@@ -109,7 +109,7 @@ impl Fetches {
 /// them may do, as it prints, so that Runs whose fetches could end
 /// otherwise, offline or trusting other authorities, never share one.
 fn set_of(sources: &Sources) -> String {
-    json!({ "lists": sources.lists, "fetching": format!("{:?}", sources.fetching) }).to_string()
+    json!({ "lists": sources.lists, "fetching": format!("{:?}", sources.sourcing) }).to_string()
 }
 
 /// The last version fetched from the lists' URLs, as the sources' state
@@ -163,9 +163,9 @@ async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Uno
                 "`clean_up.lists` names no URL for the `{list}` Filter list"
             ))
         })?;
-        let answer = rule_sources::get(url, &[], &sources.fetching, FILE_LIMIT)
+        let answer = rule_sources::get(url, &[], &sources.sourcing, FILE_LIMIT)
             .await
-            .map_err(|failure| Unobtained::of(failure, &sources.fetching))?;
+            .map_err(|failure| Unobtained::of(failure, &sources.sourcing.fetching))?;
         if answer.status != 200 {
             return Err(Unobtained::Refused {
                 host: url::Url::parse(url)

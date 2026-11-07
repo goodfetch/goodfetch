@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{CertificateExceptions, Trust};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -60,10 +60,7 @@ fn check() -> AddressCheck {
         exceptions: CertificateExceptions::default(),
         client_certificates: None,
         proxy: None,
-        resolve: vec![
-            (ALLOWED.to_owned(), loopback.clone()),
-            (REFUSED.to_owned(), loopback),
-        ],
+        resolve: HostMapping::new([(ALLOWED, loopback.clone()), (REFUSED, loopback)]),
         egress: Policy::new(&["*"], &[] as &[&str])
             .unwrap()
             .with_private_ranges(&[ALLOWED])

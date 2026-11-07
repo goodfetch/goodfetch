@@ -15,14 +15,57 @@ use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 
-use crate::egress::Refused;
+use crate::clock::Clock;
+use crate::egress::{EndpointPolicy, Refused};
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
+use crate::settings::Resolved;
+use crate::tasks::TaskOwner;
 use crate::tls::Trust;
 
 /// The most redirects one GET follows, as a registry's blob that its
 /// storage serves needs one.
 pub const MAX_REDIRECTS: usize = 5;
+
+/// What a source's GET may do: what a pinned download may do, and, as an
+/// Operator-configured endpoint, what the Operator policy lets it reach
+/// and the authorities trusted for its domain.
+#[derive(Clone, Debug)]
+pub struct Sourcing {
+    /// `egress.offline`, `network.resolve` and the race's delays.
+    pub fetching: Fetching,
+    /// `egress.no_private_endpoints`.
+    pub endpoints: EndpointPolicy,
+    /// What a source's certificate may chain to beside Mozilla's roots:
+    /// the authorities `tls.trusted_cas` lists for its own domain.
+    pub trust: Trust,
+}
+
+impl Sourcing {
+    /// GETs allowed, with no mapping, no private-endpoint refusal and
+    /// Mozilla's roots alone, on `clock`.
+    pub fn new(clock: Clock) -> Self {
+        Self {
+            fetching: Fetching::new(clock),
+            endpoints: EndpointPolicy::default(),
+            trust: Trust::default_roots(),
+        }
+    }
+
+    /// What a GET may do under resolved `settings`, on `clock`, the files
+    /// of `tls.trusted_cas` read on `owner`'s blocking work.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn of(settings: &Resolved, clock: Clock, owner: &TaskOwner) -> Self {
+        Self {
+            fetching: Fetching::of(settings, clock),
+            endpoints: EndpointPolicy::of(settings),
+            trust: Trust::of(settings, owner).await,
+        }
+    }
+}
 
 /// What a source answered.
 #[derive(Clone, Debug)]
@@ -72,7 +115,7 @@ pub enum SourceFailure {
     },
 }
 
-/// GETs `url` under `fetching`, with `headers` sent to `url`'s own host,
+/// GETs `url` under `sourcing`, with `headers` sent to `url`'s own host,
 /// following redirects, and reads the answer's body up to `limit` bytes.
 ///
 /// # Errors
@@ -85,17 +128,17 @@ pub enum SourceFailure {
 pub async fn get(
     url: &str,
     headers: &[(&str, String)],
-    fetching: &Fetching,
+    sourcing: &Sourcing,
     limit: usize,
 ) -> Result<Fetched, SourceFailure> {
-    if fetching.offline.is_some() {
+    if sourcing.fetching.offline.is_some() {
         return Err(SourceFailure::Offline);
     }
     let first = parse(url)?;
     let mut uri = first.clone();
     for _ in 0..=MAX_REDIRECTS {
         let own_host = uri.host() == first.host();
-        let mut response = send(&uri, if own_host { headers } else { &[] }, fetching).await?;
+        let mut response = send(&uri, if own_host { headers } else { &[] }, sourcing).await?;
         let host = uri.host().unwrap_or_default().to_owned();
         if response.status.is_redirection() && response.status != StatusCode::NOT_MODIFIED {
             let location = response
@@ -162,7 +205,7 @@ fn joined(base: &Uri, location: &str) -> String {
 async fn send(
     uri: &Uri,
     headers: &[(&str, String)],
-    fetching: &Fetching,
+    sourcing: &Sourcing,
 ) -> Result<http_client::Response, SourceFailure> {
     let host = uri
         .host()
@@ -177,14 +220,14 @@ async fn send(
         request = request.header(*name, value.as_str());
     }
     let request = request.body(Empty::<Bytes>::new()).map_err(|_| failed())?;
-    let trust = Trust::endpoint(&fetching.trusted_certificates);
     // A source is an Operator-configured endpoint (ADRs 0017 and 0047):
     // `egress.no_private_endpoints` judges where it resolves.
+    let fetching = &sourcing.fetching;
     let endpoint = ConfiguredEndpoint {
         kind: ConfiguredKind::CleanUpRulesSource,
-        policy: fetching.endpoints,
+        policy: sourcing.endpoints,
         resolve: &fetching.resolve,
-        trust: &trust,
+        trust: &sourcing.trust,
         clock: fetching.clock,
         delays: fetching.delays,
     };

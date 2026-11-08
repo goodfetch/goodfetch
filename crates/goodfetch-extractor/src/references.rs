@@ -156,13 +156,7 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
                 Ok(())
             })
         ))
-        .append_element_content_handler(element!(
-            "body",
-            handler(|state, _, _| {
-                state.borrow_mut().in_body = true;
-                Ok(())
-            })
-        ))
+        .append_element_content_handler(element!("body", handler(read_body)))
         .append_element_content_handler(element!("title", handler(read_title)))
         .append_element_content_handler(text!("title", title_text))
         .append_element_content_handler(element!(
@@ -227,6 +221,16 @@ fn read_root(state: &Shared, html: &str, element: &Element<'_, '_>) {
         state.root_read = true;
         state.head.lang = attribute(html, element, "lang");
     }
+}
+
+/// Notes that the `<body>` began.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "every element handler of the pass answers a `HandlerResult`"
+)]
+fn read_body(state: &Shared, _html: &str, _element: &mut Element<'_, '_>) -> HandlerResult {
+    state.borrow_mut().in_body = true;
+    Ok(())
 }
 
 /// Starts reading the `<title>` `element` is, when it is the first.

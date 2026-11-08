@@ -192,11 +192,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     let started = clock.now();
     let end = started + request.window.duration;
     let mut turn = page.turn(request.operation).await;
-    let mut last = Seen::Waiting {
-        step: Step::Attached,
-        observed: "the action waited its turn on the page".to_owned(),
-        matches: Vec::new(),
-    };
+    let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
     loop {
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
@@ -242,11 +238,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                             return Ok(());
                         }
                         Landed::Intercepted { observed } => {
-                            last = Seen::Waiting {
-                                step: Step::ReceivesEvents,
-                                observed,
-                                matches: Vec::new(),
-                            };
+                            last = Seen::waiting(Step::ReceivesEvents, observed);
                         }
                     }
                 }

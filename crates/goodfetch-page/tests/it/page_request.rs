@@ -94,6 +94,10 @@ fn a_cancelled_page_request_closes_the_page_it_opened() {
 /// `page.goto` through it does (ADR 0053): the engine's load answers the
 /// proxy's 407 as the page's own requests do.
 /// Covers: operation:page.request, error:proxy_auth_failed
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 #[test]
 fn a_page_request_through_a_proxy_refusing_it_raises_proxy_auth_failed() {
     let gate = RecordingGate::new();

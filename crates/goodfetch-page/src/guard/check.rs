@@ -107,6 +107,15 @@ pub(crate) enum Seen {
 }
 
 impl Seen {
+    /// A wait at `step`, the page showing `observed`, listing no matches.
+    pub(crate) fn waiting(step: Step, observed: impl Into<String>) -> Self {
+        Self::Waiting {
+            step,
+            observed: observed.into(),
+            matches: Vec::new(),
+        }
+    }
+
     /// The check's answer, `value`, as what it saw.
     pub(crate) fn read(value: &Value) -> Result<Self, serde_json::Error> {
         Self::deserialize(value)

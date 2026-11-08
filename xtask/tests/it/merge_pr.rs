@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use rstest::rstest;
 
 use crate::affected::{commit_all, repository};
+use crate::pre_merge::runs;
 use crate::workspace::Workspace;
 
 const NUMBER: &str = "7";
@@ -184,7 +185,7 @@ fn merge_up_to_its_steps(workspace: &Workspace, stand_in: &Path) -> Child {
 }
 
 /// Waits, on the real clock, for something a process outside the test does.
-fn until(what: &str, condition: impl Fn() -> bool) {
+pub(crate) fn until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !condition() {
         assert!(Instant::now() < deadline, "no sign of {what}");
@@ -199,15 +200,6 @@ fn signal(signal: &str, target: &str) {
         .status()
         .unwrap();
     assert!(sent.success(), "kill {signal} {target}");
-}
-
-fn runs(pid: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", pid])
-        .stderr(Stdio::null())
-        .status()
-        .unwrap()
-        .success()
 }
 
 fn gate_lock(workspace: &Workspace) -> PathBuf {

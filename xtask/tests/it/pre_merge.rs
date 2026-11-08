@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 
+use crate::affected::value;
+use crate::merge_pr::until;
 use crate::workspace::Workspace;
 
 /// One entry of a form's step list, as `xtask gate steps` gives it: its
@@ -22,26 +24,17 @@ struct Listed {
     call: String,
 }
 
-/// The value of `output`'s `<key>=` line.
-fn value<'a>(output: &'a str, key: &str) -> &'a str {
-    let prefix = format!("{key}=");
-    output
-        .lines()
-        .find_map(|line| line.strip_prefix(&prefix))
-        .unwrap_or_else(|| panic!("no `{key}=` line in:\n{output}"))
-}
-
 /// The steps `just pre-merge <form>` runs, in their order, from the
 /// repository's own `xtask gate steps`.
 fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
     let outcome = workspace.xtask(&["gate", "steps", "--form", form]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    value(&outcome.stdout, "steps")
+    value(&outcome, "steps")
         .split(' ')
         .map(|name| Listed {
             name: name.to_owned(),
-            kind: value(&outcome.stdout, &format!("{name}.kind")).to_owned(),
-            call: value(&outcome.stdout, &format!("{name}.just")).to_owned(),
+            kind: value(&outcome, &format!("{name}.kind")),
+            call: value(&outcome, &format!("{name}.just")),
         })
         .collect()
 }
@@ -1392,7 +1385,7 @@ fn the_shuffling_runners_rerun_in_the_heads_order_and_their_failure_fails_the_ga
 
 /// Whether the process `id` still runs: a zombie, which has ended and waits
 /// only for its parent to reap it, does not.
-fn runs(id: &str) -> bool {
+pub(crate) fn runs(id: &str) -> bool {
     let output = std::process::Command::new("ps")
         .args(["-o", "stat=", "-p", id])
         .output()
@@ -1467,13 +1460,6 @@ fn a_second_sigterm_does_not_cut_the_suites_end_short() {
     let held = |call: &str| {
         std::fs::read_to_string(stand_in.join("held"))
             .is_ok_and(|calls| calls.lines().any(|line| line == call))
-    };
-    let until = |what: &str, condition: &dyn Fn() -> bool| {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        while !condition() {
-            assert!(std::time::Instant::now() < deadline, "no sign of {what}");
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
     };
     let terminate = || {
         let sent = std::process::Command::new("kill")

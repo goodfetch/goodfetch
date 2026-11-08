@@ -60,7 +60,7 @@ pub(crate) fn measure(tools: &Path, out: &Path, goodfetch_variables: &[OsString]
             .arg(out.join(startup_file(product)))
             .arg("--command-name")
             .arg(format!("{} attached engine to hello", product.as_str()))
-            .arg(format!("{} attached-engine", quoted(&executable)))
+            .arg(format!("{} attached-engine", quoted(executable)))
             .stdin(Stdio::null())
             .stderr(Stdio::inherit())
             .status();
